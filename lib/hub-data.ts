@@ -237,7 +237,7 @@ export interface PointsSpecialistsByPaOrgRow {
 }
 
 export interface PointsSpecialistsSummary {
-  source: "new" | "old"
+  source: "new" | "old" | "hybrid"
   windowStartIso: string
   windowEndIso: string
   orgOptions: PointsSpecialistsPaOrgOption[]
@@ -2251,7 +2251,7 @@ export async function fetchPointsSpecialistsSummary({
           return {
             monthKey,
             label,
-            totalPoints: Math.round(toRpcNumber(record.total_points as number | string | null)),
+            totalPoints: toRpcNumber(record.total_points as number | string | null),
           }
         })
         .filter((row): row is PointsSpecialistsMonthlyPoint => Boolean(row))
@@ -2276,7 +2276,7 @@ export async function fetchPointsSpecialistsSummary({
           return {
             weekStartIso,
             weekEndIso,
-            totalPoints: Math.round(toRpcNumber(record.total_points as number | string | null)),
+            totalPoints: toRpcNumber(record.total_points as number | string | null),
           }
         })
         .filter((row): row is PointsSpecialistsWeeklyPoint => Boolean(row))
@@ -2301,7 +2301,7 @@ export async function fetchPointsSpecialistsSummary({
           return {
             userId,
             userName,
-            totalPoints: Math.round(toRpcNumber(record.total_points as number | string | null)),
+            totalPoints: toRpcNumber(record.total_points as number | string | null),
           }
         })
         .filter((row): row is PointsSpecialistsTopUser => Boolean(row))
@@ -2333,7 +2333,7 @@ export async function fetchPointsSpecialistsSummary({
           return {
             paOrgId,
             paOrgName,
-            totalPoints: Math.round(toRpcNumber(record.total_points as number | string | null)),
+            totalPoints: toRpcNumber(record.total_points as number | string | null),
           }
         })
         .filter((row): row is PointsSpecialistsByPaOrgRow => Boolean(row))
@@ -2346,7 +2346,7 @@ export async function fetchPointsSpecialistsSummary({
     : []
 
   const source =
-    payload.source === "old" || payload.source === "new"
+    payload.source === "old" || payload.source === "new" || payload.source === "hybrid"
       ? payload.source
       : ("new" as const)
   const windowStartIso =

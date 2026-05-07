@@ -137,6 +137,11 @@ async function assertAuthorizedRequest(req: Request): Promise<void> {
     // Fall back to admin JWT auth for direct browser invocation.
   }
 
+  const auth = req.headers.get("authorization") ?? "";
+  if (auth === `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`) {
+    return;
+  }
+
   await assertAdminUserBearer(req);
 }
 
@@ -227,7 +232,7 @@ async function loadExistingHashes(
   const supabase = getServiceClient();
   const map = new Map<string, string>();
 
-  for (const chunk of chunkArray(keys, 1000)) {
+  for (const chunk of chunkArray(keys, 100)) {
     if (!chunk.length) continue;
     const { data, error } = await supabase
       .from(tableName)

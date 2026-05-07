@@ -28,7 +28,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 
 const POINTS_FORMATTER = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
+  maximumFractionDigits: 2,
 })
 
 export const metadata = {

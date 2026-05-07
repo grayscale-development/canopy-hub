@@ -199,7 +199,7 @@ export function mapSpecialistPointsOldRow(rawRow: RowRecord): TransformedRowResu
     },
     rawRow,
   );
-  return finalise(row, (row.record_id as string | null) ?? null);
+  return finalise(row, stableHash(row));
 }
 
 export function mapSpecialistPointsNewRow(rawRow: RowRecord): TransformedRowResult {
@@ -216,7 +216,7 @@ export function mapSpecialistPointsNewRow(rawRow: RowRecord): TransformedRowResu
     },
     rawRow,
   );
-  return finalise(row, (row.record_id as string | null) ?? null);
+  return finalise(row, stableHash(row));
 }
 
 export function transformByTargetTable(
