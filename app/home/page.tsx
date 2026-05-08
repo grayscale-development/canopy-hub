@@ -1,7 +1,19 @@
 import { redirect } from "next/navigation"
-import Image from "next/image"
 import Link from "next/link"
-import { ExternalLinkIcon } from "lucide-react"
+import {
+  BadgeDollarSignIcon,
+  ChevronDownIcon,
+  CompassIcon,
+  CpuIcon,
+  ExternalLinkIcon,
+  HandHeartIcon,
+  HandshakeIcon,
+  LeafIcon,
+  LightbulbIcon,
+  ScaleIcon,
+  SearchIcon,
+  SparklesIcon,
+} from "lucide-react"
 import {
   FaFacebookF,
   FaInstagram,
@@ -95,6 +107,129 @@ const HELPFUL_RESOURCE_LINKS = [
     external: true,
   },
 ] as const
+
+const MISSION_POINTS = [
+  {
+    label: "Better Tech",
+    icon: CpuIcon,
+  },
+  {
+    label: "Better Pricing",
+    icon: BadgeDollarSignIcon,
+  },
+  {
+    label: "Better Relationships",
+    icon: HandshakeIcon,
+  },
+] as const
+
+const COMPANY_VALUES = [
+  {
+    title: "Do more with less",
+    description:
+      "We utilize the resources we already have at our disposal to drive success. Sometimes it means we dig deep and look for outside-the-box solutions to achieve desired outcomes.",
+    icon: ScaleIcon,
+  },
+  {
+    title: "Act like an owner",
+    description:
+      "We own our roles and our decisions. When faced with a challenge, we consider all the options in the context of moving the organization towards success. We also own our mistakes, learn from them, and keep going.",
+    icon: CompassIcon,
+  },
+  {
+    title: "Find opportunities to serve",
+    description:
+      "Be it a stranger, a coworker, a customer, a loved one, or even ourselves, we look for chances to extend a helping hand when someone is in need.",
+    icon: HandHeartIcon,
+  },
+  {
+    title: "Seek to understand",
+    description:
+      "We all want to be heard. When we seek to understand, we affirm what the other person has said. We listen. We value the other person and their point of view.",
+    icon: SearchIcon,
+  },
+  {
+    title: "Be a disruptive innovator",
+    description: "We challenge how we do something.",
+    icon: LightbulbIcon,
+  },
+  {
+    title: "Be kind",
+    description:
+      "We act generously with a concern for others without expecting praise or reward in return.",
+    icon: SparklesIcon,
+  },
+] as const
+
+function ValuesGrid() {
+  return (
+    <div className="mt-3 grid gap-x-6 gap-y-5 md:grid-cols-2">
+      {COMPANY_VALUES.map((value) => (
+        <div key={value.title} className="flex gap-3">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <value.icon className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold">
+              {value.title}
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {value.description}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CultureSection() {
+  return (
+    <section className="rounded-xl border bg-card p-6 text-card-foreground">
+      <div>
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          Vision &amp; Mission
+        </p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight">
+          Building a better mortgage experience
+        </h2>
+      </div>
+      <div className="mt-5">
+        <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase">
+          <LeafIcon className="h-4 w-4" />
+          Mission
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          {MISSION_POINTS.map((point) => (
+            <div
+              key={point.label}
+              className="group flex min-h-24 flex-col justify-between rounded-lg border bg-muted/30 p-4 transition-colors hover:bg-muted/50"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+                <point.icon className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="mt-4 text-lg font-semibold tracking-tight">
+                  {point.label}
+                </p>
+                <div className="mt-2 h-1 w-16 rounded-full bg-primary/20 transition-colors group-hover:bg-primary/35" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <details className="group mt-5 rounded-lg border bg-muted/20">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold">
+          <span>Show values</span>
+          <ChevronDownIcon className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t px-4 pb-4">
+          <ValuesGrid />
+        </div>
+      </details>
+    </section>
+  )
+}
 
 const CORPORATE_TURN_SECTION_LABELS: Record<string, string> = {
   Processing: "Corporate Processing Metrics",
@@ -552,6 +687,7 @@ export default async function HomePage() {
                 Monitor production trends, performance, and key operational metrics.
               </p>
             </div>
+            <CultureSection />
             <div className="rounded-xl border bg-card p-6 text-card-foreground">
               <div className="flex items-start justify-between gap-3">
                 <h2 className="text-xl font-semibold">
