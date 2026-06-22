@@ -3,16 +3,27 @@ import { NextResponse } from "next/server"
 import {
   buildNewsletterFileName,
   NEWSLETTER_BUCKET,
+  NEWSLETTER_MAX_UPLOAD_SIZE_BYTES,
+  NEWSLETTER_MAX_UPLOAD_SIZE_LABEL,
   NEWSLETTER_MONTHS,
   type NewsletterMonth,
 } from "@/lib/newsletters"
 import { userHasPermissionCode } from "@/lib/permissions"
+import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 
 function isNewsletterMonth(value: string): value is NewsletterMonth {
   return NEWSLETTER_MONTHS.includes(value as NewsletterMonth)
+}
+
+interface NewsletterUploadRequest {
+  fileName?: unknown
+  fileSize?: unknown
+  fileType?: unknown
+  month?: unknown
+  year?: unknown
 }
 
 export async function POST(request: Request) {
@@ -35,26 +46,55 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const formData = await request.formData()
-  const file = formData.get("file")
-  const monthValue = formData.get("month")
-  const yearValue = formData.get("year")
+  let payload: NewsletterUploadRequest
+  try {
+    payload = (await request.json()) as NewsletterUploadRequest
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid upload request." },
+      { status: 400 }
+    )
+  }
 
-  if (!(file instanceof File)) {
+  const fileName =
+    typeof payload.fileName === "string" ? payload.fileName.trim() : ""
+  const fileType = typeof payload.fileType === "string" ? payload.fileType : ""
+  const fileSize =
+    typeof payload.fileSize === "number" ? payload.fileSize : Number.NaN
+  const monthValue = typeof payload.month === "string" ? payload.month : ""
+  const yearValue = typeof payload.year === "string" ? payload.year : ""
+
+  if (!fileName) {
     return NextResponse.json({ error: "File is required." }, { status: 400 })
   }
 
-  const isPdfName = file.name.toLowerCase().endsWith(".pdf")
-  const isPdfMime = file.type === "application/pdf" || file.type === ""
+  const isPdfName = fileName.toLowerCase().endsWith(".pdf")
+  const isPdfMime = fileType === "application/pdf" || fileType === ""
   if (!isPdfName || !isPdfMime) {
-    return NextResponse.json({ error: "Only PDF files are allowed." }, { status: 400 })
+    return NextResponse.json(
+      { error: "Only PDF files are allowed." },
+      { status: 400 }
+    )
+  }
+
+  if (
+    !Number.isFinite(fileSize) ||
+    fileSize <= 0 ||
+    fileSize > NEWSLETTER_MAX_UPLOAD_SIZE_BYTES
+  ) {
+    return NextResponse.json(
+      {
+        error: `PDF files must be ${NEWSLETTER_MAX_UPLOAD_SIZE_LABEL} or smaller.`,
+      },
+      { status: 400 }
+    )
   }
 
   if (typeof monthValue !== "string" || !isNewsletterMonth(monthValue)) {
     return NextResponse.json({ error: "Invalid month." }, { status: 400 })
   }
 
-  if (typeof yearValue !== "string") {
+  if (!yearValue) {
     return NextResponse.json({ error: "Invalid year." }, { status: 400 })
   }
 
@@ -64,17 +104,33 @@ export async function POST(request: Request) {
   }
 
   const targetFileName = buildNewsletterFileName(monthValue, year)
-  const { error } = await supabase
-    .storage
+  let adminSupabase: ReturnType<typeof createSupabaseAdminClient>
+  try {
+    adminSupabase = createSupabaseAdminClient()
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Missing admin Supabase configuration.",
+      },
+      { status: 500 }
+    )
+  }
+
+  const { data, error } = await adminSupabase.storage
     .from(NEWSLETTER_BUCKET)
-    .upload(targetFileName, file, {
-      contentType: "application/pdf",
-      upsert: true,
-    })
+    .createSignedUploadUrl(targetFileName, { upsert: true })
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
-  return NextResponse.json({ ok: true, fileName: targetFileName })
+  return NextResponse.json({
+    ok: true,
+    fileName: targetFileName,
+    path: data.path,
+    token: data.token,
+  })
 }

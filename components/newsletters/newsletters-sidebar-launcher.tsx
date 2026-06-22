@@ -25,16 +25,27 @@ import {
 } from "@/components/ui/file-upload"
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 import {
+  NEWSLETTER_BUCKET,
+  NEWSLETTER_MAX_UPLOAD_SIZE_BYTES,
+  NEWSLETTER_MAX_UPLOAD_SIZE_LABEL,
   NEWSLETTER_MONTHS,
   parseNewsletterFileName,
   type NewsletterFileSummary,
 } from "@/lib/newsletters"
+import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 
 function toOpenHref(fileName: string) {
   return `/newsletters/open?file=${encodeURIComponent(fileName)}`
 }
 
 type ModalView = "open" | "upload"
+
+interface NewsletterUploadPrepareResponse {
+  error?: string
+  fileName?: string
+  path?: string
+  token?: string
+}
 
 export function NewslettersSidebarLauncher({
   newsletters,
@@ -85,27 +96,58 @@ export function NewslettersSidebarLauncher({
       return
     }
 
+    if (selectedFile.size > NEWSLETTER_MAX_UPLOAD_SIZE_BYTES) {
+      setUploadError(
+        `PDF files must be ${NEWSLETTER_MAX_UPLOAD_SIZE_LABEL} or smaller.`
+      )
+      setUploadSuccess(null)
+      return
+    }
+
     setIsUploading(true)
     setUploadError(null)
     setUploadSuccess(null)
 
     try {
-      const formData = new FormData()
-      formData.append("file", selectedFile)
-      formData.append("month", uploadMonth)
-      formData.append("year", uploadYear)
-
       const response = await fetch("/api/newsletters/upload", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fileName: selectedFile.name,
+          fileSize: selectedFile.size,
+          fileType: selectedFile.type,
+          month: uploadMonth,
+          year: uploadYear,
+        }),
       })
 
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: string; fileName?: string }
-        | null
+      const payload = (await response
+        .json()
+        .catch(() => null)) as NewsletterUploadPrepareResponse | null
 
       if (!response.ok) {
         setUploadError(payload?.error ?? "Upload failed.")
+        setUploadSuccess(null)
+        return
+      }
+
+      if (!payload?.path || !payload.token || !payload.fileName) {
+        setUploadError("Upload failed.")
+        setUploadSuccess(null)
+        return
+      }
+
+      const supabase = createSupabaseBrowserClient()
+      const { error: uploadError } = await supabase.storage
+        .from(NEWSLETTER_BUCKET)
+        .uploadToSignedUrl(payload.path, payload.token, selectedFile, {
+          contentType: "application/pdf",
+        })
+
+      if (uploadError) {
+        setUploadError(uploadError.message)
         setUploadSuccess(null)
         return
       }
@@ -144,7 +186,9 @@ export function NewslettersSidebarLauncher({
             tooltip="Newsletters"
           >
             <NewspaperIcon />
-            <span className="group-data-[collapsible=icon]:hidden">Newsletters</span>
+            <span className="group-data-[collapsible=icon]:hidden">
+              Newsletters
+            </span>
           </SidebarMenuButton>
         </DialogTrigger>
       </SidebarMenuItem>
@@ -168,7 +212,10 @@ export function NewslettersSidebarLauncher({
         {modalView === "open" ? (
           <div className="grid gap-3">
             <div className="grid gap-1">
-              <label htmlFor="newsletter-select" className="text-sm font-medium">
+              <label
+                htmlFor="newsletter-select"
+                className="text-sm font-medium"
+              >
                 Which newsletter would you like to open?
               </label>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -176,14 +223,17 @@ export function NewslettersSidebarLauncher({
                   id="newsletter-select"
                   value={selectedFileName}
                   onChange={(event) => setSelectedFileName(event.target.value)}
-                  className="h-10 flex-1 rounded-lg border bg-background pl-3 pr-9 text-sm"
+                  className="h-10 flex-1 rounded-lg border bg-background pr-9 pl-3 text-sm"
                   disabled={newsletters.length === 0}
                 >
                   {newsletters.length === 0 ? (
                     <option value="">No newsletters available</option>
                   ) : (
                     newsletters.map((newsletter, index) => (
-                      <option key={newsletter.fileName} value={newsletter.fileName}>
+                      <option
+                        key={newsletter.fileName}
+                        value={newsletter.fileName}
+                      >
                         {newsletter.label}
                         {index === 0 ? " (Current)" : ""}
                       </option>
@@ -211,16 +261,21 @@ export function NewslettersSidebarLauncher({
             <div className="flex items-center gap-2">
               {selectedFileName ? (
                 <Button asChild>
-                  <a href={toOpenHref(selectedFileName)} target="_blank" rel="noreferrer">
+                  <a
+                    href={toOpenHref(selectedFileName)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     Open
                   </a>
                 </Button>
               ) : (
                 <Button disabled>Open</Button>
               )}
-              <span className="text-xs text-muted-foreground">Opens in a new tab.</span>
+              <span className="text-xs text-muted-foreground">
+                Opens in a new tab.
+              </span>
             </div>
-
           </div>
         ) : (
           <div className="rounded-lg">
@@ -248,7 +303,7 @@ export function NewslettersSidebarLauncher({
                   }}
                   accept="application/pdf,.pdf"
                   maxFiles={1}
-                  maxSize={50 * 1024 * 1024}
+                  maxSize={NEWSLETTER_MAX_UPLOAD_SIZE_BYTES}
                   className="w-full"
                 >
                   <FileUploadDropzone>
@@ -256,13 +311,20 @@ export function NewslettersSidebarLauncher({
                       <div className="flex items-center justify-center rounded-full border p-2.5">
                         <UploadIcon className="size-5 text-muted-foreground" />
                       </div>
-                      <p className="text-sm font-medium">Drag & drop PDF here</p>
+                      <p className="text-sm font-medium">
+                        Drag & drop PDF here
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        Or click to browse (max 1 file, up to 50MB)
+                        Or click to browse (max 1 file, up to{" "}
+                        {NEWSLETTER_MAX_UPLOAD_SIZE_LABEL})
                       </p>
                     </div>
                     <FileUploadTrigger asChild>
-                      <Button variant="outline" size="sm" className="mt-2 w-fit">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 w-fit"
+                      >
                         Browse file
                       </Button>
                     </FileUploadTrigger>
@@ -273,7 +335,11 @@ export function NewslettersSidebarLauncher({
                         <FileUploadItemPreview />
                         <FileUploadItemMetadata />
                         <FileUploadItemDelete asChild>
-                          <Button variant="ghost" size="icon" className="size-7">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                          >
                             <X className="size-4" />
                           </Button>
                         </FileUploadItemDelete>
@@ -286,14 +352,17 @@ export function NewslettersSidebarLauncher({
               {uploadFiles.length > 0 ? (
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="grid gap-1">
-                    <label htmlFor="newsletter-month" className="text-sm font-medium">
+                    <label
+                      htmlFor="newsletter-month"
+                      className="text-sm font-medium"
+                    >
                       Month
                     </label>
                     <select
                       id="newsletter-month"
                       value={uploadMonth}
                       onChange={(event) => setUploadMonth(event.target.value)}
-                      className="h-10 rounded-lg border bg-background pl-3 pr-9 text-sm"
+                      className="h-10 rounded-lg border bg-background pr-9 pl-3 text-sm"
                     >
                       {NEWSLETTER_MONTHS.map((month) => (
                         <option key={month} value={month}>
@@ -304,14 +373,17 @@ export function NewslettersSidebarLauncher({
                   </div>
 
                   <div className="grid gap-1">
-                    <label htmlFor="newsletter-year" className="text-sm font-medium">
+                    <label
+                      htmlFor="newsletter-year"
+                      className="text-sm font-medium"
+                    >
                       Year
                     </label>
                     <select
                       id="newsletter-year"
                       value={uploadYear}
                       onChange={(event) => setUploadYear(event.target.value)}
-                      className="h-10 rounded-lg border bg-background pl-3 pr-9 text-sm"
+                      className="h-10 rounded-lg border bg-background pr-9 pl-3 text-sm"
                     >
                       {yearOptions.map((year) => (
                         <option key={year} value={String(year)}>
@@ -324,11 +396,18 @@ export function NewslettersSidebarLauncher({
               ) : null}
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="submit" disabled={uploadFiles.length === 0 || isUploading}>
+                <Button
+                  type="submit"
+                  disabled={uploadFiles.length === 0 || isUploading}
+                >
                   {isUploading ? "Uploading..." : "Upload Newsletter"}
                 </Button>
-                {uploadError ? <p className="text-sm text-destructive">{uploadError}</p> : null}
-                {uploadSuccess ? <p className="text-sm text-emerald-600">{uploadSuccess}</p> : null}
+                {uploadError ? (
+                  <p className="text-sm text-destructive">{uploadError}</p>
+                ) : null}
+                {uploadSuccess ? (
+                  <p className="text-sm text-emerald-600">{uploadSuccess}</p>
+                ) : null}
               </div>
             </form>
           </div>

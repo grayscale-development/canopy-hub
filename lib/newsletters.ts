@@ -1,4 +1,6 @@
 export const NEWSLETTER_BUCKET = "Newsletters"
+export const NEWSLETTER_MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+export const NEWSLETTER_MAX_UPLOAD_SIZE_LABEL = "50MB"
 
 export const NEWSLETTER_MONTHS = [
   "January",
