@@ -1,10 +1,9 @@
 import Image from "next/image"
 import { redirect } from "next/navigation"
 
-import { NewsletterUploadButton } from "@/components/newsletters/newsletter-upload-button"
-import { NewslettersPageContent } from "@/components/newsletters/newsletters-page-content"
 import { AppSidebar } from "@/components/app-sidebar"
 import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
+import { ReportsShuffleButton } from "@/components/reports/reports-shuffle-button"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -17,20 +16,42 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import {
-  compareNewsletterFilesDescending,
-  NEWSLETTER_BUCKET,
-  parseNewsletterFileName,
-  type NewsletterFileSummary,
-} from "@/lib/newsletters"
-import { userHasPermissionCode } from "@/lib/permissions"
+import { getFeaturedReports } from "@/lib/reports"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export const metadata = {
-  title: "Newsletters",
+  title: "Reports",
 }
 
-export default async function NewslettersPage() {
+function ReportCard({
+  title,
+  description,
+  href,
+}: {
+  title: string
+  description: string
+  href: string
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group block min-h-44 rounded-lg border bg-card p-5 text-card-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold">{title}</h2>
+          <p className="mt-2 max-w-[42ch] text-sm leading-6 text-muted-foreground">
+            {description}
+          </p>
+        </div>
+      </div>
+    </a>
+  )
+}
+
+export default async function ReportsPage() {
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
@@ -40,33 +61,11 @@ export default async function NewslettersPage() {
     redirect("/login")
   }
 
-  const canUpload = await userHasPermissionCode({
-    supabase,
-    userId: user.id,
-    code: "newsletters.upload",
-  })
-
-  let newsletters: NewsletterFileSummary[] = []
-  try {
-    const { data: files, error } = await supabase.storage
-      .from(NEWSLETTER_BUCKET)
-      .list("", { limit: 1000 })
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    newsletters = (files ?? [])
-      .map((file) => parseNewsletterFileName(file.name))
-      .filter((file): file is NewsletterFileSummary => file !== null)
-      .sort(compareNewsletterFilesDescending)
-  } catch {
-    newsletters = []
-  }
+  const featuredReports = getFeaturedReports()
 
   return (
     <SidebarProvider>
-      <AppSidebar activePath="/newsletters" />
+      <AppSidebar activePath="/reports" />
       <SidebarInset className="min-w-0 overflow-x-hidden bg-muted/20">
         <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
           <SidebarTrigger className="-ml-1" />
@@ -77,7 +76,7 @@ export default async function NewslettersPage() {
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbPage>Newsletters</BreadcrumbPage>
+                <BreadcrumbPage>Reports</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
@@ -98,25 +97,24 @@ export default async function NewslettersPage() {
             <div className="relative flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
               <div className="max-w-3xl">
                 <h1 className="text-4xl leading-[1.08] font-semibold md:text-5xl">
-                  Newsletters
+                  Reports
                 </h1>
                 <p className="mt-4 max-w-xl text-base leading-7 text-white/75">
-                  Browse company newsletter PDFs by year and open any monthly
-                  issue.
+                  Choose a focused view for production, turn times, file
+                  quality, specialists points, and loan program trends.
                 </p>
               </div>
-              {canUpload ? (
-                <div className="shrink-0">
-                  <NewsletterUploadButton
-                    newsletters={newsletters}
-                    triggerClassName="border-white/35 bg-white text-slate-950 hover:bg-white/90 focus-visible:ring-white/60"
-                  />
-                </div>
-              ) : null}
+              <div className="shrink-0">
+                <ReportsShuffleButton reports={featuredReports} />
+              </div>
             </div>
           </section>
 
-          <NewslettersPageContent newsletters={newsletters} />
+          <section className="grid gap-4 md:grid-cols-2">
+            {featuredReports.map((report) => (
+              <ReportCard key={report.title} {...report} />
+            ))}
+          </section>
         </main>
       </SidebarInset>
     </SidebarProvider>

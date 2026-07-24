@@ -1,8 +1,8 @@
 import Image from "next/image"
 import { redirect } from "next/navigation"
 
-import { NewsletterUploadButton } from "@/components/newsletters/newsletter-upload-button"
-import { NewslettersPageContent } from "@/components/newsletters/newsletters-page-content"
+import { DocumentsGrid } from "@/components/documents/documents-grid"
+import { DocumentUploadDialog } from "@/components/documents/document-upload-buttons"
 import { AppSidebar } from "@/components/app-sidebar"
 import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import {
@@ -17,20 +17,16 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import {
-  compareNewsletterFilesDescending,
-  NEWSLETTER_BUCKET,
-  parseNewsletterFileName,
-  type NewsletterFileSummary,
-} from "@/lib/newsletters"
 import { userHasPermissionCode } from "@/lib/permissions"
+import {
+  POLICIES_BUCKET,
+  POLICIES_MANAGE_PERMISSION,
+  stripPolicyFileExtension,
+  type PolicyFileSummary,
+} from "@/lib/policies"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
-export const metadata = {
-  title: "Newsletters",
-}
-
-export default async function NewslettersPage() {
+export async function DocumentsPage() {
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
@@ -40,33 +36,51 @@ export default async function NewslettersPage() {
     redirect("/login")
   }
 
-  const canUpload = await userHasPermissionCode({
+  const canManagePolicies = await userHasPermissionCode({
     supabase,
     userId: user.id,
-    code: "newsletters.upload",
+    code: POLICIES_MANAGE_PERMISSION,
   })
 
-  let newsletters: NewsletterFileSummary[] = []
+  let policies: PolicyFileSummary[] = []
+
   try {
     const { data: files, error } = await supabase.storage
-      .from(NEWSLETTER_BUCKET)
+      .from(POLICIES_BUCKET)
       .list("", { limit: 1000 })
 
     if (error) {
       throw new Error(error.message)
     }
 
-    newsletters = (files ?? [])
-      .map((file) => parseNewsletterFileName(file.name))
-      .filter((file): file is NewsletterFileSummary => file !== null)
-      .sort(compareNewsletterFilesDescending)
+    policies = (files ?? [])
+      .filter((file) => Boolean(file.name?.trim()))
+      .map((file) => ({
+        fileName: file.name,
+        displayName: stripPolicyFileExtension(file.name),
+      }))
+      .sort((left, right) => {
+        const labelCompare = left.displayName.localeCompare(
+          right.displayName,
+          undefined,
+          {
+            sensitivity: "base",
+          }
+        )
+        if (labelCompare !== 0) {
+          return labelCompare
+        }
+        return left.fileName.localeCompare(right.fileName, undefined, {
+          sensitivity: "base",
+        })
+      })
   } catch {
-    newsletters = []
+    policies = []
   }
 
   return (
     <SidebarProvider>
-      <AppSidebar activePath="/newsletters" />
+      <AppSidebar activePath="/documents" />
       <SidebarInset className="min-w-0 overflow-x-hidden bg-muted/20">
         <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
           <SidebarTrigger className="-ml-1" />
@@ -77,7 +91,7 @@ export default async function NewslettersPage() {
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbPage>Newsletters</BreadcrumbPage>
+                <BreadcrumbPage>Documents</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
@@ -98,25 +112,39 @@ export default async function NewslettersPage() {
             <div className="relative flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
               <div className="max-w-3xl">
                 <h1 className="text-4xl leading-[1.08] font-semibold md:text-5xl">
-                  Newsletters
+                  Documents
                 </h1>
                 <p className="mt-4 max-w-xl text-base leading-7 text-white/75">
-                  Browse company newsletter PDFs by year and open any monthly
-                  issue.
+                  Browse and open shared company documents from one place.
                 </p>
               </div>
-              {canUpload ? (
-                <div className="shrink-0">
-                  <NewsletterUploadButton
-                    newsletters={newsletters}
-                    triggerClassName="border-white/35 bg-white text-slate-950 hover:bg-white/90 focus-visible:ring-white/60"
-                  />
-                </div>
-              ) : null}
+              <div className="shrink-0">
+                <DocumentUploadDialog
+                  canManagePolicies={canManagePolicies}
+                  triggerClassName="border-white/35 bg-white text-slate-950 hover:bg-white/90 focus-visible:ring-white/60"
+                />
+              </div>
             </div>
           </section>
 
-          <NewslettersPageContent newsletters={newsletters} />
+          <section>
+            <div className="rounded-lg border bg-card p-5 text-card-foreground shadow-sm md:p-6">
+              <div>
+                <h2 className="text-2xl font-semibold">All Documents</h2>
+              </div>
+
+              {policies.length === 0 ? (
+                <div className="mt-5 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                  No documents are available yet.
+                </div>
+              ) : (
+                <DocumentsGrid
+                  policies={policies}
+                  canManagePolicies={canManagePolicies}
+                />
+              )}
+            </div>
+          </section>
         </main>
       </SidebarInset>
     </SidebarProvider>

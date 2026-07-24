@@ -27,5 +27,15 @@ export default async function SettingsPage() {
     redirect("/home")
   }
 
-  redirect("/settings/general")
+  const canEditPermissions = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: "permissions.edit",
+  })
+
+  if (!canEditPermissions) {
+    redirect("/home")
+  }
+
+  redirect("/settings/permissions")
 }

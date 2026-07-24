@@ -52,9 +52,6 @@ export default async function BridgePage() {
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">
             <h1 className="text-3xl font-semibold tracking-tight">Bridge</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              This integration is not implemented yet.
-            </p>
           </div>
         </div>
       </SidebarInset>

@@ -31,7 +31,6 @@ import { cn } from "@/lib/utils"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const SETTINGS_PAGES = [
-  { key: "general", label: "General" },
   { key: "permissions", label: "Permissions" },
   { key: "advanced", label: "Advanced" },
 ] as const
@@ -48,7 +47,9 @@ export async function generateMetadata({
   params: Promise<{ section: string }>
 }) {
   const resolvedParams = await params
-  const section = SETTINGS_PAGES.find((page) => page.key === resolvedParams.section)
+  const section = SETTINGS_PAGES.find(
+    (page) => page.key === resolvedParams.section
+  )
 
   return {
     title: section ? `Settings - ${section.label}` : "Settings",
@@ -64,7 +65,7 @@ export default async function SettingsSubPage({
   const section = resolvedParams.section.toLowerCase()
 
   if (!isSettingsPage(section)) {
-    redirect("/settings/general")
+    redirect("/settings/permissions")
   }
 
   const supabase = await createSupabaseServerClient()
@@ -92,15 +93,11 @@ export default async function SettingsSubPage({
     code: "permissions.edit",
   })
 
-  if ((section === "permissions" || section === "advanced") && !canEditPermissions) {
-    redirect("/settings/general")
+  if (!canEditPermissions) {
+    redirect("/home")
   }
 
-  const visiblePages = SETTINGS_PAGES.filter(
-    (page) =>
-      (page.key !== "permissions" && page.key !== "advanced") ||
-      canEditPermissions
-  )
+  const visiblePages = SETTINGS_PAGES
   const activePage = visiblePages.find((page) => page.key === section)
   let permissions: Permission[] = []
   let permissionUsers: PermissionUser[] = []
@@ -109,11 +106,12 @@ export default async function SettingsSubPage({
 
   if (section === "permissions" && canEditPermissions) {
     try {
-      ;[permissions, permissionUsers, permissionDirectoryUsers] = await Promise.all([
-        fetchPermissions(),
-        fetchPermissionUsers(),
-        fetchPermissionDirectoryUsers(),
-      ])
+      ;[permissions, permissionUsers, permissionDirectoryUsers] =
+        await Promise.all([
+          fetchPermissions(),
+          fetchPermissionUsers(),
+          fetchPermissionDirectoryUsers(),
+        ])
     } catch {
       permissionsLoadError = "Data load failed."
     }
@@ -146,9 +144,6 @@ export default async function SettingsSubPage({
         <div className="flex flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">
             <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Manage application preferences and access controls.
-            </p>
           </div>
 
           <div className="flex flex-1 flex-col gap-4 md:flex-row">
@@ -188,10 +183,8 @@ export default async function SettingsSubPage({
                     permissionDirectoryUsers={permissionDirectoryUsers}
                   />
                 )
-              ) : section === "advanced" ? (
-                <AdvancedSyncCard />
               ) : (
-                <div className="rounded-xl border bg-card" />
+                <AdvancedSyncCard />
               )}
             </section>
           </div>

@@ -99,7 +99,10 @@ function toGroupedRows(rows: PreviousMonthLoanProgramSummaryRow[]) {
   }
 
   const totalFunded = groupedRows.reduce((sum, row) => sum + row.fundedCount, 0)
-  const totalVolume = groupedRows.reduce((sum, row) => sum + row.fundedVolume, 0)
+  const totalVolume = groupedRows.reduce(
+    (sum, row) => sum + row.fundedVolume,
+    0
+  )
 
   const chartRows: ChartRow[] = groupedRows.map((row, index) => {
     const percent = totalFunded > 0 ? (row.fundedCount / totalFunded) * 100 : 0
@@ -132,21 +135,26 @@ export function FundedLoansByProgramExpandedView({
       <section className="rounded-xl border bg-card p-6 text-card-foreground">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold">Funded Loans by Loan Program</h1>
+            <h1 className="text-2xl font-semibold">
+              Funded Loans by Loan Program
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">{monthLabel}</p>
           </div>
           <div className="text-right text-sm">
-            <p className="font-mono tabular-nums text-foreground">
+            <p className="font-mono text-foreground tabular-nums">
               {INTEGER_FORMATTER.format(totalFunded)} loans
             </p>
-            <p className="font-mono tabular-nums text-muted-foreground">
+            <p className="font-mono text-muted-foreground tabular-nums">
               {CURRENCY_FORMATTER.format(totalVolume)}
             </p>
           </div>
         </div>
 
         <div className="mt-4">
-          <ChartContainer config={chartConfig} className="h-[72vh] w-full !aspect-auto">
+          <ChartContainer
+            config={chartConfig}
+            className="!aspect-auto h-[72vh] w-full"
+          >
             <PieChart>
               <ChartTooltip
                 cursor={false}
@@ -173,7 +181,9 @@ export function FundedLoansByProgramExpandedView({
                           <div className="flex items-center justify-between gap-3">
                             <span>Funded Volume</span>
                             <span className="font-mono tabular-nums">
-                              {formatCompactCurrency(Number(payload.fundedVolume ?? 0))}
+                              {formatCompactCurrency(
+                                Number(payload.fundedVolume ?? 0)
+                              )}
                             </span>
                           </div>
                         </div>
@@ -232,24 +242,27 @@ export function FundedLoansByProgramExpandedView({
 
       <section className="rounded-xl border bg-card p-6 text-card-foreground">
         <h2 className="text-xl font-semibold">Program Breakdown</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Share by funded loan count with volume details.
-        </p>
 
         <div className="mt-4 space-y-3">
           {chartRows.map((entry) => (
-            <div key={`program-row-${entry.programName}`} className="rounded-lg border p-3">
+            <div
+              key={`program-row-${entry.programName}`}
+              className="rounded-lg border p-3"
+            >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <span
                     className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
                     style={{ backgroundColor: entry.fill }}
                   />
-                  <p className="truncate text-sm font-medium" title={entry.programName}>
+                  <p
+                    className="truncate text-sm font-medium"
+                    title={entry.programName}
+                  >
                     {entry.programName}
                   </p>
                 </div>
-                <p className="text-sm font-mono tabular-nums text-muted-foreground">
+                <p className="font-mono text-sm text-muted-foreground tabular-nums">
                   {PERCENT_FORMATTER.format(entry.percent)}%
                 </p>
               </div>
@@ -267,13 +280,13 @@ export function FundedLoansByProgramExpandedView({
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                 <div className="rounded-md bg-muted/50 px-2 py-1">
                   <p className="text-muted-foreground">Loans</p>
-                  <p className="font-mono tabular-nums text-sm text-foreground">
+                  <p className="font-mono text-sm text-foreground tabular-nums">
                     {INTEGER_FORMATTER.format(entry.fundedCount)}
                   </p>
                 </div>
                 <div className="rounded-md bg-muted/50 px-2 py-1">
                   <p className="text-muted-foreground">Volume</p>
-                  <p className="font-mono tabular-nums text-sm text-foreground">
+                  <p className="font-mono text-sm text-foreground tabular-nums">
                     {CURRENCY_FORMATTER.format(entry.fundedVolume)}
                   </p>
                 </div>

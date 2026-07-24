@@ -47,7 +47,9 @@ export default async function CorporateTurnTimesViewPage() {
   }
 
   let loadError: string | null = null
-  let summary: Awaited<ReturnType<typeof fetchCorporateTurnSummaryFromRpc>> | null = null
+  let summary: Awaited<
+    ReturnType<typeof fetchCorporateTurnSummaryFromRpc>
+  > | null = null
 
   try {
     summary = await fetchCorporateTurnSummaryFromRpc()
@@ -72,7 +74,9 @@ export default async function CorporateTurnTimesViewPage() {
         .sort((left, right) => left.statusOrder - right.statusOrder),
     })),
     ...[...new Set(summary.tableRows.map((row) => row.statusType))]
-      .filter((sectionType) => !CORPORATE_TURN_SECTION_ORDER.includes(sectionType))
+      .filter(
+        (sectionType) => !CORPORATE_TURN_SECTION_ORDER.includes(sectionType)
+      )
       .map((sectionType) => ({
         sectionType,
         label: CORPORATE_TURN_SECTION_LABELS[sectionType] ?? sectionType,
@@ -86,10 +90,9 @@ export default async function CorporateTurnTimesViewPage() {
     <main className="min-h-screen bg-background px-4 py-6 text-foreground md:px-6">
       <div className="mx-auto w-full max-w-[1900px] space-y-5">
         <section className="rounded-2xl border bg-card p-6 text-card-foreground">
-          <h1 className="text-3xl font-semibold tracking-tight">Corporate Turn Times</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Corporate workflow status metrics and turnaround times.
-          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Corporate Turn Times
+          </h1>
         </section>
 
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -98,7 +101,9 @@ export default async function CorporateTurnTimesViewPage() {
               Workdays for LO/LOA Statuses
             </p>
             <p className="mt-2 font-mono text-2xl tabular-nums">
-              {ONE_DECIMAL_FORMATTER.format(summary.kpis.workdaysForLoLoaStatuses)}
+              {ONE_DECIMAL_FORMATTER.format(
+                summary.kpis.workdaysForLoLoaStatuses
+              )}
             </p>
           </article>
           <article className="rounded-xl border bg-card p-4 text-card-foreground">
@@ -106,7 +111,9 @@ export default async function CorporateTurnTimesViewPage() {
               Processing Rushes (7 Days)
             </p>
             <p className="mt-2 font-mono text-2xl tabular-nums">
-              {WHOLE_NUMBER_FORMATTER.format(summary.kpis.processingRushesLast7Days)}
+              {WHOLE_NUMBER_FORMATTER.format(
+                summary.kpis.processingRushesLast7Days
+              )}
             </p>
             <Link
               href="/file-viewer"
@@ -120,7 +127,9 @@ export default async function CorporateTurnTimesViewPage() {
               Underwriting Rushes (7 Days)
             </p>
             <p className="mt-2 font-mono text-2xl tabular-nums">
-              {WHOLE_NUMBER_FORMATTER.format(summary.kpis.underwritingRushesLast7Days)}
+              {WHOLE_NUMBER_FORMATTER.format(
+                summary.kpis.underwritingRushesLast7Days
+              )}
             </p>
             <Link
               href="/file-viewer"
@@ -134,7 +143,9 @@ export default async function CorporateTurnTimesViewPage() {
               Closing/Funding Rushes (7 Days)
             </p>
             <p className="mt-2 font-mono text-2xl tabular-nums">
-              {WHOLE_NUMBER_FORMATTER.format(summary.kpis.closingFundingRushesLast7Days)}
+              {WHOLE_NUMBER_FORMATTER.format(
+                summary.kpis.closingFundingRushesLast7Days
+              )}
             </p>
             <Link
               href="/file-viewer"
@@ -159,7 +170,9 @@ export default async function CorporateTurnTimesViewPage() {
                 <thead>
                   <tr className="border-b bg-muted/30 text-left text-xs tracking-wide text-muted-foreground uppercase">
                     <th className="px-5 py-3 font-medium">Status</th>
-                    <th className="px-5 py-3 text-right font-medium">Files In Progress</th>
+                    <th className="px-5 py-3 text-right font-medium">
+                      Files In Progress
+                    </th>
                     <th className="px-5 py-3 text-right font-medium">
                       Workdays for Files in Progress
                     </th>
@@ -177,8 +190,10 @@ export default async function CorporateTurnTimesViewPage() {
                       key={`${section.sectionType}-${row.status}`}
                       className="border-b last:border-0 hover:bg-muted/20"
                     >
-                      <td className="px-5 py-3 font-medium whitespace-nowrap">{row.status}</td>
-                      <td className="px-5 py-3 text-right font-mono tabular-nums whitespace-nowrap">
+                      <td className="px-5 py-3 font-medium whitespace-nowrap">
+                        {row.status}
+                      </td>
+                      <td className="px-5 py-3 text-right font-mono whitespace-nowrap tabular-nums">
                         <Link
                           href={toFileViewerStatusHref(row.status)}
                           className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
@@ -186,15 +201,17 @@ export default async function CorporateTurnTimesViewPage() {
                           {WHOLE_NUMBER_FORMATTER.format(row.filesInProgress)}
                         </Link>
                       </td>
-                      <td className="px-5 py-3 text-right font-mono tabular-nums whitespace-nowrap">
-                        {ONE_DECIMAL_FORMATTER.format(row.workdaysForFilesInProgress)}
+                      <td className="px-5 py-3 text-right font-mono whitespace-nowrap tabular-nums">
+                        {ONE_DECIMAL_FORMATTER.format(
+                          row.workdaysForFilesInProgress
+                        )}
                       </td>
-                      <td className="px-5 py-3 text-right font-mono tabular-nums whitespace-nowrap">
+                      <td className="px-5 py-3 text-right font-mono whitespace-nowrap tabular-nums">
                         {ONE_DECIMAL_FORMATTER.format(
                           row.workdaysToCompleteForPreviousWeek
                         )}
                       </td>
-                      <td className="px-5 py-3 text-right font-mono tabular-nums whitespace-nowrap">
+                      <td className="px-5 py-3 text-right font-mono whitespace-nowrap tabular-nums">
                         {ONE_DECIMAL_FORMATTER.format(
                           row.workdaysToCompleteForPreviousMonth
                         )}

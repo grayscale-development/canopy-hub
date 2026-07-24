@@ -150,7 +150,10 @@ export default async function EmployeePage({
           <div className="rounded-xl border bg-card p-6 text-card-foreground">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
               <Avatar className="size-16">
-                <AvatarImage src={profile?.profilePhotoUrl ?? undefined} alt={employeeName} />
+                <AvatarImage
+                  src={profile?.profilePhotoUrl ?? undefined}
+                  alt={employeeName}
+                />
                 <AvatarFallback>{initials || "U"}</AvatarFallback>
               </Avatar>
 
@@ -160,19 +163,27 @@ export default async function EmployeePage({
                 </h1>
                 <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Role</p>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Role
+                    </p>
                     <p className="mt-1">{valueOrDash(profile?.role)}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Email</p>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Email
+                    </p>
                     <p className="mt-1">{valueOrDash(profile?.email)}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">Phone Number</p>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Phone Number
+                    </p>
                     <p className="mt-1">{valueOrDash(profile?.phoneNumber)}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">LOS ID</p>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      LOS ID
+                    </p>
                     <p className="mt-1">{valueOrDash(profile?.losId)}</p>
                   </div>
                   <div className="sm:col-span-2">
@@ -220,19 +231,20 @@ export default async function EmployeePage({
           {tab === "home" ? (
             <div className="rounded-xl border bg-card p-6 text-card-foreground">
               <h2 className="text-xl font-semibold">Last 12 Months</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Funded Loans (bar) and Funded Volume (line)
-              </p>
               {last12MonthsSeries ? (
                 <div className="mt-4">
                   <CanopyProductionChart
                     labels={last12MonthsSeries.labels}
                     monthlyFundedCounts={last12MonthsSeries.monthlyFundedCounts}
-                    monthlyFundedVolumes={last12MonthsSeries.monthlyFundedVolumes}
+                    monthlyFundedVolumes={
+                      last12MonthsSeries.monthlyFundedVolumes
+                    }
                   />
                 </div>
               ) : (
-                <p className="mt-4 text-sm text-muted-foreground">Data load failed.</p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Data load failed.
+                </p>
               )}
             </div>
           ) : null}
@@ -240,9 +252,6 @@ export default async function EmployeePage({
           {tab === "pipeline" ? (
             <div className="rounded-xl border bg-card p-6 text-card-foreground">
               <h2 className="text-xl font-semibold">Pipeline</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Open pipeline files for this employee.
-              </p>
               {pipelineRows.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">
                   No pipeline files found.
@@ -258,19 +267,20 @@ export default async function EmployeePage({
           {tab === "points" ? (
             <div className="rounded-xl border bg-card p-6 text-card-foreground">
               <h2 className="text-xl font-semibold">Points</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Recent specialist points activity.
-              </p>
               {!pointsSummary ? (
-                <p className="mt-4 text-sm text-muted-foreground">Data load failed.</p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Data load failed.
+                </p>
               ) : pointsSummary.rows.length === 0 ? (
-                <p className="mt-4 text-sm text-muted-foreground">No points data found.</p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  No points data found.
+                </p>
               ) : (
                 <>
                   <p className="mt-4 text-sm text-muted-foreground">
-                    Source: {pointsSummary.source === "new" ? "New" : "Old"} | Total
-                    points in loaded rows:{" "}
-                    <span className="font-mono tabular-nums text-foreground">
+                    Source: {pointsSummary.source === "new" ? "New" : "Old"} |
+                    Total points in loaded rows:{" "}
+                    <span className="font-mono text-foreground tabular-nums">
                       {POINTS_FORMATTER.format(pointsSummary.totalPoints)}
                     </span>
                   </p>
@@ -278,9 +288,13 @@ export default async function EmployeePage({
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b bg-muted/40 text-left text-muted-foreground">
-                          <th className="px-4 py-2.5 font-medium">Event Date</th>
+                          <th className="px-4 py-2.5 font-medium">
+                            Event Date
+                          </th>
                           <th className="px-4 py-2.5 font-medium">Event</th>
-                          <th className="px-4 py-2.5 text-right font-medium">Points</th>
+                          <th className="px-4 py-2.5 text-right font-medium">
+                            Points
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -292,7 +306,9 @@ export default async function EmployeePage({
                             <td className="px-4 py-2.5 whitespace-nowrap">
                               {formatDate(row.eventDate)}
                             </td>
-                            <td className="px-4 py-2.5">{valueOrDash(row.event)}</td>
+                            <td className="px-4 py-2.5">
+                              {valueOrDash(row.event)}
+                            </td>
                             <td className="px-4 py-2.5 text-right font-mono tabular-nums">
                               {POINTS_FORMATTER.format(row.points)}
                             </td>
@@ -309,9 +325,6 @@ export default async function EmployeePage({
           {tab === "bridge" ? (
             <div className="rounded-xl border bg-card p-6 text-card-foreground">
               <h2 className="text-xl font-semibold">Bridge</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                This integration has not yet been implemented.
-              </p>
             </div>
           ) : null}
         </div>

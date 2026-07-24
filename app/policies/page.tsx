@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation"
 
 export const metadata = {
-  title: "Policies",
+  title: "Documents",
 }
 
-export default function PoliciesPage() {
-  redirect("/home")
+export default function PoliciesRedirectPage() {
+  redirect("/documents")
 }

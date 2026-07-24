@@ -63,9 +63,6 @@ export default async function BranchesPage() {
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">
             <h1 className="text-3xl font-semibold tracking-tight">Branches</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Branch directory and location details.
-            </p>
           </div>
           {loadError ? (
             <div className="rounded-xl border bg-card p-6 text-sm text-destructive">

@@ -1,7 +1,5 @@
 "use client"
 
-import { Settings2Icon } from "lucide-react"
-
 import { PermissionsTable } from "@/app/settings/[section]/permissions-table"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,17 +21,24 @@ export function SupportPermissionsDialog({
   permissionUsers,
   permissionDirectoryUsers,
   loadError = null,
+  triggerClassName,
 }: {
   permissions: Permission[]
   permissionUsers: PermissionUser[]
   permissionDirectoryUsers: PermissionDirectoryUser[]
   loadError?: string | null
+  triggerClassName?: string
 }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="icon-sm" aria-label="Open support permissions">
-          <Settings2Icon className="h-4 w-4" />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={triggerClassName}
+        >
+          Preferences
         </Button>
       </DialogTrigger>
       <DialogContent className="w-[min(96vw,76rem)]">

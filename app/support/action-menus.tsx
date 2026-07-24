@@ -1,8 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { MoreHorizontalIcon } from "lucide-react"
-
+import { PlusIcon } from "lucide-react"
 import {
   createContactAction,
   createEntryAction,
@@ -66,27 +65,30 @@ function MenuItemButton({
   )
 }
 
-export function AddSectionActionsMenu() {
+export function AddSectionActionsMenu({
+  triggerClassName,
+}: {
+  triggerClassName?: string
+}) {
   const [open, setOpen] = useState<null | "add-section">(null)
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon-sm" className="h-7 w-7">
-            <MoreHorizontalIcon className="h-4 w-4" />
-            <span className="sr-only">Support actions</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40 min-w-40">
-          <MenuItemButton
-            label="Add section"
-            onSelect={() => setOpen("add-section")}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen("add-section")}
+        className={triggerClassName}
+      >
+        <PlusIcon />
+        Add Section
+      </Button>
 
-      <Dialog open={open === "add-section"} onOpenChange={(isOpen) => setOpen(isOpen ? "add-section" : null)}>
+      <Dialog
+        open={open === "add-section"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "add-section" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add section</DialogTitle>
@@ -100,7 +102,7 @@ export function AddSectionActionsMenu() {
                 Kind
                 <select
                   name="kind"
-                  className="h-9 rounded-md border border-input bg-transparent pl-3 pr-9 text-sm"
+                  className="h-9 rounded-md border border-input bg-transparent pr-9 pl-3 text-sm"
                   defaultValue="department"
                 >
                   <option value="general_help">General Help</option>
@@ -148,16 +150,22 @@ export function AddSectionActionsMenu() {
   )
 }
 
-export function SectionActionsMenu({ section }: { section: SupportDirectorySection }) {
-  const [open, setOpen] = useState<null | "add-entry" | "edit-section" | "delete-section">(null)
+export function SectionActionsMenu({
+  section,
+}: {
+  section: SupportDirectorySection
+}) {
+  const [open, setOpen] = useState<
+    null | "add-entry" | "edit-section" | "delete-section"
+  >(null)
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon-sm" className="h-7 w-7">
-            <MoreHorizontalIcon className="h-4 w-4" />
-            <span className="sr-only">{`Actions for ${section.title}`}</span>
+          <Button type="button" variant="outline" size="xs">
+            Manage
+            <span className="sr-only">{` ${section.title}`}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44 min-w-44">
@@ -177,11 +185,16 @@ export function SectionActionsMenu({ section }: { section: SupportDirectorySecti
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={open === "add-entry"} onOpenChange={(isOpen) => setOpen(isOpen ? "add-entry" : null)}>
+      <Dialog
+        open={open === "add-entry"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "add-entry" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add entry</DialogTitle>
-            <DialogDescription>Add a new contact channel under this section.</DialogDescription>
+            <DialogDescription>
+              Add a new contact channel under this section.
+            </DialogDescription>
           </DialogHeader>
           <form action={createEntryAction} className="grid gap-3">
             <input type="hidden" name="section_id" value={section.id} />
@@ -223,11 +236,16 @@ export function SectionActionsMenu({ section }: { section: SupportDirectorySecti
         </DialogContent>
       </Dialog>
 
-      <Dialog open={open === "edit-section"} onOpenChange={(isOpen) => setOpen(isOpen ? "edit-section" : null)}>
+      <Dialog
+        open={open === "edit-section"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "edit-section" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit section</DialogTitle>
-            <DialogDescription>Update section details and ordering.</DialogDescription>
+            <DialogDescription>
+              Update section details and ordering.
+            </DialogDescription>
           </DialogHeader>
           <form action={updateSectionAction} className="grid gap-3">
             <input type="hidden" name="section_id" value={section.id} />
@@ -236,7 +254,7 @@ export function SectionActionsMenu({ section }: { section: SupportDirectorySecti
                 Kind
                 <select
                   name="kind"
-                  className="h-9 rounded-md border border-input bg-transparent pl-3 pr-9 text-sm"
+                  className="h-9 rounded-md border border-input bg-transparent pr-9 pl-3 text-sm"
                   defaultValue={section.kind}
                 >
                   <option value="general_help">General Help</option>
@@ -246,7 +264,11 @@ export function SectionActionsMenu({ section }: { section: SupportDirectorySecti
               </label>
               <label className="grid gap-1 text-sm">
                 Sort order
-                <Input name="sort_order" type="number" defaultValue={section.sortOrder} />
+                <Input
+                  name="sort_order"
+                  type="number"
+                  defaultValue={section.sortOrder}
+                />
               </label>
               <label className="grid gap-1 text-sm md:col-span-2">
                 Title
@@ -254,15 +276,24 @@ export function SectionActionsMenu({ section }: { section: SupportDirectorySecti
               </label>
               <label className="grid gap-1 text-sm md:col-span-2">
                 Description
-                <Input name="description" defaultValue={section.description ?? ""} />
+                <Input
+                  name="description"
+                  defaultValue={section.description ?? ""}
+                />
               </label>
               <label className="grid gap-1 text-sm">
                 Manager name
-                <Input name="manager_name" defaultValue={section.managerName ?? ""} />
+                <Input
+                  name="manager_name"
+                  defaultValue={section.managerName ?? ""}
+                />
               </label>
               <label className="grid gap-1 text-sm">
                 Manager phone
-                <Input name="manager_phone" defaultValue={section.managerPhone ?? ""} />
+                <Input
+                  name="manager_phone"
+                  defaultValue={section.managerPhone ?? ""}
+                />
               </label>
               <label className="grid gap-1 text-sm md:col-span-2">
                 Notes (one per line)
@@ -285,7 +316,10 @@ export function SectionActionsMenu({ section }: { section: SupportDirectorySecti
         </DialogContent>
       </Dialog>
 
-      <Dialog open={open === "delete-section"} onOpenChange={(isOpen) => setOpen(isOpen ? "delete-section" : null)}>
+      <Dialog
+        open={open === "delete-section"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "delete-section" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete section</DialogTitle>
@@ -296,7 +330,11 @@ export function SectionActionsMenu({ section }: { section: SupportDirectorySecti
           <form action={deleteSectionAction} className="grid gap-3">
             <input type="hidden" name="section_id" value={section.id} />
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete <span className="font-medium text-foreground">{section.title}</span>?
+              Are you sure you want to delete{" "}
+              <span className="font-medium text-foreground">
+                {section.title}
+              </span>
+              ?
             </p>
             <DialogFooter>
               <DialogClose asChild>
@@ -316,15 +354,17 @@ export function SectionActionsMenu({ section }: { section: SupportDirectorySecti
 }
 
 export function EntryActionsMenu({ item }: { item: SupportDirectoryItem }) {
-  const [open, setOpen] = useState<null | "add-contact" | "edit-entry" | "delete-entry">(null)
+  const [open, setOpen] = useState<
+    null | "add-contact" | "edit-entry" | "delete-entry"
+  >(null)
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon-sm" className="h-7 w-7">
-            <MoreHorizontalIcon className="h-4 w-4" />
-            <span className="sr-only">{`Actions for ${item.title}`}</span>
+          <Button type="button" variant="ghost" size="xs">
+            Manage
+            <span className="sr-only">{` ${item.title}`}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44 min-w-44">
@@ -344,7 +384,10 @@ export function EntryActionsMenu({ item }: { item: SupportDirectoryItem }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={open === "add-contact"} onOpenChange={(isOpen) => setOpen(isOpen ? "add-contact" : null)}>
+      <Dialog
+        open={open === "add-contact"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "add-contact" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add contact</DialogTitle>
@@ -386,11 +429,16 @@ export function EntryActionsMenu({ item }: { item: SupportDirectoryItem }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={open === "edit-entry"} onOpenChange={(isOpen) => setOpen(isOpen ? "edit-entry" : null)}>
+      <Dialog
+        open={open === "edit-entry"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "edit-entry" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit entry</DialogTitle>
-            <DialogDescription>Update entry details and contacts info.</DialogDescription>
+            <DialogDescription>
+              Update entry details and contacts info.
+            </DialogDescription>
           </DialogHeader>
           <form action={updateEntryAction} className="grid gap-3">
             <input type="hidden" name="entry_id" value={item.id} />
@@ -401,15 +449,25 @@ export function EntryActionsMenu({ item }: { item: SupportDirectoryItem }) {
               </label>
               <label className="grid gap-1 text-sm">
                 Monitored by
-                <Input name="monitored_by" defaultValue={item.monitoredBy ?? ""} />
+                <Input
+                  name="monitored_by"
+                  defaultValue={item.monitoredBy ?? ""}
+                />
               </label>
               <label className="grid gap-1 text-sm">
                 Sort order
-                <Input name="sort_order" type="number" defaultValue={item.sortOrder} />
+                <Input
+                  name="sort_order"
+                  type="number"
+                  defaultValue={item.sortOrder}
+                />
               </label>
               <label className="grid gap-1 text-sm md:col-span-2">
                 Description
-                <Input name="description" defaultValue={item.description ?? ""} />
+                <Input
+                  name="description"
+                  defaultValue={item.description ?? ""}
+                />
               </label>
               <label className="grid gap-1 text-sm md:col-span-2">
                 Emails (one per line)
@@ -440,7 +498,10 @@ export function EntryActionsMenu({ item }: { item: SupportDirectoryItem }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={open === "delete-entry"} onOpenChange={(isOpen) => setOpen(isOpen ? "delete-entry" : null)}>
+      <Dialog
+        open={open === "delete-entry"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "delete-entry" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete entry</DialogTitle>
@@ -451,7 +512,8 @@ export function EntryActionsMenu({ item }: { item: SupportDirectoryItem }) {
           <form action={deleteEntryAction} className="grid gap-3">
             <input type="hidden" name="entry_id" value={item.id} />
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete <span className="font-medium text-foreground">{item.title}</span>?
+              Are you sure you want to delete{" "}
+              <span className="font-medium text-foreground">{item.title}</span>?
             </p>
             <DialogFooter>
               <DialogClose asChild>
@@ -470,16 +532,22 @@ export function EntryActionsMenu({ item }: { item: SupportDirectoryItem }) {
   )
 }
 
-export function ContactActionsMenu({ contact }: { contact: SupportDirectoryContact }) {
-  const [open, setOpen] = useState<null | "edit-contact" | "delete-contact">(null)
+export function ContactActionsMenu({
+  contact,
+}: {
+  contact: SupportDirectoryContact
+}) {
+  const [open, setOpen] = useState<null | "edit-contact" | "delete-contact">(
+    null
+  )
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon-sm" className="h-7 w-7">
-            <MoreHorizontalIcon className="h-4 w-4" />
-            <span className="sr-only">{`Actions for ${contact.name}`}</span>
+          <Button type="button" variant="ghost" size="xs">
+            Manage
+            <span className="sr-only">{` ${contact.name}`}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44 min-w-44">
@@ -495,11 +563,16 @@ export function ContactActionsMenu({ contact }: { contact: SupportDirectoryConta
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={open === "edit-contact"} onOpenChange={(isOpen) => setOpen(isOpen ? "edit-contact" : null)}>
+      <Dialog
+        open={open === "edit-contact"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "edit-contact" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit contact</DialogTitle>
-            <DialogDescription>Update person and contact details.</DialogDescription>
+            <DialogDescription>
+              Update person and contact details.
+            </DialogDescription>
           </DialogHeader>
           <form action={updateContactAction} className="grid gap-3">
             <input type="hidden" name="contact_id" value={contact.id} />
@@ -522,7 +595,11 @@ export function ContactActionsMenu({ contact }: { contact: SupportDirectoryConta
               </label>
               <label className="grid gap-1 text-sm">
                 Sort order
-                <Input name="sort_order" type="number" defaultValue={contact.sortOrder} />
+                <Input
+                  name="sort_order"
+                  type="number"
+                  defaultValue={contact.sortOrder}
+                />
               </label>
             </div>
             <DialogFooter>
@@ -537,16 +614,25 @@ export function ContactActionsMenu({ contact }: { contact: SupportDirectoryConta
         </DialogContent>
       </Dialog>
 
-      <Dialog open={open === "delete-contact"} onOpenChange={(isOpen) => setOpen(isOpen ? "delete-contact" : null)}>
+      <Dialog
+        open={open === "delete-contact"}
+        onOpenChange={(isOpen) => setOpen(isOpen ? "delete-contact" : null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete contact</DialogTitle>
-            <DialogDescription>This contact will be removed from the entry.</DialogDescription>
+            <DialogDescription>
+              This contact will be removed from the entry.
+            </DialogDescription>
           </DialogHeader>
           <form action={deleteContactAction} className="grid gap-3">
             <input type="hidden" name="contact_id" value={contact.id} />
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete <span className="font-medium text-foreground">{contact.name}</span>?
+              Are you sure you want to delete{" "}
+              <span className="font-medium text-foreground">
+                {contact.name}
+              </span>
+              ?
             </p>
             <DialogFooter>
               <DialogClose asChild>

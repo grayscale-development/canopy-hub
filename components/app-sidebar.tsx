@@ -2,10 +2,8 @@ import * as React from "react"
 import Image from "next/image"
 import Link from "next/link"
 import {
-  BarChart3Icon,
-  CircleDollarSignIcon,
   Building2Icon,
-  CableIcon,
+  ChartNoAxesCombinedIcon,
   HomeIcon,
   LifeBuoyIcon,
   ListTreeIcon,
@@ -14,9 +12,8 @@ import {
 } from "lucide-react"
 import { redirect } from "next/navigation"
 
+import { DocumentsSidebarLink } from "@/components/documents/documents-sidebar-link"
 import { NewslettersSidebarLauncher } from "@/components/newsletters/newsletters-sidebar-launcher"
-import { OfficeFloorPlanSidebarLauncher } from "@/components/office-floor-plan/office-floor-plan-sidebar-launcher"
-import { PoliciesSidebarLauncher } from "@/components/policies/policies-sidebar-launcher"
 import { NavUser } from "@/components/nav-user"
 import {
   Sidebar,
@@ -31,20 +28,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import {
-  compareNewsletterFilesDescending,
-  NEWSLETTER_BUCKET,
-  parseNewsletterFileName,
-  type NewsletterFileSummary,
-} from "@/lib/newsletters"
-import { OFFICE_FLOOR_PLAN_UPLOAD_PERMISSION } from "@/lib/office-floor-plan"
 import { userHasPermissionCode } from "@/lib/permissions"
-import {
-  POLICIES_BUCKET,
-  POLICIES_MANAGE_PERMISSION,
-  stripPolicyFileExtension,
-  type PolicyFileSummary,
-} from "@/lib/policies"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const dashboardNav = [
@@ -54,33 +38,25 @@ const dashboardNav = [
     icon: HomeIcon,
   },
   {
+    title: "Reports",
+    url: "/reports",
+    icon: ChartNoAxesCombinedIcon,
+  },
+  {
     title: "Pipeline",
     url: "/pipeline",
     icon: ListTreeIcon,
-  },
-  {
-    title: "Points Specialists",
-    url: "/points-specialists",
-    icon: CircleDollarSignIcon,
-  },
-]
-
-const operationsNav = [
-  {
-    title: "Bridge",
-    url: "/bridge",
-    icon: CableIcon,
-  },
-  {
-    title: "File Quality",
-    url: "/file-quality",
-    icon: BarChart3Icon,
   },
 ]
 
 const directoryNav = [
   {
-    title: "Employee Directory",
+    title: "Department Directory",
+    url: "/support",
+    icon: LifeBuoyIcon,
+  },
+  {
+    title: "People",
     url: "/employee-directory",
     icon: UsersRoundIcon,
   },
@@ -96,11 +72,6 @@ const adminNav = [
     title: "Settings",
     url: "/settings",
     icon: Settings2Icon,
-  },
-  {
-    title: "Support",
-    url: "/support",
-    icon: LifeBuoyIcon,
   },
 ]
 
@@ -145,76 +116,21 @@ export async function AppSidebar({
       null,
   }
 
-  const canViewSettings = await userHasPermissionCode({
-    supabase,
-    userId: authUser.id,
-    code: "settings.access",
-  })
-  const canUploadNewsletters = await userHasPermissionCode({
-    supabase,
-    userId: authUser.id,
-    code: "newsletters.upload",
-  })
-  const canUploadOfficeFloorPlan = await userHasPermissionCode({
-    supabase,
-    userId: authUser.id,
-    code: OFFICE_FLOOR_PLAN_UPLOAD_PERMISSION,
-  })
-  const canManagePolicies = await userHasPermissionCode({
-    supabase,
-    userId: authUser.id,
-    code: POLICIES_MANAGE_PERMISSION,
-  })
-
-  let newsletters: NewsletterFileSummary[] = []
-  let policies: PolicyFileSummary[] = []
-  try {
-    const { data: files, error: filesError } = await supabase.storage
-      .from(NEWSLETTER_BUCKET)
-      .list("", { limit: 1000 })
-    if (filesError) {
-      throw new Error(filesError.message)
-    }
-
-    newsletters = (files ?? [])
-      .map((file) => parseNewsletterFileName(file.name))
-      .filter((file): file is NewsletterFileSummary => file !== null)
-      .sort(compareNewsletterFilesDescending)
-  } catch {
-    newsletters = []
-  }
-
-  try {
-    const { data: files, error: filesError } = await supabase.storage
-      .from(POLICIES_BUCKET)
-      .list("", { limit: 1000 })
-    if (filesError) {
-      throw new Error(filesError.message)
-    }
-
-    policies = (files ?? [])
-      .filter((file) => Boolean(file.name?.trim()))
-      .map((file) => ({
-        fileName: file.name,
-        displayName: stripPolicyFileExtension(file.name),
-      }))
-      .sort((left, right) => {
-        const labelCompare = left.displayName.localeCompare(right.displayName, undefined, {
-          sensitivity: "base",
-        })
-        if (labelCompare !== 0) {
-          return labelCompare
-        }
-        return left.fileName.localeCompare(right.fileName, undefined, {
-          sensitivity: "base",
-        })
-      })
-  } catch {
-    policies = []
-  }
-
+  const [canViewSettings, canEditPermissions] = await Promise.all([
+    userHasPermissionCode({
+      supabase,
+      userId: authUser.id,
+      code: "settings.access",
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: authUser.id,
+      code: "permissions.edit",
+    }),
+  ])
   const navSecondary = adminNav.filter(
-    (item) => item.url !== "/settings" || canViewSettings
+    (item) =>
+      item.url !== "/settings" || (canViewSettings && canEditPermissions)
   )
 
   return (
@@ -251,7 +167,7 @@ export async function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Dashboard</SidebarGroupLabel>
+          <SidebarGroupLabel>Start</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {dashboardNav.map((item) => (
@@ -275,31 +191,7 @@ export async function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Operations</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {operationsNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={activePath === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span className="group-data-[collapsible=icon]:hidden">
-                        {item.title}
-                      </span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Directory</SidebarGroupLabel>
+          <SidebarGroupLabel>People</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {directoryNav.map((item) => (
@@ -323,20 +215,13 @@ export async function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Resources</SidebarGroupLabel>
+          <SidebarGroupLabel>Library</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <NewslettersSidebarLauncher
-                newsletters={newsletters}
-                canUpload={canUploadNewsletters}
+                isActive={activePath === "/newsletters"}
               />
-              <OfficeFloorPlanSidebarLauncher
-                canUpload={canUploadOfficeFloorPlan}
-              />
-              <PoliciesSidebarLauncher
-                policies={policies}
-                canManage={canManagePolicies}
-              />
+              <DocumentsSidebarLink isActive={activePath === "/documents"} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

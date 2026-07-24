@@ -62,10 +62,9 @@ export default async function EmployeeDirectoryPage() {
         </header>
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">
-            <h1 className="text-3xl font-semibold tracking-tight">Employee Directory</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Team directory and contact details.
-            </p>
+            <h1 className="text-3xl font-semibold tracking-tight">
+              Employee Directory
+            </h1>
           </div>
           {loadError ? (
             <div className="rounded-xl border bg-card p-6 text-sm text-destructive">
