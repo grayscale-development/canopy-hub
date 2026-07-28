@@ -27,6 +27,8 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID }}
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET: ${{ secrets.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET }}
 
     steps:
       - name: Check out repository
@@ -88,6 +90,36 @@ jobs:
 
       - name: Run database migrations
         run: supabase db push --linked --yes
+
+      - name: Configure Supabase Google auth provider
+        run: |
+          if [ -z "$SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID" ] || [ -z "$SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET" ]; then
+            echo "::warning::Google auth provider was not configured because SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID or SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET is missing."
+            exit 0
+          fi
+
+          node --input-type=module <<'NODE'
+          const response = await fetch(
+            `https://api.supabase.com/v1/projects/${process.env.SUPABASE_PROJECT_REF}/config/auth`,
+            {
+              method: "PATCH",
+              headers: {
+                "Authorization": `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                external_google_enabled: true,
+                external_google_client_id: process.env.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID,
+                external_google_secret: process.env.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET,
+              }),
+            }
+          )
+
+          if (!response.ok) {
+            const body = await response.text()
+            throw new Error(`Unable to configure Supabase Google auth provider: ${response.status} ${body}`)
+          }
+          NODE
 
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
