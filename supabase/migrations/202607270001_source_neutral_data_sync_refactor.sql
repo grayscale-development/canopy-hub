@@ -387,9 +387,12 @@ select
   sr.source_config_id,
   sr.source_key,
   case when l.target_table_name is null then null else 'raw.' || l.target_table_name end,
-  l.external_row_key,
-  l.source_record_hash,
-  l.action,
+  coalesce(nullif(l.external_row_key, ''), l.id::text),
+  coalesce(nullif(l.source_record_hash, ''), md5(l.id::text || coalesce(l.payload::text, ''))),
+  case
+    when l.action in ('inserted','updated','unchanged','failed') then l.action
+    else 'failed'
+  end,
   l.error_message,
   l.payload,
   l.created_at
