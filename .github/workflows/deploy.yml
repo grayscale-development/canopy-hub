@@ -89,6 +89,11 @@ jobs:
       - name: Run database migrations
         run: supabase db push --linked --yes
 
+      - name: Deploy Supabase Edge Functions
+        run: |
+          supabase functions deploy data-sync --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy data-sync-dispatch --project-ref "$SUPABASE_PROJECT_REF"
+
       - name: Validate Supabase Data API schema
         run: |
           node --input-type=module <<'NODE'

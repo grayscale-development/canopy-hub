@@ -44,6 +44,44 @@ async function getPermissionsEditorClient() {
   return supabase
 }
 
+async function getDataSyncInvokeHeaders(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession()
+
+  if (error || !session?.access_token) {
+    throw new Error("Unable to authorize data sync request.")
+  }
+
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!anonKey) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY")
+  }
+
+  return {
+    apikey: anonKey,
+    authorization: `Bearer ${session.access_token}`,
+    "content-type": "application/json",
+  }
+}
+
+async function parseDataSyncInvokeResponse(response: Response) {
+  const text = await response.text()
+  if (!text) {
+    return null
+  }
+
+  try {
+    return JSON.parse(text) as DataSyncResponse
+  } catch {
+    return {
+      success: false,
+      error: text,
+    } satisfies DataSyncResponse
+  }
+}
+
 export async function updatePermissionAction(formData: FormData) {
   const supabase = await getPermissionsEditorClient()
   const id = getRequiredString(formData, "permission_id", "Permission id")
@@ -159,52 +197,23 @@ interface DataSyncResponse {
   nextStartAt?: number | null
 }
 
-function getResponseContext(error: unknown) {
-  if (!error || typeof error !== "object" || !("context" in error)) {
-    return null
-  }
-
-  const context = (error as { context?: unknown }).context
-  return context instanceof Response ? context : null
-}
-
-async function getFunctionErrorMessage(error: unknown) {
-  const response = getResponseContext(error)
-  if (response) {
-    const responseText = await response.text()
-    if (responseText) {
-      try {
-        const parsed = JSON.parse(responseText) as { error?: unknown; message?: unknown }
-        const parsedMessage =
-          typeof parsed.error === "string"
-            ? parsed.error
-            : typeof parsed.message === "string"
-              ? parsed.message
-              : null
-        if (parsedMessage) {
-          return `${parsedMessage} (${response.status})`
-        }
-      } catch {
-        return `${responseText} (${response.status})`
-      }
-    }
-  }
-
-  if (error instanceof Error) {
-    return error.message
-  }
-
-  return "Sync failed."
-}
-
 export interface RunAllDataSyncsResult {
   ok: boolean
   message: string
 }
 
 export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
-  await getPermissionsEditorClient()
+  const editorSupabase = await getPermissionsEditorClient()
+  const invokeHeaders = await getDataSyncInvokeHeaders(editorSupabase)
   const supabase = createSupabaseAdminClient()
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+
+  if (!supabaseUrl) {
+    return {
+      ok: false,
+      message: "Missing NEXT_PUBLIC_SUPABASE_URL.",
+    }
+  }
 
   const { data: sources, error: sourcesError } = await supabase
     .from("source_configs")
@@ -234,15 +243,15 @@ export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
   let dispatchedCount = 0
 
   for (const source of enabledSources) {
-    const { data, error } = await supabase.functions.invoke("data-sync", {
-      body: { sourceConfigId: source.id, startAt: 0 },
+    const response = await fetch(`${supabaseUrl}/functions/v1/data-sync`, {
+      method: "POST",
+      headers: invokeHeaders,
+      body: JSON.stringify({ sourceConfigId: source.id, startAt: 0 }),
     })
+    const payload = await parseDataSyncInvokeResponse(response)
 
-    const payload = (data ?? null) as DataSyncResponse | null
-
-    if (error || payload?.success === false) {
-      const errorMessage =
-        payload?.error || (error ? await getFunctionErrorMessage(error) : null)
+    if (!response.ok || payload?.success === false) {
+      const errorMessage = payload?.error || `HTTP ${response.status}`
       failures.push(
         `${source.source_key}: ${errorMessage || "Sync failed."}`
       )

@@ -29,8 +29,8 @@ interface RawPayloadInput {
   payload: unknown;
 }
 
-interface UserRoleRow {
-  role_id: number;
+interface PermissionIdRow {
+  id: string;
 }
 
 interface QlikConfig {
@@ -107,7 +107,7 @@ function extractBearerToken(req: Request): string | null {
   return token;
 }
 
-async function assertAdminUserBearer(req: Request): Promise<void> {
+async function assertPermissionEditorBearer(req: Request): Promise<void> {
   const token = extractBearerToken(req);
   if (!token) {
     throw new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -125,17 +125,34 @@ async function assertAdminUserBearer(req: Request): Promise<void> {
     });
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_roles")
-    .select("role_id")
-    .eq("user_id", authData.user.id)
-    .maybeSingle<UserRoleRow>();
+  const { data: permission, error: permissionError } = await supabase
+    .from("permissions")
+    .select("id")
+    .eq("code", "permissions.edit")
+    .maybeSingle<PermissionIdRow>();
 
-  if (roleError) {
-    throw new Error(`Unable to load user role: ${roleError.message}`);
+  if (permissionError) {
+    throw new Error(`Unable to load sync permission: ${permissionError.message}`);
   }
 
-  if (!roleRow || roleRow.role_id !== 1) {
+  if (!permission?.id) {
+    throw new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  const { count, error: permissionCountError } = await supabase
+    .from("user_permissions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", authData.user.id)
+    .eq("permission_id", permission.id);
+
+  if (permissionCountError) {
+    throw new Error(`Unable to verify sync permission: ${permissionCountError.message}`);
+  }
+
+  if ((count ?? 0) < 1) {
     throw new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { "content-type": "application/json" },
@@ -158,7 +175,7 @@ async function assertAuthorizedRequest(req: Request): Promise<void> {
     return;
   }
 
-  await assertAdminUserBearer(req);
+  await assertPermissionEditorBearer(req);
 }
 
 function getConfigString(config: Record<string, unknown>, key: string): string | null {
