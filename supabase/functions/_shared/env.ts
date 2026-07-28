@@ -1,5 +1,6 @@
 export interface Env {
   SUPABASE_URL: string;
+  SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   QLIK_TENANT_URL: string;
   QLIK_API_KEY: string;
@@ -45,6 +46,10 @@ export function getEnv(): Env {
 
   cached = {
     SUPABASE_URL: required("SUPABASE_URL"),
+    SUPABASE_ANON_KEY:
+      Deno.env.get("SUPABASE_ANON_KEY") ??
+      Deno.env.get("NEXT_PUBLIC_SUPABASE_ANON_KEY") ??
+      required("SUPABASE_SERVICE_ROLE_KEY"),
     SUPABASE_SERVICE_ROLE_KEY: required("SUPABASE_SERVICE_ROLE_KEY"),
     QLIK_TENANT_URL: required("QLIK_TENANT_URL"),
     QLIK_API_KEY: required("QLIK_API_KEY"),

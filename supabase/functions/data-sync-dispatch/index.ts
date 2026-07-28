@@ -101,6 +101,7 @@ Deno.serve(async (req) => {
         method: "POST",
         headers: {
           "content-type": "application/json",
+          apikey: env.SUPABASE_ANON_KEY,
           authorization: `Bearer ${env.INTERNAL_FUNCTION_BEARER_TOKEN}`,
         },
         body: JSON.stringify({ sourceConfigId: source.id, startAt: 0 }),

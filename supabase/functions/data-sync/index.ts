@@ -57,6 +57,8 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
+const ROW_INGEST_LOG_CHUNK_SIZE = 100;
+const TARGET_UPSERT_CHUNK_SIZE = 100;
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -242,7 +244,7 @@ async function insertRowIngestLogs(rows: Array<Record<string, unknown>>): Promis
   if (!rows.length) return;
   const supabase = getRawClient();
 
-  for (const chunk of chunkArray(rows, 500)) {
+  for (const chunk of chunkArray(rows, ROW_INGEST_LOG_CHUNK_SIZE)) {
     const { error } = await supabase.from("row_ingest_log").insert(chunk);
     if (error) throw new Error(`Unable to insert row ingest logs: ${error.message}`);
   }
@@ -353,7 +355,7 @@ async function upsertTargetRows(
   if (!rows.length) return;
   const supabase = getRawClient();
 
-  for (const chunk of chunkArray(rows, 500)) {
+  for (const chunk of chunkArray(rows, TARGET_UPSERT_CHUNK_SIZE)) {
     const { error } = await supabase
       .from(tableName)
       .upsert(chunk, { onConflict: "external_row_key" });
@@ -427,6 +429,7 @@ async function continueRun(input: {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      apikey: env.SUPABASE_ANON_KEY,
       authorization: `Bearer ${env.INTERNAL_FUNCTION_BEARER_TOKEN}`,
     },
     body: JSON.stringify({
@@ -794,10 +797,6 @@ Deno.serve(async (req) => {
         status,
         layout_captured: layoutCaptured,
         data_captured: dataCaptured,
-        row_count: rowCount,
-        inserted_count: insertedCount,
-        updated_count: updatedCount,
-        skipped_count: skippedCount,
         error_message: errorMessage,
       });
     } catch (updateErr) {
