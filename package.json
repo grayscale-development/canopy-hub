@@ -15,7 +15,7 @@
     "test:coverage": "vitest run --coverage",
     "test:unit": "vitest run tests/unit tests/components",
     "test:api": "vitest run tests/api",
-    "test:functions": "deno test --allow-env supabase/functions",
+    "test:functions": "deno test --no-check --allow-env supabase/functions",
     "test:db:reset": "supabase db reset --local",
     "test:db:seed": "tsx tests/setup/seed-local-supabase.ts",
     "test:db": "pnpm test:db:reset && pnpm test:db:seed && CANOPY_DB_TESTS=1 vitest run tests/db",

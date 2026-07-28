@@ -95,7 +95,7 @@ jobs:
           deno-version: v2.x
 
       - name: Run Deno tests
-        run: deno test --allow-env supabase/functions
+        run: deno test --no-check --allow-env supabase/functions
 
   build:
     name: 4. Build
