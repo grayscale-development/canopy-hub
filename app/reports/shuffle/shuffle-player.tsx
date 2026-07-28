@@ -93,13 +93,12 @@ export function ShufflePlayer({
   React.useEffect(() => {
     window.moveTo?.(0, 0)
     window.resizeTo?.(window.screen.availWidth, window.screen.availHeight)
-    showHeaderTemporarily()
     return () => {
       if (hideHeaderTimeoutRef.current !== null) {
         window.clearTimeout(hideHeaderTimeoutRef.current)
       }
     }
-  }, [showHeaderTemporarily])
+  }, [])
 
   React.useEffect(() => {
     window.addEventListener("mousemove", showHeaderTemporarily)
@@ -118,10 +117,6 @@ export function ShufflePlayer({
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
   }, [])
-
-  React.useEffect(() => {
-    showHeaderTemporarily()
-  }, [activeIndex, showHeaderTemporarily])
 
   function handleNextReport() {
     advanceReport()

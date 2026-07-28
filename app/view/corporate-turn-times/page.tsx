@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
-import { fetchCorporateTurnSummaryFromRpc } from "@/lib/hub-data"
+import { fetchCorporateTurnSummary } from "@/lib/hub-data"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const CORPORATE_TURN_SECTION_LABELS: Record<string, string> = {
@@ -47,12 +47,11 @@ export default async function CorporateTurnTimesViewPage() {
   }
 
   let loadError: string | null = null
-  let summary: Awaited<
-    ReturnType<typeof fetchCorporateTurnSummaryFromRpc>
-  > | null = null
+  let summary: Awaited<ReturnType<typeof fetchCorporateTurnSummary>> | null =
+    null
 
   try {
-    summary = await fetchCorporateTurnSummaryFromRpc()
+    summary = await fetchCorporateTurnSummary()
   } catch {
     loadError = "Data load failed."
   }
@@ -93,6 +92,9 @@ export default async function CorporateTurnTimesViewPage() {
           <h1 className="text-3xl font-semibold tracking-tight">
             Corporate Turn Times
           </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Corporate workflow status metrics and turnaround times.
+          </p>
         </section>
 
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

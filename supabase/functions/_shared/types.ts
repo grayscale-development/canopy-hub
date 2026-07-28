@@ -17,23 +17,20 @@ export type TargetTableName =
   | "corporate_turn_times"
   | "file_quality_data"
   | "specialist_points_old"
-  | "specialist_points_new";
+  | "specialist_points_new"
+  | "processing_assistant_orgs"
+  | "underwriting_orgs";
 
 export interface SourceConfigRow {
   id: string;
-  sync_key: string;
-  hub_page: string;
-  hub_visualization: string;
-  hub_visualization_description: string | null;
-  qlik_app_id: string;
-  qlik_sheet_id: string | null;
-  qlik_object_id: string;
-  qlik_object_description: string | null;
-  domain_name: string;
-  target_table_name: string | null;
-  primary_key_strategy: string;
+  source_key: string;
+  source_type: string;
+  description: string | null;
+  config: Record<string, unknown>;
+  target_table: string;
   is_enabled: boolean;
-  schedule_cron: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface QixDimensionInfo {
@@ -81,7 +78,7 @@ export interface ColumnSummaryItem {
 export interface ColumnDiscoverySummary {
   appId: string;
   objectId: string;
-  syncKey: string;
+  sourceKey: string;
   objectType: string | null;
   isHypercube: boolean;
   columnCount: number;
@@ -138,7 +135,7 @@ export interface SyncOutcomeCounters {
 
 export interface DispatchFailure {
   sourceConfigId: string;
-  syncKey: string;
+  sourceKey: string;
   error: string;
   status?: number;
 }

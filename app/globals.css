@@ -143,3 +143,40 @@
     @apply font-sans;
   }
 }
+
+@layer utilities {
+  .leaderboard-scroll-viewport {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 1.25rem,
+      black calc(100% - 1.25rem),
+      transparent
+    );
+  }
+
+  .leaderboard-scroll-track {
+    animation: leaderboard-scroll var(--leaderboard-scroll-duration, 80s) linear infinite;
+  }
+
+  .leaderboard-scroll-viewport:hover .leaderboard-scroll-track,
+  .leaderboard-scroll-viewport:focus-within .leaderboard-scroll-track {
+    animation-play-state: paused;
+  }
+
+  @keyframes leaderboard-scroll {
+    from {
+      transform: translateY(0);
+    }
+
+    to {
+      transform: translateY(-50%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .leaderboard-scroll-track {
+      animation: none;
+    }
+  }
+}

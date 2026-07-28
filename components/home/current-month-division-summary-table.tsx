@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { useMemo, useState } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
@@ -14,21 +13,18 @@ const CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 })
 
-type SortKey = "name" | "fileCount" | "totalVolume"
+type SortKey = "divisionName" | "fileCount" | "totalVolume"
 type SortDirection = "asc" | "desc"
 
-export interface AprilSummaryRow {
-  id: string | null
-  name: string
+interface DivisionSummaryRow {
+  divisionId: string | null
+  divisionName: string
   fileCount: number
   totalVolume: number
-  fileViewerHref?: string
-  rowHref?: string
 }
 
-interface AprilSummaryTableProps {
-  entityLabel: string
-  rows: AprilSummaryRow[]
+interface CurrentMonthDivisionSummaryTableProps {
+  rows: DivisionSummaryRow[]
 }
 
 function getNextSort(
@@ -44,11 +40,13 @@ function getNextSort(
 
   return {
     key,
-    direction: key === "name" ? "asc" : "desc",
+    direction: key === "divisionName" ? "asc" : "desc",
   } as const
 }
 
-export function AprilSummaryTable({ entityLabel, rows }: AprilSummaryTableProps) {
+export function CurrentMonthDivisionSummaryTable({
+  rows,
+}: CurrentMonthDivisionSummaryTableProps) {
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: "fileCount",
     direction: "desc",
@@ -57,8 +55,10 @@ export function AprilSummaryTable({ entityLabel, rows }: AprilSummaryTableProps)
   const sortedRows = useMemo(() => {
     const result = [...rows]
     result.sort((left, right) => {
-      if (sort.key === "name") {
-        const nameComparison = left.name.localeCompare(right.name)
+      if (sort.key === "divisionName") {
+        const nameComparison = left.divisionName.localeCompare(
+          right.divisionName
+        )
         return sort.direction === "asc" ? nameComparison : -nameComparison
       }
 
@@ -71,7 +71,7 @@ export function AprilSummaryTable({ entityLabel, rows }: AprilSummaryTableProps)
 
         return (
           right.totalVolume - left.totalVolume ||
-          left.name.localeCompare(right.name)
+          left.divisionName.localeCompare(right.divisionName)
         )
       }
 
@@ -81,7 +81,10 @@ export function AprilSummaryTable({ entityLabel, rows }: AprilSummaryTableProps)
           : right.totalVolume - left.totalVolume
       }
 
-      return right.fileCount - left.fileCount || left.name.localeCompare(right.name)
+      return (
+        right.fileCount - left.fileCount ||
+        left.divisionName.localeCompare(right.divisionName)
+      )
     })
 
     return result
@@ -95,7 +98,10 @@ export function AprilSummaryTable({ entityLabel, rows }: AprilSummaryTableProps)
     return sort.direction === "asc" ? (
       <ChevronUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
     ) : (
-      <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+      <ChevronDown
+        className="h-4 w-4 text-muted-foreground"
+        aria-hidden="true"
+      />
     )
   }
 
@@ -108,19 +114,23 @@ export function AprilSummaryTable({ entityLabel, rows }: AprilSummaryTableProps)
               <button
                 type="button"
                 className="flex items-center gap-2 hover:text-foreground"
-                onClick={() => setSort((current) => getNextSort(current, "name"))}
+                onClick={() =>
+                  setSort((current) => getNextSort(current, "divisionName"))
+                }
               >
-                <span>{entityLabel}</span>
-                {sortIndicator("name")}
+                <span>Division</span>
+                {sortIndicator("divisionName")}
               </button>
             </th>
             <th className="px-4 py-2.5 text-right font-medium">
               <button
                 type="button"
                 className="ml-auto flex items-center gap-2 hover:text-foreground"
-                onClick={() => setSort((current) => getNextSort(current, "fileCount"))}
+                onClick={() =>
+                  setSort((current) => getNextSort(current, "fileCount"))
+                }
               >
-                <span>#</span>
+                <span>File Count</span>
                 {sortIndicator("fileCount")}
               </button>
             </th>
@@ -132,7 +142,7 @@ export function AprilSummaryTable({ entityLabel, rows }: AprilSummaryTableProps)
                   setSort((current) => getNextSort(current, "totalVolume"))
                 }
               >
-                <span>$</span>
+                <span>Total Volume</span>
                 {sortIndicator("totalVolume")}
               </button>
             </th>
@@ -140,30 +150,13 @@ export function AprilSummaryTable({ entityLabel, rows }: AprilSummaryTableProps)
         </thead>
         <tbody>
           {sortedRows.map((row, index) => (
-            <tr key={`${row.id ?? row.name}-${index}`} className="border-b last:border-0">
-              <td className="px-4 py-2.5">
-                {row.rowHref ? (
-                  <Link
-                    href={row.rowHref}
-                    className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
-                  >
-                    {row.name}
-                  </Link>
-                ) : (
-                  row.name
-                )}
-              </td>
+            <tr
+              key={`${row.divisionId ?? row.divisionName}-${index}`}
+              className="border-b last:border-0"
+            >
+              <td className="px-4 py-2.5">{row.divisionName}</td>
               <td className="px-4 py-2.5 text-right font-mono tabular-nums">
-                {row.fileViewerHref ? (
-                  <Link
-                    href={row.fileViewerHref}
-                    className="font-semibold text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
-                  >
-                    {INTEGER_FORMATTER.format(row.fileCount)}
-                  </Link>
-                ) : (
-                  INTEGER_FORMATTER.format(row.fileCount)
-                )}
+                {INTEGER_FORMATTER.format(row.fileCount)}
               </td>
               <td className="px-4 py-2.5 text-right font-mono tabular-nums">
                 {CURRENCY_FORMATTER.format(row.totalVolume)}

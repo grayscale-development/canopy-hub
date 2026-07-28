@@ -32,6 +32,43 @@ function finalise(row: Record<string, unknown>, externalKey: string | null): Tra
   };
 }
 
+function getFirstText(rawRow: RowRecord, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = toNullableText(rawRow[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function getFallbackText(rawRow: RowRecord, predicate: (normalizedKey: string) => boolean): string | null {
+  for (const [key, value] of Object.entries(rawRow)) {
+    const text = toNullableText(value);
+    if (!text) continue;
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    if (predicate(normalizedKey)) return text;
+  }
+  return null;
+}
+
+function mapOrgRow(rawRow: RowRecord, idKeys: string[], nameKeys: string[]): TransformedRowResult {
+  const orgId =
+    getFirstText(rawRow, idKeys) ??
+    getFallbackText(rawRow, (key) => key === "orgid" || key.endsWith("orgid") || key.endsWith("id"));
+  const orgName =
+    getFirstText(rawRow, nameKeys) ??
+    getFallbackText(rawRow, (key) => key === "orgname" || key.endsWith("orgname") || key.endsWith("name"));
+
+  const row = withMeta(
+    {
+      org_id: orgId,
+      org_name: orgName,
+    },
+    rawRow,
+  );
+
+  return finalise(row, orgId ?? stableHash(row));
+}
+
 export function mapProductionDataRow(rawRow: RowRecord): TransformedRowResult {
   const row = withMeta(
     {
@@ -219,6 +256,22 @@ export function mapSpecialistPointsNewRow(rawRow: RowRecord): TransformedRowResu
   return finalise(row, stableHash(row));
 }
 
+export function mapProcessingAssistantOrgRow(rawRow: RowRecord): TransformedRowResult {
+  return mapOrgRow(
+    rawRow,
+    ["PA Org ID", "Processing Assistant Org ID", "Org ID", "ID"],
+    ["PA Org Name", "Processing Assistant Org Name", "Org Name", "Name", "PA Org"],
+  );
+}
+
+export function mapUnderwritingOrgRow(rawRow: RowRecord): TransformedRowResult {
+  return mapOrgRow(
+    rawRow,
+    ["Underwriting Org ID", "UW Org ID", "Org ID", "ID"],
+    ["Underwriting Org Name", "UW Org Name", "Org Name", "Name", "Underwriting Org"],
+  );
+}
+
 export function transformByTargetTable(
   targetTableName: TargetTableName,
   rows: RowRecord[],
@@ -240,6 +293,10 @@ export function transformByTargetTable(
       return rows.map(mapSpecialistPointsOldRow);
     case "specialist_points_new":
       return rows.map(mapSpecialistPointsNewRow);
+    case "processing_assistant_orgs":
+      return rows.map(mapProcessingAssistantOrgRow);
+    case "underwriting_orgs":
+      return rows.map(mapUnderwritingOrgRow);
     default:
       return [];
   }
@@ -254,6 +311,8 @@ export function isSupportedTargetTable(value: string | null): value is TargetTab
     value === "corporate_turn_times" ||
     value === "file_quality_data" ||
     value === "specialist_points_old" ||
-    value === "specialist_points_new"
+    value === "specialist_points_new" ||
+    value === "processing_assistant_orgs" ||
+    value === "underwriting_orgs"
   );
 }

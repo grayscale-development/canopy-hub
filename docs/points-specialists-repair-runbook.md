@@ -22,43 +22,37 @@ supabase db push --project-ref rvwmxbuycfbmntxkovmn
 2. Deploy the updated sync function:
 
 ```bash
-supabase functions deploy qlik-sync-source --project-ref rvwmxbuycfbmntxkovmn
+supabase functions deploy data-sync --project-ref rvwmxbuycfbmntxkovmn
 ```
 
 3. Clear only the specialist point target tables and their ingest logs:
 
 ```sql
-delete from public.qlik_row_ingest_log
-where target_table_name in ('specialist_points_old', 'specialist_points_new');
+delete from raw.row_ingest_log
+where target_table in ('raw.specialist_points_old', 'raw.specialist_points_new');
 
 truncate table
-  public.specialist_points_old,
-  public.specialist_points_new;
+  raw.specialist_points_old,
+  raw.specialist_points_new;
 ```
 
-4. Resync these source configs in full, from `startAt = 0` through every
-returned `nextStartAt` until `hasMore` is false:
+4. Resync these source configs from `startAt = 0`. DS self-continues until each
+source is complete:
 
 ```text
-points_specialists_point_summary_old
-points_specialists_point_summary_new
-points_specialists_by_week_old
-points_specialists_by_week_new
-points_specialists_by_pa_org_old
-points_specialists_by_pa_org_new
-points_specialists_top_20_users_old
-points_specialists_top_20_users_new
+specialist_points_old
+specialist_points_new
 ```
 
-Do not use `invoke_qlik_dispatch_now()` for this repair unless you intend to
-refresh every enabled Qlik source.
+Do not use `invoke_data_sync_dispatch_now()` for this repair unless you intend
+to refresh every enabled source.
 
 ## Validate
 
 After the resync, call:
 
 ```sql
-select public.get_points_specialists_summary('2026-04-24'::date, null);
+select data.get_points_specialists_summary('2026-04-24'::date, null);
 ```
 
 The monthly summary should preserve decimal totals and should match the

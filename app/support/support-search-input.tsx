@@ -39,10 +39,6 @@ export function SupportSearchInput({
   const [, startTransition] = useTransition()
 
   useEffect(() => {
-    setValue(initialQuery)
-  }, [initialQuery])
-
-  useEffect(() => {
     if (value.trim() === initialQuery.trim()) {
       return
     }

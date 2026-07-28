@@ -3,18 +3,12 @@ import { getEnv } from "../_shared/env.ts";
 import { log } from "../_shared/logger.ts";
 import type { DispatchFailure } from "../_shared/types.ts";
 import { jsonResponse } from "../_shared/utils.ts";
+import type { Env } from "../_shared/env.ts";
 
 interface DispatchSourceConfig {
   id: string;
-  sync_key: string;
+  source_key: string;
   is_enabled: boolean;
-}
-
-interface SyncChunkResponse {
-  success?: boolean;
-  hasMore?: boolean;
-  nextStartAt?: number | null;
-  error?: string | null;
 }
 
 function getErrorMessage(err: unknown): string {
@@ -23,8 +17,7 @@ function getErrorMessage(err: unknown): string {
   return "Unknown error";
 }
 
-function assertSchedulerBearer(req: Request): void {
-  const env = getEnv();
+function assertSchedulerBearer(req: Request, env: Env): void {
   const auth = req.headers.get("authorization") ?? "";
   const internalExpected = `Bearer ${env.INTERNAL_FUNCTION_BEARER_TOKEN}`;
   const serviceRoleExpected = `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`;
@@ -70,21 +63,27 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
+  let env: Env;
   try {
-    assertSchedulerBearer(req);
+    env = getEnv();
+  } catch (err) {
+    return jsonResponse({ error: getErrorMessage(err) }, 500);
+  }
+
+  try {
+    assertSchedulerBearer(req, env);
   } catch (err) {
     if (err instanceof Response) return err;
     return jsonResponse({ error: getErrorMessage(err) }, 401);
   }
 
-  const env = getEnv();
   const supabase = getServiceClient();
 
   const { data, error } = await supabase
-    .from("qlik_source_configs")
-    .select("id,sync_key,is_enabled")
+    .from("source_configs")
+    .select("id,source_key,is_enabled")
     .eq("is_enabled", true)
-    .order("sync_key", { ascending: true });
+    .order("source_key", { ascending: true });
 
   if (error) {
     return jsonResponse({ error: `Unable to load enabled source configs: ${error.message}` }, 500);
@@ -93,94 +92,51 @@ Deno.serve(async (req) => {
   const sourceConfigs = (data ?? []) as DispatchSourceConfig[];
   const failures: DispatchFailure[] = [];
   let dispatched = 0;
-  let chunkInvocations = 0;
 
-  const endpoint = `${env.SUPABASE_URL}/functions/v1/qlik-sync-source`;
+  const endpoint = `${env.SUPABASE_URL}/functions/v1/data-sync`;
 
   await runWithConcurrency(sourceConfigs, env.DISPATCH_CONCURRENCY, async (source) => {
     try {
-      let nextStartAt = 0;
-      let attempts = 0;
-      const maxChunkAttempts = 200;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          apikey: env.SUPABASE_ANON_KEY,
+          authorization: `Bearer ${env.INTERNAL_FUNCTION_BEARER_TOKEN}`,
+        },
+        body: JSON.stringify({ sourceConfigId: source.id, startAt: 0 }),
+      });
 
-      while (attempts < maxChunkAttempts) {
-        attempts += 1;
-
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${env.INTERNAL_FUNCTION_BEARER_TOKEN}`,
-          },
-          body: JSON.stringify({ sourceConfigId: source.id, startAt: nextStartAt }),
+      if (!res.ok) {
+        const text = await res.text();
+        failures.push({
+          sourceConfigId: source.id,
+          sourceKey: source.source_key,
+          status: res.status,
+          error: text.slice(0, 500),
         });
-
-        chunkInvocations += 1;
-
-        if (!res.ok) {
-          const text = await res.text();
-          failures.push({
-            sourceConfigId: source.id,
-            syncKey: source.sync_key,
-            status: res.status,
-            error: text.slice(0, 500),
-          });
-          return;
-        }
-
-        const payload = (await res.json().catch(() => null)) as SyncChunkResponse | null;
-
-        if (payload?.success === false) {
-          failures.push({
-            sourceConfigId: source.id,
-            syncKey: source.sync_key,
-            error: payload.error?.slice(0, 500) || "Chunk sync failed.",
-          });
-          return;
-        }
-
-        if (!payload?.hasMore) {
-          dispatched += 1;
-          return;
-        }
-
-        if (typeof payload.nextStartAt !== "number" || payload.nextStartAt <= nextStartAt) {
-          failures.push({
-            sourceConfigId: source.id,
-            syncKey: source.sync_key,
-            error: "Chunk sync reported hasMore=true with invalid nextStartAt.",
-          });
-          return;
-        }
-
-        nextStartAt = payload.nextStartAt;
+        return;
       }
 
-      failures.push({
-        sourceConfigId: source.id,
-        syncKey: source.sync_key,
-        error: "Exceeded max chunk attempts before completion.",
-      });
+      dispatched += 1;
     } catch (err) {
       failures.push({
         sourceConfigId: source.id,
-        syncKey: source.sync_key,
+        sourceKey: source.source_key,
         error: getErrorMessage(err),
       });
     }
   });
 
-  log("info", "qlik-dispatch-daily completed", {
+  log("info", "data-sync-dispatch completed", {
     totalFound: sourceConfigs.length,
     totalDispatched: dispatched,
-    totalChunkInvocations: chunkInvocations,
     failureCount: failures.length,
   });
 
   return jsonResponse({
     totalConfigsFound: sourceConfigs.length,
     totalDispatched: dispatched,
-    totalChunkInvocations: chunkInvocations,
     dispatchFailures: failures,
   });
 });

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useMemo, useState } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
@@ -13,18 +14,21 @@ const CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 })
 
-type SortKey = "divisionName" | "fileCount" | "totalVolume"
+type SortKey = "name" | "fileCount" | "totalVolume"
 type SortDirection = "asc" | "desc"
 
-interface DivisionSummaryRow {
-  divisionId: string | null
-  divisionName: string
+export interface CurrentMonthSummaryRow {
+  id: string | null
+  name: string
   fileCount: number
   totalVolume: number
+  fileViewerHref?: string
+  rowHref?: string
 }
 
-interface AprilDivisionSummaryTableProps {
-  rows: DivisionSummaryRow[]
+interface CurrentMonthSummaryTableProps {
+  entityLabel: string
+  rows: CurrentMonthSummaryRow[]
 }
 
 function getNextSort(
@@ -40,13 +44,14 @@ function getNextSort(
 
   return {
     key,
-    direction: key === "divisionName" ? "asc" : "desc",
+    direction: key === "name" ? "asc" : "desc",
   } as const
 }
 
-export function AprilDivisionSummaryTable({
+export function CurrentMonthSummaryTable({
+  entityLabel,
   rows,
-}: AprilDivisionSummaryTableProps) {
+}: CurrentMonthSummaryTableProps) {
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: "fileCount",
     direction: "desc",
@@ -55,8 +60,8 @@ export function AprilDivisionSummaryTable({
   const sortedRows = useMemo(() => {
     const result = [...rows]
     result.sort((left, right) => {
-      if (sort.key === "divisionName") {
-        const nameComparison = left.divisionName.localeCompare(right.divisionName)
+      if (sort.key === "name") {
+        const nameComparison = left.name.localeCompare(right.name)
         return sort.direction === "asc" ? nameComparison : -nameComparison
       }
 
@@ -69,7 +74,7 @@ export function AprilDivisionSummaryTable({
 
         return (
           right.totalVolume - left.totalVolume ||
-          left.divisionName.localeCompare(right.divisionName)
+          left.name.localeCompare(right.name)
         )
       }
 
@@ -80,8 +85,7 @@ export function AprilDivisionSummaryTable({
       }
 
       return (
-          right.fileCount - left.fileCount ||
-          left.divisionName.localeCompare(right.divisionName)
+        right.fileCount - left.fileCount || left.name.localeCompare(right.name)
       )
     })
 
@@ -96,7 +100,10 @@ export function AprilDivisionSummaryTable({
     return sort.direction === "asc" ? (
       <ChevronUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
     ) : (
-      <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+      <ChevronDown
+        className="h-4 w-4 text-muted-foreground"
+        aria-hidden="true"
+      />
     )
   }
 
@@ -110,20 +117,22 @@ export function AprilDivisionSummaryTable({
                 type="button"
                 className="flex items-center gap-2 hover:text-foreground"
                 onClick={() =>
-                  setSort((current) => getNextSort(current, "divisionName"))
+                  setSort((current) => getNextSort(current, "name"))
                 }
               >
-                <span>Division</span>
-                {sortIndicator("divisionName")}
+                <span>{entityLabel}</span>
+                {sortIndicator("name")}
               </button>
             </th>
             <th className="px-4 py-2.5 text-right font-medium">
               <button
                 type="button"
                 className="ml-auto flex items-center gap-2 hover:text-foreground"
-                onClick={() => setSort((current) => getNextSort(current, "fileCount"))}
+                onClick={() =>
+                  setSort((current) => getNextSort(current, "fileCount"))
+                }
               >
-                <span>File Count</span>
+                <span>#</span>
                 {sortIndicator("fileCount")}
               </button>
             </th>
@@ -135,7 +144,7 @@ export function AprilDivisionSummaryTable({
                   setSort((current) => getNextSort(current, "totalVolume"))
                 }
               >
-                <span>Total Volume</span>
+                <span>$</span>
                 {sortIndicator("totalVolume")}
               </button>
             </th>
@@ -144,12 +153,32 @@ export function AprilDivisionSummaryTable({
         <tbody>
           {sortedRows.map((row, index) => (
             <tr
-              key={`${row.divisionId ?? row.divisionName}-${index}`}
+              key={`${row.id ?? row.name}-${index}`}
               className="border-b last:border-0"
             >
-              <td className="px-4 py-2.5">{row.divisionName}</td>
+              <td className="px-4 py-2.5">
+                {row.rowHref ? (
+                  <Link
+                    href={row.rowHref}
+                    className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                  >
+                    {row.name}
+                  </Link>
+                ) : (
+                  row.name
+                )}
+              </td>
               <td className="px-4 py-2.5 text-right font-mono tabular-nums">
-                {INTEGER_FORMATTER.format(row.fileCount)}
+                {row.fileViewerHref ? (
+                  <Link
+                    href={row.fileViewerHref}
+                    className="font-semibold text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                  >
+                    {INTEGER_FORMATTER.format(row.fileCount)}
+                  </Link>
+                ) : (
+                  INTEGER_FORMATTER.format(row.fileCount)
+                )}
               </td>
               <td className="px-4 py-2.5 text-right font-mono tabular-nums">
                 {CURRENCY_FORMATTER.format(row.totalVolume)}

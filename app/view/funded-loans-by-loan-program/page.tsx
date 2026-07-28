@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 
 import { FundedLoansByProgramExpandedView } from "@/components/home/funded-loans-by-program-expanded-view"
-import { fetchPreviousMonthLoanProgramSummaryFromRpc } from "@/lib/hub-data"
+import { fetchPreviousMonthLoanProgramSummary } from "@/lib/hub-data"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export const metadata = {
@@ -19,11 +19,12 @@ export default async function FundedLoansByLoanProgramViewPage() {
   }
 
   let loadError: string | null = null
-  let summary: Awaited<ReturnType<typeof fetchPreviousMonthLoanProgramSummaryFromRpc>> | null =
-    null
+  let summary: Awaited<
+    ReturnType<typeof fetchPreviousMonthLoanProgramSummary>
+  > | null = null
 
   try {
-    summary = await fetchPreviousMonthLoanProgramSummaryFromRpc()
+    summary = await fetchPreviousMonthLoanProgramSummary()
   } catch {
     loadError = "Data load failed."
   }

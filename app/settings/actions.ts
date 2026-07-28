@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { userHasPermissionCode } from "@/lib/permissions"
+import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 function getString(formData: FormData, key: string) {
@@ -41,6 +42,44 @@ async function getPermissionsEditorClient() {
   }
 
   return supabase
+}
+
+async function getDataSyncInvokeHeaders(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession()
+
+  if (error || !session?.access_token) {
+    throw new Error("Unable to authorize data sync request.")
+  }
+
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!anonKey) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY")
+  }
+
+  return {
+    apikey: anonKey,
+    authorization: `Bearer ${session.access_token}`,
+    "content-type": "application/json",
+  }
+}
+
+async function parseDataSyncInvokeResponse(response: Response) {
+  const text = await response.text()
+  if (!text) {
+    return null
+  }
+
+  try {
+    return JSON.parse(text) as DataSyncResponse
+  } catch {
+    return {
+      success: false,
+      error: text,
+    } satisfies DataSyncResponse
+  }
 }
 
 export async function updatePermissionAction(formData: FormData) {
@@ -145,101 +184,81 @@ export async function removePermissionUserAction(formData: FormData) {
   revalidatePath("/settings/permissions")
 }
 
-interface QlikSourceConfigRow {
+interface SourceConfigRow {
   id: string
-  sync_key: string
+  source_key: string
   is_enabled: boolean
 }
 
-interface QlikSyncChunkResponse {
+interface DataSyncResponse {
   success?: boolean
   error?: string | null
   hasMore?: boolean
   nextStartAt?: number | null
 }
 
-export interface RunAllQlikSyncsResult {
+export interface RunAllDataSyncsResult {
   ok: boolean
   message: string
 }
 
-export async function runAllQlikSyncsAction(): Promise<RunAllQlikSyncsResult> {
-  const supabase = await getPermissionsEditorClient()
+export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
+  const editorSupabase = await getPermissionsEditorClient()
+  const invokeHeaders = await getDataSyncInvokeHeaders(editorSupabase)
+  const supabase = createSupabaseAdminClient()
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+
+  if (!supabaseUrl) {
+    return {
+      ok: false,
+      message: "Missing NEXT_PUBLIC_SUPABASE_URL.",
+    }
+  }
 
   const { data: sources, error: sourcesError } = await supabase
-    .from("qlik_source_configs")
-    .select("id,sync_key,is_enabled")
+    .from("source_configs")
+    .select("id,source_key,is_enabled")
     .eq("is_enabled", true)
-    .order("sync_key", { ascending: true })
+    .order("source_key", { ascending: true })
 
   if (sourcesError) {
     return {
       ok: false,
-      message: sourcesError.message || "Unable to load qlik_source_configs.",
+      message: sourcesError.message || "Unable to load source_configs.",
     }
   }
 
-  const enabledSources = ((sources ?? []) as QlikSourceConfigRow[]).filter(
-    (source) => Boolean(source.id) && Boolean(source.sync_key)
+  const enabledSources = ((sources ?? []) as SourceConfigRow[]).filter(
+    (source) => Boolean(source.id) && Boolean(source.source_key)
   )
 
   if (enabledSources.length === 0) {
     return {
       ok: true,
-      message: "No enabled Qlik source configs were found.",
+      message: "No enabled source configs were found.",
     }
   }
 
   const failures: string[] = []
-  let completedCount = 0
+  let dispatchedCount = 0
 
   for (const source of enabledSources) {
-    let nextStartAt = 0
-    let attempts = 0
-    let sourceFailed = false
-    const maxChunkAttempts = 200
+    const response = await fetch(`${supabaseUrl}/functions/v1/data-sync`, {
+      method: "POST",
+      headers: invokeHeaders,
+      body: JSON.stringify({ sourceConfigId: source.id, startAt: 0 }),
+    })
+    const payload = await parseDataSyncInvokeResponse(response)
 
-    while (attempts < maxChunkAttempts) {
-      attempts += 1
-
-      const { data, error } = await supabase.functions.invoke("qlik-sync-source", {
-        body: { sourceConfigId: source.id, startAt: nextStartAt },
-      })
-
-      const payload = (data ?? null) as QlikSyncChunkResponse | null
-
-      if (error || payload?.success === false) {
-        sourceFailed = true
-        failures.push(
-          `${source.sync_key}: ${payload?.error || error?.message || "Sync failed."}`
-        )
-        break
-      }
-
-      if (!payload?.hasMore) {
-        completedCount += 1
-        break
-      }
-
-      if (
-        typeof payload.nextStartAt !== "number" ||
-        payload.nextStartAt <= nextStartAt
-      ) {
-        sourceFailed = true
-        failures.push(
-          `${source.sync_key}: Invalid chunk cursor returned by edge function.`
-        )
-        break
-      }
-
-      nextStartAt = payload.nextStartAt
-    }
-
-    if (!sourceFailed && attempts >= maxChunkAttempts) {
+    if (!response.ok || payload?.success === false) {
+      const errorMessage = payload?.error || `HTTP ${response.status}`
       failures.push(
-        `${source.sync_key}: Exceeded max chunk attempts before completion.`
+        `${source.source_key}: ${errorMessage || "Sync failed."}`
       )
+      continue
     }
+
+    dispatchedCount += 1
   }
 
   revalidatePath("/settings/advanced")
@@ -254,6 +273,6 @@ export async function runAllQlikSyncsAction(): Promise<RunAllQlikSyncsResult> {
 
   return {
     ok: true,
-    message: `Completed ${completedCount} of ${enabledSources.length} enabled source syncs.`,
+    message: `Dispatched ${dispatchedCount} of ${enabledSources.length} enabled source syncs.`,
   }
 }

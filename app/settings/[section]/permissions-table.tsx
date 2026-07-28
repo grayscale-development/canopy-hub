@@ -34,6 +34,9 @@ import { cn } from "@/lib/utils"
 
 type SortKey = "name" | "page" | "code"
 type SortDirection = "asc" | "desc"
+type PermissionUsersOptimisticAction =
+  | { type: "add"; users: PermissionUser[] }
+  | { type: "remove"; permissionId: string; userId: string }
 
 function normalize(value: string) {
   return value.trim().toLowerCase()
@@ -58,8 +61,31 @@ export function PermissionsTable({
   const [pageFilter, setPageFilter] = React.useState("all")
   const [sortKey, setSortKey] = React.useState<SortKey>("name")
   const [sortDirection, setSortDirection] = React.useState<SortDirection>("asc")
-  const [localPermissionUsers, setLocalPermissionUsers] =
-    React.useState<PermissionUser[]>(permissionUsers)
+  const [localPermissionUsers, updateLocalPermissionUsers] = React.useOptimistic(
+    permissionUsers,
+    (
+      current: PermissionUser[],
+      action: PermissionUsersOptimisticAction
+    ): PermissionUser[] => {
+      if (action.type === "remove") {
+        return current.filter(
+          (item) =>
+            !(
+              item.permissionId === action.permissionId &&
+              item.userId === action.userId
+            )
+        )
+      }
+
+      const existingKeys = new Set(
+        current.map((item) => `${item.permissionId}:${item.userId}`)
+      )
+      const additions = action.users.filter(
+        (item) => !existingKeys.has(`${item.permissionId}:${item.userId}`)
+      )
+      return [...current, ...additions]
+    }
+  )
   const [selectedPermission, setSelectedPermission] =
     React.useState<Permission | null>(null)
   const [nameValue, setNameValue] = React.useState("")
@@ -82,10 +108,6 @@ export function PermissionsTable({
   const [permissionsPage, setPermissionsPage] = React.useState(1)
   const [permissionUsersPage, setPermissionUsersPage] = React.useState(1)
   const [availableUsersPage, setAvailableUsersPage] = React.useState(1)
-
-  React.useEffect(() => {
-    setLocalPermissionUsers(permissionUsers)
-  }, [permissionUsers])
 
   const selectedPermissionUsers = React.useMemo(() => {
     if (!selectedPermission) {
@@ -318,15 +340,7 @@ export function PermissionsTable({
             fullName: user.fullName,
           }))
 
-        setLocalPermissionUsers((current) => {
-          const existingKeys = new Set(
-            current.map((item) => `${item.permissionId}:${item.userId}`)
-          )
-          const additions = assignedUsers.filter(
-            (item) => !existingKeys.has(`${item.permissionId}:${item.userId}`)
-          )
-          return [...current, ...additions]
-        })
+        updateLocalPermissionUsers({ type: "add", users: assignedUsers })
 
         setSelectedAddUserIds([])
         setAddUserQuery("")
@@ -351,15 +365,11 @@ export function PermissionsTable({
         formData.set("permission_id", selectedPermission.id)
         formData.set("user_id", confirmRemoveUser.userId)
         await removePermissionUserAction(formData)
-        setLocalPermissionUsers((current) =>
-          current.filter(
-            (item) =>
-              !(
-                item.permissionId === selectedPermission.id &&
-                item.userId === confirmRemoveUser.userId
-              )
-          )
-        )
+        updateLocalPermissionUsers({
+          type: "remove",
+          permissionId: selectedPermission.id,
+          userId: confirmRemoveUser.userId,
+        })
         setConfirmRemoveUser(null)
       } catch (error) {
         setRemoveUserError(
