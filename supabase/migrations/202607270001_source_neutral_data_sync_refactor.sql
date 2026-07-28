@@ -370,43 +370,7 @@ on conflict (id) do nothing;
 
 do $$
 begin
-  begin
-    insert into raw.row_ingest_log (
-      id,
-      run_id,
-      source_config_id,
-      source_key,
-      target_table,
-      external_row_key,
-      source_record_hash,
-      action,
-      error_message,
-      payload,
-      created_at
-    )
-    select
-      l.id,
-      l.run_id,
-      sr.source_config_id,
-      sr.source_key,
-      case when l.target_table_name is null then null else 'raw.' || l.target_table_name end,
-      coalesce(nullif(l.external_row_key, ''), l.id::text),
-      coalesce(nullif(l.source_record_hash, ''), md5(l.id::text || coalesce(l.payload::text, ''))),
-      case
-        when l.action in ('inserted','updated','unchanged','failed') then l.action
-        else 'failed'
-      end,
-      l.error_message,
-      l.payload,
-      l.created_at
-    from public.qlik_row_ingest_log l
-    join raw.sync_runs sr on sr.id = l.run_id
-    where to_regclass('public.qlik_row_ingest_log') is not null
-    on conflict (id) do nothing;
-  exception
-    when others then
-      raise notice 'Skipping legacy qlik_row_ingest_log copy: %', sqlerrm;
-  end;
+  raise notice 'Skipping legacy qlik_row_ingest_log copy during hard cutover; new row ingest telemetry will be written to raw.row_ingest_log.';
 end $$;
 
 drop function if exists public.map_legacy_source_config_target(text, text);
