@@ -8,7 +8,6 @@ const TEST_PASSWORD = process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password"
 const shouldRunDbTests = process.env.CANOPY_DB_TESTS === "1"
 
 const IDS = {
-  repository: "10000000-0000-4000-8000-000000000001",
   group: "10000000-0000-4000-8000-000000000003",
   draftPage: "10000000-0000-4000-8000-000000000005",
 } as const
@@ -99,11 +98,20 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
 
   it("prevents moving a Wiki node below one of its descendants", async () => {
     const manager = await signIn("wiki-manager@canopy.test")
+    const { data: repository, error: repositoryError } = await manager
+      .from("wiki_nodes")
+      .select("id")
+      .is("parent_id", null)
+      .eq("slug", "canopy-mortgage")
+      .single()
+
+    expect(repositoryError).toBeNull()
+    expect(repository?.id).toEqual(expect.any(String))
 
     const { error } = await manager
       .from("wiki_nodes")
       .update({ parent_id: IDS.group })
-      .eq("id", IDS.repository)
+      .eq("id", repository!.id)
 
     expect(error?.message).toMatch(/descendants|recursive/i)
   })

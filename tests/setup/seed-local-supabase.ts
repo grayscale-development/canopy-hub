@@ -25,7 +25,6 @@ const TEST_PERMISSION_CODES = [
 ] as const
 
 const FIXED_IDS = {
-  repository: "10000000-0000-4000-8000-000000000001",
   section: "10000000-0000-4000-8000-000000000002",
   group: "10000000-0000-4000-8000-000000000003",
   publishedPage: "10000000-0000-4000-8000-000000000004",
@@ -210,23 +209,28 @@ async function upsertRequiredPermissions(
   }
 }
 
+async function getSeedRepositoryId(supabase: AnySupabaseClient) {
+  const { data, error } = await supabase
+    .from("wiki_nodes")
+    .select("id")
+    .is("parent_id", null)
+    .eq("slug", "canopy-mortgage")
+    .single()
+
+  if (error || !data?.id) {
+    throw error ?? new Error("Missing seeded Canopy Mortgage Wiki repository.")
+  }
+
+  return data.id as string
+}
+
 async function seedWiki(supabase: AnySupabaseClient, userId: string) {
   const now = new Date().toISOString()
+  const repositoryId = await getSeedRepositoryId(supabase)
   const nodeRows = [
     {
-      id: FIXED_IDS.repository,
-      parent_id: null,
-      type: "folder",
-      slug: "canopy-mortgage",
-      title: "Canopy Mortgage",
-      status: "published",
-      sort_order: 0,
-      created_by: userId,
-      updated_by: userId,
-    },
-    {
       id: FIXED_IDS.section,
-      parent_id: FIXED_IDS.repository,
+      parent_id: repositoryId,
       type: "folder",
       slug: "operations",
       title: "Operations",
