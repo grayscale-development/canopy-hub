@@ -161,8 +161,8 @@ jobs:
           supabase start
           supabase status -o env > supabase.env
           echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> "$GITHUB_ENV"
-          grep '^ANON_KEY=' supabase.env | sed 's/^ANON_KEY=/NEXT_PUBLIC_SUPABASE_ANON_KEY=/' >> "$GITHUB_ENV"
-          grep '^SERVICE_ROLE_KEY=' supabase.env | sed 's/^SERVICE_ROLE_KEY=/SUPABASE_SERVICE_ROLE_KEY=/' >> "$GITHUB_ENV"
+          sed -E -n 's/^ANON_KEY="?([^"]*)"?$/NEXT_PUBLIC_SUPABASE_ANON_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
+          sed -E -n 's/^SERVICE_ROLE_KEY="?([^"]*)"?$/SUPABASE_SERVICE_ROLE_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
 
       - name: Reset and seed local Supabase
         run: pnpm test:db:reset && pnpm test:db:seed
@@ -206,8 +206,8 @@ jobs:
           supabase start
           supabase status -o env > supabase.env
           echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> "$GITHUB_ENV"
-          grep '^ANON_KEY=' supabase.env | sed 's/^ANON_KEY=/NEXT_PUBLIC_SUPABASE_ANON_KEY=/' >> "$GITHUB_ENV"
-          grep '^SERVICE_ROLE_KEY=' supabase.env | sed 's/^SERVICE_ROLE_KEY=/SUPABASE_SERVICE_ROLE_KEY=/' >> "$GITHUB_ENV"
+          sed -E -n 's/^ANON_KEY="?([^"]*)"?$/NEXT_PUBLIC_SUPABASE_ANON_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
+          sed -E -n 's/^SERVICE_ROLE_KEY="?([^"]*)"?$/SUPABASE_SERVICE_ROLE_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
 
       - name: Reset and seed local Supabase
         run: pnpm test:db:reset && pnpm test:db:seed
