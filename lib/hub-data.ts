@@ -10,49 +10,49 @@ interface CanopyProductionMonthlyRow {
   funded_volume: number
 }
 
-interface AprilBranchSummaryRpcRow {
+interface CurrentMonthBranchSummaryViewRow {
   branch_id: string | null
   branch_name: string
   file_count: number
   total_volume: number
 }
 
-interface AprilDivisionSummaryRpcRow {
+interface CurrentMonthDivisionSummaryViewRow {
   division_id: string | null
   division_name: string
   file_count: number
   total_volume: number
 }
 
-interface AprilLoanOfficerSummaryRpcRow {
+interface CurrentMonthLoanOfficerSummaryViewRow {
   loan_officer_id: string | null
   loan_officer_name: string
   file_count: number
   total_volume: number
 }
 
-interface AprilProcessorSummaryRpcRow {
+interface CurrentMonthProcessorSummaryViewRow {
   processor_id: string | null
   processor_name: string
   file_count: number
   total_volume: number
 }
 
-interface AprilUnderwriterSummaryRpcRow {
+interface CurrentMonthUnderwriterSummaryViewRow {
   underwriter_id: string | null
   underwriter_name: string
   file_count: number
   total_volume: number
 }
 
-interface AprilUnderwritingOrgSummaryRpcRow {
+interface CurrentMonthUnderwritingOrgSummaryViewRow {
   underwriting_org_id: string | null
   underwriting_org_name: string
   file_count: number
   total_volume: number
 }
 
-interface CorporateTurnRowRpcRow {
+interface CorporateTurnRowViewRow {
   section_type: string
   section_label: string
   section_sort_order: number
@@ -64,14 +64,14 @@ interface CorporateTurnRowRpcRow {
   workdays_to_complete_for_previous_month: number
 }
 
-interface CorporateTurnKpisRpcRow {
+interface CorporateTurnKpisViewRow {
   workdays_for_lo_loa_statuses: number
   processing_rushes_last_7_days: number
   underwriting_rushes_last_7_days: number
   closing_funding_rushes_last_7_days: number
 }
 
-interface PreviousMonthLoanProgramRpcRow {
+interface PreviousMonthLoanProgramViewRow {
   month_start: string
   month_label: string
   loan_program: string
@@ -79,42 +79,42 @@ interface PreviousMonthLoanProgramRpcRow {
   funded_volume: number
 }
 
-export interface AprilBranchSummary {
+export interface CurrentMonthBranchSummary {
   branchId: string | null
   branchName: string
   fileCount: number
   totalVolume: number
 }
 
-export interface AprilDivisionSummary {
+export interface CurrentMonthDivisionSummary {
   divisionId: string | null
   divisionName: string
   fileCount: number
   totalVolume: number
 }
 
-export interface AprilLoanOfficerSummary {
+export interface CurrentMonthLoanOfficerSummary {
   loanOfficerId: string | null
   loanOfficerName: string
   fileCount: number
   totalVolume: number
 }
 
-export interface AprilProcessorSummary {
+export interface CurrentMonthProcessorSummary {
   processorId: string | null
   processorName: string
   fileCount: number
   totalVolume: number
 }
 
-export interface AprilUnderwriterSummary {
+export interface CurrentMonthUnderwriterSummary {
   underwriterId: string | null
   underwriterName: string
   fileCount: number
   totalVolume: number
 }
 
-export interface AprilUnderwritingOrgSummary {
+export interface CurrentMonthUnderwritingOrgSummary {
   underwritingOrgId: string | null
   underwritingOrgName: string
   fileCount: number
@@ -304,11 +304,9 @@ export type LeaderboardEntityKey =
   | "underwritingOrg"
 
 export type PipelineViewKey =
-  | "active"
-  | "new-applications"
-  | "upcoming-closings"
+  "active" | "new-applications" | "upcoming-closings"
 
-export interface AprilLeaderboardFile {
+export interface LeaderboardFile {
   externalRowKey: string
   divisionId: string | null
   branchId: string | null
@@ -338,7 +336,7 @@ export interface AprilLeaderboardFile {
   loanAmount: number
 }
 
-interface AprilLeaderboardFileRpcRow {
+interface LeaderboardFileViewRow {
   external_row_key: string
   loan_number: string | null
   borrower: string | null
@@ -364,23 +362,23 @@ interface AprilLeaderboardFileRpcRow {
   closed_date: string | null
 }
 
-interface DivisionLookupRpcRow {
+interface DivisionLookupViewRow {
   division_id: string | null
   division_name: string | null
 }
 
-interface DivisionProfileRpcRow {
+interface DivisionProfileViewRow {
   division_id: string | null
   division_name: string | null
   raw_payload: Record<string, unknown> | null
 }
 
-interface BranchLookupRpcRow {
+interface BranchLookupViewRow {
   branch_id: string | null
   branch_name: string | null
 }
 
-interface BranchProfileRpcRow {
+interface BranchProfileViewRow {
   branch_id: string | null
   branch_name: string | null
   branch_address: string | null
@@ -389,18 +387,18 @@ interface BranchProfileRpcRow {
   branch_zip: string | null
 }
 
-interface EmployeeLookupRpcRow {
+interface EmployeeLookupViewRow {
   user_id: string | null
   user_name: string | null
 }
 
-interface EmployeeDetailLookupRpcRow {
+interface EmployeeDetailLookupViewRow {
   user_id: string | null
   user_name: string | null
   user_email: string | null
 }
 
-interface EmployeeProfileRpcRow {
+interface EmployeeProfileViewRow {
   user_id: string | null
   user_name: string | null
   user_email: string | null
@@ -410,7 +408,7 @@ interface EmployeeProfileRpcRow {
   raw_payload: Record<string, unknown> | null
 }
 
-interface EmployeeDirectoryResultRpcRow {
+interface EmployeeDirectoryResultViewRow {
   user_id: string | null
   user_name: string | null
   user_email: string | null
@@ -422,7 +420,7 @@ interface EmployeeDirectoryResultRpcRow {
   context_branch_name: string | null
 }
 
-interface BranchDirectoryRpcRow {
+interface BranchDirectoryViewRow {
   external_row_key: string
   branch_id: string | null
   accounting_code: string | null
@@ -434,17 +432,12 @@ interface BranchDirectoryRpcRow {
   last_synced_at: string
 }
 
-interface DivisionProductionSeriesRpcRow {
-  funded_date: string | null
-  loan_amount: number | string | null
-}
-
-interface BranchLookupWithKeyRpcRow {
+interface BranchLookupWithKeyViewRow {
   branch_id: string | null
   branch_name: string | null
 }
 
-interface DivisionPipelineRpcRow {
+interface DivisionPipelineViewRow {
   external_row_key: string
   loan_number: string | null
   borrower: string | null
@@ -465,38 +458,12 @@ interface FileQualityRollupRpcRow {
   has_expected_and_net_metrics: boolean
 }
 
-interface SpecialistPointsWindowRow {
-  external_row_key: string
-  pa_org_id: string | null
-  user_id: string | null
-  event_date: string | null
-  points: number | string | null
-}
-
-interface ProductionDataPaOrgLookupRow {
-  pa_org_id: string | null
-  raw_payload: Record<string, unknown> | null
-}
-
-interface QlikSourceConfigLookupRow {
-  id: string
-}
-
-interface QlikSyncRunLookupRow {
-  id: string
-}
-
-interface QlikRawPayloadLookupRow {
-  payload_type: string
-  payload: unknown
-  created_at: string
-}
-
-const POINTS_SPECIALISTS_PA_ORG_DIRECTORY_SYNC_KEY =
-  "points_specialists_by_pa_org_processing_assistant_orgs"
-
 function toUniqueNonEmptyStrings(values: Array<string | null | undefined>) {
-  return [...new Set(values.filter((value): value is string => Boolean(value?.trim())))]
+  return [
+    ...new Set(
+      values.filter((value): value is string => Boolean(value?.trim()))
+    ),
+  ]
 }
 
 function buildNameLookup<T>(input: {
@@ -590,7 +557,9 @@ function getPayloadTextValue(
   return null
 }
 
-function resolveDivisionAddress(payload: Record<string, unknown> | null | undefined) {
+function resolveDivisionAddress(
+  payload: Record<string, unknown> | null | undefined
+) {
   const fullAddress = getPayloadTextValue(payload, [
     "Division Address",
     "division_address",
@@ -729,7 +698,11 @@ function buildLast12MonthWindow(referenceDate = new Date()) {
     referenceDate.getMonth(),
     1
   )
-  const start = new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - 11, 1)
+  const start = new Date(
+    currentMonthStart.getFullYear(),
+    currentMonthStart.getMonth() - 11,
+    1
+  )
   const months = Array.from({ length: 12 }, (_, index) => {
     const monthDate = new Date(start.getFullYear(), start.getMonth() + index, 1)
     return {
@@ -753,191 +726,24 @@ function parseMonthKey(monthKey: string) {
 
   const year = Number(match[1])
   const month = Number(match[2])
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
     return null
   }
 
   return new Date(year, month - 1, 1)
 }
 
-function normalizeLookupKey(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "")
-}
-
-function toQlikCellText(value: unknown): string | null {
-  if (value === null || value === undefined) {
-    return null
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    return trimmed ? trimmed : null
-  }
-
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      return null
-    }
-    return String(value)
-  }
-
-  if (typeof value !== "object") {
-    return null
-  }
-
-  const cell = value as Record<string, unknown>
-  if (cell.qIsNull === true) {
-    return null
-  }
-
-  if (typeof cell.qText === "string") {
-    const trimmed = cell.qText.trim()
-    if (trimmed) {
-      return trimmed
-    }
-  }
-
-  if (typeof cell.qNum === "number" && Number.isFinite(cell.qNum)) {
-    return String(cell.qNum)
-  }
-
-  return null
-}
-
-function collectQMatrixPages(payload: unknown): unknown[][][] {
-  const matrices: unknown[][][] = []
-  const visited = new Set<unknown>()
-
-  function walk(node: unknown) {
-    if (node === null || node === undefined) {
-      return
-    }
-
-    if (typeof node !== "object") {
-      return
-    }
-
-    if (visited.has(node)) {
-      return
-    }
-    visited.add(node)
-
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        walk(item)
-      }
-      return
-    }
-
-    const record = node as Record<string, unknown>
-    const maybeMatrix = record.qMatrix
-    if (Array.isArray(maybeMatrix)) {
-      matrices.push(maybeMatrix as unknown[][])
-    }
-
-    for (const value of Object.values(record)) {
-      walk(value)
-    }
-  }
-
-  walk(payload)
-  return matrices
-}
-
-function pickRowField(
-  row: Record<string, string | null>,
-  preferredKeys: string[],
-  fallback: (normalizedKey: string) => boolean
-) {
-  const entries = Object.entries(row)
-  const lookup = new Map<string, string | null>()
-  for (const [key, value] of entries) {
-    lookup.set(normalizeLookupKey(key), value)
-  }
-
-  for (const preferredKey of preferredKeys) {
-    const value = lookup.get(normalizeLookupKey(preferredKey))
-    if (value?.trim()) {
-      return value.trim()
-    }
-  }
-
-  for (const [key, value] of entries) {
-    if (!value?.trim()) {
-      continue
-    }
-    if (fallback(normalizeLookupKey(key))) {
-      return value.trim()
-    }
-  }
-
-  return null
-}
-
-function payloadToTextRecord(payload: Record<string, unknown> | null | undefined) {
-  if (!payload || typeof payload !== "object") {
-    return null
-  }
-
-  const row: Record<string, string | null> = {}
-  for (const [key, value] of Object.entries(payload)) {
-    row[key] = toQlikCellText(value)
-  }
-  return row
-}
-
-function extractPaOrgNameFromRawPayload(payload: Record<string, unknown> | null | undefined) {
-  const row = payloadToTextRecord(payload)
-  if (!row) {
-    return null
-  }
-
-  return pickRowField(
-    row,
-    [
-      "PA Org",
-      "PA Org Name",
-      "Processing Assistant Org",
-      "Processing Assistant Org Name",
-      "PA Organization",
-      "PA Org Label",
-    ],
-    (key) =>
-      key === "paorg" ||
-      key === "paorgname" ||
-      key === "processingassistantorg" ||
-      key === "processingassistantorgname" ||
-      (key.includes("paorg") && !key.endsWith("id")) ||
-      (key.includes("processingassistantorg") && !key.endsWith("id"))
-  )
-}
-
 function startOfDay(dateValue: Date) {
-  return new Date(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate())
-}
-
-function addDays(dateValue: Date, days: number) {
   return new Date(
     dateValue.getFullYear(),
     dateValue.getMonth(),
-    dateValue.getDate() + days
+    dateValue.getDate()
   )
-}
-
-function startOfWeekMonday(dateValue: Date) {
-  const start = startOfDay(dateValue)
-  const day = start.getDay()
-  const offset = day === 0 ? -6 : 1 - day
-  start.setDate(start.getDate() + offset)
-  return start
-}
-
-function firstWeekStartOnOrAfter(dateValue: Date) {
-  const candidate = startOfWeekMonday(dateValue)
-  if (candidate < startOfDay(dateValue)) {
-    return addDays(candidate, 7)
-  }
-  return candidate
 }
 
 function buildPointsSpecialistsWindow(referenceDate = new Date()) {
@@ -951,347 +757,12 @@ function buildPointsSpecialistsWindow(referenceDate = new Date()) {
   }
 }
 
-async function fetchSpecialistPointsWindowRows({
-  supabase,
-  source,
-  windowStartIso,
-  windowEndIso,
-  paOrgIds,
-}: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-  source: "new" | "old"
-  windowStartIso: string
-  windowEndIso: string
-  paOrgIds: string[]
-}) {
-  const tableName =
-    source === "new" ? "specialist_points_new" : "specialist_points_old"
-  const pageSize = 1000
-  let from = 0
-  const rows: SpecialistPointsWindowRow[] = []
-
-  while (true) {
-    let query = supabase
-      .from(tableName)
-      .select("external_row_key,pa_org_id,user_id,event_date,points")
-      .gte("event_date", windowStartIso)
-      .lte("event_date", windowEndIso)
-      .order("event_date", { ascending: true, nullsFirst: false })
-      .order("external_row_key", { ascending: true, nullsFirst: false })
-      .range(from, from + pageSize - 1)
-
-    if (paOrgIds.length > 0) {
-      query = query.in("pa_org_id", paOrgIds)
-    }
-
-    const { data, error } = await query
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    const pageRows = ((data ?? []) as unknown) as SpecialistPointsWindowRow[]
-    rows.push(...pageRows)
-
-    if (pageRows.length < pageSize) {
-      break
-    }
-
-    from += pageSize
-  }
-
-  return rows
-}
-
-async function fetchSpecialistPointsWindowPaOrgIds({
-  supabase,
-  source,
-  windowStartIso,
-  windowEndIso,
-}: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-  source: "new" | "old"
-  windowStartIso: string
-  windowEndIso: string
-}) {
-  const tableName =
-    source === "new" ? "specialist_points_new" : "specialist_points_old"
-  const pageSize = 1000
-  let from = 0
-  const ids = new Set<string>()
-
-  while (true) {
-    const { data, error } = await supabase
-      .from(tableName)
-      .select("external_row_key,pa_org_id")
-      .gte("event_date", windowStartIso)
-      .lte("event_date", windowEndIso)
-      .not("pa_org_id", "is", null)
-      .order("external_row_key", { ascending: true, nullsFirst: false })
-      .range(from, from + pageSize - 1)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    const pageRows = (data ?? []) as Array<{
-      external_row_key: string
-      pa_org_id: string | null
-    }>
-    for (const row of pageRows) {
-      if (row.pa_org_id?.trim()) {
-        ids.add(row.pa_org_id)
-      }
-    }
-
-    if (pageRows.length < pageSize) {
-      break
-    }
-
-    from += pageSize
-  }
-
-  return [...ids]
-}
-
-function extractPaOrgDirectoryFromRawPayloads(input: {
-  metadataPayload: unknown
-  dataPayload: unknown
-}) {
-  function looksLikeOrgId(value: string) {
-    const trimmed = value.trim()
-    if (!trimmed) {
-      return false
-    }
-    if (/\s/.test(trimmed)) {
-      return false
-    }
-    return /^[A-Za-z0-9_-]+$/.test(trimmed)
-  }
-
-  function looksLikeOrgName(value: string) {
-    const trimmed = value.trim()
-    if (!trimmed) {
-      return false
-    }
-    return /[A-Za-z]/.test(trimmed) && /\s/.test(trimmed)
-  }
-
-  const metadataRecord =
-    input.metadataPayload && typeof input.metadataPayload === "object"
-      ? (input.metadataPayload as Record<string, unknown>)
-      : null
-  const rawColumns = metadataRecord?.columns
-  const columnTitles = Array.isArray(rawColumns)
-    ? rawColumns.map((column, index) => {
-        if (!column || typeof column !== "object") {
-          return `column_${index}`
-        }
-        const title = (column as Record<string, unknown>).title
-        if (typeof title !== "string" || !title.trim()) {
-          return `column_${index}`
-        }
-        return title.trim()
-      })
-    : []
-
-  const matrices = collectQMatrixPages(input.dataPayload)
-  const rowRecords: Array<{
-    cells: string[]
-    row: Record<string, string | null>
-  }> = []
-  for (const matrix of matrices) {
-    for (const matrixRow of matrix) {
-      if (!Array.isArray(matrixRow)) {
-        continue
-      }
-
-      const row: Record<string, string | null> = {}
-      const cells: string[] = []
-      for (let index = 0; index < matrixRow.length; index += 1) {
-        const key = columnTitles[index] ?? `column_${index}`
-        const cellText = toQlikCellText(matrixRow[index])
-        row[key] = cellText
-        if (cellText?.trim()) {
-          cells.push(cellText.trim())
-        }
-      }
-      rowRecords.push({ row, cells })
-    }
-  }
-
-  const byId = new Map<string, string>()
-  for (const rowRecord of rowRecords) {
-    const orgIdFromNamedColumns = pickRowField(
-      rowRecord.row,
-      ["PA Org ID", "Processing Assistant Org ID", "Org ID", "ID"],
-      (key) => key === "paorgid" || key === "processingassistantorgid" || key.endsWith("orgid")
-    )
-    const orgNameFromNamedColumns = pickRowField(
-      rowRecord.row,
-      ["PA Org Name", "Processing Assistant Org Name", "Org Name", "Name", "PA Org"],
-      (key) =>
-        key === "paorgname" ||
-        key === "processingassistantorgname" ||
-        key.endsWith("orgname") ||
-        key.endsWith("name")
-    )
-
-    let orgId = orgIdFromNamedColumns
-    let orgName = orgNameFromNamedColumns
-    if ((!orgId || !orgName) && rowRecord.cells.length >= 2) {
-      const [firstCell, secondCell] = rowRecord.cells
-      if (!orgId && looksLikeOrgId(firstCell) && looksLikeOrgName(secondCell)) {
-        orgId = firstCell
-      } else if (!orgId && looksLikeOrgId(secondCell) && looksLikeOrgName(firstCell)) {
-        orgId = secondCell
-      } else if (!orgId) {
-        orgId = firstCell
-      }
-
-      if (!orgName && looksLikeOrgName(secondCell)) {
-        orgName = secondCell
-      } else if (!orgName && looksLikeOrgName(firstCell)) {
-        orgName = firstCell
-      } else if (!orgName) {
-        orgName = secondCell
-      }
-    }
-
-    if (!orgId?.trim()) {
-      continue
-    }
-    const normalizedId = orgId.trim()
-    if (!orgName?.trim()) {
-      continue
-    }
-    if (!byId.has(normalizedId)) {
-      byId.set(normalizedId, orgName.trim())
-    }
-  }
-
-  return byId
-}
-
-async function fetchPointsSpecialistsPaOrgDirectory({
-  supabase,
-}: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-}) {
-  const { data: sourceConfig, error: sourceError } = await supabase
-    .from("qlik_source_configs")
-    .select("id")
-    .eq("sync_key", POINTS_SPECIALISTS_PA_ORG_DIRECTORY_SYNC_KEY)
-    .maybeSingle()
-  if (sourceError) {
-    throw new Error(sourceError.message)
-  }
-
-  const sourceConfigId = (sourceConfig as QlikSourceConfigLookupRow | null)?.id
-  if (!sourceConfigId) {
-    return new Map<string, string>()
-  }
-
-  const { data: runs, error: runsError } = await supabase
-    .from("qlik_sync_runs")
-    .select("id")
-    .eq("source_config_id", sourceConfigId)
-    .in("status", ["success", "partial"])
-    .order("completed_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(1)
-  if (runsError) {
-    throw new Error(runsError.message)
-  }
-
-  const latestRunId = ((runs ?? []) as QlikSyncRunLookupRow[])[0]?.id
-  if (!latestRunId) {
-    return new Map<string, string>()
-  }
-
-  const { data: rawPayloads, error: rawPayloadsError } = await supabase
-    .from("qlik_raw_payloads")
-    .select("payload_type,payload,created_at")
-    .eq("run_id", latestRunId)
-    .in("payload_type", ["metadata_summary", "data"])
-    .order("created_at", { ascending: false })
-  if (rawPayloadsError) {
-    throw new Error(rawPayloadsError.message)
-  }
-
-  const payloadRows = (rawPayloads ?? []) as QlikRawPayloadLookupRow[]
-  const metadataPayload = payloadRows.find(
-    (payload) => payload.payload_type === "metadata_summary"
-  )?.payload
-  const dataPayload = payloadRows.find((payload) => payload.payload_type === "data")?.payload
-
-  if (!metadataPayload || !dataPayload) {
-    return new Map<string, string>()
-  }
-
-  return extractPaOrgDirectoryFromRawPayloads({
-    metadataPayload,
-    dataPayload,
-  })
-}
-
-async function fetchProductionDataPaOrgDirectory({
-  supabase,
-}: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-}) {
-  const pageSize = 1000
-  const maxPages = 60
-  let from = 0
-
-  const allIds = new Set<string>()
-  const namesById = new Map<string, string>()
-
-  for (let page = 0; page < maxPages; page += 1) {
-    const { data, error } = await supabase
-      .from("production_data")
-      .select("pa_org_id,raw_payload")
-      .not("pa_org_id", "is", null)
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
-      .range(from, from + pageSize - 1)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    const pageRows = ((data ?? []) as unknown) as ProductionDataPaOrgLookupRow[]
-    for (const row of pageRows) {
-      if (!row.pa_org_id?.trim()) {
-        continue
-      }
-      const paOrgId = row.pa_org_id.trim()
-      allIds.add(paOrgId)
-
-      if (!namesById.has(paOrgId)) {
-        const paOrgName = extractPaOrgNameFromRawPayload(row.raw_payload)
-        if (paOrgName?.trim()) {
-          namesById.set(paOrgId, paOrgName.trim())
-        }
-      }
-    }
-
-    if (pageRows.length < pageSize) {
-      break
-    }
-
-    from += pageSize
-  }
-
-  return {
-    ids: [...allIds],
-    namesById,
-  }
-}
-
-export async function fetchCanopyProductionSeriesFromRpc(): Promise<CanopyProductionSeries> {
+export async function fetchCanopyProductionSeries(): Promise<CanopyProductionSeries> {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc(
-    "get_canopy_production_last_12_months"
-  )
+  const { data, error } = await supabase
+    .schema("data")
+    .from("canopy_production_last_12_months")
+    .select("month_key,label,funded_count,funded_volume")
 
   if (error) {
     throw new Error(error.message)
@@ -1299,6 +770,12 @@ export async function fetchCanopyProductionSeriesFromRpc(): Promise<CanopyProduc
 
   const rows = (data ?? []) as CanopyProductionMonthlyRow[]
 
+  return toCanopyProductionSeries(rows)
+}
+
+function toCanopyProductionSeries(
+  rows: CanopyProductionMonthlyRow[]
+): CanopyProductionSeries {
   return {
     labels: rows.map((row) => row.label),
     monthlyFundedCounts: rows.map((row) => Number(row.funded_count) || 0),
@@ -1314,64 +791,18 @@ export async function fetchDivisionLast12MonthsSeries({
   referenceDate?: Date
 }): Promise<CanopyProductionSeries> {
   const supabase = await createSupabaseServerClient()
-  const window = buildLast12MonthWindow(referenceDate)
-  const pageSize = 1000
-  let from = 0
-  const rows: DivisionProductionSeriesRpcRow[] = []
+  const { data, error } = await supabase
+    .schema("data")
+    .rpc("get_division_production_last_12_months", {
+      p_division_id: divisionId,
+      p_reference_date: toIsoDate(referenceDate),
+    })
 
-  while (true) {
-    const { data, error } = await supabase
-      .from("production_data")
-      .select("funded_date,loan_amount")
-      .eq("division_id", divisionId)
-      .not("funded_date", "is", null)
-      .gte("funded_date", window.startIso)
-      .order("funded_date", { ascending: true, nullsFirst: false })
-      .range(from, from + pageSize - 1)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    const pageRows = ((data ?? []) as unknown) as DivisionProductionSeriesRpcRow[]
-    rows.push(...pageRows)
-
-    if (pageRows.length < pageSize) {
-      break
-    }
-
-    from += pageSize
-  }
-  const byMonth = new Map<
-    string,
-    {
-      count: number
-      volume: number
-    }
-  >()
-
-  for (const month of window.months) {
-    byMonth.set(month.key, { count: 0, volume: 0 })
+  if (error) {
+    throw new Error(error.message)
   }
 
-  for (const row of rows) {
-    if (!row.funded_date) {
-      continue
-    }
-    const monthKey = row.funded_date.slice(0, 7)
-    const entry = byMonth.get(monthKey)
-    if (!entry) {
-      continue
-    }
-    entry.count += 1
-    entry.volume += toRpcNumber(row.loan_amount)
-  }
-
-  return {
-    labels: window.months.map((month) => month.label),
-    monthlyFundedCounts: window.months.map((month) => byMonth.get(month.key)?.count ?? 0),
-    monthlyFundedVolumes: window.months.map((month) => byMonth.get(month.key)?.volume ?? 0),
-  }
+  return toCanopyProductionSeries((data ?? []) as CanopyProductionMonthlyRow[])
 }
 
 export async function fetchDivisionBranchSummary({
@@ -1392,6 +823,7 @@ export async function fetchDivisionBranchSummary({
 
   while (true) {
     const { data, error } = await supabase
+      .schema("data")
       .from("production_data")
       .select("branch_id,loan_amount,funded_date")
       .eq("division_id", divisionId)
@@ -1404,7 +836,7 @@ export async function fetchDivisionBranchSummary({
       throw new Error(error.message)
     }
 
-    const pageRows = ((data ?? []) as unknown) as Array<{
+    const pageRows = (data ?? []) as unknown as Array<{
       branch_id: string | null
       loan_amount: number | string | null
     }>
@@ -1440,6 +872,7 @@ export async function fetchDivisionBranchSummary({
   let branchNamesById = new Map<string, string>()
   if (branchIds.length > 0) {
     const { data: branchesData, error: branchesError } = await supabase
+      .schema("data")
       .from("branches")
       .select("branch_id,branch_name,last_synced_at")
       .in("branch_id", branchIds)
@@ -1450,7 +883,7 @@ export async function fetchDivisionBranchSummary({
     }
 
     branchNamesById = buildNameLookup({
-      rows: ((branchesData ?? []) as unknown) as BranchLookupWithKeyRpcRow[],
+      rows: (branchesData ?? []) as unknown as BranchLookupWithKeyViewRow[],
       getId: (row) => row.branch_id,
       getName: (row) => row.branch_name,
     })
@@ -1498,8 +931,11 @@ export async function fetchDivisionEmployees({
 
   while (true) {
     const { data, error } = await supabase
+      .schema("data")
       .from("production_data")
-      .select("loan_officer_id,processor_id,underwriter_id,closer_id,funder_id,funded_date")
+      .select(
+        "loan_officer_id,processor_id,underwriter_id,closer_id,funder_id,funded_date"
+      )
       .eq("division_id", divisionId)
       .not("funded_date", "is", null)
       .gte("funded_date", window.startIso)
@@ -1510,7 +946,7 @@ export async function fetchDivisionEmployees({
       throw new Error(error.message)
     }
 
-    const pageRows = ((data ?? []) as unknown) as Array<{
+    const pageRows = (data ?? []) as unknown as Array<{
       loan_officer_id: string | null
       processor_id: string | null
       underwriter_id: string | null
@@ -1567,6 +1003,7 @@ export async function fetchDivisionEmployees({
   }
 
   const { data: employeesData, error: employeesError } = await supabase
+    .schema("data")
     .from("employees")
     .select("user_id,user_name,user_email,last_synced_at")
     .in("user_id", userIds)
@@ -1576,7 +1013,8 @@ export async function fetchDivisionEmployees({
     throw new Error(employeesError.message)
   }
 
-  const employees = ((employeesData ?? []) as unknown) as EmployeeDetailLookupRpcRow[]
+  const employees = (employeesData ??
+    []) as unknown as EmployeeDetailLookupViewRow[]
   const namesById = buildNameLookup({
     rows: employees,
     getId: (row) => row.user_id,
@@ -1618,6 +1056,7 @@ export async function fetchDivisionPipeline({
 }): Promise<DivisionPipelineRow[]> {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
+    .schema("data")
     .from("production_data")
     .select(
       "external_row_key,loan_number,borrower,branch_id,last_status,estimated_closing_date,loan_amount"
@@ -1632,12 +1071,13 @@ export async function fetchDivisionPipeline({
     throw new Error(error.message)
   }
 
-  const rows = ((data ?? []) as unknown) as DivisionPipelineRpcRow[]
+  const rows = (data ?? []) as unknown as DivisionPipelineViewRow[]
   const branchIds = toUniqueNonEmptyStrings(rows.map((row) => row.branch_id))
 
   let branchNamesById = new Map<string, string>()
   if (branchIds.length > 0) {
     const { data: branchesData, error: branchesError } = await supabase
+      .schema("data")
       .from("branches")
       .select("branch_id,branch_name,last_synced_at")
       .in("branch_id", branchIds)
@@ -1648,7 +1088,7 @@ export async function fetchDivisionPipeline({
     }
 
     branchNamesById = buildNameLookup({
-      rows: ((branchesData ?? []) as unknown) as BranchLookupWithKeyRpcRow[],
+      rows: (branchesData ?? []) as unknown as BranchLookupWithKeyViewRow[],
       getId: (row) => row.branch_id,
       getName: (row) => row.branch_name,
     })
@@ -1659,7 +1099,7 @@ export async function fetchDivisionPipeline({
     loanNumber: row.loan_number,
     borrower: row.borrower,
     branchName: row.branch_id
-      ? branchNamesById.get(row.branch_id) ?? `Branch ${row.branch_id}`
+      ? (branchNamesById.get(row.branch_id) ?? `Branch ${row.branch_id}`)
       : null,
     lastStatus: row.last_status,
     estimatedClosingDate: row.estimated_closing_date,
@@ -1667,17 +1107,20 @@ export async function fetchDivisionPipeline({
   }))
 }
 
-export async function fetchAprilBranchSummaryFromRpc(): Promise<
-  AprilBranchSummary[]
+export async function fetchCurrentMonthBranchSummary(): Promise<
+  CurrentMonthBranchSummary[]
 > {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc("get_branch_april_summary")
+  const { data, error } = await supabase
+    .schema("data")
+    .from("current_month_branch_summary")
+    .select("branch_id,branch_name,file_count,total_volume")
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as AprilBranchSummaryRpcRow[]
+  const rows = (data ?? []) as CurrentMonthBranchSummaryViewRow[]
 
   return rows.map((row) => ({
     branchId: row.branch_id,
@@ -1687,17 +1130,20 @@ export async function fetchAprilBranchSummaryFromRpc(): Promise<
   }))
 }
 
-export async function fetchAprilDivisionSummaryFromRpc(): Promise<
-  AprilDivisionSummary[]
+export async function fetchCurrentMonthDivisionSummary(): Promise<
+  CurrentMonthDivisionSummary[]
 > {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc("get_division_april_summary")
+  const { data, error } = await supabase
+    .schema("data")
+    .from("current_month_division_summary")
+    .select("division_id,division_name,file_count,total_volume")
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as AprilDivisionSummaryRpcRow[]
+  const rows = (data ?? []) as CurrentMonthDivisionSummaryViewRow[]
 
   return rows.map((row) => ({
     divisionId: row.division_id,
@@ -1712,6 +1158,7 @@ export async function fetchDivisionProfileById(
 ): Promise<DivisionProfile | null> {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
+    .schema("data")
     .from("divisions")
     .select("division_id,division_name,raw_payload,last_synced_at")
     .eq("division_id", divisionId)
@@ -1722,7 +1169,7 @@ export async function fetchDivisionProfileById(
     throw new Error(error.message)
   }
 
-  const row = ((data ?? []) as DivisionProfileRpcRow[])[0]
+  const row = ((data ?? []) as DivisionProfileViewRow[])[0]
   if (!row) {
     return null
   }
@@ -1741,6 +1188,7 @@ export async function fetchBranchProfileById(
 
   const [branchResult, latestDivisionIdResult] = await Promise.all([
     supabase
+      .schema("data")
       .from("branches")
       .select(
         "branch_id,branch_name,branch_address,branch_city,branch_state,branch_zip,last_synced_at"
@@ -1749,6 +1197,7 @@ export async function fetchBranchProfileById(
       .order("last_synced_at", { ascending: false, nullsFirst: false })
       .limit(1),
     supabase
+      .schema("data")
       .from("production_data")
       .select("division_id,funded_date,last_synced_at")
       .eq("branch_id", branchId)
@@ -1765,7 +1214,7 @@ export async function fetchBranchProfileById(
     throw new Error(latestDivisionIdResult.error.message)
   }
 
-  const branchRow = ((branchResult.data ?? []) as BranchProfileRpcRow[])[0]
+  const branchRow = ((branchResult.data ?? []) as BranchProfileViewRow[])[0]
   if (!branchRow) {
     return null
   }
@@ -1780,6 +1229,7 @@ export async function fetchBranchProfileById(
   let divisionName: string | null = null
   if (divisionId?.trim()) {
     const { data: divisionRows, error: divisionError } = await supabase
+      .schema("data")
       .from("divisions")
       .select("division_id,division_name,last_synced_at")
       .eq("division_id", divisionId)
@@ -1790,7 +1240,9 @@ export async function fetchBranchProfileById(
       throw new Error(divisionError.message)
     }
 
-    divisionName = ((divisionRows ?? []) as DivisionLookupRpcRow[])[0]?.division_name ?? null
+    divisionName =
+      ((divisionRows ?? []) as DivisionLookupViewRow[])[0]?.division_name ??
+      null
   }
 
   return {
@@ -1810,65 +1262,18 @@ export async function fetchBranchLast12MonthsSeries({
   referenceDate?: Date
 }): Promise<CanopyProductionSeries> {
   const supabase = await createSupabaseServerClient()
-  const window = buildLast12MonthWindow(referenceDate)
-  const pageSize = 1000
-  let from = 0
-  const rows: DivisionProductionSeriesRpcRow[] = []
+  const { data, error } = await supabase
+    .schema("data")
+    .rpc("get_branch_production_last_12_months", {
+      p_branch_id: branchId,
+      p_reference_date: toIsoDate(referenceDate),
+    })
 
-  while (true) {
-    const { data, error } = await supabase
-      .from("production_data")
-      .select("funded_date,loan_amount")
-      .eq("branch_id", branchId)
-      .not("funded_date", "is", null)
-      .gte("funded_date", window.startIso)
-      .order("funded_date", { ascending: true, nullsFirst: false })
-      .range(from, from + pageSize - 1)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    const pageRows = ((data ?? []) as unknown) as DivisionProductionSeriesRpcRow[]
-    rows.push(...pageRows)
-
-    if (pageRows.length < pageSize) {
-      break
-    }
-
-    from += pageSize
+  if (error) {
+    throw new Error(error.message)
   }
 
-  const byMonth = new Map<
-    string,
-    {
-      count: number
-      volume: number
-    }
-  >()
-
-  for (const month of window.months) {
-    byMonth.set(month.key, { count: 0, volume: 0 })
-  }
-
-  for (const row of rows) {
-    if (!row.funded_date) {
-      continue
-    }
-    const monthKey = row.funded_date.slice(0, 7)
-    const entry = byMonth.get(monthKey)
-    if (!entry) {
-      continue
-    }
-    entry.count += 1
-    entry.volume += toRpcNumber(row.loan_amount)
-  }
-
-  return {
-    labels: window.months.map((month) => month.label),
-    monthlyFundedCounts: window.months.map((month) => byMonth.get(month.key)?.count ?? 0),
-    monthlyFundedVolumes: window.months.map((month) => byMonth.get(month.key)?.volume ?? 0),
-  }
+  return toCanopyProductionSeries((data ?? []) as CanopyProductionMonthlyRow[])
 }
 
 export async function fetchBranchEmployees({
@@ -1892,8 +1297,11 @@ export async function fetchBranchEmployees({
 
   while (true) {
     const { data, error } = await supabase
+      .schema("data")
       .from("production_data")
-      .select("loan_officer_id,processor_id,underwriter_id,closer_id,funder_id,funded_date")
+      .select(
+        "loan_officer_id,processor_id,underwriter_id,closer_id,funder_id,funded_date"
+      )
       .eq("branch_id", branchId)
       .not("funded_date", "is", null)
       .gte("funded_date", window.startIso)
@@ -1904,7 +1312,7 @@ export async function fetchBranchEmployees({
       throw new Error(error.message)
     }
 
-    const pageRows = ((data ?? []) as unknown) as Array<{
+    const pageRows = (data ?? []) as unknown as Array<{
       loan_officer_id: string | null
       processor_id: string | null
       underwriter_id: string | null
@@ -1961,6 +1369,7 @@ export async function fetchBranchEmployees({
   }
 
   const { data: employeesData, error: employeesError } = await supabase
+    .schema("data")
     .from("employees")
     .select("user_id,user_name,user_email,last_synced_at")
     .in("user_id", userIds)
@@ -1970,7 +1379,8 @@ export async function fetchBranchEmployees({
     throw new Error(employeesError.message)
   }
 
-  const employees = ((employeesData ?? []) as unknown) as EmployeeDetailLookupRpcRow[]
+  const employees = (employeesData ??
+    []) as unknown as EmployeeDetailLookupViewRow[]
   const namesById = buildNameLookup({
     rows: employees,
     getId: (row) => row.user_id,
@@ -2008,6 +1418,7 @@ export async function fetchEmployeeProfileById(
 ): Promise<EmployeeProfile | null> {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
+    .schema("data")
     .from("employees")
     .select(
       "user_id,user_name,user_email,default_role,associated_processing_orgs,associated_underwriting_orgs,raw_payload,last_synced_at"
@@ -2020,16 +1431,16 @@ export async function fetchEmployeeProfileById(
     throw new Error(error.message)
   }
 
-  const row = ((data ?? []) as EmployeeProfileRpcRow[])[0]
+  const row = ((data ?? []) as EmployeeProfileViewRow[])[0]
   if (!row) {
     return null
   }
 
-  const processingOrgs = (row.associated_processing_orgs ?? []).filter((value) =>
-    Boolean(value?.trim())
+  const processingOrgs = (row.associated_processing_orgs ?? []).filter(
+    (value) => Boolean(value?.trim())
   )
-  const underwritingOrgs = (row.associated_underwriting_orgs ?? []).filter((value) =>
-    Boolean(value?.trim())
+  const underwritingOrgs = (row.associated_underwriting_orgs ?? []).filter(
+    (value) => Boolean(value?.trim())
   )
 
   return {
@@ -2081,65 +1492,18 @@ export async function fetchEmployeeLast12MonthsSeries({
   referenceDate?: Date
 }): Promise<CanopyProductionSeries> {
   const supabase = await createSupabaseServerClient()
-  const window = buildLast12MonthWindow(referenceDate)
-  const pageSize = 1000
-  let from = 0
-  const rows: DivisionProductionSeriesRpcRow[] = []
+  const { data, error } = await supabase
+    .schema("data")
+    .rpc("get_employee_production_last_12_months", {
+      p_employee_id: employeeId,
+      p_reference_date: toIsoDate(referenceDate),
+    })
 
-  while (true) {
-    const { data, error } = await supabase
-      .from("production_data")
-      .select("funded_date,loan_amount")
-      .or(buildEmployeeRoleOrFilter(employeeId))
-      .not("funded_date", "is", null)
-      .gte("funded_date", window.startIso)
-      .order("funded_date", { ascending: true, nullsFirst: false })
-      .range(from, from + pageSize - 1)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-
-    const pageRows = ((data ?? []) as unknown) as DivisionProductionSeriesRpcRow[]
-    rows.push(...pageRows)
-
-    if (pageRows.length < pageSize) {
-      break
-    }
-
-    from += pageSize
+  if (error) {
+    throw new Error(error.message)
   }
 
-  const byMonth = new Map<
-    string,
-    {
-      count: number
-      volume: number
-    }
-  >()
-
-  for (const month of window.months) {
-    byMonth.set(month.key, { count: 0, volume: 0 })
-  }
-
-  for (const row of rows) {
-    if (!row.funded_date) {
-      continue
-    }
-    const monthKey = row.funded_date.slice(0, 7)
-    const entry = byMonth.get(monthKey)
-    if (!entry) {
-      continue
-    }
-    entry.count += 1
-    entry.volume += toRpcNumber(row.loan_amount)
-  }
-
-  return {
-    labels: window.months.map((month) => month.label),
-    monthlyFundedCounts: window.months.map((month) => byMonth.get(month.key)?.count ?? 0),
-    monthlyFundedVolumes: window.months.map((month) => byMonth.get(month.key)?.volume ?? 0),
-  }
+  return toCanopyProductionSeries((data ?? []) as CanopyProductionMonthlyRow[])
 }
 
 export async function fetchEmployeePointsSummary({
@@ -2165,11 +1529,13 @@ export async function fetchEmployeePointsSummary({
       throw new Error(error.message)
     }
 
-    const rows = ((data ?? []) as Array<{
-      event_date: string | null
-      event: string | null
-      points: number | string | null
-    }>).map((row) => ({
+    const rows = (
+      (data ?? []) as Array<{
+        event_date: string | null
+        event: string | null
+        points: number | string | null
+      }>
+    ).map((row) => ({
       eventDate: row.event_date,
       event: row.event,
       points: toRpcNumber(row.points),
@@ -2199,12 +1565,17 @@ export async function fetchPointsSpecialistsSummary({
 }): Promise<PointsSpecialistsSummary> {
   const supabase = await createSupabaseServerClient()
   const window = buildPointsSpecialistsWindow(referenceDate)
-  const normalizedSelectedIds = [...new Set(paOrgIds.map((id) => id.trim()).filter(Boolean))]
-  const selectedPaOrgId = normalizedSelectedIds.length === 1 ? normalizedSelectedIds[0] : null
-  const { data, error } = await supabase.rpc("get_points_specialists_summary", {
-    p_reference_date: window.endIso,
-    p_pa_org_id: selectedPaOrgId,
-  })
+  const normalizedSelectedIds = [
+    ...new Set(paOrgIds.map((id) => id.trim()).filter(Boolean)),
+  ]
+  const selectedPaOrgId =
+    normalizedSelectedIds.length === 1 ? normalizedSelectedIds[0] : null
+  const { data, error } = await supabase
+    .schema("data")
+    .rpc("get_points_specialists_summary", {
+      p_reference_date: window.endIso,
+      p_pa_org_id: selectedPaOrgId,
+    })
 
   if (error) {
     throw new Error(error.message)
@@ -2243,15 +1614,20 @@ export async function fetchPointsSpecialistsSummary({
           }
           const record = row as Record<string, unknown>
           const monthKey =
-            typeof record.month_key === "string" ? record.month_key.trim() : null
-          const label = typeof record.label === "string" ? record.label.trim() : null
+            typeof record.month_key === "string"
+              ? record.month_key.trim()
+              : null
+          const label =
+            typeof record.label === "string" ? record.label.trim() : null
           if (!monthKey || !label) {
             return null
           }
           return {
             monthKey,
             label,
-            totalPoints: toRpcNumber(record.total_points as number | string | null),
+            totalPoints: toRpcNumber(
+              record.total_points as number | string | null
+            ),
           }
         })
         .filter((row): row is PointsSpecialistsMonthlyPoint => Boolean(row))
@@ -2269,18 +1645,24 @@ export async function fetchPointsSpecialistsSummary({
               ? record.week_start_iso.trim()
               : null
           const weekEndIso =
-            typeof record.week_end_iso === "string" ? record.week_end_iso.trim() : null
+            typeof record.week_end_iso === "string"
+              ? record.week_end_iso.trim()
+              : null
           if (!weekStartIso || !weekEndIso) {
             return null
           }
           return {
             weekStartIso,
             weekEndIso,
-            totalPoints: toRpcNumber(record.total_points as number | string | null),
+            totalPoints: toRpcNumber(
+              record.total_points as number | string | null
+            ),
           }
         })
         .filter((row): row is PointsSpecialistsWeeklyPoint => Boolean(row))
-        .sort((left, right) => left.weekStartIso.localeCompare(right.weekStartIso))
+        .sort((left, right) =>
+          left.weekStartIso.localeCompare(right.weekStartIso)
+        )
     : []
 
   const topUsers = Array.isArray(payload.top_users)
@@ -2290,7 +1672,8 @@ export async function fetchPointsSpecialistsSummary({
             return null
           }
           const record = row as Record<string, unknown>
-          const userId = typeof record.user_id === "string" ? record.user_id.trim() : ""
+          const userId =
+            typeof record.user_id === "string" ? record.user_id.trim() : ""
           if (!userId) {
             return null
           }
@@ -2301,7 +1684,9 @@ export async function fetchPointsSpecialistsSummary({
           return {
             userId,
             userName,
-            totalPoints: toRpcNumber(record.total_points as number | string | null),
+            totalPoints: toRpcNumber(
+              record.total_points as number | string | null
+            ),
           }
         })
         .filter((row): row is PointsSpecialistsTopUser => Boolean(row))
@@ -2333,7 +1718,9 @@ export async function fetchPointsSpecialistsSummary({
           return {
             paOrgId,
             paOrgName,
-            totalPoints: toRpcNumber(record.total_points as number | string | null),
+            totalPoints: toRpcNumber(
+              record.total_points as number | string | null
+            ),
           }
         })
         .filter((row): row is PointsSpecialistsByPaOrgRow => Boolean(row))
@@ -2346,11 +1733,14 @@ export async function fetchPointsSpecialistsSummary({
     : []
 
   const source =
-    payload.source === "old" || payload.source === "new" || payload.source === "hybrid"
+    payload.source === "old" ||
+    payload.source === "new" ||
+    payload.source === "hybrid"
       ? payload.source
       : ("new" as const)
   const windowStartIso =
-    typeof payload.window_start_iso === "string" && payload.window_start_iso.trim()
+    typeof payload.window_start_iso === "string" &&
+    payload.window_start_iso.trim()
       ? payload.window_start_iso.trim()
       : window.startIso
   const windowEndIso =
@@ -2370,15 +1760,22 @@ export async function fetchPointsSpecialistsSummary({
   }
 }
 
-export async function fetchEmployeeDirectoryRows(): Promise<EmployeeDirectoryRow[]> {
+export async function fetchEmployeeDirectoryRows(): Promise<
+  EmployeeDirectoryRow[]
+> {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc("get_employee_directory_rows")
+  const { data, error } = await supabase
+    .schema("data")
+    .from("employee_directory_rows")
+    .select(
+      "user_id,user_name,user_email,default_role,raw_payload,context_division_id,context_division_name,context_branch_id,context_branch_name"
+    )
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as EmployeeDirectoryResultRpcRow[]
+  const rows = (data ?? []) as EmployeeDirectoryResultViewRow[]
 
   return rows
     .map((row) => {
@@ -2427,37 +1824,48 @@ export async function fetchEmployeeDirectoryRows(): Promise<EmployeeDirectoryRow
           "phone_number",
           "phone",
         ]),
-        divisionId: getPayloadTextValue(payload, [
-          "Division ID",
-          "division_id",
-          "DivisionId",
-        ]) ?? row.context_division_id ?? null,
-        division: getPayloadTextValue(payload, [
-          "Division",
-          "Division Name",
-          "division",
-          "division_name",
-        ]) ?? fallbackDivision,
-        branch: getPayloadTextValue(payload, [
-          "Branch",
-          "Branch Name",
-          "branch",
-          "branch_name",
-        ]) ?? fallbackBranch,
-        branchId: getPayloadTextValue(payload, [
-          "Branch ID",
-          "branch_id",
-          "BranchId",
-        ]) ?? row.context_branch_id ?? null,
+        divisionId:
+          getPayloadTextValue(payload, [
+            "Division ID",
+            "division_id",
+            "DivisionId",
+          ]) ??
+          row.context_division_id ??
+          null,
+        division:
+          getPayloadTextValue(payload, [
+            "Division",
+            "Division Name",
+            "division",
+            "division_name",
+          ]) ?? fallbackDivision,
+        branch:
+          getPayloadTextValue(payload, [
+            "Branch",
+            "Branch Name",
+            "branch",
+            "branch_name",
+          ]) ?? fallbackBranch,
+        branchId:
+          getPayloadTextValue(payload, [
+            "Branch ID",
+            "branch_id",
+            "BranchId",
+          ]) ??
+          row.context_branch_id ??
+          null,
       }
     })
     .sort((a, b) => a.employee.localeCompare(b.employee))
 }
 
-export async function fetchBranchesDirectoryRows(): Promise<BranchDirectoryRow[]> {
+export async function fetchBranchesDirectoryRows(): Promise<
+  BranchDirectoryRow[]
+> {
   const supabase = await createSupabaseServerClient()
   const { data, error } = await supabase
-    .from("branches")
+    .schema("data")
+    .from("branches_directory_rows")
     .select(
       "external_row_key,branch_id,accounting_code,branch_name,branch_address,branch_city,branch_state,branch_zip,last_synced_at"
     )
@@ -2468,8 +1876,8 @@ export async function fetchBranchesDirectoryRows(): Promise<BranchDirectoryRow[]
     throw new Error(error.message)
   }
 
-  const latestByBranchId = new Map<string, BranchDirectoryRpcRow>()
-  for (const row of (data ?? []) as BranchDirectoryRpcRow[]) {
+  const latestByBranchId = new Map<string, BranchDirectoryViewRow>()
+  for (const row of (data ?? []) as BranchDirectoryViewRow[]) {
     const branchId = row.branch_id?.trim()
     const dedupeKey = branchId || row.external_row_key
     if (!dedupeKey || latestByBranchId.has(dedupeKey)) {
@@ -2491,17 +1899,20 @@ export async function fetchBranchesDirectoryRows(): Promise<BranchDirectoryRow[]
     .sort((a, b) => (a.branch ?? "").localeCompare(b.branch ?? ""))
 }
 
-export async function fetchAprilLoanOfficerSummaryFromRpc(): Promise<
-  AprilLoanOfficerSummary[]
+export async function fetchCurrentMonthLoanOfficerSummary(): Promise<
+  CurrentMonthLoanOfficerSummary[]
 > {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc("get_loan_officer_april_summary")
+  const { data, error } = await supabase
+    .schema("data")
+    .from("current_month_loan_officer_summary")
+    .select("loan_officer_id,loan_officer_name,file_count,total_volume")
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as AprilLoanOfficerSummaryRpcRow[]
+  const rows = (data ?? []) as CurrentMonthLoanOfficerSummaryViewRow[]
 
   return rows.map((row) => ({
     loanOfficerId: row.loan_officer_id,
@@ -2511,17 +1922,20 @@ export async function fetchAprilLoanOfficerSummaryFromRpc(): Promise<
   }))
 }
 
-export async function fetchAprilProcessorSummaryFromRpc(): Promise<
-  AprilProcessorSummary[]
+export async function fetchCurrentMonthProcessorSummary(): Promise<
+  CurrentMonthProcessorSummary[]
 > {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc("get_processor_april_summary")
+  const { data, error } = await supabase
+    .schema("data")
+    .from("current_month_processor_summary")
+    .select("processor_id,processor_name,file_count,total_volume")
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as AprilProcessorSummaryRpcRow[]
+  const rows = (data ?? []) as CurrentMonthProcessorSummaryViewRow[]
 
   return rows.map((row) => ({
     processorId: row.processor_id,
@@ -2531,17 +1945,20 @@ export async function fetchAprilProcessorSummaryFromRpc(): Promise<
   }))
 }
 
-export async function fetchAprilUnderwriterSummaryFromRpc(): Promise<
-  AprilUnderwriterSummary[]
+export async function fetchCurrentMonthUnderwriterSummary(): Promise<
+  CurrentMonthUnderwriterSummary[]
 > {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc("get_underwriter_april_summary")
+  const { data, error } = await supabase
+    .schema("data")
+    .from("current_month_underwriter_summary")
+    .select("underwriter_id,underwriter_name,file_count,total_volume")
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as AprilUnderwriterSummaryRpcRow[]
+  const rows = (data ?? []) as CurrentMonthUnderwriterSummaryViewRow[]
 
   return rows.map((row) => ({
     underwriterId: row.underwriter_id,
@@ -2551,33 +1968,45 @@ export async function fetchAprilUnderwriterSummaryFromRpc(): Promise<
   }))
 }
 
-export async function fetchAprilUnderwritingOrgSummaryFromRpc(): Promise<
-  AprilUnderwritingOrgSummary[]
+export async function fetchCurrentMonthUnderwritingOrgSummary(): Promise<
+  CurrentMonthUnderwritingOrgSummary[]
 > {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc(
-    "get_underwriting_org_april_summary"
-  )
+  const { data, error } = await supabase
+    .schema("data")
+    .from("current_month_underwriting_org_summary")
+    .select("underwriting_org_id,underwriting_org_name,file_count,total_volume")
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as AprilUnderwritingOrgSummaryRpcRow[]
+  const rows = (data ?? []) as CurrentMonthUnderwritingOrgSummaryViewRow[]
 
   return rows.map((row) => ({
     underwritingOrgId: row.underwriting_org_id,
-    underwritingOrgName: row.underwriting_org_name || "Unknown Underwriting Org",
+    underwritingOrgName:
+      row.underwriting_org_name || "Unknown Underwriting Org",
     fileCount: Number(row.file_count) || 0,
     totalVolume: Number(row.total_volume) || 0,
   }))
 }
 
-export async function fetchCorporateTurnSummaryFromRpc(): Promise<CorporateTurnSummary> {
+export async function fetchCorporateTurnSummary(): Promise<CorporateTurnSummary> {
   const supabase = await createSupabaseServerClient()
   const [rowsResult, kpisResult] = await Promise.all([
-    supabase.rpc("get_corporate_turn_times_rows"),
-    supabase.rpc("get_corporate_turn_times_kpis"),
+    supabase
+      .schema("data")
+      .from("corporate_turn_times_rows")
+      .select(
+        "section_type,section_label,section_sort_order,status,status_order,files_in_progress,workdays_for_files_in_progress,workdays_to_complete_for_previous_week,workdays_to_complete_for_previous_month"
+      ),
+    supabase
+      .schema("data")
+      .from("corporate_turn_times_kpis")
+      .select(
+        "workdays_for_lo_loa_statuses,processing_rushes_last_7_days,underwriting_rushes_last_7_days,closing_funding_rushes_last_7_days"
+      ),
   ])
 
   if (rowsResult.error) {
@@ -2587,8 +2016,8 @@ export async function fetchCorporateTurnSummaryFromRpc(): Promise<CorporateTurnS
     throw new Error(kpisResult.error.message)
   }
 
-  const rows = (rowsResult.data ?? []) as CorporateTurnRowRpcRow[]
-  const kpiRow = ((kpisResult.data ?? []) as CorporateTurnKpisRpcRow[])[0]
+  const rows = (rowsResult.data ?? []) as CorporateTurnRowViewRow[]
+  const kpiRow = ((kpisResult.data ?? []) as CorporateTurnKpisViewRow[])[0]
 
   return {
     tableRows: rows.map((row) => ({
@@ -2596,7 +2025,9 @@ export async function fetchCorporateTurnSummaryFromRpc(): Promise<CorporateTurnS
       statusType: row.section_type || "Other",
       statusOrder: toRpcNumber(row.status_order) || 999,
       filesInProgress: toRpcNumber(row.files_in_progress),
-      workdaysForFilesInProgress: toRpcNumber(row.workdays_for_files_in_progress),
+      workdaysForFilesInProgress: toRpcNumber(
+        row.workdays_for_files_in_progress
+      ),
       workdaysToCompleteForPreviousWeek: toRpcNumber(
         row.workdays_to_complete_for_previous_week
       ),
@@ -2605,8 +2036,12 @@ export async function fetchCorporateTurnSummaryFromRpc(): Promise<CorporateTurnS
       ),
     })),
     kpis: {
-      workdaysForLoLoaStatuses: toRpcNumber(kpiRow?.workdays_for_lo_loa_statuses),
-      processingRushesLast7Days: toRpcNumber(kpiRow?.processing_rushes_last_7_days),
+      workdaysForLoLoaStatuses: toRpcNumber(
+        kpiRow?.workdays_for_lo_loa_statuses
+      ),
+      processingRushesLast7Days: toRpcNumber(
+        kpiRow?.processing_rushes_last_7_days
+      ),
       underwritingRushesLast7Days: toRpcNumber(
         kpiRow?.underwriting_rushes_last_7_days
       ),
@@ -2621,20 +2056,23 @@ function getPreviousMonthLabel(referenceDate = new Date()) {
   return new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: "numeric",
-  }).format(new Date(referenceDate.getFullYear(), referenceDate.getMonth() - 1, 1))
+  }).format(
+    new Date(referenceDate.getFullYear(), referenceDate.getMonth() - 1, 1)
+  )
 }
 
-export async function fetchPreviousMonthLoanProgramSummaryFromRpc(): Promise<PreviousMonthLoanProgramSummary> {
+export async function fetchPreviousMonthLoanProgramSummary(): Promise<PreviousMonthLoanProgramSummary> {
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc(
-    "get_funded_loans_by_program_previous_month"
-  )
+  const { data, error } = await supabase
+    .schema("data")
+    .from("funded_loans_by_program_previous_month")
+    .select("month_start,month_label,loan_program,funded_count,funded_volume")
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as PreviousMonthLoanProgramRpcRow[]
+  const rows = (data ?? []) as PreviousMonthLoanProgramViewRow[]
   const monthLabel = rows[0]?.month_label || getPreviousMonthLabel()
 
   return {
@@ -2696,9 +2134,11 @@ export async function fetchFileQualityRollupsForMonth({
 
   const monthStartIso = toIsoDate(monthDate)
   const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc("get_file_quality_rollups", {
-    p_month_start: monthStartIso,
-  })
+  const { data, error } = await supabase
+    .schema("data")
+    .rpc("get_file_quality_rollups", {
+      p_month_start: monthStartIso,
+    })
 
   if (error) {
     throw new Error(error.message)
@@ -2712,13 +2152,21 @@ export async function fetchFileQualityRollupsForMonth({
     fileCount: Number(row.file_count) || 0,
     touchesPerApp: toRpcNumber(row.touches_per_app),
     avgExpectedTouches:
-      row.avg_expected_touches === null ? null : toRpcNumber(row.avg_expected_touches),
+      row.avg_expected_touches === null
+        ? null
+        : toRpcNumber(row.avg_expected_touches),
     netTouches: row.net_touches === null ? null : toRpcNumber(row.net_touches),
   })
 
-  const divisionRows = rows.filter((row) => row.entity_type === "division").map(toRow)
-  const branchRows = rows.filter((row) => row.entity_type === "branch").map(toRow)
-  const hasExpectedTouches = rows.some((row) => row.avg_expected_touches !== null)
+  const divisionRows = rows
+    .filter((row) => row.entity_type === "division")
+    .map(toRow)
+  const branchRows = rows
+    .filter((row) => row.entity_type === "branch")
+    .map(toRow)
+  const hasExpectedTouches = rows.some(
+    (row) => row.avg_expected_touches !== null
+  )
   const hasNetTouches = rows.some((row) => row.net_touches !== null)
 
   return {
@@ -2730,7 +2178,9 @@ export async function fetchFileQualityRollupsForMonth({
   }
 }
 
-export function isLeaderboardEntityKey(value: string): value is LeaderboardEntityKey {
+export function isLeaderboardEntityKey(
+  value: string
+): value is LeaderboardEntityKey {
   return (
     value === "division" ||
     value === "branch" ||
@@ -2741,14 +2191,16 @@ export function isLeaderboardEntityKey(value: string): value is LeaderboardEntit
   )
 }
 
-async function enrichAprilLeaderboardRows({
+async function enrichLeaderboardRows({
   supabase,
   rows,
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-  rows: AprilLeaderboardFileRpcRow[]
-}): Promise<AprilLeaderboardFile[]> {
-  const divisionIds = toUniqueNonEmptyStrings(rows.map((row) => row.division_id))
+  rows: LeaderboardFileViewRow[]
+}): Promise<LeaderboardFile[]> {
+  const divisionIds = toUniqueNonEmptyStrings(
+    rows.map((row) => row.division_id)
+  )
   const branchIds = toUniqueNonEmptyStrings(rows.map((row) => row.branch_id))
   const employeeIds = toUniqueNonEmptyStrings(
     rows.flatMap((row) => [
@@ -2762,27 +2214,30 @@ async function enrichAprilLeaderboardRows({
 
   const divisionsPromise = divisionIds.length
     ? supabase
+        .schema("data")
         .from("divisions")
         .select("division_id,division_name,last_synced_at")
         .in("division_id", divisionIds)
         .order("last_synced_at", { ascending: false, nullsFirst: false })
-    : Promise.resolve({ data: [] as DivisionLookupRpcRow[], error: null })
+    : Promise.resolve({ data: [] as DivisionLookupViewRow[], error: null })
 
   const branchesPromise = branchIds.length
     ? supabase
+        .schema("data")
         .from("branches")
         .select("branch_id,branch_name,last_synced_at")
         .in("branch_id", branchIds)
         .order("last_synced_at", { ascending: false, nullsFirst: false })
-    : Promise.resolve({ data: [] as BranchLookupRpcRow[], error: null })
+    : Promise.resolve({ data: [] as BranchLookupViewRow[], error: null })
 
   const employeesPromise = employeeIds.length
     ? supabase
+        .schema("data")
         .from("employees")
         .select("user_id,user_name,last_synced_at")
         .in("user_id", employeeIds)
         .order("last_synced_at", { ascending: false, nullsFirst: false })
-    : Promise.resolve({ data: [] as EmployeeLookupRpcRow[], error: null })
+    : Promise.resolve({ data: [] as EmployeeLookupViewRow[], error: null })
 
   const [divisionsResult, branchesResult, employeesResult] = await Promise.all([
     divisionsPromise,
@@ -2801,17 +2256,17 @@ async function enrichAprilLeaderboardRows({
   }
 
   const divisionNamesById = buildNameLookup({
-    rows: (divisionsResult.data ?? []) as DivisionLookupRpcRow[],
+    rows: (divisionsResult.data ?? []) as DivisionLookupViewRow[],
     getId: (row) => row.division_id,
     getName: (row) => row.division_name,
   })
   const branchNamesById = buildNameLookup({
-    rows: (branchesResult.data ?? []) as BranchLookupRpcRow[],
+    rows: (branchesResult.data ?? []) as BranchLookupViewRow[],
     getId: (row) => row.branch_id,
     getName: (row) => row.branch_name,
   })
   const employeeNamesById = buildNameLookup({
-    rows: (employeesResult.data ?? []) as EmployeeLookupRpcRow[],
+    rows: (employeesResult.data ?? []) as EmployeeLookupViewRow[],
     getId: (row) => row.user_id,
     getName: (row) => row.user_name,
   })
@@ -2843,7 +2298,11 @@ async function enrichAprilLeaderboardRows({
       "User"
     ),
     processor: resolveLookupName(row.processor_id, employeeNamesById, "User"),
-    underwriter: resolveLookupName(row.underwriter_id, employeeNamesById, "User"),
+    underwriter: resolveLookupName(
+      row.underwriter_id,
+      employeeNamesById,
+      "User"
+    ),
     underwritingOrg: resolveUnderwritingOrgName({
       underwritingOrgId: row.underwriting_org_id,
       branchNamesById,
@@ -2868,7 +2327,7 @@ export async function fetchPipelineFilesForUser({
   view: PipelineViewKey
   referenceDate?: Date
   limit?: number
-}): Promise<AprilLeaderboardFile[]> {
+}): Promise<LeaderboardFile[]> {
   const normalizedUserId = userId.trim()
   if (!normalizedUserId) {
     return []
@@ -2877,6 +2336,7 @@ export async function fetchPipelineFilesForUser({
   const supabase = await createSupabaseServerClient()
 
   let query = supabase
+    .schema("data")
     .from("production_data")
     .select(
       [
@@ -2938,8 +2398,8 @@ export async function fetchPipelineFilesForUser({
     throw new Error(error.message)
   }
 
-  const rows = ((data ?? []) as unknown) as AprilLeaderboardFileRpcRow[]
-  return enrichAprilLeaderboardRows({ supabase, rows })
+  const rows = (data ?? []) as unknown as LeaderboardFileViewRow[]
+  return enrichLeaderboardRows({ supabase, rows })
 }
 
 export async function fetchFileViewerFiles({
@@ -2958,10 +2418,11 @@ export async function fetchFileViewerFiles({
   closedDateEnd?: string | null
   openPipelineOnly?: boolean
   limit?: number
-}): Promise<AprilLeaderboardFile[]> {
+}): Promise<LeaderboardFile[]> {
   const supabase = await createSupabaseServerClient()
 
   let query = supabase
+    .schema("data")
     .from("production_data")
     .select(
       [
@@ -3049,11 +2510,11 @@ export async function fetchFileViewerFiles({
     throw new Error(error.message)
   }
 
-  const rows = ((data ?? []) as unknown) as AprilLeaderboardFileRpcRow[]
-  return enrichAprilLeaderboardRows({ supabase, rows })
+  const rows = (data ?? []) as unknown as LeaderboardFileViewRow[]
+  return enrichLeaderboardRows({ supabase, rows })
 }
 
-export async function fetchAprilLeaderboardFiles({
+export async function fetchCurrentMonthLeaderboardFiles({
   entity,
   entityId,
   referenceDate = new Date(),
@@ -3061,14 +2522,17 @@ export async function fetchAprilLeaderboardFiles({
   entity: LeaderboardEntityKey
   entityId: string | null
   referenceDate?: Date
-}): Promise<AprilLeaderboardFile[]> {
+}): Promise<LeaderboardFile[]> {
   const year = referenceDate.getFullYear()
+  const month = referenceDate.getMonth()
+  const monthNumber = String(month + 1).padStart(2, "0")
+  const monthEndDay = new Date(year, month + 1, 0).getDate()
 
   return fetchFileViewerFiles({
     entity,
     entityId,
-    closedDateStart: `${year}-04-01`,
-    closedDateEnd: `${year}-04-30`,
+    closedDateStart: `${year}-${monthNumber}-01`,
+    closedDateEnd: `${year}-${monthNumber}-${String(monthEndDay).padStart(2, "0")}`,
     limit: 500,
   })
 }

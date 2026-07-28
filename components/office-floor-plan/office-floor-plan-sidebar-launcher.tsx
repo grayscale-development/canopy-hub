@@ -1,7 +1,7 @@
 "use client"
 
 import { ArrowLeftIcon, LayoutPanelTopIcon, UploadIcon, X } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -41,7 +41,7 @@ export function OfficeFloorPlanSidebarLauncher({
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
 
-  async function loadFloorPlanUrl() {
+  const loadFloorPlanUrl = useCallback(async () => {
     setIsImageLoading(true)
     setImageError(null)
 
@@ -65,13 +65,16 @@ export function OfficeFloorPlanSidebarLauncher({
     } finally {
       setIsImageLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     if (isDialogOpen && modalView === "view") {
-      void loadFloorPlanUrl()
+      const timeoutId = window.setTimeout(() => {
+        void loadFloorPlanUrl()
+      }, 0)
+      return () => window.clearTimeout(timeoutId)
     }
-  }, [isDialogOpen, modalView])
+  }, [isDialogOpen, loadFloorPlanUrl, modalView])
 
   async function handleUpload(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()

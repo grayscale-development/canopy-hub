@@ -31,8 +31,10 @@ pnpm-debug.log*
 # env files
 .env*.local
 supabase/.temp/
+supabase/.branches/
 supabase/functions/.env
 supabase/functions/.env.*
+.supabase-local/
 
 # typescript
 *.tsbuildinfo

@@ -21,7 +21,7 @@ One row per month for the last 12 months (oldest to newest), zero-filled:
 
 Primary path:
 
-- [`fetchCanopyProductionSeriesFromRpc`](../lib/hub-data.ts)
+- [`fetchCanopyProductionSeries`](../lib/hub-data.ts)
 
 Current `/home` behavior:
 

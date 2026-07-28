@@ -1,9 +1,11 @@
 "use server"
 
+import { FunctionsHttpError } from "@supabase/functions-js"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { userHasPermissionCode } from "@/lib/permissions"
+import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 function getString(formData: FormData, key: string) {
@@ -145,101 +147,100 @@ export async function removePermissionUserAction(formData: FormData) {
   revalidatePath("/settings/permissions")
 }
 
-interface QlikSourceConfigRow {
+interface SourceConfigRow {
   id: string
-  sync_key: string
+  source_key: string
   is_enabled: boolean
 }
 
-interface QlikSyncChunkResponse {
+interface DataSyncResponse {
   success?: boolean
   error?: string | null
   hasMore?: boolean
   nextStartAt?: number | null
 }
 
-export interface RunAllQlikSyncsResult {
+async function getFunctionErrorMessage(error: unknown) {
+  if (error instanceof FunctionsHttpError && error.context instanceof Response) {
+    const responseText = await error.context.text()
+    if (responseText) {
+      try {
+        const parsed = JSON.parse(responseText) as { error?: unknown; message?: unknown }
+        const parsedMessage =
+          typeof parsed.error === "string"
+            ? parsed.error
+            : typeof parsed.message === "string"
+              ? parsed.message
+              : null
+        if (parsedMessage) {
+          return `${parsedMessage} (${error.context.status})`
+        }
+      } catch {
+        return `${responseText} (${error.context.status})`
+      }
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return "Sync failed."
+}
+
+export interface RunAllDataSyncsResult {
   ok: boolean
   message: string
 }
 
-export async function runAllQlikSyncsAction(): Promise<RunAllQlikSyncsResult> {
-  const supabase = await getPermissionsEditorClient()
+export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
+  await getPermissionsEditorClient()
+  const supabase = createSupabaseAdminClient()
 
   const { data: sources, error: sourcesError } = await supabase
-    .from("qlik_source_configs")
-    .select("id,sync_key,is_enabled")
+    .from("source_configs")
+    .select("id,source_key,is_enabled")
     .eq("is_enabled", true)
-    .order("sync_key", { ascending: true })
+    .order("source_key", { ascending: true })
 
   if (sourcesError) {
     return {
       ok: false,
-      message: sourcesError.message || "Unable to load qlik_source_configs.",
+      message: sourcesError.message || "Unable to load source_configs.",
     }
   }
 
-  const enabledSources = ((sources ?? []) as QlikSourceConfigRow[]).filter(
-    (source) => Boolean(source.id) && Boolean(source.sync_key)
+  const enabledSources = ((sources ?? []) as SourceConfigRow[]).filter(
+    (source) => Boolean(source.id) && Boolean(source.source_key)
   )
 
   if (enabledSources.length === 0) {
     return {
       ok: true,
-      message: "No enabled Qlik source configs were found.",
+      message: "No enabled source configs were found.",
     }
   }
 
   const failures: string[] = []
-  let completedCount = 0
+  let dispatchedCount = 0
 
   for (const source of enabledSources) {
-    let nextStartAt = 0
-    let attempts = 0
-    let sourceFailed = false
-    const maxChunkAttempts = 200
+    const { data, error } = await supabase.functions.invoke("data-sync", {
+      body: { sourceConfigId: source.id, startAt: 0 },
+    })
 
-    while (attempts < maxChunkAttempts) {
-      attempts += 1
+    const payload = (data ?? null) as DataSyncResponse | null
 
-      const { data, error } = await supabase.functions.invoke("qlik-sync-source", {
-        body: { sourceConfigId: source.id, startAt: nextStartAt },
-      })
-
-      const payload = (data ?? null) as QlikSyncChunkResponse | null
-
-      if (error || payload?.success === false) {
-        sourceFailed = true
-        failures.push(
-          `${source.sync_key}: ${payload?.error || error?.message || "Sync failed."}`
-        )
-        break
-      }
-
-      if (!payload?.hasMore) {
-        completedCount += 1
-        break
-      }
-
-      if (
-        typeof payload.nextStartAt !== "number" ||
-        payload.nextStartAt <= nextStartAt
-      ) {
-        sourceFailed = true
-        failures.push(
-          `${source.sync_key}: Invalid chunk cursor returned by edge function.`
-        )
-        break
-      }
-
-      nextStartAt = payload.nextStartAt
-    }
-
-    if (!sourceFailed && attempts >= maxChunkAttempts) {
+    if (error || payload?.success === false) {
+      const errorMessage =
+        payload?.error || (error ? await getFunctionErrorMessage(error) : null)
       failures.push(
-        `${source.sync_key}: Exceeded max chunk attempts before completion.`
+        `${source.source_key}: ${errorMessage || "Sync failed."}`
       )
+      continue
     }
+
+    dispatchedCount += 1
   }
 
   revalidatePath("/settings/advanced")
@@ -254,6 +255,6 @@ export async function runAllQlikSyncsAction(): Promise<RunAllQlikSyncsResult> {
 
   return {
     ok: true,
-    message: `Completed ${completedCount} of ${enabledSources.length} enabled source syncs.`,
+    message: `Dispatched ${dispatchedCount} of ${enabledSources.length} enabled source syncs.`,
   }
 }

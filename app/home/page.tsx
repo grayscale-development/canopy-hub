@@ -23,7 +23,7 @@ import {
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
-import { AprilSummaryTable } from "@/components/home/april-summary-table"
+import { CurrentMonthSummaryTable } from "@/components/home/current-month-summary-table"
 import { CanopyProductionChart } from "@/components/home/canopy-production-chart"
 import { FundedLoansByProgramPieChart } from "@/components/home/funded-loans-by-program-pie-chart"
 import {
@@ -39,16 +39,16 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import {
-  fetchAprilBranchSummaryFromRpc,
-  fetchAprilDivisionSummaryFromRpc,
+  fetchCurrentMonthBranchSummary,
+  fetchCurrentMonthDivisionSummary,
   type LeaderboardEntityKey,
-  fetchAprilLoanOfficerSummaryFromRpc,
-  fetchAprilProcessorSummaryFromRpc,
-  fetchAprilUnderwriterSummaryFromRpc,
-  fetchAprilUnderwritingOrgSummaryFromRpc,
-  fetchCanopyProductionSeriesFromRpc,
-  fetchCorporateTurnSummaryFromRpc,
-  fetchPreviousMonthLoanProgramSummaryFromRpc,
+  fetchCurrentMonthLoanOfficerSummary,
+  fetchCurrentMonthProcessorSummary,
+  fetchCurrentMonthUnderwriterSummary,
+  fetchCurrentMonthUnderwritingOrgSummary,
+  fetchCanopyProductionSeries,
+  fetchCorporateTurnSummary,
+  fetchPreviousMonthLoanProgramSummary,
 } from "@/lib/hub-data"
 import type { FileViewerFilterField } from "@/lib/file-viewer-filters"
 import type { FileViewerFilterOperator } from "@/lib/file-viewer-filters"
@@ -170,9 +170,7 @@ function ValuesGrid() {
             <value.icon className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold">
-              {value.title}
-            </h2>
+            <h2 className="text-sm font-semibold">{value.title}</h2>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               {value.description}
             </p>
@@ -248,15 +246,19 @@ const ONE_DECIMAL_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
 })
 
-const ENTITY_FILTER_FIELD: Record<LeaderboardEntityKey, FileViewerFilterField> = {
-  division: "division",
-  branch: "branch",
-  loanOfficer: "loanOfficer",
-  processor: "processor",
-  underwriter: "underwriter",
-  underwritingOrg: "underwritingOrg",
-}
-const ENTITY_ID_FILTER_FIELD: Record<LeaderboardEntityKey, FileViewerFilterField> = {
+const ENTITY_FILTER_FIELD: Record<LeaderboardEntityKey, FileViewerFilterField> =
+  {
+    division: "division",
+    branch: "branch",
+    loanOfficer: "loanOfficer",
+    processor: "processor",
+    underwriter: "underwriter",
+    underwritingOrg: "underwritingOrg",
+  }
+const ENTITY_ID_FILTER_FIELD: Record<
+  LeaderboardEntityKey,
+  FileViewerFilterField
+> = {
   division: "divisionId",
   branch: "branchId",
   loanOfficer: "loanOfficerId",
@@ -383,7 +385,10 @@ export default async function HomePage() {
     month: "long",
   }).format(leaderboardReferenceDate)
   const leaderboardMonthLabel = `${leaderboardMonthName} ${leaderboardYear}`
-  const leaderboardMonthNumber = String(leaderboardMonthIndex + 1).padStart(2, "0")
+  const leaderboardMonthNumber = String(leaderboardMonthIndex + 1).padStart(
+    2,
+    "0"
+  )
   const leaderboardMonthEndDay = new Date(
     leaderboardYear,
     leaderboardMonthIndex + 1,
@@ -396,79 +401,78 @@ export default async function HomePage() {
 
   let productionChartError: string | null = null
   let productionSeries: Awaited<
-    ReturnType<typeof fetchCanopyProductionSeriesFromRpc>
+    ReturnType<typeof fetchCanopyProductionSeries>
   > | null = null
-  let aprilBranchError: string | null = null
-  let aprilBranchSummary: Awaited<
-    ReturnType<typeof fetchAprilBranchSummaryFromRpc>
+  let currentMonthBranchError: string | null = null
+  let currentMonthBranchSummary: Awaited<
+    ReturnType<typeof fetchCurrentMonthBranchSummary>
   > = []
-  let aprilDivisionError: string | null = null
-  let aprilDivisionSummary: Awaited<
-    ReturnType<typeof fetchAprilDivisionSummaryFromRpc>
+  let currentMonthDivisionError: string | null = null
+  let currentMonthDivisionSummary: Awaited<
+    ReturnType<typeof fetchCurrentMonthDivisionSummary>
   > = []
-  let aprilLoanOfficerError: string | null = null
-  let aprilLoanOfficerSummary: Awaited<
-    ReturnType<typeof fetchAprilLoanOfficerSummaryFromRpc>
+  let currentMonthLoanOfficerError: string | null = null
+  let currentMonthLoanOfficerSummary: Awaited<
+    ReturnType<typeof fetchCurrentMonthLoanOfficerSummary>
   > = []
-  let aprilProcessorError: string | null = null
-  let aprilProcessorSummary: Awaited<
-    ReturnType<typeof fetchAprilProcessorSummaryFromRpc>
+  let currentMonthProcessorError: string | null = null
+  let currentMonthProcessorSummary: Awaited<
+    ReturnType<typeof fetchCurrentMonthProcessorSummary>
   > = []
-  let aprilUnderwriterError: string | null = null
-  let aprilUnderwriterSummary: Awaited<
-    ReturnType<typeof fetchAprilUnderwriterSummaryFromRpc>
+  let currentMonthUnderwriterError: string | null = null
+  let currentMonthUnderwriterSummary: Awaited<
+    ReturnType<typeof fetchCurrentMonthUnderwriterSummary>
   > = []
-  let aprilUnderwritingOrgError: string | null = null
-  let aprilUnderwritingOrgSummary: Awaited<
-    ReturnType<typeof fetchAprilUnderwritingOrgSummaryFromRpc>
+  let currentMonthUnderwritingOrgError: string | null = null
+  let currentMonthUnderwritingOrgSummary: Awaited<
+    ReturnType<typeof fetchCurrentMonthUnderwritingOrgSummary>
   > = []
   let corporateTurnError: string | null = null
   let corporateTurnSummary: Awaited<
-    ReturnType<typeof fetchCorporateTurnSummaryFromRpc>
+    ReturnType<typeof fetchCorporateTurnSummary>
   > | null = null
   let loanProgramChartError: string | null = null
   let loanProgramChartSummary: Awaited<
-    ReturnType<typeof fetchPreviousMonthLoanProgramSummaryFromRpc>
+    ReturnType<typeof fetchPreviousMonthLoanProgramSummary>
   > | null = null
   let recentNewsletters: NewsletterFileSummary[] = []
 
   const [
     chartResult,
-    aprilDivisionResult,
-    aprilBranchResult,
-    aprilLoanOfficerResult,
-    aprilProcessorResult,
-    aprilUnderwriterResult,
-    aprilUnderwritingOrgResult,
+    currentMonthDivisionResult,
+    currentMonthBranchResult,
+    currentMonthLoanOfficerResult,
+    currentMonthProcessorResult,
+    currentMonthUnderwriterResult,
+    currentMonthUnderwritingOrgResult,
     corporateTurnResult,
     loanProgramChartResult,
     recentNewslettersResult,
-  ] =
-    await Promise.allSettled([
-      fetchCanopyProductionSeriesFromRpc(),
-      fetchAprilDivisionSummaryFromRpc(),
-      fetchAprilBranchSummaryFromRpc(),
-      fetchAprilLoanOfficerSummaryFromRpc(),
-      fetchAprilProcessorSummaryFromRpc(),
-      fetchAprilUnderwriterSummaryFromRpc(),
-      fetchAprilUnderwritingOrgSummaryFromRpc(),
-      fetchCorporateTurnSummaryFromRpc(),
-      fetchPreviousMonthLoanProgramSummaryFromRpc(),
-      (async () => {
-        const { data: files, error } = await supabase.storage
-          .from(NEWSLETTER_BUCKET)
-          .list("", { limit: 1000 })
-        if (error) {
-          throw new Error(error.message)
-        }
+  ] = await Promise.allSettled([
+    fetchCanopyProductionSeries(),
+    fetchCurrentMonthDivisionSummary(),
+    fetchCurrentMonthBranchSummary(),
+    fetchCurrentMonthLoanOfficerSummary(),
+    fetchCurrentMonthProcessorSummary(),
+    fetchCurrentMonthUnderwriterSummary(),
+    fetchCurrentMonthUnderwritingOrgSummary(),
+    fetchCorporateTurnSummary(),
+    fetchPreviousMonthLoanProgramSummary(),
+    (async () => {
+      const { data: files, error } = await supabase.storage
+        .from(NEWSLETTER_BUCKET)
+        .list("", { limit: 1000 })
+      if (error) {
+        throw new Error(error.message)
+      }
 
-        return (files ?? [])
-          .map((file) => parseNewsletterFileName(file.name))
-          .filter((file): file is NewsletterFileSummary => file !== null)
-          .sort(compareNewsletterFilesDescending)
-          .slice(0, 4)
-      })(),
-    ])
+      return (files ?? [])
+        .map((file) => parseNewsletterFileName(file.name))
+        .filter((file): file is NewsletterFileSummary => file !== null)
+        .sort(compareNewsletterFilesDescending)
+        .slice(0, 4)
+    })(),
+  ])
 
   if (chartResult.status === "fulfilled") {
     productionSeries = chartResult.value
@@ -476,40 +480,40 @@ export default async function HomePage() {
     productionChartError = "Data load failed."
   }
 
-  if (aprilDivisionResult.status === "fulfilled") {
-    aprilDivisionSummary = aprilDivisionResult.value
+  if (currentMonthDivisionResult.status === "fulfilled") {
+    currentMonthDivisionSummary = currentMonthDivisionResult.value
   } else {
-    aprilDivisionError = "Data load failed."
+    currentMonthDivisionError = "Data load failed."
   }
 
-  if (aprilBranchResult.status === "fulfilled") {
-    aprilBranchSummary = aprilBranchResult.value
+  if (currentMonthBranchResult.status === "fulfilled") {
+    currentMonthBranchSummary = currentMonthBranchResult.value
   } else {
-    aprilBranchError = "Data load failed."
+    currentMonthBranchError = "Data load failed."
   }
 
-  if (aprilLoanOfficerResult.status === "fulfilled") {
-    aprilLoanOfficerSummary = aprilLoanOfficerResult.value
+  if (currentMonthLoanOfficerResult.status === "fulfilled") {
+    currentMonthLoanOfficerSummary = currentMonthLoanOfficerResult.value
   } else {
-    aprilLoanOfficerError = "Data load failed."
+    currentMonthLoanOfficerError = "Data load failed."
   }
 
-  if (aprilProcessorResult.status === "fulfilled") {
-    aprilProcessorSummary = aprilProcessorResult.value
+  if (currentMonthProcessorResult.status === "fulfilled") {
+    currentMonthProcessorSummary = currentMonthProcessorResult.value
   } else {
-    aprilProcessorError = "Data load failed."
+    currentMonthProcessorError = "Data load failed."
   }
 
-  if (aprilUnderwriterResult.status === "fulfilled") {
-    aprilUnderwriterSummary = aprilUnderwriterResult.value
+  if (currentMonthUnderwriterResult.status === "fulfilled") {
+    currentMonthUnderwriterSummary = currentMonthUnderwriterResult.value
   } else {
-    aprilUnderwriterError = "Data load failed."
+    currentMonthUnderwriterError = "Data load failed."
   }
 
-  if (aprilUnderwritingOrgResult.status === "fulfilled") {
-    aprilUnderwritingOrgSummary = aprilUnderwritingOrgResult.value
+  if (currentMonthUnderwritingOrgResult.status === "fulfilled") {
+    currentMonthUnderwritingOrgSummary = currentMonthUnderwritingOrgResult.value
   } else {
-    aprilUnderwritingOrgError = "Data load failed."
+    currentMonthUnderwritingOrgError = "Data load failed."
   }
 
   if (corporateTurnResult.status === "fulfilled") {
@@ -530,13 +534,15 @@ export default async function HomePage() {
     recentNewsletters = []
   }
 
-  const topAprilDivisionSummary = toTop20ByPerformance(
-    aprilDivisionSummary.map((row) => ({
+  const topCurrentMonthDivisionSummary = toTop20ByPerformance(
+    currentMonthDivisionSummary.map((row) => ({
       id: row.divisionId,
       name: row.divisionName,
       fileCount: row.fileCount,
       totalVolume: row.totalVolume,
-      rowHref: row.divisionId ? `/division/${encodeURIComponent(row.divisionId)}` : undefined,
+      rowHref: row.divisionId
+        ? `/division/${encodeURIComponent(row.divisionId)}`
+        : undefined,
       fileViewerHref: toFileViewerHref({
         entity: "division",
         entityId: row.divisionId,
@@ -547,13 +553,15 @@ export default async function HomePage() {
     }))
   )
 
-  const topAprilBranchSummary = toTop20ByPerformance(
-    aprilBranchSummary.map((row) => ({
+  const topCurrentMonthBranchSummary = toTop20ByPerformance(
+    currentMonthBranchSummary.map((row) => ({
       id: row.branchId,
       name: row.branchName,
       fileCount: row.fileCount,
       totalVolume: row.totalVolume,
-      rowHref: row.branchId ? `/branch/${encodeURIComponent(row.branchId)}` : undefined,
+      rowHref: row.branchId
+        ? `/branch/${encodeURIComponent(row.branchId)}`
+        : undefined,
       fileViewerHref: toFileViewerHref({
         entity: "branch",
         entityId: row.branchId,
@@ -564,8 +572,8 @@ export default async function HomePage() {
     }))
   )
 
-  const topAprilLoanOfficerSummary = toTop20ByPerformance(
-    aprilLoanOfficerSummary.map((row) => ({
+  const topCurrentMonthLoanOfficerSummary = toTop20ByPerformance(
+    currentMonthLoanOfficerSummary.map((row) => ({
       id: row.loanOfficerId,
       name: row.loanOfficerName,
       fileCount: row.fileCount,
@@ -583,8 +591,8 @@ export default async function HomePage() {
     }))
   )
 
-  const topAprilProcessorSummary = toTop20ByPerformance(
-    aprilProcessorSummary.map((row) => ({
+  const topCurrentMonthProcessorSummary = toTop20ByPerformance(
+    currentMonthProcessorSummary.map((row) => ({
       id: row.processorId,
       name: row.processorName,
       fileCount: row.fileCount,
@@ -602,8 +610,8 @@ export default async function HomePage() {
     }))
   )
 
-  const topAprilUnderwriterSummary = toTop20ByPerformance(
-    aprilUnderwriterSummary.map((row) => ({
+  const topCurrentMonthUnderwriterSummary = toTop20ByPerformance(
+    currentMonthUnderwriterSummary.map((row) => ({
       id: row.underwriterId,
       name: row.underwriterName,
       fileCount: row.fileCount,
@@ -621,8 +629,8 @@ export default async function HomePage() {
     }))
   )
 
-  const topAprilUnderwritingOrgSummary = toTop20ByPerformance(
-    aprilUnderwritingOrgSummary.map((row) => ({
+  const topCurrentMonthUnderwritingOrgSummary = toTop20ByPerformance(
+    currentMonthUnderwritingOrgSummary.map((row) => ({
       id: row.underwritingOrgId,
       name: row.underwritingOrgName,
       fileCount: row.fileCount,
@@ -646,8 +654,14 @@ export default async function HomePage() {
             (row) => row.statusType === sectionType
           ),
         })),
-        ...[...new Set(corporateTurnSummary.tableRows.map((row) => row.statusType))]
-          .filter((sectionType) => !CORPORATE_TURN_SECTION_ORDER.includes(sectionType))
+        ...[
+          ...new Set(
+            corporateTurnSummary.tableRows.map((row) => row.statusType)
+          ),
+        ]
+          .filter(
+            (sectionType) => !CORPORATE_TURN_SECTION_ORDER.includes(sectionType)
+          )
           .map((sectionType) => ({
             sectionType,
             label: CORPORATE_TURN_SECTION_LABELS[sectionType] ?? sectionType,
@@ -684,7 +698,8 @@ export default async function HomePage() {
                 Welcome back, {firstName}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Monitor production trends, performance, and key operational metrics.
+                Monitor production trends, performance, and key operational
+                metrics.
               </p>
             </div>
             <CultureSection />
@@ -739,7 +754,9 @@ export default async function HomePage() {
                 Corporate workflow status metrics and turnaround times.
               </p>
               {corporateTurnError ? (
-                <p className="mt-4 text-sm text-destructive">{corporateTurnError}</p>
+                <p className="mt-4 text-sm text-destructive">
+                  {corporateTurnError}
+                </p>
               ) : !corporateTurnSummary ||
                 corporateTurnSummary.tableRows.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">
@@ -751,8 +768,12 @@ export default async function HomePage() {
                     <div className="grid grid-cols-[2.2fr_repeat(4,minmax(0,1fr))] gap-x-3 border-b bg-muted/10 px-3 py-2 text-xs font-medium text-muted-foreground">
                       <div>Status</div>
                       <div className="text-right">Files In Progress</div>
-                      <div className="text-right">Workdays for Files in Progress</div>
-                      <div className="text-right">Workdays to Complete for Previous Week</div>
+                      <div className="text-right">
+                        Workdays for Files in Progress
+                      </div>
+                      <div className="text-right">
+                        Workdays to Complete for Previous Week
+                      </div>
                       <div className="text-right">
                         Workdays to Complete for Previous Month
                       </div>
@@ -786,7 +807,9 @@ export default async function HomePage() {
                                     ])}
                                     className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
                                   >
-                                    {WHOLE_NUMBER_FORMATTER.format(row.filesInProgress)}
+                                    {WHOLE_NUMBER_FORMATTER.format(
+                                      row.filesInProgress
+                                    )}
                                   </Link>
                                 </p>
                                 <p className="text-right font-mono tabular-nums">
@@ -813,7 +836,9 @@ export default async function HomePage() {
                   </div>
                   <div className="mt-4 grid gap-2 text-sm md:grid-cols-2">
                     <div className="rounded-lg border px-3 py-2">
-                      <p className="text-muted-foreground">Workdays for LO/LOA Statuses</p>
+                      <p className="text-muted-foreground">
+                        Workdays for LO/LOA Statuses
+                      </p>
                       <p className="mt-1 font-mono tabular-nums">
                         {ONE_DECIMAL_FORMATTER.format(
                           corporateTurnSummary.kpis.workdaysForLoLoaStatuses
@@ -845,7 +870,8 @@ export default async function HomePage() {
                           className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
                         >
                           {WHOLE_NUMBER_FORMATTER.format(
-                            corporateTurnSummary.kpis.underwritingRushesLast7Days
+                            corporateTurnSummary.kpis
+                              .underwritingRushesLast7Days
                           )}
                         </Link>
                       </p>
@@ -860,7 +886,8 @@ export default async function HomePage() {
                           className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
                         >
                           {WHOLE_NUMBER_FORMATTER.format(
-                            corporateTurnSummary.kpis.closingFundingRushesLast7Days
+                            corporateTurnSummary.kpis
+                              .closingFundingRushesLast7Days
                           )}
                         </Link>
                       </p>
@@ -870,14 +897,15 @@ export default async function HomePage() {
               )}
             </div>
             <div className="grid gap-4 xl:grid-cols-2">
-              <div className="xl:col-span-2 px-1 pt-2">
+              <div className="px-1 pt-2 xl:col-span-2">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight">
                       {leaderboardMonthName}&apos;s Leaderboard
                     </h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Ranked funded file count and volume across teams and roles.
+                      Ranked funded file count and volume across teams and
+                      roles.
                     </p>
                   </div>
                   <a
@@ -897,16 +925,18 @@ export default async function HomePage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Funded file count and total funded volume by division.
                 </p>
-                {aprilDivisionError ? (
-                  <p className="mt-4 text-sm text-destructive">{aprilDivisionError}</p>
-                ) : topAprilDivisionSummary.length === 0 ? (
+                {currentMonthDivisionError ? (
+                  <p className="mt-4 text-sm text-destructive">
+                    {currentMonthDivisionError}
+                  </p>
+                ) : topCurrentMonthDivisionSummary.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">
                     No funded files were found for {leaderboardMonthLabel}.
                   </p>
                 ) : (
-                  <AprilSummaryTable
+                  <CurrentMonthSummaryTable
                     entityLabel="Division"
-                    rows={topAprilDivisionSummary}
+                    rows={topCurrentMonthDivisionSummary}
                   />
                 )}
               </div>
@@ -915,16 +945,18 @@ export default async function HomePage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Funded file count and total funded volume by branch.
                 </p>
-                {aprilBranchError ? (
-                  <p className="mt-4 text-sm text-destructive">{aprilBranchError}</p>
-                ) : topAprilBranchSummary.length === 0 ? (
+                {currentMonthBranchError ? (
+                  <p className="mt-4 text-sm text-destructive">
+                    {currentMonthBranchError}
+                  </p>
+                ) : topCurrentMonthBranchSummary.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">
                     No funded files were found for {leaderboardMonthLabel}.
                   </p>
                 ) : (
-                  <AprilSummaryTable
+                  <CurrentMonthSummaryTable
                     entityLabel="Branch"
-                    rows={topAprilBranchSummary}
+                    rows={topCurrentMonthBranchSummary}
                   />
                 )}
               </div>
@@ -935,18 +967,18 @@ export default async function HomePage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Funded file count and total funded volume by loan officer.
                 </p>
-                {aprilLoanOfficerError ? (
+                {currentMonthLoanOfficerError ? (
                   <p className="mt-4 text-sm text-destructive">
-                    {aprilLoanOfficerError}
+                    {currentMonthLoanOfficerError}
                   </p>
-                ) : topAprilLoanOfficerSummary.length === 0 ? (
+                ) : topCurrentMonthLoanOfficerSummary.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">
                     No funded files were found for {leaderboardMonthLabel}.
                   </p>
                 ) : (
-                  <AprilSummaryTable
+                  <CurrentMonthSummaryTable
                     entityLabel="Loan Officer"
-                    rows={topAprilLoanOfficerSummary}
+                    rows={topCurrentMonthLoanOfficerSummary}
                   />
                 )}
               </div>
@@ -955,16 +987,18 @@ export default async function HomePage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Funded file count and total funded volume by processor.
                 </p>
-                {aprilProcessorError ? (
-                  <p className="mt-4 text-sm text-destructive">{aprilProcessorError}</p>
-                ) : topAprilProcessorSummary.length === 0 ? (
+                {currentMonthProcessorError ? (
+                  <p className="mt-4 text-sm text-destructive">
+                    {currentMonthProcessorError}
+                  </p>
+                ) : topCurrentMonthProcessorSummary.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">
                     No funded files were found for {leaderboardMonthLabel}.
                   </p>
                 ) : (
-                  <AprilSummaryTable
+                  <CurrentMonthSummaryTable
                     entityLabel="Processor"
-                    rows={topAprilProcessorSummary}
+                    rows={topCurrentMonthProcessorSummary}
                   />
                 )}
               </div>
@@ -973,18 +1007,18 @@ export default async function HomePage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Funded file count and total funded volume by underwriter.
                 </p>
-                {aprilUnderwriterError ? (
+                {currentMonthUnderwriterError ? (
                   <p className="mt-4 text-sm text-destructive">
-                    {aprilUnderwriterError}
+                    {currentMonthUnderwriterError}
                   </p>
-                ) : topAprilUnderwriterSummary.length === 0 ? (
+                ) : topCurrentMonthUnderwriterSummary.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">
                     No funded files were found for {leaderboardMonthLabel}.
                   </p>
                 ) : (
-                  <AprilSummaryTable
+                  <CurrentMonthSummaryTable
                     entityLabel="Underwriter"
-                    rows={topAprilUnderwriterSummary}
+                    rows={topCurrentMonthUnderwriterSummary}
                   />
                 )}
               </div>
@@ -993,18 +1027,18 @@ export default async function HomePage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Funded file count and total funded volume by underwriting org.
                 </p>
-                {aprilUnderwritingOrgError ? (
+                {currentMonthUnderwritingOrgError ? (
                   <p className="mt-4 text-sm text-destructive">
-                    {aprilUnderwritingOrgError}
+                    {currentMonthUnderwritingOrgError}
                   </p>
-                ) : topAprilUnderwritingOrgSummary.length === 0 ? (
+                ) : topCurrentMonthUnderwritingOrgSummary.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">
                     No funded files were found for {leaderboardMonthLabel}.
                   </p>
                 ) : (
-                  <AprilSummaryTable
+                  <CurrentMonthSummaryTable
                     entityLabel="Underwriting Org"
-                    rows={topAprilUnderwritingOrgSummary}
+                    rows={topCurrentMonthUnderwritingOrgSummary}
                   />
                 )}
               </div>
@@ -1014,7 +1048,9 @@ export default async function HomePage() {
             <div className="space-y-4">
               <div className="rounded-xl border bg-card p-6 text-card-foreground">
                 <div className="flex items-start justify-between gap-3">
-                  <h2 className="text-xl font-semibold">Funded Loans by Loan Program</h2>
+                  <h2 className="text-xl font-semibold">
+                    Funded Loans by Loan Program
+                  </h2>
                   <a
                     href="/view/funded-loans-by-loan-program"
                     target="_blank"
@@ -1027,18 +1063,24 @@ export default async function HomePage() {
                   </a>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Previous month distribution ({loanProgramChartSummary?.monthLabel ?? "—"}).
+                  Previous month distribution (
+                  {loanProgramChartSummary?.monthLabel ?? "—"}).
                 </p>
                 {loanProgramChartError ? (
-                  <p className="mt-4 text-sm text-destructive">{loanProgramChartError}</p>
+                  <p className="mt-4 text-sm text-destructive">
+                    {loanProgramChartError}
+                  </p>
                 ) : !loanProgramChartSummary ||
                   loanProgramChartSummary.rows.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">
-                    No funded loan program data is available for the previous month.
+                    No funded loan program data is available for the previous
+                    month.
                   </p>
                 ) : (
                   <div className="mt-4">
-                    <FundedLoansByProgramPieChart rows={loanProgramChartSummary.rows} />
+                    <FundedLoansByProgramPieChart
+                      rows={loanProgramChartSummary.rows}
+                    />
                   </div>
                 )}
               </div>

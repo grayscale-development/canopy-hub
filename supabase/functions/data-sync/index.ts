@@ -14,10 +14,12 @@ import type {
   TransformedRowResult,
 } from "../_shared/types.ts";
 import { chunkArray, jsonResponse } from "../_shared/utils.ts";
+import type { Env } from "../_shared/env.ts";
 
 interface SyncRequestBody {
-  syncKey?: string;
+  sourceKey?: string;
   sourceConfigId?: string;
+  runId?: string;
   startAt?: number;
   maxRowsPerRun?: number;
 }
@@ -31,7 +33,24 @@ interface UserRoleRow {
   role_id: number;
 }
 
-const env = getEnv();
+interface QlikConfig {
+  appId: string;
+  objectId: string;
+  sheetId: string | null;
+  objectDescription: string | null;
+}
+
+interface RunCounters {
+  rowCount: number;
+  insertedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+}
+
+declare const EdgeRuntime: undefined | {
+  waitUntil?: (promise: Promise<unknown>) => void;
+};
+
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -43,6 +62,10 @@ function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   return "Unknown error";
+}
+
+function getRawClient() {
+  return (getServiceClient() as any).schema("raw");
 }
 
 function parseNonNegativeInteger(value: unknown): number | null {
@@ -87,25 +110,19 @@ function extractBearerToken(req: Request): string | null {
 async function assertAdminUserBearer(req: Request): Promise<void> {
   const token = extractBearerToken(req);
   if (!token) {
-    throw new Response(
-      JSON.stringify({ error: "Unauthorized" }),
-      {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      },
-    );
+    throw new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   const supabase = getServiceClient();
   const { data: authData, error: authError } = await supabase.auth.getUser(token);
   if (authError || !authData.user) {
-    throw new Response(
-      JSON.stringify({ error: "Unauthorized" }),
-      {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      },
-    );
+    throw new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   const { data: roleRow, error: roleError } = await supabase
@@ -119,17 +136,16 @@ async function assertAdminUserBearer(req: Request): Promise<void> {
   }
 
   if (!roleRow || roleRow.role_id !== 1) {
-    throw new Response(
-      JSON.stringify({ error: "Forbidden" }),
-      {
-        status: 403,
-        headers: { "content-type": "application/json" },
-      },
-    );
+    throw new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
   }
 }
 
 async function assertAuthorizedRequest(req: Request): Promise<void> {
+  const env = getEnv();
+
   try {
     assertInternalBearer(req);
     return;
@@ -145,6 +161,46 @@ async function assertAuthorizedRequest(req: Request): Promise<void> {
   await assertAdminUserBearer(req);
 }
 
+function getConfigString(config: Record<string, unknown>, key: string): string | null {
+  const value = config[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function getQlikConfig(source: SourceConfigRow): QlikConfig {
+  if (source.source_type !== "qlik") {
+    throw new Error(`Unsupported source_type: ${source.source_type}`);
+  }
+
+  const appId = getConfigString(source.config, "app_id");
+  const objectId = getConfigString(source.config, "object_id");
+  if (!appId || !objectId) {
+    throw new Error("Qlik source config requires config.app_id and config.object_id.");
+  }
+
+  return {
+    appId,
+    objectId,
+    sheetId: getConfigString(source.config, "sheet_id"),
+    objectDescription: getConfigString(source.config, "object_description"),
+  };
+}
+
+function parseTargetTable(source: SourceConfigRow): TargetTableName {
+  const prefix = "raw.";
+  if (!source.target_table.startsWith(prefix)) {
+    throw new Error(`target_table must be in the raw schema: ${source.target_table}`);
+  }
+
+  const tableName = source.target_table.slice(prefix.length);
+  if (!isSupportedTargetTable(tableName)) {
+    throw new Error(`Unsupported target_table: ${source.target_table}`);
+  }
+
+  return tableName;
+}
+
 async function insertRawPayloads(
   runId: string,
   source: SourceConfigRow,
@@ -152,25 +208,25 @@ async function insertRawPayloads(
 ): Promise<void> {
   if (!payloads.length) return;
 
-  const supabase = getServiceClient();
+  const supabase = getRawClient();
   const rows = payloads.map((p) => ({
     run_id: runId,
     source_config_id: source.id,
-    sync_key: source.sync_key,
+    source_key: source.source_key,
     payload_type: p.payload_type,
     payload: p.payload,
   }));
 
-  const { error } = await supabase.from("qlik_raw_payloads").insert(rows);
-  if (error) throw new Error(`Unable to insert raw payloads: ${error.message}`);
+  const { error } = await supabase.from("source_payloads").insert(rows);
+  if (error) throw new Error(`Unable to insert source payloads: ${error.message}`);
 }
 
 async function insertRowIngestLogs(rows: Array<Record<string, unknown>>): Promise<void> {
   if (!rows.length) return;
-  const supabase = getServiceClient();
+  const supabase = getRawClient();
 
   for (const chunk of chunkArray(rows, 500)) {
-    const { error } = await supabase.from("qlik_row_ingest_log").insert(chunk);
+    const { error } = await supabase.from("row_ingest_log").insert(chunk);
     if (error) throw new Error(`Unable to insert row ingest logs: ${error.message}`);
   }
 }
@@ -179,11 +235,11 @@ async function fetchSourceConfig(input: SyncRequestBody): Promise<SourceConfigRo
   const supabase = getServiceClient();
 
   let query = supabase
-    .from("qlik_source_configs")
+    .from("source_configs")
     .select("*")
     .limit(1);
 
-  if (input.syncKey) query = query.eq("sync_key", input.syncKey);
+  if (input.sourceKey) query = query.eq("source_key", input.sourceKey);
   if (input.sourceConfigId) query = query.eq("id", input.sourceConfigId);
 
   const { data, error } = await query.maybeSingle();
@@ -193,12 +249,13 @@ async function fetchSourceConfig(input: SyncRequestBody): Promise<SourceConfigRo
 }
 
 async function createRun(source: SourceConfigRow, requestMetadata: Record<string, unknown>): Promise<string> {
-  const supabase = getServiceClient();
+  const supabase = getRawClient();
   const { data, error } = await supabase
-    .from("qlik_sync_runs")
+    .from("sync_runs")
     .insert({
       source_config_id: source.id,
-      sync_key: source.sync_key,
+      source_key: source.source_key,
+      source_type: source.source_type,
       status: "running",
       request_metadata: requestMetadata,
     })
@@ -212,13 +269,32 @@ async function createRun(source: SourceConfigRow, requestMetadata: Record<string
   return data.id as string;
 }
 
+async function fetchRunCounters(runId: string): Promise<RunCounters> {
+  const supabase = getRawClient();
+  const { data, error } = await supabase
+    .from("sync_runs")
+    .select("row_count,inserted_count,updated_count,skipped_count")
+    .eq("id", runId)
+    .maybeSingle();
+
+  if (error) throw new Error(`Unable to load sync run ${runId}: ${error.message}`);
+
+  const row = (data ?? {}) as Record<string, unknown>;
+  return {
+    rowCount: Number(row.row_count) || 0,
+    insertedCount: Number(row.inserted_count) || 0,
+    updatedCount: Number(row.updated_count) || 0,
+    skippedCount: Number(row.skipped_count) || 0,
+  };
+}
+
 async function updateRun(
   runId: string,
   patch: Record<string, unknown>,
 ): Promise<void> {
-  const supabase = getServiceClient();
+  const supabase = getRawClient();
   const { error } = await supabase
-    .from("qlik_sync_runs")
+    .from("sync_runs")
     .update(patch)
     .eq("id", runId);
 
@@ -229,7 +305,7 @@ async function loadExistingHashes(
   tableName: TargetTableName,
   keys: string[],
 ): Promise<Map<string, string>> {
-  const supabase = getServiceClient();
+  const supabase = getRawClient();
   const map = new Map<string, string>();
 
   for (const chunk of chunkArray(keys, 100)) {
@@ -240,7 +316,7 @@ async function loadExistingHashes(
       .in("external_row_key", chunk);
 
     if (error) {
-      throw new Error(`Unable to load existing rows from ${tableName}: ${error.message}`);
+      throw new Error(`Unable to load existing rows from raw.${tableName}: ${error.message}`);
     }
 
     for (const row of data ?? []) {
@@ -258,14 +334,14 @@ async function upsertTargetRows(
   rows: Array<Record<string, unknown>>,
 ): Promise<void> {
   if (!rows.length) return;
-  const supabase = getServiceClient();
+  const supabase = getRawClient();
 
   for (const chunk of chunkArray(rows, 500)) {
     const { error } = await supabase
       .from(tableName)
       .upsert(chunk, { onConflict: "external_row_key" });
 
-    if (error) throw new Error(`Unable to upsert into ${tableName}: ${error.message}`);
+    if (error) throw new Error(`Unable to upsert into raw.${tableName}: ${error.message}`);
   }
 }
 
@@ -317,11 +393,37 @@ function dedupeTransformedRows(
   const dedupedByKey = new Map<string, TransformedRowResult>();
 
   for (const row of transformedRows) {
-    // Keep the last occurrence for a duplicate external_row_key.
     dedupedByKey.set(row.external_row_key, row);
   }
 
   return [...dedupedByKey.values()];
+}
+
+async function continueRun(input: {
+  sourceConfigId: string;
+  runId: string;
+  nextStartAt: number;
+  maxRowsPerRun: number;
+}): Promise<void> {
+  const env = getEnv();
+  const res = await fetch(`${env.SUPABASE_URL}/functions/v1/data-sync`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${env.INTERNAL_FUNCTION_BEARER_TOKEN}`,
+    },
+    body: JSON.stringify({
+      sourceConfigId: input.sourceConfigId,
+      runId: input.runId,
+      startAt: input.nextStartAt,
+      maxRowsPerRun: input.maxRowsPerRun,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Unable to continue data sync: ${text.slice(0, 500)}`);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -331,6 +433,13 @@ Deno.serve(async (req) => {
 
   if (req.method !== "POST") {
     return jsonResponseWithCors({ error: "Method not allowed" }, 405);
+  }
+
+  let env: Env;
+  try {
+    env = getEnv();
+  } catch (err) {
+    return jsonResponseWithCors({ error: getErrorMessage(err) }, 500);
   }
 
   try {
@@ -347,10 +456,10 @@ Deno.serve(async (req) => {
     return jsonResponseWithCors({ error: "Invalid JSON body" }, 400);
   }
 
-  const hasSyncKey = !!body.syncKey;
+  const hasSourceKey = !!body.sourceKey;
   const hasSourceConfigId = !!body.sourceConfigId;
-  if ((hasSyncKey && hasSourceConfigId) || (!hasSyncKey && !hasSourceConfigId)) {
-    return jsonResponseWithCors({ error: "Provide exactly one of syncKey or sourceConfigId" }, 400);
+  if ((hasSourceKey && hasSourceConfigId) || (!hasSourceKey && !hasSourceConfigId)) {
+    return jsonResponseWithCors({ error: "Provide exactly one of sourceKey or sourceConfigId" }, 400);
   }
 
   const chunkStartAt = parseNonNegativeInteger(body.startAt) ?? 0;
@@ -372,14 +481,29 @@ Deno.serve(async (req) => {
     return jsonResponseWithCors({ error: "Source config not found" }, 404);
   }
 
-  let runId = "";
+  if (!source.is_enabled) {
+    return jsonResponseWithCors({ error: "Source config is disabled" }, 409);
+  }
+
+  let qlikConfig: QlikConfig;
+  let targetTableName: TargetTableName;
   try {
-    runId = await createRun(source, {
-      requestBody: body,
-      invokedAt: new Date().toISOString(),
-      startAt: chunkStartAt,
-      maxRowsPerRun: chunkMaxRowsPerRun,
-    });
+    qlikConfig = getQlikConfig(source);
+    targetTableName = parseTargetTable(source);
+  } catch (err) {
+    return jsonResponseWithCors({ error: getErrorMessage(err) }, 400);
+  }
+
+  let runId = body.runId ?? "";
+  try {
+    if (!runId) {
+      runId = await createRun(source, {
+        requestBody: body,
+        invokedAt: new Date().toISOString(),
+        startAt: chunkStartAt,
+        maxRowsPerRun: chunkMaxRowsPerRun,
+      });
+    }
   } catch (err) {
     return jsonResponseWithCors({ error: getErrorMessage(err) }, 500);
   }
@@ -388,7 +512,7 @@ Deno.serve(async (req) => {
 
   let layoutCaptured = false;
   let dataCaptured = false;
-  let rowCount: number | null = null;
+  let rowCount = 0;
   let totalRows: number | null = null;
   let fetchedRows = 0;
   let hasMore = false;
@@ -396,14 +520,14 @@ Deno.serve(async (req) => {
   let insertedCount = 0;
   let updatedCount = 0;
   let skippedCount = 0;
-  let status: "success" | "failed" | "partial" = "success";
+  let status: "success" | "failed" | "partial" | "running" = "success";
   let errorMessage: string | null = null;
 
   try {
-    qix = new QixClient(source.qlik_app_id);
+    qix = new QixClient(qlikConfig.appId);
     await qix.connect();
 
-    const fetched = await qix.fetchSourceObject(source.qlik_object_id, {
+    const fetched = await qix.fetchSourceObject(qlikConfig.objectId, {
       startAt: chunkStartAt,
       maxRowsPerRun: chunkMaxRowsPerRun,
     });
@@ -419,9 +543,9 @@ Deno.serve(async (req) => {
     }
 
     const metadataSummary = buildMetadataSummary({
-      appId: source.qlik_app_id,
-      objectId: source.qlik_object_id,
-      syncKey: source.sync_key,
+      appId: qlikConfig.appId,
+      objectId: qlikConfig.objectId,
+      sourceKey: source.source_key,
       objectType: fetched.objectType,
       layout: fetched.layout,
       dataPages: fetched.dataPages,
@@ -440,12 +564,17 @@ Deno.serve(async (req) => {
       {
         payload_type: "combined",
         payload: {
-          appId: source.qlik_app_id,
-          objectId: source.qlik_object_id,
+          sourceType: source.source_type,
+          sourceKey: source.source_key,
+          appId: qlikConfig.appId,
+          sheetId: qlikConfig.sheetId,
+          objectId: qlikConfig.objectId,
+          objectDescription: qlikConfig.objectDescription,
           objectType: fetched.objectType,
+          targetTable: source.target_table,
           isHypercube: isHypercubeLayout(fetched.layout),
-          layoutCaptured: layoutCaptured,
-          dataCaptured: dataCaptured,
+          layoutCaptured,
+          dataCaptured,
           rowCount,
           totalRows: fetched.totalRows,
           startAt: fetched.startAt,
@@ -476,9 +605,9 @@ Deno.serve(async (req) => {
       payloads.push({
         payload_type: "error",
         payload: {
-          syncKey: source.sync_key,
-          appId: source.qlik_app_id,
-          objectId: source.qlik_object_id,
+          sourceKey: source.source_key,
+          appId: qlikConfig.appId,
+          objectId: qlikConfig.objectId,
           stage: "GetHyperCubeData",
           error: fetched.dataError,
           dataTruncated: fetched.dataTruncated,
@@ -488,13 +617,7 @@ Deno.serve(async (req) => {
 
     await insertRawPayloads(runId, source, payloads);
 
-    const canIngest =
-      source.domain_name !== "raw_only" &&
-      source.target_table_name !== null &&
-      isSupportedTargetTable(source.target_table_name);
-
-    if (canIngest && rowRecords.length > 0) {
-      const targetTableName = source.target_table_name as TargetTableName;
+    if (rowRecords.length > 0) {
       const transformedRows = dedupeTransformedRows(
         transformByTargetTable(targetTableName, rowRecords),
       );
@@ -513,8 +636,8 @@ Deno.serve(async (req) => {
       const ingestLogs = actions.map(({ action, item, errorMessage: actionError }) => ({
         run_id: runId,
         source_config_id: source.id,
-        sync_key: source.sync_key,
-        target_table_name: targetTableName,
+        source_key: source.source_key,
+        target_table: source.target_table,
         external_row_key: item.external_row_key,
         source_record_hash: item.source_record_hash,
         action,
@@ -527,28 +650,38 @@ Deno.serve(async (req) => {
       if (actions.some((a) => a.action === "failed")) {
         status = "partial";
       }
-    } else if (source.domain_name === "raw_only" || !source.target_table_name) {
-      status = "partial";
-    } else if (!canIngest) {
-      status = "partial";
-      errorMessage = `Unsupported target_table_name: ${source.target_table_name}`;
     }
 
-    if (fetched.hasMore) {
-      status = "partial";
+    const previousCounters = await fetchRunCounters(runId);
+    const cumulativeRowCount = previousCounters.rowCount + rowCount;
+    const cumulativeInsertedCount = previousCounters.insertedCount + insertedCount;
+    const cumulativeUpdatedCount = previousCounters.updatedCount + updatedCount;
+    const cumulativeSkippedCount = previousCounters.skippedCount + skippedCount;
+
+    const shouldContinue =
+      hasMore &&
+      !errorMessage &&
+      typeof nextStartAt === "number" &&
+      nextStartAt > chunkStartAt;
+
+    if (shouldContinue) {
+      status = "running";
     }
 
     await updateRun(runId, {
-      completed_at: new Date().toISOString(),
+      completed_at: shouldContinue ? null : new Date().toISOString(),
       status,
       layout_captured: layoutCaptured,
       data_captured: dataCaptured,
-      row_count: rowCount,
-      inserted_count: insertedCount,
-      updated_count: updatedCount,
-      skipped_count: skippedCount,
+      row_count: cumulativeRowCount,
+      inserted_count: cumulativeInsertedCount,
+      updated_count: cumulativeUpdatedCount,
+      skipped_count: cumulativeSkippedCount,
       error_message: errorMessage,
       response_metadata: {
+        sourceType: source.source_type,
+        sourceKey: source.source_key,
+        targetTable: source.target_table,
         objectType: fetched.objectType,
         isHypercube: isHypercubeLayout(fetched.layout),
         dataTruncated: fetched.dataTruncated,
@@ -561,9 +694,30 @@ Deno.serve(async (req) => {
       },
     });
 
-    log("info", "qlik-sync-source completed", {
+    if (shouldContinue && nextStartAt !== null) {
+      const continuation = continueRun({
+        sourceConfigId: source.id,
+        runId,
+        nextStartAt,
+        maxRowsPerRun: chunkMaxRowsPerRun,
+      }).catch(async (err) => {
+        errorMessage = getErrorMessage(err);
+        status = "failed";
+        await updateRun(runId, {
+          completed_at: new Date().toISOString(),
+          status,
+          error_message: errorMessage,
+        });
+      });
+
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+        EdgeRuntime.waitUntil(continuation);
+      }
+    }
+
+    log("info", "data-sync completed", {
       runId,
-      syncKey: source.sync_key,
+      sourceKey: source.source_key,
       status,
       rowCount,
       totalRows,
@@ -578,8 +732,8 @@ Deno.serve(async (req) => {
     });
 
     return jsonResponseWithCors({
-      success: status !== "failed",
-      syncKey: source.sync_key,
+      success: true,
+      sourceKey: source.source_key,
       runId,
       sourceConfig: source,
       layoutCaptured,
@@ -594,7 +748,7 @@ Deno.serve(async (req) => {
       insertedCount,
       updatedCount,
       skippedCount,
-      targetTableName: source.target_table_name,
+      targetTable: source.target_table,
       isHypercube: isHypercubeLayout(fetched.layout),
       columnSummary: metadataSummary,
       error: errorMessage,
@@ -609,9 +763,11 @@ Deno.serve(async (req) => {
           payload_type: "error",
           payload: {
             error: errorMessage,
-            syncKey: source.sync_key,
-            appId: source.qlik_app_id,
-            objectId: source.qlik_object_id,
+            sourceKey: source.source_key,
+            sourceType: source.source_type,
+            targetTable: source.target_table,
+            appId: qlikConfig.appId,
+            objectId: qlikConfig.objectId,
           },
         },
       ]);
@@ -630,21 +786,21 @@ Deno.serve(async (req) => {
     } catch (updateErr) {
       log("error", "failed to persist error state", {
         runId,
-        syncKey: source.sync_key,
+        sourceKey: source.source_key,
         error: getErrorMessage(updateErr),
       });
     }
 
-    log("error", "qlik-sync-source failed", {
+    log("error", "data-sync failed", {
       runId,
-      syncKey: source.sync_key,
+      sourceKey: source.source_key,
       error: errorMessage,
     });
 
     return jsonResponseWithCors(
       {
         success: false,
-        syncKey: source.sync_key,
+        sourceKey: source.source_key,
         runId,
         sourceConfig: source,
         layoutCaptured,
@@ -659,7 +815,7 @@ Deno.serve(async (req) => {
         insertedCount,
         updatedCount,
         skippedCount,
-        targetTableName: source.target_table_name,
+        targetTable: source.target_table,
         isHypercube: false,
         columnSummary: null,
         error: errorMessage,
@@ -673,7 +829,7 @@ Deno.serve(async (req) => {
       } catch (err) {
         log("warn", "qix close failed", {
           runId,
-          syncKey: source.sync_key,
+          sourceKey: source.source_key,
           error: getErrorMessage(err),
         });
       }

@@ -130,12 +130,15 @@ function SidebarProvider({
       return
     }
 
-    const storedState = getStoredSidebarState()
-    if (storedState === null) {
-      return
-    }
+    const timeoutId = window.setTimeout(() => {
+      const storedState = getStoredSidebarState()
+      if (storedState === null) {
+        return
+      }
 
-    _setOpen(storedState)
+      _setOpen(storedState)
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
   }, [openProp, getStoredSidebarState])
 
   // Helper to toggle the sidebar.

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 
 import { CanopyProductionChart } from "@/components/home/canopy-production-chart"
-import { fetchCanopyProductionSeriesFromRpc } from "@/lib/hub-data"
+import { fetchCanopyProductionSeries } from "@/lib/hub-data"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const INTEGER_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -29,11 +29,12 @@ export default async function CanopyProductionLast12MonthsViewPage() {
   }
 
   let loadError: string | null = null
-  let productionSeries: Awaited<ReturnType<typeof fetchCanopyProductionSeriesFromRpc>> | null =
-    null
+  let productionSeries: Awaited<
+    ReturnType<typeof fetchCanopyProductionSeries>
+  > | null = null
 
   try {
-    productionSeries = await fetchCanopyProductionSeriesFromRpc()
+    productionSeries = await fetchCanopyProductionSeries()
   } catch {
     loadError = "Data load failed."
   }
@@ -61,16 +62,18 @@ export default async function CanopyProductionLast12MonthsViewPage() {
         <header className="border-b px-4 py-4 md:px-6">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-semibold">Canopy Production Last 12 Months</h1>
+              <h1 className="text-2xl font-semibold">
+                Canopy Production Last 12 Months
+              </h1>
               <p className="mt-1 text-sm text-muted-foreground">
                 Funded Loans (bar) and Funded Volume (line)
               </p>
             </div>
             <div className="text-right text-sm">
-              <p className="font-mono tabular-nums text-foreground">
+              <p className="font-mono text-foreground tabular-nums">
                 {INTEGER_FORMATTER.format(totalFundedLoans)} loans
               </p>
-              <p className="font-mono tabular-nums text-muted-foreground">
+              <p className="font-mono text-muted-foreground tabular-nums">
                 {CURRENCY_FORMATTER.format(totalFundedVolume)}
               </p>
             </div>
@@ -82,7 +85,7 @@ export default async function CanopyProductionLast12MonthsViewPage() {
             labels={productionSeries.labels}
             monthlyFundedCounts={productionSeries.monthlyFundedCounts}
             monthlyFundedVolumes={productionSeries.monthlyFundedVolumes}
-            className="h-full w-full !aspect-auto"
+            className="!aspect-auto h-full w-full"
           />
         </section>
       </div>

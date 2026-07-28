@@ -162,7 +162,7 @@ export default async function BranchPage({
           </div>
 
           {tab === "home" ? (
-            <div className="grid items-start gap-4 xl:grid-cols-[2fr_1fr]">
+            <div className="flex flex-col gap-4">
               <div className="rounded-xl border bg-card p-6 text-card-foreground">
                 <h2 className="text-xl font-semibold">Last 12 Months</h2>
                 <p className="mt-1 text-sm text-muted-foreground">

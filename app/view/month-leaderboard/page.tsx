@@ -1,13 +1,14 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
+import type { CSSProperties } from "react"
 
 import {
-  fetchAprilBranchSummaryFromRpc,
-  fetchAprilDivisionSummaryFromRpc,
-  fetchAprilLoanOfficerSummaryFromRpc,
-  fetchAprilProcessorSummaryFromRpc,
-  fetchAprilUnderwriterSummaryFromRpc,
-  fetchAprilUnderwritingOrgSummaryFromRpc,
+  fetchCurrentMonthBranchSummary,
+  fetchCurrentMonthDivisionSummary,
+  fetchCurrentMonthLoanOfficerSummary,
+  fetchCurrentMonthProcessorSummary,
+  fetchCurrentMonthUnderwriterSummary,
+  fetchCurrentMonthUnderwritingOrgSummary,
   type LeaderboardEntityKey,
 } from "@/lib/hub-data"
 import type { FileViewerFilterField } from "@/lib/file-viewer-filters"
@@ -29,17 +30,21 @@ type LeaderboardRow = {
   fileViewerHref: string
 }
 
-const TOP_ROW_COUNT = 5
+const TOP_ROW_COUNT = 20
 
-const ENTITY_FILTER_FIELD: Record<LeaderboardEntityKey, FileViewerFilterField> = {
-  division: "division",
-  branch: "branch",
-  loanOfficer: "loanOfficer",
-  processor: "processor",
-  underwriter: "underwriter",
-  underwritingOrg: "underwritingOrg",
-}
-const ENTITY_ID_FILTER_FIELD: Record<LeaderboardEntityKey, FileViewerFilterField> = {
+const ENTITY_FILTER_FIELD: Record<LeaderboardEntityKey, FileViewerFilterField> =
+  {
+    division: "division",
+    branch: "branch",
+    loanOfficer: "loanOfficer",
+    processor: "processor",
+    underwriter: "underwriter",
+    underwritingOrg: "underwritingOrg",
+  }
+const ENTITY_ID_FILTER_FIELD: Record<
+  LeaderboardEntityKey,
+  FileViewerFilterField
+> = {
   division: "divisionId",
   branch: "branchId",
   loanOfficer: "loanOfficerId",
@@ -147,6 +152,52 @@ function LeaderboardTableCard({
   rows: LeaderboardRow[]
   emptyLabel: string
 }) {
+  const shouldAutoScroll = rows.length > 8
+  const scrollDurationSeconds = Math.max(72, rows.length * 4)
+  const renderRows = ({
+    duplicate = false,
+  }: {
+    duplicate?: boolean
+  } = {}) =>
+    rows.map((row, index) => (
+      <tr
+        key={`${duplicate ? "copy" : "row"}-${row.id ?? row.name}-${index}`}
+        className="border-b last:border-0"
+      >
+        <td className="w-10 px-2 py-2 text-center font-mono text-xs font-semibold text-muted-foreground tabular-nums">
+          {index + 1}
+        </td>
+        <td className="px-2 py-2">
+          {row.rowHref ? (
+            <Link
+              href={row.rowHref}
+              tabIndex={duplicate ? -1 : undefined}
+              className="inline-flex max-w-full items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/20 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none"
+            >
+              <span className="truncate">{row.name}</span>
+            </Link>
+          ) : (
+            <span className="block truncate text-sm">{row.name}</span>
+          )}
+        </td>
+        <td className="w-[70px] px-2 py-2 text-right font-mono text-base tabular-nums">
+          <Link
+            href={row.fileViewerHref}
+            tabIndex={duplicate ? -1 : undefined}
+            className="inline-flex min-w-[2.5rem] justify-end rounded-md bg-primary/10 px-1.5 py-0.5 font-semibold text-primary transition-colors hover:bg-primary/20 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none"
+          >
+            {INTEGER_FORMATTER.format(row.fileCount)}
+          </Link>
+        </td>
+        <td
+          className="w-[118px] px-2 py-2 text-right font-mono text-sm whitespace-nowrap tabular-nums"
+          title={CURRENCY_FORMATTER.format(row.totalVolume)}
+        >
+          {CURRENCY_FORMATTER.format(row.totalVolume)}
+        </td>
+      </tr>
+    ))
+
   return (
     <section className="flex min-h-0 flex-col rounded-xl border bg-card p-4 text-card-foreground md:p-5">
       <h2 className="text-lg font-semibold">{title}</h2>
@@ -155,48 +206,48 @@ function LeaderboardTableCard({
       {rows.length === 0 ? (
         <p className="mt-4 text-sm text-muted-foreground">{emptyLabel}</p>
       ) : (
-        <div className="mt-3 min-h-0 overflow-hidden rounded-md border">
+        <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
           <table className="w-full table-fixed text-sm">
             <thead>
               <tr className="border-b bg-muted/40 text-left text-muted-foreground">
-                <th className="w-[56%] px-3 py-2 font-medium">Name</th>
-                <th className="w-[74px] px-3 py-2 text-right font-medium">#</th>
-                <th className="w-[132px] px-3 py-2 text-right font-medium">$</th>
+                <th className="w-10 px-2 py-2 text-center font-medium">#</th>
+                <th className="px-2 py-2 font-medium">Name</th>
+                <th className="w-[70px] px-2 py-2 text-right font-medium">
+                  Files
+                </th>
+                <th className="w-[118px] px-2 py-2 text-right font-medium">
+                  $
+                </th>
               </tr>
             </thead>
-            <tbody>
-              {rows.map((row, index) => (
-                <tr key={`${row.id ?? row.name}-${index}`} className="border-b last:border-0">
-                  <td className="px-3 py-2">
-                    {row.rowHref ? (
-                      <Link
-                        href={row.rowHref}
-                        className="inline-flex max-w-full items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/20 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                      >
-                        <span className="truncate">{row.name}</span>
-                      </Link>
-                    ) : (
-                      <span className="block truncate text-sm">{row.name}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-base tabular-nums">
-                    <Link
-                      href={row.fileViewerHref}
-                      className="inline-flex min-w-[2.5rem] justify-end rounded-md bg-primary/10 px-1.5 py-0.5 font-semibold text-primary transition-colors hover:bg-primary/20 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                    >
-                      {INTEGER_FORMATTER.format(row.fileCount)}
-                    </Link>
-                  </td>
-                  <td
-                    className="px-3 py-2 text-right font-mono text-base tabular-nums whitespace-nowrap"
-                    title={CURRENCY_FORMATTER.format(row.totalVolume)}
-                  >
-                    {CURRENCY_FORMATTER.format(row.totalVolume)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
           </table>
+          <div className="leaderboard-scroll-viewport min-h-0 flex-1 overflow-hidden">
+            <div
+              aria-live="off"
+              className={
+                shouldAutoScroll
+                  ? "leaderboard-scroll-track"
+                  : "leaderboard-scroll-track-static"
+              }
+              style={
+                {
+                  "--leaderboard-scroll-duration": `${scrollDurationSeconds}s`,
+                } as CSSProperties
+              }
+            >
+              <table className="w-full table-fixed text-sm">
+                <tbody>{renderRows()}</tbody>
+              </table>
+              {shouldAutoScroll ? (
+                <table
+                  aria-hidden="true"
+                  className="w-full table-fixed text-sm"
+                >
+                  <tbody>{renderRows({ duplicate: true })}</tbody>
+                </table>
+              ) : null}
+            </div>
+          </div>
         </div>
       )}
     </section>
@@ -227,7 +278,10 @@ export default async function MonthLeaderboardViewPage() {
   const referenceDate = new Date()
   const leaderboardYear = referenceDate.getFullYear()
   const leaderboardMonthIndex = referenceDate.getMonth()
-  const leaderboardMonthNumber = String(leaderboardMonthIndex + 1).padStart(2, "0")
+  const leaderboardMonthNumber = String(leaderboardMonthIndex + 1).padStart(
+    2,
+    "0"
+  )
   const leaderboardMonthName = new Intl.DateTimeFormat("en-US", {
     month: "long",
   }).format(referenceDate)
@@ -250,12 +304,12 @@ export default async function MonthLeaderboardViewPage() {
     underwriterResult,
     underwritingOrgResult,
   ] = await Promise.allSettled([
-    fetchAprilDivisionSummaryFromRpc(),
-    fetchAprilBranchSummaryFromRpc(),
-    fetchAprilLoanOfficerSummaryFromRpc(),
-    fetchAprilProcessorSummaryFromRpc(),
-    fetchAprilUnderwriterSummaryFromRpc(),
-    fetchAprilUnderwritingOrgSummaryFromRpc(),
+    fetchCurrentMonthDivisionSummary(),
+    fetchCurrentMonthBranchSummary(),
+    fetchCurrentMonthLoanOfficerSummary(),
+    fetchCurrentMonthProcessorSummary(),
+    fetchCurrentMonthUnderwriterSummary(),
+    fetchCurrentMonthUnderwritingOrgSummary(),
   ])
 
   const divisionRows =
@@ -288,7 +342,9 @@ export default async function MonthLeaderboardViewPage() {
             name: row.branchName,
             fileCount: row.fileCount,
             totalVolume: row.totalVolume,
-            rowHref: row.branchId ? `/branch/${encodeURIComponent(row.branchId)}` : undefined,
+            rowHref: row.branchId
+              ? `/branch/${encodeURIComponent(row.branchId)}`
+              : undefined,
             fileViewerHref: toFileViewerHref({
               entity: "branch",
               entityId: row.branchId,
@@ -393,7 +449,8 @@ export default async function MonthLeaderboardViewPage() {
             {leaderboardMonthName} Leaderboard
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Top {TOP_ROW_COUNT} by funded file count and volume for {leaderboardMonthLabel}.
+            Top {TOP_ROW_COUNT} by funded file count and volume for{" "}
+            {leaderboardMonthLabel}.
           </p>
         </section>
 

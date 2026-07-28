@@ -23,7 +23,7 @@ interface BranchSummaryRow {
   totalVolume: number
 }
 
-interface AprilBranchSummaryTableProps {
+interface CurrentMonthBranchSummaryTableProps {
   rows: BranchSummaryRow[]
 }
 
@@ -44,7 +44,9 @@ function getNextSort(
   } as const
 }
 
-export function AprilBranchSummaryTable({ rows }: AprilBranchSummaryTableProps) {
+export function CurrentMonthBranchSummaryTable({
+  rows,
+}: CurrentMonthBranchSummaryTableProps) {
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({
     key: "fileCount",
     direction: "desc",
@@ -78,8 +80,8 @@ export function AprilBranchSummaryTable({ rows }: AprilBranchSummaryTableProps) 
       }
 
       return (
-          right.fileCount - left.fileCount ||
-          left.branchName.localeCompare(right.branchName)
+        right.fileCount - left.fileCount ||
+        left.branchName.localeCompare(right.branchName)
       )
     })
 
@@ -94,7 +96,10 @@ export function AprilBranchSummaryTable({ rows }: AprilBranchSummaryTableProps) 
     return sort.direction === "asc" ? (
       <ChevronUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
     ) : (
-      <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+      <ChevronDown
+        className="h-4 w-4 text-muted-foreground"
+        aria-hidden="true"
+      />
     )
   }
 
@@ -107,7 +112,9 @@ export function AprilBranchSummaryTable({ rows }: AprilBranchSummaryTableProps) 
               <button
                 type="button"
                 className="flex items-center gap-2 hover:text-foreground"
-                onClick={() => setSort((current) => getNextSort(current, "branchName"))}
+                onClick={() =>
+                  setSort((current) => getNextSort(current, "branchName"))
+                }
               >
                 <span>Branch</span>
                 {sortIndicator("branchName")}
@@ -117,7 +124,9 @@ export function AprilBranchSummaryTable({ rows }: AprilBranchSummaryTableProps) 
               <button
                 type="button"
                 className="ml-auto flex items-center gap-2 hover:text-foreground"
-                onClick={() => setSort((current) => getNextSort(current, "fileCount"))}
+                onClick={() =>
+                  setSort((current) => getNextSort(current, "fileCount"))
+                }
               >
                 <span>File Count</span>
                 {sortIndicator("fileCount")}
@@ -127,7 +136,9 @@ export function AprilBranchSummaryTable({ rows }: AprilBranchSummaryTableProps) 
               <button
                 type="button"
                 className="ml-auto flex items-center gap-2 hover:text-foreground"
-                onClick={() => setSort((current) => getNextSort(current, "totalVolume"))}
+                onClick={() =>
+                  setSort((current) => getNextSort(current, "totalVolume"))
+                }
               >
                 <span>Total Volume</span>
                 {sortIndicator("totalVolume")}

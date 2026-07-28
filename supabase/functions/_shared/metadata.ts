@@ -79,7 +79,7 @@ export function extractPreviewRowCount(dataPages: HypercubeDataPage[]): number |
 export function buildMetadataSummary(input: {
   appId: string;
   objectId: string;
-  syncKey: string;
+  sourceKey: string;
   objectType: string | null;
   layout: QixLayout | null;
   dataPages: HypercubeDataPage[];
@@ -88,7 +88,7 @@ export function buildMetadataSummary(input: {
   return {
     appId: input.appId,
     objectId: input.objectId,
-    syncKey: input.syncKey,
+    sourceKey: input.sourceKey,
     objectType: input.objectType,
     isHypercube: isHypercubeLayout(input.layout),
     columnCount: columns.length,

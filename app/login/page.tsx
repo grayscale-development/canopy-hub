@@ -2,6 +2,7 @@ import Image from "next/image"
 import { redirect } from "next/navigation"
 
 import { GoogleSignInButton } from "@/app/login/google-sign-in-button"
+import { LocalDevSignInButton } from "@/app/login/local-dev-sign-in-button"
 import {
   Card,
   CardContent,
@@ -25,6 +26,15 @@ export default async function LoginPage() {
   if (user) {
     redirect("/home")
   }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
+  const localDevEmail = process.env.LOCAL_DEV_EMAIL ?? ""
+  const localDevPassword = process.env.LOCAL_DEV_PASSWORD ?? ""
+  const showLocalDevLogin =
+    process.env.NODE_ENV !== "production" &&
+    /^http:\/\/(127\.0\.0\.1|localhost):54321$/.test(supabaseUrl) &&
+    localDevEmail.length > 0 &&
+    localDevPassword.length > 0
 
   return (
     <main
@@ -54,6 +64,13 @@ export default async function LoginPage() {
         </CardHeader>
         <CardContent className="space-y-5 px-7 pb-7 sm:px-8 sm:pb-8">
           <GoogleSignInButton className="w-full py-5" />
+          {showLocalDevLogin ? (
+            <LocalDevSignInButton
+              className="w-full py-5"
+              email={localDevEmail}
+              password={localDevPassword}
+            />
+          ) : null}
           <div className="border-t border-white/20 pt-4">
             <p className="text-xs text-white/70">Version {packageJson.version}</p>
           </div>
