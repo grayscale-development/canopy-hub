@@ -1,6 +1,5 @@
 "use server"
 
-import { FunctionsHttpError } from "@supabase/functions-js"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
@@ -160,9 +159,19 @@ interface DataSyncResponse {
   nextStartAt?: number | null
 }
 
+function getResponseContext(error: unknown) {
+  if (!error || typeof error !== "object" || !("context" in error)) {
+    return null
+  }
+
+  const context = (error as { context?: unknown }).context
+  return context instanceof Response ? context : null
+}
+
 async function getFunctionErrorMessage(error: unknown) {
-  if (error instanceof FunctionsHttpError && error.context instanceof Response) {
-    const responseText = await error.context.text()
+  const response = getResponseContext(error)
+  if (response) {
+    const responseText = await response.text()
     if (responseText) {
       try {
         const parsed = JSON.parse(responseText) as { error?: unknown; message?: unknown }
@@ -173,10 +182,10 @@ async function getFunctionErrorMessage(error: unknown) {
               ? parsed.message
               : null
         if (parsedMessage) {
-          return `${parsedMessage} (${error.context.status})`
+          return `${parsedMessage} (${response.status})`
         }
       } catch {
-        return `${responseText} (${error.context.status})`
+        return `${responseText} (${response.status})`
       }
     }
   }
