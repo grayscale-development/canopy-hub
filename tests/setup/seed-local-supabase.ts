@@ -141,19 +141,47 @@ async function grantPermissions({
     throw error
   }
 
-  const rows = (permissions ?? []).map((permission: { id: string }) => ({
+  const rows: Array<{ user_id: string; permission_id: string }> = (
+    permissions ?? []
+  ).map((permission: { id: string }) => ({
     user_id: userId,
     permission_id: permission.id,
   }))
 
-  if (rows.length) {
-    const { error: upsertError } = await supabase
-      .from("user_permissions")
-      .upsert(rows, { onConflict: "user_id,permission_id" })
+  if (!rows.length) {
+    return
+  }
 
-    if (upsertError) {
-      throw upsertError
-    }
+  const { data: existingRows, error: existingError } = await supabase
+    .from("user_permissions")
+    .select("permission_id")
+    .eq("user_id", userId)
+    .in(
+      "permission_id",
+      rows.map((row) => row.permission_id)
+    )
+
+  if (existingError) {
+    throw existingError
+  }
+
+  const existingPermissionIds = new Set(
+    (existingRows ?? []).map((row: { permission_id: string }) => row.permission_id)
+  )
+  const missingRows = rows.filter(
+    (row) => !existingPermissionIds.has(row.permission_id)
+  )
+
+  if (!missingRows.length) {
+    return
+  }
+
+  const { error: insertError } = await supabase
+    .from("user_permissions")
+    .insert(missingRows)
+
+  if (insertError) {
+    throw insertError
   }
 }
 
