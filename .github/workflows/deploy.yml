@@ -24,6 +24,9 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
     steps:
       - name: Check out repository
@@ -40,6 +43,34 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Validate deployment environment
+        run: |
+          missing=0
+          for name in \
+            VERCEL_ORG_ID \
+            VERCEL_PROJECT_ID \
+            VERCEL_TOKEN \
+            SUPABASE_ACCESS_TOKEN \
+            SUPABASE_DB_PASSWORD \
+            SUPABASE_PROJECT_REF \
+            NEXT_PUBLIC_SUPABASE_URL \
+            NEXT_PUBLIC_SUPABASE_ANON_KEY \
+            SUPABASE_SERVICE_ROLE_KEY
+          do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required production secret: $name"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          node -e "new URL(process.env.NEXT_PUBLIC_SUPABASE_URL); if (!/^https?:$/.test(new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).protocol)) throw new Error('NEXT_PUBLIC_SUPABASE_URL must be http or https')"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Lint
         run: pnpm lint
@@ -67,11 +98,24 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Vercel production output
-        run: vercel build --prod --token="$VERCEL_TOKEN"
+        run: |
+          vercel build \
+            --prod \
+            --token="$VERCEL_TOKEN" \
+            --build-env NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+            --build-env NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+            --build-env SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy Vercel production output
-        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        run: |
+          vercel deploy \
+            --prebuilt \
+            --prod \
+            --token="$VERCEL_TOKEN" \
+            --env NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+            --env NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+            --env SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
