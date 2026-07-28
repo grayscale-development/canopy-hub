@@ -1,4 +1,5 @@
 import Image from "next/image"
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { GoogleSignInButton } from "@/app/login/google-sign-in-button"
@@ -17,7 +18,14 @@ export const metadata = {
   title: "Login",
 }
 
+function isLocalhostHost(host: string) {
+  return /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)
+}
+
 export default async function LoginPage() {
+  const requestHeaders = await headers()
+  const host =
+    requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? ""
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
@@ -27,14 +35,8 @@ export default async function LoginPage() {
     redirect("/home")
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
-  const localDevEmail = process.env.LOCAL_DEV_EMAIL ?? ""
-  const localDevPassword = process.env.LOCAL_DEV_PASSWORD ?? ""
   const showLocalDevLogin =
-    process.env.NODE_ENV !== "production" &&
-    /^http:\/\/(127\.0\.0\.1|localhost):54321$/.test(supabaseUrl) &&
-    localDevEmail.length > 0 &&
-    localDevPassword.length > 0
+    process.env.NODE_ENV !== "production" && isLocalhostHost(host)
 
   return (
     <main
@@ -58,19 +60,18 @@ export default async function LoginPage() {
               Login to your account
             </CardTitle>
             <CardDescription className="max-w-[35ch] text-sm leading-relaxed text-white/80">
-              Sign in with your Google account to continue
+              {showLocalDevLogin
+                ? "Continue with a local development session"
+                : "Sign in with your Google account to continue"}
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent className="space-y-5 px-7 pb-7 sm:px-8 sm:pb-8">
-          <GoogleSignInButton className="w-full py-5" />
           {showLocalDevLogin ? (
-            <LocalDevSignInButton
-              className="w-full py-5"
-              email={localDevEmail}
-              password={localDevPassword}
-            />
-          ) : null}
+            <LocalDevSignInButton className="w-full py-5" />
+          ) : (
+            <GoogleSignInButton className="w-full py-5" />
+          )}
           <div className="border-t border-white/20 pt-4">
             <p className="text-xs text-white/70">Version {packageJson.version}</p>
           </div>

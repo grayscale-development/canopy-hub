@@ -1,9 +1,11 @@
 import type { Metadata } from "next"
 import { Geist_Mono, Inter } from "next/font/google"
+import { Toaster } from "sonner"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { WikiChatDockProvider } from "@/components/wiki/wiki-chat-dock"
 import { cn } from "@/lib/utils"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
@@ -43,7 +45,10 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <TooltipProvider>{children}</TooltipProvider>
+          <WikiChatDockProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+          </WikiChatDockProvider>
+          <Toaster position="top-center" offset={24} richColors />
         </ThemeProvider>
       </body>
     </html>

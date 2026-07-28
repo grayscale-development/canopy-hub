@@ -2,6 +2,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { AdvancedSyncCard } from "@/app/settings/[section]/advanced-sync-card"
+import { MiloFlagsCard } from "@/app/settings/[section]/milo-flags-card"
 import { PermissionsTable } from "@/app/settings/[section]/permissions-table"
 import { AppSidebar } from "@/components/app-sidebar"
 import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
@@ -31,8 +32,13 @@ import { cn } from "@/lib/utils"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const SETTINGS_PAGES = [
-  { key: "permissions", label: "Permissions" },
-  { key: "advanced", label: "Advanced" },
+  {
+    key: "permissions",
+    label: "Permissions",
+    permissionCode: "permissions.edit",
+  },
+  { key: "advanced", label: "Advanced", permissionCode: "permissions.edit" },
+  { key: "milo", label: "Milo", permissionCode: "milo.flags.view" },
 ] as const
 
 type SettingsPageKey = (typeof SETTINGS_PAGES)[number]["key"]
@@ -58,11 +64,18 @@ export async function generateMetadata({
 
 export default async function SettingsSubPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ section: string }>
+  searchParams: Promise<{ tab?: string | string[] }>
 }) {
   const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
   const section = resolvedParams.section.toLowerCase()
+  const rawMiloTab = Array.isArray(resolvedSearchParams.tab)
+    ? resolvedSearchParams.tab[0]
+    : resolvedSearchParams.tab
+  const activeMiloTab = rawMiloTab === "index" ? "index" : "flags"
 
   if (!isSettingsPage(section)) {
     redirect("/settings/permissions")
@@ -93,11 +106,32 @@ export default async function SettingsSubPage({
     code: "permissions.edit",
   })
 
-  if (!canEditPermissions) {
+  const canViewMiloFlags = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: "milo.flags.view",
+  })
+
+  const visiblePages = SETTINGS_PAGES.filter((page) => {
+    if (page.permissionCode === "permissions.edit") {
+      return canEditPermissions
+    }
+
+    if (page.permissionCode === "milo.flags.view") {
+      return canViewMiloFlags
+    }
+
+    return false
+  })
+
+  if (!visiblePages.length) {
     redirect("/home")
   }
 
-  const visiblePages = SETTINGS_PAGES
+  if (!visiblePages.some((page) => page.key === section)) {
+    redirect(`/settings/${visiblePages[0].key}`)
+  }
+
   const activePage = visiblePages.find((page) => page.key === section)
   let permissions: Permission[] = []
   let permissionUsers: PermissionUser[] = []
@@ -183,8 +217,10 @@ export default async function SettingsSubPage({
                     permissionDirectoryUsers={permissionDirectoryUsers}
                   />
                 )
-              ) : (
+              ) : section === "advanced" ? (
                 <AdvancedSyncCard />
+              ) : (
+                <MiloFlagsCard activeTab={activeMiloTab} />
               )}
             </section>
           </div>

@@ -11,6 +11,7 @@ import {
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { archiveKnowledgeSource, indexKnowledgeSource } from "@/lib/wiki-ai"
 
 export const runtime = "nodejs"
 
@@ -23,7 +24,9 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Missing admin Supabase configuration.",
+          error instanceof Error
+            ? error.message
+            : "Missing admin Supabase configuration.",
       },
       { status: 500 }
     )
@@ -52,10 +55,16 @@ export async function POST(request: Request) {
   const newDisplayName = sanitizePolicyDisplayName(newDisplayNameRaw)
 
   if (!oldFileName) {
-    return NextResponse.json({ error: "Select a policy first." }, { status: 400 })
+    return NextResponse.json(
+      { error: "Select a policy first." },
+      { status: 400 }
+    )
   }
   if (!newDisplayName) {
-    return NextResponse.json({ error: "New name is required." }, { status: 400 })
+    return NextResponse.json(
+      { error: "New name is required." },
+      { status: 400 }
+    )
   }
 
   const { data: files, error: listError } = await adminSupabase.storage
@@ -90,9 +99,33 @@ export async function POST(request: Request) {
     extension,
   })
 
-  const normalizedOldDisplayName = stripPolicyFileExtension(sourceFileName).toLowerCase()
+  const normalizedOldDisplayName =
+    stripPolicyFileExtension(sourceFileName).toLowerCase()
   if (normalizedOldDisplayName === newDisplayName.toLowerCase()) {
     return NextResponse.json({ ok: true, fileName: sourceFileName })
+  }
+
+  async function updateKnowledgeIndex() {
+    try {
+      await archiveKnowledgeSource({
+        supabase: adminSupabase,
+        sourceType: "document",
+        sourceId: sourceFileName,
+      })
+      await indexKnowledgeSource(adminSupabase, {
+        sourceType: "document",
+        sourceId: newFileName,
+        title: stripPolicyFileExtension(newFileName),
+        url: `/policies/open?file=${encodeURIComponent(newFileName)}`,
+        content: `${stripPolicyFileExtension(newFileName)} shared document. Full text will be refreshed by the knowledge reindex job.`,
+        metadata: {
+          fileName: newFileName,
+          renamedFrom: sourceFileName,
+        },
+      })
+    } catch (indexError) {
+      console.error("Document knowledge rename failed", indexError)
+    }
   }
 
   const { error } = await adminSupabase.storage
@@ -100,6 +133,7 @@ export async function POST(request: Request) {
     .move(sourceFileName, newFileName)
 
   if (!error) {
+    await updateKnowledgeIndex()
     return NextResponse.json({ ok: true, fileName: newFileName })
   }
 
@@ -127,5 +161,6 @@ export async function POST(request: Request) {
     )
   }
 
+  await updateKnowledgeIndex()
   return NextResponse.json({ ok: true, fileName: newFileName })
 }

@@ -5,10 +5,13 @@ import {
   isEmployeeHandbookPolicyFile,
   POLICIES_BUCKET,
   POLICIES_MANAGE_PERMISSION,
+  stripPolicyFileExtension,
 } from "@/lib/policies"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { indexKnowledgeSource } from "@/lib/wiki-ai"
+import { extractWikiDocumentText } from "@/lib/wiki-extract"
 
 export const runtime = "nodejs"
 
@@ -21,7 +24,9 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Missing admin Supabase configuration.",
+          error instanceof Error
+            ? error.message
+            : "Missing admin Supabase configuration.",
       },
       { status: 500 }
     )
@@ -72,7 +77,11 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!Number.isFinite(handbookYear) || handbookYear < 2000 || handbookYear > 2100) {
+    if (
+      !Number.isFinite(handbookYear) ||
+      handbookYear < 2000 ||
+      handbookYear > 2100
+    ) {
       return NextResponse.json(
         { error: "Invalid handbook year." },
         { status: 400 }
@@ -85,12 +94,14 @@ export async function POST(request: Request) {
     : file.name.trim()
 
   if (!targetFileName) {
-    return NextResponse.json({ error: "Invalid target file name." }, { status: 400 })
+    return NextResponse.json(
+      { error: "Invalid target file name." },
+      { status: 400 }
+    )
   }
 
   if (isHandbook) {
-    const { data: files, error: listError } = await adminSupabase
-      .storage
+    const { data: files, error: listError } = await adminSupabase.storage
       .from(POLICIES_BUCKET)
       .list("", { limit: 1000 })
     if (listError) {
@@ -99,21 +110,24 @@ export async function POST(request: Request) {
 
     const oldHandbooks = (files ?? [])
       .map((entry) => entry.name)
-      .filter((name) => isEmployeeHandbookPolicyFile(name) && name !== targetFileName)
+      .filter(
+        (name) => isEmployeeHandbookPolicyFile(name) && name !== targetFileName
+      )
 
     if (oldHandbooks.length > 0) {
-      const { error: removeError } = await adminSupabase
-        .storage
+      const { error: removeError } = await adminSupabase.storage
         .from(POLICIES_BUCKET)
         .remove(oldHandbooks)
       if (removeError) {
-        return NextResponse.json({ error: removeError.message }, { status: 400 })
+        return NextResponse.json(
+          { error: removeError.message },
+          { status: 400 }
+        )
       }
     }
   }
 
-  const { error } = await adminSupabase
-    .storage
+  const { error } = await adminSupabase.storage
     .from(POLICIES_BUCKET)
     .upload(targetFileName, file, {
       contentType: file.type || "application/octet-stream",
@@ -122,6 +136,32 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
+  }
+
+  let extractedText = ""
+  try {
+    extractedText = await extractWikiDocumentText(file)
+  } catch {
+    extractedText = ""
+  }
+
+  const title = stripPolicyFileExtension(targetFileName)
+  try {
+    await indexKnowledgeSource(adminSupabase, {
+      sourceType: "document",
+      sourceId: targetFileName,
+      title,
+      url: `/policies/open?file=${encodeURIComponent(targetFileName)}`,
+      content:
+        extractedText ||
+        `${title} shared document. Content extraction unavailable.`,
+      metadata: {
+        fileName: targetFileName,
+        contentType: file.type || "application/octet-stream",
+      },
+    })
+  } catch (indexError) {
+    console.error("Document knowledge indexing failed", indexError)
   }
 
   return NextResponse.json({ ok: true, fileName: targetFileName })

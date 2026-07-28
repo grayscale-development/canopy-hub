@@ -3,6 +3,7 @@ import Image from "next/image"
 import Link from "next/link"
 import {
   Building2Icon,
+  BookOpenIcon,
   ChartNoAxesCombinedIcon,
   HomeIcon,
   LifeBuoyIcon,
@@ -64,6 +65,14 @@ const directoryNav = [
     title: "Branches",
     url: "/branches",
     icon: Building2Icon,
+  },
+]
+
+const libraryNav = [
+  {
+    title: "Wiki",
+    url: "/wiki",
+    icon: BookOpenIcon,
   },
 ]
 
@@ -218,6 +227,22 @@ export async function AppSidebar({
           <SidebarGroupLabel>Library</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              {libraryNav.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={activePath === item.url}
+                    tooltip={item.title}
+                  >
+                    <Link href={item.url}>
+                      <item.icon />
+                      <span className="group-data-[collapsible=icon]:hidden">
+                        {item.title}
+                      </span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
               <NewslettersSidebarLauncher
                 isActive={activePath === "/newsletters"}
               />

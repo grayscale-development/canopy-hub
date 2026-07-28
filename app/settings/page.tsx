@@ -33,9 +33,19 @@ export default async function SettingsPage() {
     code: "permissions.edit",
   })
 
-  if (!canEditPermissions) {
-    redirect("/home")
+  if (canEditPermissions) {
+    redirect("/settings/permissions")
   }
 
-  redirect("/settings/permissions")
+  const canViewMiloFlags = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: "milo.flags.view",
+  })
+
+  if (canViewMiloFlags) {
+    redirect("/settings/milo")
+  }
+
+  redirect("/home")
 }

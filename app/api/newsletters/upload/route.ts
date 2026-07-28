@@ -11,6 +11,7 @@ import {
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { indexKnowledgeSource } from "@/lib/wiki-ai"
 
 export const runtime = "nodejs"
 
@@ -125,6 +126,23 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
+  }
+
+  try {
+    await indexKnowledgeSource(adminSupabase, {
+      sourceType: "newsletter",
+      sourceId: targetFileName,
+      title: `${monthValue} ${year}`,
+      url: `/newsletters/open?file=${encodeURIComponent(targetFileName)}`,
+      content: `${monthValue} ${year} company newsletter PDF. Full text is indexed by the knowledge reindex job after upload.`,
+      metadata: {
+        fileName: targetFileName,
+        month: monthValue,
+        year,
+      },
+    })
+  } catch (indexError) {
+    console.error("Newsletter knowledge indexing failed", indexError)
   }
 
   return NextResponse.json({

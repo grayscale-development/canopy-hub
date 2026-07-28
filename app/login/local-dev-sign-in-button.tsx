@@ -3,17 +3,12 @@
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
 export function LocalDevSignInButton({
   className,
-  email,
-  password,
 }: {
   className?: string
-  email: string
-  password: string
 }) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -22,14 +17,15 @@ export function LocalDevSignInButton({
     setIsLoading(true)
     setError(null)
 
-    const supabase = createSupabaseBrowserClient()
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const response = await fetch("/api/auth/local-dev", {
+      method: "POST",
     })
 
-    if (signInError) {
-      setError(signInError.message)
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+      } | null
+      setError(payload?.error ?? "Local dev sign-in failed.")
       setIsLoading(false)
       return
     }
@@ -46,7 +42,7 @@ export function LocalDevSignInButton({
         onClick={handleSignIn}
         disabled={isLoading}
       >
-        {isLoading ? "Signing in..." : "Continue as Local Dev"}
+        {isLoading ? "Signing in..." : "Continue as Dev"}
       </Button>
       {error ? <p className="text-xs text-red-100">{error}</p> : null}
     </div>

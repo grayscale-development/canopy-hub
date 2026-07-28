@@ -149,9 +149,11 @@ function getStatusIcon(source: DataSyncSourceStatus) {
   }
 }
 
-export function AdvancedSyncCard() {
+function DataSyncTab() {
   const [status, setStatus] = React.useState<SyncStatus | null>(null)
-  const [syncSources, setSyncSources] = React.useState<DataSyncSourceStatus[]>([])
+  const [syncSources, setSyncSources] = React.useState<DataSyncSourceStatus[]>(
+    []
+  )
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
   const [statusError, setStatusError] = React.useState<string | null>(null)
   const [isDispatching, setIsDispatching] = React.useState(false)
@@ -159,7 +161,10 @@ export function AdvancedSyncCard() {
   const [isWatching, setIsWatching] = React.useState(false)
   const [isRunning, startTransition] = React.useTransition()
 
-  const activeRuns = React.useMemo(() => hasActiveRuns(syncSources), [syncSources])
+  const activeRuns = React.useMemo(
+    () => hasActiveRuns(syncSources),
+    [syncSources]
+  )
   const shouldPoll = isDispatching || isWatching || activeRuns
   const isButtonDisabled = isDispatching || isRunning
 
@@ -215,7 +220,12 @@ export function AdvancedSyncCard() {
 
     const intervalId = window.setInterval(() => {
       void loadSyncStatus({ quiet: true }).then((sources) => {
-        if (isWatching && !isDispatching && sources && !hasActiveRuns(sources)) {
+        if (
+          isWatching &&
+          !isDispatching &&
+          sources &&
+          !hasActiveRuns(sources)
+        ) {
           setIsWatching(false)
         }
       })
@@ -241,7 +251,9 @@ export function AdvancedSyncCard() {
         setStatus({
           ok: false,
           message:
-            error instanceof Error ? error.message : "Unable to run data syncs.",
+            error instanceof Error
+              ? error.message
+              : "Unable to run data syncs.",
         })
         setIsWatching(false)
       } finally {
@@ -251,9 +263,9 @@ export function AdvancedSyncCard() {
   }
 
   return (
-    <div className="rounded-xl border bg-card p-6 text-card-foreground">
+    <>
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold">Advanced</h2>
+        <h2 className="text-lg font-semibold">Data Syncs</h2>
         <p className="text-sm text-muted-foreground">
           Manually trigger all enabled source configs from{" "}
           <code>source_configs</code>.
@@ -331,7 +343,10 @@ export function AdvancedSyncCard() {
               </TableRow>
             ) : statusError ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-20 text-center text-destructive">
+                <TableCell
+                  colSpan={8}
+                  className="h-20 text-center text-destructive"
+                >
                   {statusError}
                 </TableCell>
               </TableRow>
@@ -417,7 +432,9 @@ export function AdvancedSyncCard() {
                       {formatNumber(latestRun?.skippedCount)}
                     </TableCell>
                     <TableCell>
-                      {formatTimestamp(latestRun?.completedAt ?? latestRun?.startedAt)}
+                      {formatTimestamp(
+                        latestRun?.completedAt ?? latestRun?.startedAt
+                      )}
                     </TableCell>
                   </TableRow>
                 )
@@ -426,6 +443,14 @@ export function AdvancedSyncCard() {
           </TableBody>
         </Table>
       </div>
+    </>
+  )
+}
+
+export function AdvancedSyncCard() {
+  return (
+    <div className="rounded-xl border bg-card p-6 text-card-foreground">
+      <DataSyncTab />
     </div>
   )
 }
