@@ -102,6 +102,23 @@ async function ensureUser(
   return data.user
 }
 
+async function signInSeedUser(supabaseUrl: string, anonKey: string, email: string) {
+  const supabase = createClient<any>(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password: TEST_PASSWORD,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return supabase
+}
+
 async function grantPermissions({
   supabase,
   userId,
@@ -461,11 +478,12 @@ async function main() {
   loadTestEnv()
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     throw new Error(
-      "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required."
+      "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY are required."
     )
   }
 
@@ -488,25 +506,36 @@ async function main() {
   )
   await ensureUser(supabase, TEST_USERS.standard, "Standard Test")
 
-  await upsertRequiredPermissions(supabase)
+  const adminSeedClient = await signInSeedUser(
+    supabaseUrl,
+    anonKey,
+    TEST_USERS.admin
+  )
+  const wikiManagerSeedClient = await signInSeedUser(
+    supabaseUrl,
+    anonKey,
+    TEST_USERS.wikiManager
+  )
+
+  await upsertRequiredPermissions(adminSeedClient)
   await grantPermissions({
-    supabase,
+    supabase: adminSeedClient,
     userId: admin.id,
     codes: TEST_PERMISSION_CODES,
   })
   await grantPermissions({
-    supabase,
+    supabase: adminSeedClient,
     userId: settings.id,
     codes: ["settings.access", "permissions.edit", "milo.flags.view"],
   })
   await grantPermissions({
-    supabase,
+    supabase: adminSeedClient,
     userId: wikiManager.id,
     codes: ["wiki.manage"],
   })
 
-  await seedWiki(supabase, wikiManager.id)
-  await seedSupportDirectory(supabase)
+  await seedWiki(wikiManagerSeedClient, wikiManager.id)
+  await seedSupportDirectory(adminSeedClient)
 
   console.log("Seeded local Supabase test data.")
 }
