@@ -2464,6 +2464,9 @@ export async function fetchFileViewerFiles({
   if (openPipelineOnly) {
     query = query.is("funded_date", null).is("closed_date", null)
   }
+  if (entity === "processor" || entity === "underwriter") {
+    query = query.eq("is_brokered", false)
+  }
   if (employeeId?.trim()) {
     query = query.or(buildEmployeeRoleOrFilter(employeeId))
   }
