@@ -64,6 +64,19 @@ function loadTestEnv() {
   loadEnvFile(path.resolve(process.cwd(), ".env.local"))
 }
 
+function isSchemaCacheWarmingError(error: unknown) {
+  const maybeError = error as { code?: string; message?: string }
+
+  return (
+    maybeError?.code === "PGRST002" ||
+    /schema cache/i.test(maybeError?.message ?? "")
+  )
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function ensureUser(
   supabase: AnySupabaseClient,
   email: string,
@@ -412,12 +425,14 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
   )
   const missingAssets = assetRows.filter((row) => !existingAssetIds.has(row.id))
 
-  if (missingAssets.length) {
-    const { error: assetError } = await supabase
-      .from("wiki_assets")
-      .insert(missingAssets)
+  for (const asset of missingAssets) {
+    const { error: assetError } = await supabase.from("wiki_assets").insert(asset)
 
     if (assetError) {
+      if (assetError.code === "23505") {
+        continue
+      }
+
       throw assetError
     }
   }
@@ -544,25 +559,15 @@ async function seedSupportDirectory(supabase: AnySupabaseClient) {
   }
 }
 
-async function main() {
-  loadTestEnv()
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
-    throw new Error(
-      "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY are required."
-    )
-  }
-
-  if (!/^http:\/\/(127\.0\.0\.1|localhost):54321$/.test(supabaseUrl)) {
-    throw new Error(
-      `Refusing to seed non-local Supabase URL: ${supabaseUrl}. Use .env.test.local for test data.`
-    )
-  }
-
+async function seedLocalData({
+  supabaseUrl,
+  anonKey,
+  serviceRoleKey,
+}: {
+  supabaseUrl: string
+  anonKey: string
+  serviceRoleKey: string
+}) {
   const supabase = createClient<any>(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
@@ -606,8 +611,45 @@ async function main() {
 
   await seedWiki(wikiManagerSeedClient, wikiManager.id)
   await seedSupportDirectory(adminSeedClient)
+}
 
-  console.log("Seeded local Supabase test data.")
+async function main() {
+  loadTestEnv()
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY are required."
+    )
+  }
+
+  if (!/^http:\/\/(127\.0\.0\.1|localhost):54321$/.test(supabaseUrl)) {
+    throw new Error(
+      `Refusing to seed non-local Supabase URL: ${supabaseUrl}. Use .env.test.local for test data.`
+    )
+  }
+
+  const maxAttempts = 5
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await seedLocalData({ supabaseUrl, anonKey, serviceRoleKey })
+      console.log("Seeded local Supabase test data.")
+      return
+    } catch (error) {
+      if (!isSchemaCacheWarmingError(error) || attempt === maxAttempts) {
+        throw error
+      }
+
+      console.warn(
+        `PostgREST schema cache is not ready; retrying seed (${attempt}/${maxAttempts}).`
+      )
+      await delay(attempt * 2000)
+    }
+  }
 }
 
 main().catch((error) => {
