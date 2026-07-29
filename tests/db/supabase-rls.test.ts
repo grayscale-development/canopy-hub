@@ -134,6 +134,9 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
 
   it("enforces one flag per user and assistant message", async () => {
     const standard = await signIn("standard@canopy.test")
+    const {
+      data: { user },
+    } = await standard.auth.getUser()
     const thread = await createThread(standard, "Flag thread")
     const userMessage = await createMessage(standard, thread.id, "user", "Question")
     const assistantMessage = await createMessage(
@@ -144,6 +147,7 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
     )
 
     const first = await standard.from("ai_chat_message_flags").insert({
+      user_id: user?.id,
       thread_id: thread.id,
       user_message_id: userMessage.id,
       assistant_message_id: assistantMessage.id,
@@ -156,6 +160,7 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
     expect(first.error).toBeNull()
 
     const second = await standard.from("ai_chat_message_flags").insert({
+      user_id: user?.id,
       thread_id: thread.id,
       user_message_id: userMessage.id,
       assistant_message_id: assistantMessage.id,

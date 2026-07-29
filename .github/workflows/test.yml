@@ -81,7 +81,7 @@ jobs:
   functions:
     name: 3. Supabase Edge Function tests
     runs-on: ubuntu-latest
-    needs: vitest
+    needs: static-checks
     permissions:
       contents: read
 
@@ -100,7 +100,7 @@ jobs:
   build:
     name: 4. Build
     runs-on: ubuntu-latest
-    needs: functions
+    needs: static-checks
     permissions:
       contents: read
 
@@ -131,7 +131,7 @@ jobs:
   db:
     name: 5. Local Supabase DB and RLS tests
     runs-on: ubuntu-latest
-    needs: build
+    needs: static-checks
     permissions:
       contents: read
 
@@ -173,7 +173,9 @@ jobs:
   e2e-smoke:
     name: 6. Playwright smoke tests
     runs-on: ubuntu-latest
-    needs: db
+    needs:
+      - build
+      - db
     permissions:
       contents: read
 

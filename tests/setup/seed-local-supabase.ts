@@ -298,40 +298,60 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     throw nodesError
   }
 
-  const { error: revisionsError } = await supabase
+  const revisionRows = [
+    {
+      id: FIXED_IDS.revisionOne,
+      node_id: FIXED_IDS.publishedPage,
+      blocks: [{ type: "paragraph", content: "Old checklist" }],
+      plain_text: "Old checklist",
+      change_note: "Initial draft",
+      created_by: userId,
+    },
+    {
+      id: FIXED_IDS.revisionTwo,
+      node_id: FIXED_IDS.publishedPage,
+      blocks: [{ type: "paragraph", content: "Funding checklist content" }],
+      plain_text: "Funding checklist content",
+      change_note: "Published content",
+      created_by: userId,
+    },
+    {
+      id: FIXED_IDS.draftRevision,
+      node_id: FIXED_IDS.draftPage,
+      blocks: [{ type: "paragraph", content: "Draft only content" }],
+      plain_text: "Draft only content",
+      change_note: "Draft",
+      created_by: userId,
+    },
+  ]
+
+  const { data: existingRevisions, error: existingRevisionsError } = await supabase
     .from("wiki_page_revisions")
-    .upsert(
-      [
-        {
-          id: FIXED_IDS.revisionOne,
-          node_id: FIXED_IDS.publishedPage,
-          blocks: [{ type: "paragraph", content: "Old checklist" }],
-          plain_text: "Old checklist",
-          change_note: "Initial draft",
-          created_by: userId,
-        },
-        {
-          id: FIXED_IDS.revisionTwo,
-          node_id: FIXED_IDS.publishedPage,
-          blocks: [{ type: "paragraph", content: "Funding checklist content" }],
-          plain_text: "Funding checklist content",
-          change_note: "Published content",
-          created_by: userId,
-        },
-        {
-          id: FIXED_IDS.draftRevision,
-          node_id: FIXED_IDS.draftPage,
-          blocks: [{ type: "paragraph", content: "Draft only content" }],
-          plain_text: "Draft only content",
-          change_note: "Draft",
-          created_by: userId,
-        },
-      ],
-      { onConflict: "id" }
+    .select("id")
+    .in(
+      "id",
+      revisionRows.map((row) => row.id)
     )
 
-  if (revisionsError) {
-    throw revisionsError
+  if (existingRevisionsError) {
+    throw existingRevisionsError
+  }
+
+  const existingRevisionIds = new Set(
+    (existingRevisions ?? []).map((row: { id: string }) => row.id)
+  )
+  const missingRevisions = revisionRows.filter(
+    (row) => !existingRevisionIds.has(row.id)
+  )
+
+  if (missingRevisions.length) {
+    const { error: revisionsError } = await supabase
+      .from("wiki_page_revisions")
+      .insert(missingRevisions)
+
+    if (revisionsError) {
+      throw revisionsError
+    }
   }
 
   const { error: nodeRevisionError } = await supabase
@@ -342,46 +362,64 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     throw nodeRevisionError
   }
 
-  const { error: assetError } = await supabase
+  const assetRows = [
+    {
+      id: FIXED_IDS.asset,
+      node_id: FIXED_IDS.publishedPage,
+      storage_bucket: "Wiki",
+      storage_path: `${FIXED_IDS.publishedPage}/${FIXED_IDS.asset}/guide.txt`,
+      file_name: "guide.txt",
+      mime_type: "text/plain",
+      size_bytes: 12,
+      kind: "document",
+      title: "Guide",
+      description: "Seeded guide",
+      alt_text: null,
+      extracted_text: "Seeded guide text",
+      status: "active",
+      created_by: userId,
+      updated_by: userId,
+    },
+    {
+      id: FIXED_IDS.archivedAsset,
+      node_id: FIXED_IDS.publishedPage,
+      storage_bucket: "Wiki",
+      storage_path: `${FIXED_IDS.publishedPage}/${FIXED_IDS.archivedAsset}/old.txt`,
+      file_name: "old.txt",
+      mime_type: "text/plain",
+      size_bytes: 10,
+      kind: "document",
+      status: "archived",
+      created_by: userId,
+      updated_by: userId,
+    },
+  ]
+
+  const { data: existingAssets, error: existingAssetsError } = await supabase
     .from("wiki_assets")
-    .upsert(
-      [
-        {
-          id: FIXED_IDS.asset,
-          node_id: FIXED_IDS.publishedPage,
-          storage_bucket: "Wiki",
-          storage_path: `${FIXED_IDS.publishedPage}/${FIXED_IDS.asset}/guide.txt`,
-          file_name: "guide.txt",
-          mime_type: "text/plain",
-          size_bytes: 12,
-          kind: "document",
-          title: "Guide",
-          description: "Seeded guide",
-          alt_text: null,
-          extracted_text: "Seeded guide text",
-          status: "active",
-          created_by: userId,
-          updated_by: userId,
-        },
-        {
-          id: FIXED_IDS.archivedAsset,
-          node_id: FIXED_IDS.publishedPage,
-          storage_bucket: "Wiki",
-          storage_path: `${FIXED_IDS.publishedPage}/${FIXED_IDS.archivedAsset}/old.txt`,
-          file_name: "old.txt",
-          mime_type: "text/plain",
-          size_bytes: 10,
-          kind: "document",
-          status: "archived",
-          created_by: userId,
-          updated_by: userId,
-        },
-      ],
-      { onConflict: "id" }
+    .select("id")
+    .in(
+      "id",
+      assetRows.map((row) => row.id)
     )
 
-  if (assetError) {
-    throw assetError
+  if (existingAssetsError) {
+    throw existingAssetsError
+  }
+
+  const existingAssetIds = new Set(
+    (existingAssets ?? []).map((row: { id: string }) => row.id)
+  )
+  const missingAssets = assetRows.filter((row) => !existingAssetIds.has(row.id))
+
+  if (missingAssets.length) {
+    const { error: assetError } = await supabase
+      .from("wiki_assets")
+      .insert(missingAssets)
+
+    if (assetError) {
+      throw assetError
+    }
   }
 
   const { error: knowledgeError } = await supabase

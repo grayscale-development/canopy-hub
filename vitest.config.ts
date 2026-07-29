@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
+const isDbTestRun = process.env.CANOPY_DB_TESTS === "1"
 
 export default defineConfig({
   plugins: [react()],
@@ -27,7 +28,7 @@ export default defineConfig({
     exclude: [
       "node_modules",
       ".next",
-      "tests/db/**",
+      ...(!isDbTestRun ? ["tests/db/**"] : []),
       "tests/e2e/**",
       "supabase/functions/**",
     ],
