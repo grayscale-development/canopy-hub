@@ -151,7 +151,7 @@ jobs:
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.67.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -195,7 +195,7 @@ jobs:
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.67.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
