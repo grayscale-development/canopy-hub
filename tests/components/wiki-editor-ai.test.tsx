@@ -177,6 +177,10 @@ function createDeferred<T>() {
 async function startRewrite(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /ai/i }))
   await user.click(await screen.findByText("Rewrite Page"))
+  expect(await screen.findByRole("dialog")).toHaveTextContent("Warning")
+  expect(screen.getByRole("dialog")).toHaveTextContent(
+    "AI rewrite is still in testing and may change this page, so by confirming you acknowledge that you will review the changes before accepting them."
+  )
   await user.click(
     await screen.findByRole("button", { name: "Confirm Rewrite" })
   )
