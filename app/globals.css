@@ -1,125 +1,132 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@blocknote/shadcn/style.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: var(--font-sans);
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
-    --color-ring: var(--ring);
-    --color-input: var(--input);
-    --color-border: var(--border);
-    --color-destructive: var(--destructive);
-    --color-accent-foreground: var(--accent-foreground);
-    --color-accent: var(--accent);
-    --color-muted-foreground: var(--muted-foreground);
-    --color-muted: var(--muted);
-    --color-secondary-foreground: var(--secondary-foreground);
-    --color-secondary: var(--secondary);
-    --color-primary-foreground: var(--primary-foreground);
-    --color-primary: var(--primary);
-    --color-popover-foreground: var(--popover-foreground);
-    --color-popover: var(--popover);
-    --color-card-foreground: var(--card-foreground);
-    --color-card: var(--card);
-    --color-foreground: var(--foreground);
-    --color-background: var(--background);
-    --radius-sm: calc(var(--radius) * 0.6);
-    --radius-md: calc(var(--radius) * 0.8);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
-    --radius-2xl: calc(var(--radius) * 1.8);
-    --radius-3xl: calc(var(--radius) * 2.2);
-    --radius-4xl: calc(var(--radius) * 2.6);
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.828 0.111 230.318);
-    --chart-2: oklch(0.685 0.169 237.323);
-    --chart-3: oklch(0.588 0.158 241.966);
-    --chart-4: oklch(0.5 0.134 242.749);
-    --chart-5: oklch(0.443 0.11 240.79);
-    --radius: 0.45rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+  --background: #f6f8fb;
+  --foreground: #14202b;
+  --card: #ffffff;
+  --card-foreground: #14202b;
+  --popover: #ffffff;
+  --popover-foreground: #14202b;
+  --primary: #1f7fbf;
+  --primary-foreground: #ffffff;
+  --secondary: #edf6fb;
+  --secondary-foreground: #16354c;
+  --muted: #eef3f7;
+  --muted-foreground: #647485;
+  --accent: #e8f4fb;
+  --accent-foreground: #123c58;
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: #dce6ee;
+  --input: #d4e0ea;
+  --ring: #3f96d1;
+  --chart-1: #3f96d1;
+  --chart-2: #62b88f;
+  --chart-3: #f0a43a;
+  --chart-4: #7a8eb8;
+  --chart-5: #d66c6c;
+  --radius: 0.45rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #172637;
+  --sidebar-primary: #1f7fbf;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #edf6fb;
+  --sidebar-accent-foreground: #123c58;
+  --sidebar-border: #dce6ee;
+  --sidebar-ring: #3f96d1;
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.828 0.111 230.318);
-    --chart-2: oklch(0.685 0.169 237.323);
-    --chart-3: oklch(0.588 0.158 241.966);
-    --chart-4: oklch(0.5 0.134 242.749);
-    --chart-5: oklch(0.443 0.11 240.79);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+  --background: #0f151b;
+  --foreground: #edf5fb;
+  --card: #151d25;
+  --card-foreground: #edf5fb;
+  --popover: #151d25;
+  --popover-foreground: #edf5fb;
+  --primary: #59ace5;
+  --primary-foreground: #07131c;
+  --secondary: #1f2d38;
+  --secondary-foreground: #edf5fb;
+  --muted: #1f2d38;
+  --muted-foreground: #a9b7c3;
+  --accent: #1f3444;
+  --accent-foreground: #edf5fb;
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: #273745;
+  --input: #334553;
+  --ring: #59ace5;
+  --chart-1: #59ace5;
+  --chart-2: #7bc99d;
+  --chart-3: #f3b657;
+  --chart-4: #9aa9cf;
+  --chart-5: #ee8585;
+  --sidebar: #121a22;
+  --sidebar-foreground: #edf5fb;
+  --sidebar-primary: #59ace5;
+  --sidebar-primary-foreground: #07131c;
+  --sidebar-accent: #20313f;
+  --sidebar-accent-foreground: #edf5fb;
+  --sidebar-border: #273745;
+  --sidebar-ring: #59ace5;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
+  .bn-shadcn * {
+    @apply border-border outline-ring/50;
+  }
+  ::selection {
+    @apply bg-primary/20 text-foreground;
+  }
   select:not([multiple]) {
     -webkit-appearance: none;
     -moz-appearance: none;
@@ -134,46 +141,129 @@
     display: none;
   }
   body {
-    @apply bg-background text-foreground;
-    }
+    @apply min-h-svh bg-background text-foreground;
+  }
   html {
     @apply font-sans;
-    }
+  }
+}
+
+[data-slot="sidebar-inset"] > header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: color-mix(in oklab, var(--background) 95%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--border) 80%, transparent);
+}
+
+.wiki-blocknote-surface {
+  font-family: var(--font-sans);
+  min-width: 0;
+  width: 100%;
+}
+
+.wiki-blocknote-surface .bn-default-styles,
+.wiki-blocknote-surface .bn-container,
+.wiki-blocknote-surface .bn-root,
+.wiki-blocknote-surface .bn-editor,
+.wiki-blocknote-surface .ProseMirror,
+.wiki-blocknote-surface [contenteditable="true"] {
+  font-family: var(--font-sans) !important;
+}
+
+.wiki-blocknote-surface .bn-container,
+.wiki-blocknote-surface .bn-root {
+  align-self: stretch;
+  background: var(--bn-colors-editor-background) !important;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  max-width: none;
+  min-height: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+.wiki-blocknote-surface .bn-editor,
+.wiki-blocknote-surface .ProseMirror,
+.wiki-blocknote-surface [contenteditable="true"] {
+  background: var(--bn-colors-editor-background) !important;
+  background-color: var(--bn-colors-editor-background) !important;
+  box-sizing: border-box;
+  display: block;
+  max-width: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.wiki-blocknote-modal-preview,
+.wiki-blocknote-modal-preview .bn-container,
+.wiki-blocknote-modal-preview .bn-root,
+.wiki-blocknote-modal-preview .bn-editor,
+.wiki-blocknote-modal-preview .ProseMirror,
+.wiki-blocknote-modal-preview [contenteditable="true"] {
+  background: #fff !important;
+  background-color: #fff !important;
+}
+
+.wiki-blocknote-surface .bn-editor {
+  flex: 1 1 auto;
+  min-height: 100%;
+  padding-inline: 0 !important;
+}
+
+.wiki-blocknote-surface .bn-block-group,
+.wiki-blocknote-surface .bn-block-outer,
+.wiki-blocknote-surface .bn-block,
+.wiki-blocknote-surface .bn-block-content {
+  max-width: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.wiki-blocknote-surface
+  .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
+  max-width: none !important;
+  white-space: nowrap;
+}
+
+@media (width < 768px) {
+  .wiki-blocknote-surface .bn-editor {
+    padding-inline: 0 !important;
+  }
+
+  .wiki-blocknote-surface
+    .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
+    white-space: normal;
+  }
+}
+
+#bn-suggestion-menu.bn-suggestion-menu {
+  font-family: var(--font-sans) !important;
+  max-height: min(22rem, calc(100vh - 10rem)) !important;
+  overflow-y: auto !important;
+}
+
+.bn-panel,
+.bn-toolbar,
+.bn-suggestion-menu,
+.bn-grid-suggestion-menu,
+.bn-side-menu,
+.bn-formatting-toolbar {
+  font-family: var(--font-sans) !important;
 }
 
 @layer utilities {
   .leaderboard-scroll-viewport {
-    mask-image: linear-gradient(
-      to bottom,
-      transparent,
-      black 1.25rem,
-      black calc(100% - 1.25rem),
-      transparent
-    );
+    scrollbar-gutter: stable;
   }
 
-  .leaderboard-scroll-track {
-    animation: leaderboard-scroll var(--leaderboard-scroll-duration, 80s) linear infinite;
+  .file-quality-table-scroll {
+    scrollbar-gutter: stable;
   }
 
-  .leaderboard-scroll-viewport:hover .leaderboard-scroll-track,
-  .leaderboard-scroll-viewport:focus-within .leaderboard-scroll-track {
-    animation-play-state: paused;
-  }
-
-  @keyframes leaderboard-scroll {
-    from {
-      transform: translateY(0);
-    }
-
-    to {
-      transform: translateY(-50%);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .leaderboard-scroll-track {
-      animation: none;
-    }
+  .points-specialists-scroll-viewport {
+    scrollbar-gutter: stable;
   }
 }

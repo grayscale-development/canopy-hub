@@ -25,10 +25,7 @@ import {
   sanitizeFileViewerFilters,
   type FileViewerFilter,
 } from "@/lib/file-viewer-filters"
-import {
-  type LeaderboardEntityKey,
-  fetchFileViewerFiles,
-} from "@/lib/hub-data"
+import { type LeaderboardEntityKey, fetchFileViewerFiles } from "@/lib/hub-data"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const MAX_FILE_VIEWER_ROWS = 5000
@@ -78,9 +75,8 @@ function deriveServerPreFilters(filters: FileViewerFilter[]) {
 
   for (const filter of filters) {
     if (filter.field in ENTITY_FIELD_MAP && filter.operator === "equals") {
-      const mappedEntity = ENTITY_FIELD_MAP[
-        filter.field as keyof typeof ENTITY_FIELD_MAP
-      ]
+      const mappedEntity =
+        ENTITY_FIELD_MAP[filter.field as keyof typeof ENTITY_FIELD_MAP]
       const normalizedValue = filter.value.trim()
       if (!normalizedValue) {
         continue
@@ -201,10 +197,9 @@ export default async function FileViewerPage({
 
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">
-            <h1 className="text-3xl font-semibold tracking-tight">File Viewer</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Review and inspect loan files.
-            </p>
+            <h1 className="text-3xl font-semibold tracking-tight">
+              File Viewer
+            </h1>
           </div>
 
           <div className="min-w-0 rounded-xl border bg-card p-6 text-card-foreground">

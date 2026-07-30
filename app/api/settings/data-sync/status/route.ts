@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server"
 
+import {
+  ADVANCED_SETTINGS_ACCESS_PERMISSION,
+  SETTINGS_ACCESS_PERMISSION,
+} from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -43,13 +47,20 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const canEditPermissions = await userHasPermissionCode({
-    supabase,
-    userId: user.id,
-    code: "permissions.edit",
-  })
+  const [canViewSettings, canAccessAdvancedSettings] = await Promise.all([
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: SETTINGS_ACCESS_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: ADVANCED_SETTINGS_ACCESS_PERMISSION,
+    }),
+  ])
 
-  if (!canEditPermissions) {
+  if (!canViewSettings || !canAccessAdvancedSettings) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

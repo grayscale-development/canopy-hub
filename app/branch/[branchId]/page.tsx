@@ -82,7 +82,9 @@ export default async function BranchPage({
         ? fetchBranchLast12MonthsSeries({ branchId })
         : Promise.resolve(null),
       tab === "home" ? fetchBranchEmployees({ branchId }) : Promise.resolve([]),
-      tab === "employees" ? fetchBranchEmployees({ branchId }) : Promise.resolve([]),
+      tab === "employees"
+        ? fetchBranchEmployees({ branchId })
+        : Promise.resolve([]),
       tab === "pipeline"
         ? fetchFileViewerFiles({
             entity: "branch",
@@ -121,7 +123,9 @@ export default async function BranchPage({
 
         <div className="flex flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">
-            <h1 className="text-3xl font-semibold tracking-tight">{branchName}</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">
+              {branchName}
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {branch?.address ?? "Address unavailable."}
             </p>
@@ -165,27 +169,27 @@ export default async function BranchPage({
             <div className="flex flex-col gap-4">
               <div className="rounded-xl border bg-card p-6 text-card-foreground">
                 <h2 className="text-xl font-semibold">Last 12 Months</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Funded Loans (bar) and Funded Volume (line)
-                </p>
                 {last12MonthsSeries ? (
                   <div className="mt-4">
                     <CanopyProductionChart
                       labels={last12MonthsSeries.labels}
-                      monthlyFundedCounts={last12MonthsSeries.monthlyFundedCounts}
-                      monthlyFundedVolumes={last12MonthsSeries.monthlyFundedVolumes}
+                      monthlyFundedCounts={
+                        last12MonthsSeries.monthlyFundedCounts
+                      }
+                      monthlyFundedVolumes={
+                        last12MonthsSeries.monthlyFundedVolumes
+                      }
                     />
                   </div>
                 ) : (
-                  <p className="mt-4 text-sm text-muted-foreground">Data load failed.</p>
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    Data load failed.
+                  </p>
                 )}
               </div>
 
               <div className="rounded-xl border bg-card p-6 text-card-foreground">
                 <h2 className="text-xl font-semibold">Employees</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Team members associated with this branch.
-                </p>
                 {homeEmployees.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">
                     No employee data found.
@@ -200,9 +204,6 @@ export default async function BranchPage({
           {tab === "employees" ? (
             <div className="rounded-xl border bg-card p-6 text-card-foreground">
               <h2 className="text-xl font-semibold">Employees</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Team members associated with this branch.
-              </p>
               {employees.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">
                   No employee data found.
@@ -216,9 +217,6 @@ export default async function BranchPage({
           {tab === "pipeline" ? (
             <div className="rounded-xl border bg-card p-6 text-card-foreground">
               <h2 className="text-xl font-semibold">Pipeline</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Open pipeline files for this branch.
-              </p>
               {pipelineRows.length === 0 ? (
                 <p className="mt-4 text-sm text-muted-foreground">
                   No pipeline files found.

@@ -3,9 +3,20 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
+import { NEWSLETTER_BUCKET, parseNewsletterFileName } from "@/lib/newsletters"
+import {
+  ADVANCED_SETTINGS_ACCESS_PERMISSION,
+  AI_SETTINGS_ACCESS_PERMISSION,
+  BETA_1_PERMISSION,
+  DATA_SYNC_RUN_PERMISSION,
+  PERMISSIONS_ACCESS_PERMISSION,
+  SETTINGS_ACCESS_PERMISSION,
+} from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { extractWikiDocumentText } from "@/lib/wiki-extract"
+import { indexCuratedSiteKnowledge, indexKnowledgeSource } from "@/lib/wiki-ai"
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key)
@@ -31,20 +42,111 @@ async function getPermissionsEditorClient() {
     redirect("/login")
   }
 
-  const canEditPermissions = await userHasPermissionCode({
+  const canAccessPermissions = await userHasPermissionCode({
     supabase,
     userId: user.id,
-    code: "permissions.edit",
+    code: PERMISSIONS_ACCESS_PERMISSION,
   })
 
-  if (!canEditPermissions) {
+  if (!canAccessPermissions) {
     throw new Error("Unauthorized")
   }
 
   return supabase
 }
 
-async function getDataSyncInvokeHeaders(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
+async function getAiSettingsClient() {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const [canViewSettings, canAccessAiSettings, canAccessBeta1] =
+    await Promise.all([
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: AI_SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: BETA_1_PERMISSION,
+      }),
+    ])
+
+  if (!canViewSettings || !canAccessAiSettings || !canAccessBeta1) {
+    throw new Error("Unauthorized")
+  }
+
+  return supabase
+}
+
+async function getAdvancedSettingsClient() {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const [canViewSettings, canAccessAdvancedSettings] = await Promise.all([
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: SETTINGS_ACCESS_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: ADVANCED_SETTINGS_ACCESS_PERMISSION,
+    }),
+  ])
+
+  if (!canViewSettings || !canAccessAdvancedSettings) {
+    throw new Error("Unauthorized")
+  }
+
+  return supabase
+}
+
+async function getDataSyncRunnerClient() {
+  const supabase = await getAdvancedSettingsClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const canRunDataSyncs = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: DATA_SYNC_RUN_PERMISSION,
+  })
+
+  if (!canRunDataSyncs) {
+    throw new Error("Unauthorized")
+  }
+
+  return supabase
+}
+
+async function getDataSyncInvokeHeaders(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+) {
   const {
     data: { session },
     error,
@@ -86,14 +188,12 @@ export async function updatePermissionAction(formData: FormData) {
   const supabase = await getPermissionsEditorClient()
   const id = getRequiredString(formData, "permission_id", "Permission id")
   const name = getRequiredString(formData, "name", "Name")
-  const page = getRequiredString(formData, "page", "Page")
   const code = getRequiredString(formData, "code", "Code")
 
   const { error } = await supabase
     .from("permissions")
     .update({
       name,
-      page,
       code,
     })
     .eq("id", id)
@@ -107,7 +207,11 @@ export async function updatePermissionAction(formData: FormData) {
 
 export async function addPermissionUserAction(formData: FormData) {
   const supabase = await getPermissionsEditorClient()
-  const permissionId = getRequiredString(formData, "permission_id", "Permission id")
+  const permissionId = getRequiredString(
+    formData,
+    "permission_id",
+    "Permission id"
+  )
   const userId = getRequiredString(formData, "user_id", "User id")
 
   const { error } = await supabase.from("user_permissions").upsert(
@@ -130,7 +234,11 @@ export async function addPermissionUserAction(formData: FormData) {
 
 export async function addPermissionUsersAction(formData: FormData) {
   const supabase = await getPermissionsEditorClient()
-  const permissionId = getRequiredString(formData, "permission_id", "Permission id")
+  const permissionId = getRequiredString(
+    formData,
+    "permission_id",
+    "Permission id"
+  )
   const rawUserIds = getRequiredString(formData, "user_ids", "User ids")
 
   let userIds: string[] = []
@@ -168,7 +276,11 @@ export async function addPermissionUsersAction(formData: FormData) {
 
 export async function removePermissionUserAction(formData: FormData) {
   const supabase = await getPermissionsEditorClient()
-  const permissionId = getRequiredString(formData, "permission_id", "Permission id")
+  const permissionId = getRequiredString(
+    formData,
+    "permission_id",
+    "Permission id"
+  )
   const userId = getRequiredString(formData, "user_id", "User id")
 
   const { error } = await supabase
@@ -176,6 +288,111 @@ export async function removePermissionUserAction(formData: FormData) {
     .delete()
     .eq("permission_id", permissionId)
     .eq("user_id", userId)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath("/settings/permissions")
+}
+
+export async function approvePermissionRequestAction(formData: FormData) {
+  const supabase = await getPermissionsEditorClient()
+  const requestId = getRequiredString(formData, "request_id", "Request id")
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const { data: request, error: requestError } = await supabase
+    .from("permission_requests")
+    .select("id,permission_id,requested_by,status")
+    .eq("id", requestId)
+    .maybeSingle()
+
+  if (requestError) {
+    throw new Error(requestError.message)
+  }
+
+  if (!request?.id) {
+    throw new Error("Permission request was not found")
+  }
+
+  if (request.status !== "pending") {
+    throw new Error("Permission request is already complete")
+  }
+
+  const { error: grantError } = await supabase.from("user_permissions").upsert(
+    {
+      permission_id: request.permission_id,
+      user_id: request.requested_by,
+    },
+    {
+      onConflict: "user_id,permission_id",
+      ignoreDuplicates: true,
+    }
+  )
+
+  if (grantError) {
+    throw new Error(grantError.message)
+  }
+
+  const { error: updateError } = await supabase
+    .from("permission_requests")
+    .update({
+      status: "approved",
+      completed_at: new Date().toISOString(),
+      completed_by: user.id,
+    })
+    .eq("id", request.id)
+
+  if (updateError) {
+    throw new Error(updateError.message)
+  }
+
+  revalidatePath("/settings/permissions")
+}
+
+export async function denyPermissionRequestAction(formData: FormData) {
+  const supabase = await getPermissionsEditorClient()
+  const requestId = getRequiredString(formData, "request_id", "Request id")
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const { data: request, error: requestError } = await supabase
+    .from("permission_requests")
+    .select("id,status")
+    .eq("id", requestId)
+    .maybeSingle()
+
+  if (requestError) {
+    throw new Error(requestError.message)
+  }
+
+  if (!request?.id) {
+    throw new Error("Permission request was not found")
+  }
+
+  if (request.status !== "pending") {
+    throw new Error("Permission request is already complete")
+  }
+
+  const { error } = await supabase
+    .from("permission_requests")
+    .update({
+      status: "denied",
+      completed_at: new Date().toISOString(),
+      completed_by: user.id,
+    })
+    .eq("id", request.id)
 
   if (error) {
     throw new Error(error.message)
@@ -202,8 +419,16 @@ export interface RunAllDataSyncsResult {
   message: string
 }
 
+export interface RunMiloKnowledgeIndexResult {
+  ok: boolean
+  message: string
+  indexedCount?: number
+  curatedIndexedCount?: number
+  fileIndexedCount?: number
+}
+
 export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
-  const editorSupabase = await getPermissionsEditorClient()
+  const editorSupabase = await getDataSyncRunnerClient()
   const invokeHeaders = await getDataSyncInvokeHeaders(editorSupabase)
   const supabase = createSupabaseAdminClient()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -252,9 +477,7 @@ export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
 
     if (!response.ok || payload?.success === false) {
       const errorMessage = payload?.error || `HTTP ${response.status}`
-      failures.push(
-        `${source.source_key}: ${errorMessage || "Sync failed."}`
-      )
+      failures.push(`${source.source_key}: ${errorMessage || "Sync failed."}`)
       continue
     }
 
@@ -274,5 +497,96 @@ export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
   return {
     ok: true,
     message: `Dispatched ${dispatchedCount} of ${enabledSources.length} enabled source syncs.`,
+  }
+}
+
+async function extractStorageFileText({
+  bucket,
+  fileName,
+  contentType,
+}: {
+  bucket: string
+  fileName: string
+  contentType: string
+}) {
+  const adminSupabase = createSupabaseAdminClient()
+  const { data, error } = await adminSupabase.storage
+    .from(bucket)
+    .download(fileName)
+
+  if (error || !data) {
+    return ""
+  }
+
+  const file = new File([data], fileName, {
+    type: contentType || data.type || "application/octet-stream",
+  })
+
+  try {
+    return await extractWikiDocumentText(file)
+  } catch {
+    return ""
+  }
+}
+
+export async function runMiloKnowledgeIndexAction(): Promise<RunMiloKnowledgeIndexResult> {
+  await getAiSettingsClient()
+  const supabase = createSupabaseAdminClient()
+
+  try {
+    const curatedIndexedCount = await indexCuratedSiteKnowledge(supabase)
+    const { data: newsletterFiles } = await supabase.storage
+      .from(NEWSLETTER_BUCKET)
+      .list("", { limit: 1000 })
+
+    let fileIndexedCount = 0
+
+    for (const file of newsletterFiles ?? []) {
+      const parsed = parseNewsletterFileName(file.name)
+      if (!parsed) {
+        continue
+      }
+
+      const text = await extractStorageFileText({
+        bucket: NEWSLETTER_BUCKET,
+        fileName: parsed.fileName,
+        contentType: "application/pdf",
+      })
+
+      await indexKnowledgeSource(supabase, {
+        sourceType: "newsletter",
+        sourceId: parsed.fileName,
+        title: parsed.label,
+        url: `/newsletters/open?file=${encodeURIComponent(parsed.fileName)}`,
+        content:
+          text ||
+          `${parsed.label} company newsletter PDF. Content extraction unavailable.`,
+        metadata: {
+          fileName: parsed.fileName,
+          month: parsed.month,
+          year: parsed.year,
+        },
+      })
+      fileIndexedCount += 1
+    }
+
+    const indexedCount = curatedIndexedCount + fileIndexedCount
+    revalidatePath("/settings/advanced")
+
+    return {
+      ok: true,
+      message: `Indexed ${indexedCount} Milo knowledge sources.`,
+      indexedCount,
+      curatedIndexedCount,
+      fileIndexedCount,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to run the Milo knowledge index.",
+    }
   }
 }

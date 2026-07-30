@@ -1,0 +1,226 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *"
+
+env:
+  NODE_VERSION: 22
+  CANOPY_TEST_PASSWORD: canopy-test-password
+  OPENAI_CHAT_MODEL: fake-chat
+  OPENAI_EMBEDDING_MODEL: fake-embedding
+
+jobs:
+  static-checks:
+    name: 1. Lint and typecheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+  vitest:
+    name: 2. Unit, component, and API tests
+    runs-on: ubuntu-latest
+    needs: static-checks
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Vitest with coverage
+        run: pnpm test:coverage
+
+      - name: Upload coverage summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  functions:
+    name: 3. Supabase Edge Function tests
+    runs-on: ubuntu-latest
+    needs: static-checks
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run Deno tests
+        run: deno test --no-check --allow-env supabase/functions
+
+  build:
+    name: 4. Build
+    runs-on: ubuntu-latest
+    needs: static-checks
+    permissions:
+      contents: read
+
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: local-build-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: local-build-service-role-key
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+  db:
+    name: 5. Local Supabase DB and RLS tests
+    runs-on: ubuntu-latest
+    needs: static-checks
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.67.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Start local Supabase
+        run: |
+          supabase start
+          supabase status -o env > supabase.env
+          echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> "$GITHUB_ENV"
+          sed -E -n 's/^ANON_KEY="?([^"]*)"?$/NEXT_PUBLIC_SUPABASE_ANON_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
+          sed -E -n 's/^SERVICE_ROLE_KEY="?([^"]*)"?$/SUPABASE_SERVICE_ROLE_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
+
+      - name: Reset and seed local Supabase
+        run: pnpm test:db:reset && pnpm test:db:seed
+
+      - name: Run database and RLS tests
+        run: CANOPY_DB_TESTS=1 pnpm exec vitest run tests/db
+
+  e2e-smoke:
+    name: 6. Playwright smoke tests
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - db
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.67.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm test:e2e:install
+
+      - name: Start local Supabase
+        run: |
+          supabase start
+          supabase status -o env > supabase.env
+          echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> "$GITHUB_ENV"
+          sed -E -n 's/^ANON_KEY="?([^"]*)"?$/NEXT_PUBLIC_SUPABASE_ANON_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
+          sed -E -n 's/^SERVICE_ROLE_KEY="?([^"]*)"?$/SUPABASE_SERVICE_ROLE_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
+
+      - name: Reset and seed local Supabase
+        run: pnpm test:db:reset && pnpm test:db:seed
+
+      - name: Run Playwright smoke tests
+        run: pnpm test:e2e --grep "@smoke"
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

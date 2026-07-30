@@ -1,20 +1,17 @@
-import Link from "next/link"
-import { MessageSquarePlusIcon } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
+import { WikiChatDockTrigger } from "@/components/wiki/wiki-chat-dock"
+import { WikiHeaderSearch } from "@/components/wiki/wiki-header-search"
 import { cn } from "@/lib/utils"
 
 export function HeaderFeedbackButton({ className }: { className?: string }) {
   return (
-    <Button asChild variant="outline" size="sm" className={cn(className)}>
-      <Link
-        href="https://canopyhub.featurebase.app/"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        <MessageSquarePlusIcon className="size-4" />
-        Submit Feedback
-      </Link>
-    </Button>
+    <div
+      className={cn(
+        "-mr-4 flex min-w-0 items-stretch gap-2 self-stretch",
+        className
+      )}
+    >
+      <WikiHeaderSearch className="hidden w-[min(34vw,24rem)] self-center lg:block" />
+      <WikiChatDockTrigger />
+    </div>
   )
 }
