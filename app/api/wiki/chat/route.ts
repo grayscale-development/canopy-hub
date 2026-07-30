@@ -49,6 +49,22 @@ function streamEvents(events: unknown[]) {
   )
 }
 
+function getChatErrorMessage(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Unable to answer from the knowledge base."
+
+  if (
+    message === "Missing OPENAI_API_KEY." ||
+    message === "Missing OPENAI_CHAT_MODEL."
+  ) {
+    return "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app."
+  }
+
+  return message
+}
+
 export async function GET(request: Request) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -348,10 +364,7 @@ export async function POST(request: Request) {
       },
     ])
   } catch (error) {
-    const answer =
-      error instanceof Error
-        ? error.message
-        : "Unable to answer from the knowledge base."
+    const answer = getChatErrorMessage(error)
 
     const { data: assistantMessage } = await supabase
       .from("ai_chat_messages")
