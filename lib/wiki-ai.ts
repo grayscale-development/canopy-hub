@@ -10,7 +10,9 @@ import {
 import {
   fetchBranchesDirectoryRows,
   fetchEmployeeDirectoryRows,
+  type EmployeeDirectoryRow,
 } from "@/lib/hub-data"
+import { answerMiloQuestionWithAgent } from "@/lib/milo/agent"
 import { getFeaturedReports } from "@/lib/reports"
 import {
   fetchSupportDirectoryData,
@@ -82,8 +84,8 @@ interface RetrievedChunk {
 }
 
 interface ChatCitation {
-  knowledgeSourceId: string
-  knowledgeChunkId: string
+  knowledgeSourceId: string | null
+  knowledgeChunkId: string | null
   title: string
   url: string | null
   snippet: string
@@ -169,6 +171,10 @@ export async function indexKnowledgeSource(
     throw new Error(deleteError.message)
   }
 
+  if ((input.status ?? "active") !== "active") {
+    return source.id as string
+  }
+
   const chunks = chunkKnowledgeText(normalizedContent)
   if (!chunks.length) {
     return source.id as string
@@ -225,11 +231,13 @@ export async function indexWikiPage({
   node,
   revision,
   path,
+  isPublished = node.status === "published",
 }: {
   supabase: SupabaseWikiClient
   node: WikiNodeRow
   revision: WikiRevisionRow | null
   path: string
+  isPublished?: boolean
 }) {
   const content = revision?.plain_text?.trim() ?? ""
   return indexKnowledgeSource(supabase, {
@@ -244,7 +252,7 @@ export async function indexWikiPage({
       status: node.status,
       revisionId: revision?.id ?? null,
     },
-    status: node.status === "archived" ? "archived" : "active",
+    status: isPublished ? "active" : "archived",
   })
 }
 
@@ -253,11 +261,13 @@ export async function indexWikiAsset({
   asset,
   pageTitle,
   pagePath,
+  isPagePublished = true,
 }: {
   supabase: SupabaseWikiClient
   asset: WikiAssetRow
   pageTitle: string
   pagePath: string
+  isPagePublished?: boolean
 }) {
   const metadataText = [
     asset.title,
@@ -284,7 +294,8 @@ export async function indexWikiAsset({
       pageTitle,
       pagePath,
     },
-    status: asset.status === "active" ? "active" : "archived",
+    status:
+      asset.status === "active" && isPagePublished ? "active" : "archived",
   })
 }
 
@@ -357,7 +368,7 @@ export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
       sourceType: "support",
       sourceId: section.id,
       title: section.title,
-      url: `/support?query=${encodeURIComponent(section.title)}`,
+      url: `/department-directory?query=${encodeURIComponent(section.title)}`,
       content: [
         `Department directory section: ${section.title}`,
         `Section kind: ${section.kind}`,
@@ -473,16 +484,16 @@ export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
     {
       id: "support-directory",
       title: "Department Directory",
-      url: "/support",
+      url: "/department-directory",
       content:
-        "Department Directory is the Canopy Hub support directory. To find support departments, rush contacts, monitored inboxes, emails, phone numbers, department managers, and escalation notes, open /support.",
+        "Department Directory is the Canopy Hub support directory. To find support departments, rush contacts, monitored inboxes, emails, phone numbers, department managers, and escalation notes, open /department-directory.",
     },
     {
       id: "employee-directory",
       title: "People",
-      url: "/employee-directory",
+      url: "/people",
       content:
-        "People is the Canopy Hub employee directory. To find employees, job titles, work emails, mobile phones, branches, and divisions, open /employee-directory.",
+        "People is the Canopy Hub employee directory. To find employees, job titles, work emails, mobile phones, branches, and divisions, open /people.",
     },
     {
       id: "branches",
@@ -497,13 +508,6 @@ export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
       url: "/wiki",
       content:
         "Wiki contains internal documentation. To view Wiki documentation, open /wiki. It is organized by Canopy Mortgage and Nano LOS repositories, sections, groups, and pages.",
-    },
-    {
-      id: "documents",
-      title: "Documents",
-      url: "/documents",
-      content:
-        "Documents contains shared company documents and policies. To view documents and policies, open /documents.",
     },
     {
       id: "newsletters",
@@ -529,16 +533,16 @@ export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
     {
       id: "file-quality-dashboard",
       title: "File Quality Dashboard",
-      url: "/file-quality",
+      url: "/reports/file-quality",
       content:
-        "File Quality dashboard is a Canopy Hub page for branch and division quality metrics and monthly quality review. To view the File Quality dashboard, open /file-quality.",
+        "File Quality dashboard is a Canopy Hub page for branch and division quality metrics and monthly quality review. To view the File Quality dashboard, open /reports/file-quality.",
     },
     {
       id: "points-specialists",
       title: "Points Specialists",
-      url: "/points-specialists",
+      url: "/reports/specialists-points",
       content:
-        "Points Specialists is a Canopy Hub page for reviewing specialist point totals by month, week, organization, and user. To view Points Specialists, open /points-specialists.",
+        "Points Specialists is a Canopy Hub page for reviewing specialist point totals by month, week, organization, and user. To view Points Specialists, open /reports/specialists-points.",
     },
     {
       id: "settings",
@@ -569,12 +573,13 @@ export async function retrieveKnowledge(
   question: string,
   matchCount = 12
 ) {
+  const expandedQuestion = expandKnowledgeSearchQuery(question)
   const keywordMatches = await retrieveKeywordKnowledge(
     supabase,
-    question,
+    expandedQuestion,
     Math.min(matchCount, 8)
   )
-  const [embedding] = await embedTexts([question])
+  const [embedding] = await embedTexts([expandedQuestion])
   const { data, error } = await supabase.rpc("match_knowledge_chunks", {
     query_embedding: embedding,
     match_count: matchCount,
@@ -607,6 +612,11 @@ async function retrieveKeywordKnowledge(
   }
 
   return (data ?? []) as RetrievedChunk[]
+}
+
+function expandKnowledgeSearchQuery(question: string) {
+  const expanded = question.replace(/\bauth\b/gi, "authorization")
+  return expanded === question ? question : `${question} ${expanded}`
 }
 
 function mergeRetrievedChunks(chunks: RetrievedChunk[]) {
@@ -686,6 +696,149 @@ function getConversationalReply(question: string) {
   return null
 }
 
+function normalizeLookupText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function extractEmployeeLookupName(question: string) {
+  const normalized = normalizeLookupText(question)
+
+  if (!normalized) {
+    return null
+  }
+
+  const prefixed = normalized.match(
+    /^(?:tell me about|what can you tell me about|who is|who's|find|look up|lookup|search for)\s+(.+)$/
+  )
+  const candidate = (prefixed?.[1] ?? normalized)
+    .replace(/\b(?:employee|person|please)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (!candidate) {
+    return null
+  }
+
+  const blockedTerms = new Set([
+    "branch",
+    "branches",
+    "dashboard",
+    "document",
+    "documents",
+    "file",
+    "files",
+    "newsletter",
+    "newsletters",
+    "policy",
+    "policies",
+    "report",
+    "reports",
+    "support",
+    "wiki",
+  ])
+  const words = candidate.split(" ")
+
+  if (
+    words.length < 2 ||
+    words.length > 4 ||
+    words.some((word) => blockedTerms.has(word))
+  ) {
+    return null
+  }
+
+  return candidate
+}
+
+function hasExplicitEmployeeLookupIntent(question: string) {
+  return /\b(employee|person|people|people directory|user|staff|team member|contact|email|phone|mobile|job title|role|who is|who's)\b/i.test(
+    question
+  )
+}
+
+function findEmployeeMatches(
+  employees: EmployeeDirectoryRow[],
+  lookupName: string
+) {
+  const normalizedLookup = normalizeLookupText(lookupName)
+  const lookupWords = normalizedLookup.split(" ")
+
+  const exactMatches = employees.filter(
+    (employee) => normalizeLookupText(employee.employee) === normalizedLookup
+  )
+  if (exactMatches.length) {
+    return exactMatches
+  }
+
+  return employees.filter((employee) => {
+    const normalizedName = normalizeLookupText(employee.employee)
+    return lookupWords.every((word) => normalizedName.includes(word))
+  })
+}
+
+function formatEmployeeAnswer(employee: EmployeeDirectoryRow) {
+  const details = [
+    employee.jobTitle ? `Job title: ${employee.jobTitle}` : null,
+    employee.workEmail ? `Work email: ${employee.workEmail}` : null,
+    employee.mobilePhone ? `Phone: ${employee.mobilePhone}` : null,
+    employee.division ? `Division: ${employee.division}` : null,
+    employee.branch ? `Branch: ${employee.branch}` : null,
+    employee.branchId ? `Branch ID: ${employee.branchId}` : null,
+  ].filter(Boolean)
+  const profileUrl = `/employee/${encodeURIComponent(employee.id)}`
+
+  return [
+    `${employee.employee} is listed in the People directory.`,
+    details.length ? details.join("\n") : null,
+    `Profile: [${employee.employee}](${profileUrl})`,
+  ]
+    .filter(Boolean)
+    .join("\n")
+}
+
+async function answerEmployeeLookup(question: string) {
+  const lookupName = extractEmployeeLookupName(question)
+
+  if (!lookupName) {
+    return null
+  }
+
+  try {
+    const employees = await fetchEmployeeDirectoryRows()
+    const matches = findEmployeeMatches(employees, lookupName).slice(0, 5)
+    const hasEmployeeIntent = hasExplicitEmployeeLookupIntent(question)
+
+    if (matches.length === 1) {
+      return formatEmployeeAnswer(matches[0])
+    }
+
+    if (matches.length > 1) {
+      return [
+        `I found ${matches.length} matching employees in the People directory:`,
+        ...matches.map((employee) => {
+          const profileUrl = `/employee/${encodeURIComponent(employee.id)}`
+          const role = employee.jobTitle ? `, ${employee.jobTitle}` : ""
+          return `- [${employee.employee}](${profileUrl})${role}`
+        }),
+      ].join("\n")
+    }
+
+    if (!hasEmployeeIntent) {
+      return null
+    }
+
+    const hasEmployeeRows = employees.length > 0
+    return hasEmployeeRows
+      ? `I could not find ${lookupName} in the People directory. Open [People](/people) to search the current employee list.`
+      : `I do not have employee rows available in the People directory right now, so I cannot look up ${lookupName}. Open [People](/people) after the employee data sync is populated.`
+  } catch {
+    return null
+  }
+}
+
 function selectAnswerChunks(question: string, chunks: RetrievedChunk[]) {
   if (chunks.length <= 2) {
     return chunks
@@ -754,6 +907,22 @@ export async function answerKnowledgeQuestion({
       model: null,
       citations: [],
     }
+  }
+
+  const employeeLookupAnswer = await answerEmployeeLookup(question)
+
+  if (employeeLookupAnswer) {
+    return {
+      answer: employeeLookupAnswer,
+      model: null,
+      citations: [],
+    }
+  }
+
+  try {
+    return await answerMiloQuestionWithAgent({ question })
+  } catch {
+    // Keep the existing RAG path as a reliable fallback if the agent/tool loop fails.
   }
 
   const chunks = await retrieveKnowledge(supabase, question)

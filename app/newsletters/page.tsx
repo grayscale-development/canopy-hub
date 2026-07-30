@@ -5,6 +5,8 @@ import { NewsletterUploadButton } from "@/components/newsletters/newsletter-uplo
 import { NewslettersPageContent } from "@/components/newsletters/newsletters-page-content"
 import { AppSidebar } from "@/components/app-sidebar"
 import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
+import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
+import { Button } from "@/components/ui/button"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -25,6 +27,7 @@ import {
 } from "@/lib/newsletters"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { UploadIcon } from "lucide-react"
 
 export const metadata = {
   title: "Newsletters",
@@ -105,14 +108,30 @@ export default async function NewslettersPage() {
                   issue.
                 </p>
               </div>
-              {canUpload ? (
-                <div className="shrink-0">
+              <div className="shrink-0">
+                {canUpload ? (
                   <NewsletterUploadButton
                     newsletters={newsletters}
                     triggerClassName="border-white/35 bg-white text-slate-950 hover:bg-white/90 focus-visible:ring-white/60"
                   />
-                </div>
-              ) : null}
+                ) : (
+                  <PermissionRequestGate
+                    hasPermission={canUpload}
+                    permissionCode="newsletters.upload"
+                    permissionName="Upload Newsletters"
+                    popupClassName="right-0 left-auto text-slate-950"
+                  >
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="border-white/35 bg-white text-slate-950 hover:bg-white/90 focus-visible:ring-white/60"
+                    >
+                      <UploadIcon />
+                      Upload
+                    </Button>
+                  </PermissionRequestGate>
+                )}
+              </div>
             </div>
           </section>
 

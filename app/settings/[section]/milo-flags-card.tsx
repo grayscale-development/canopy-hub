@@ -141,9 +141,9 @@ async function fetchMiloFlags(): Promise<MiloFlag[]> {
   })
 }
 
-type MiloSettingsTab = "flags" | "index"
+type AiSettingsTab = "flags" | "index"
 
-const MILO_TABS: Array<{ key: MiloSettingsTab; label: string }> = [
+const AI_TABS: Array<{ key: AiSettingsTab; label: string }> = [
   { key: "flags", label: "Flags" },
   { key: "index", label: "Index" },
 ]
@@ -151,27 +151,27 @@ const MILO_TABS: Array<{ key: MiloSettingsTab; label: string }> = [
 export async function MiloFlagsCard({
   activeTab = "flags",
 }: {
-  activeTab?: MiloSettingsTab
+  activeTab?: AiSettingsTab
 }) {
   const flags = await fetchMiloFlags()
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Milo</CardTitle>
+        <CardTitle>AI</CardTitle>
         <CardDescription>
           Review flagged Ask Milo responses and manage the knowledge index.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex flex-wrap gap-2 border-b pb-4">
-          {MILO_TABS.map((tab) => (
+          {AI_TABS.map((tab) => (
             <Link
               key={tab.key}
               href={
                 tab.key === "flags"
-                  ? "/settings/milo"
-                  : `/settings/milo?tab=${tab.key}`
+                  ? "/settings/ai"
+                  : `/settings/ai?tab=${tab.key}`
               }
               className={cn(
                 "inline-flex h-9 items-center rounded-md px-3 text-sm font-medium transition-colors",

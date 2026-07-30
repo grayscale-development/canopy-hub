@@ -70,7 +70,7 @@ export function ReportsShuffleButton({
         <Button
           variant="outline"
           size="sm"
-          className="border-white/35 bg-white text-slate-950 hover:bg-white/90 focus-visible:ring-white/60"
+          className="border-white/70 bg-white text-slate-950 shadow-sm hover:bg-white/90 focus-visible:ring-white/60 dark:border-white/85 dark:bg-[#CFCFCF] dark:text-slate-950 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.24),0_12px_28px_rgba(0,0,0,0.45)] dark:hover:bg-white"
         >
           <ShuffleIcon />
           Shuffle

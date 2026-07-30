@@ -270,6 +270,29 @@ export function buildWikiPath(nodes: WikiNodeRow[], node: WikiNodeRow) {
     .join("/")
 }
 
+export function isPublishedWikiBranch(nodes: WikiNodeRow[], node: WikiNodeRow) {
+  const byId = new Map(nodes.map((item) => [item.id, item]))
+  let current: WikiNodeRow | undefined = node
+
+  while (current) {
+    if (current.status !== "published") {
+      return false
+    }
+    if (!current.parent_id) {
+      current = undefined
+      continue
+    }
+
+    const parent = byId.get(current.parent_id)
+    if (!parent) {
+      return false
+    }
+    current = parent
+  }
+
+  return true
+}
+
 export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")

@@ -1,24 +1,37 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRightIcon } from "lucide-react"
+import { ChevronRightIcon, PlusIcon } from "lucide-react"
 
+import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { WikiCreateWizardDialog } from "@/components/wiki/wiki-management-controls"
 import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 import {
   getDefaultWikiRepository,
   getWikiRepositoryBySlug,
   WIKI_REPOSITORIES,
+  type WikiRepositorySlug,
 } from "@/lib/wiki-repositories"
+import {
+  useWikiEditMode,
+  useVisibleWikiNodes,
+  WikiEditModeToggle,
+} from "@/components/wiki/wiki-edit-mode"
 import { cn } from "@/lib/utils"
 
 function nodeIsActive(
@@ -95,20 +108,27 @@ function SidebarPageLink({
   const isActive = path === activePath
 
   return (
-    <Link
-      href={`/wiki/${path}`}
-      className={cn(
-        "flex min-h-8 w-full items-center rounded-md px-2 py-1 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
-      )}
-    >
-      <span className="truncate">{node.title}</span>
-      {node.status === "draft" ? (
-        <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-          Draft
-        </span>
-      ) : null}
-    </Link>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          href={`/wiki/${path}`}
+          className={cn(
+            "flex min-h-8 w-full items-center rounded-md px-2 py-1 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
+          )}
+        >
+          <span className="truncate">{node.title}</span>
+          {node.status === "draft" ? (
+            <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              Draft
+            </span>
+          ) : null}
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent side="right" align="start" sideOffset={8}>
+        {node.title}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -284,6 +304,35 @@ function WikiSidebarAddRow({
   )
 }
 
+function RepositoryLogo({
+  repository,
+}: {
+  repository: (typeof WIKI_REPOSITORIES)[number]
+}) {
+  return (
+    <Image
+      src={repository.logoSrc}
+      alt=""
+      width={24}
+      height={24}
+      className="size-6 shrink-0 object-contain"
+    />
+  )
+}
+
+function RepositorySelectLabel({
+  repository,
+}: {
+  repository: (typeof WIKI_REPOSITORIES)[number]
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <RepositoryLogo repository={repository} />
+      <span className="truncate">{repository.title}</span>
+    </span>
+  )
+}
+
 export function WikiRepositorySidebar({
   nodes,
   activePath,
@@ -296,15 +345,18 @@ export function WikiRepositorySidebar({
   canManageWiki: boolean
 }) {
   const router = useRouter()
+  const { canEditWiki } = useWikiEditMode()
+  const canEditSidebar = canManageWiki && canEditWiki
+  const visibleNodes = useVisibleWikiNodes(nodes)
   const selectedRepository =
     getWikiRepositoryBySlug(selectedRepositorySlug) ??
     getDefaultWikiRepository()
   const repositoryNode =
-    nodes.find((node) => {
+    visibleNodes.find((node) => {
       return node.parent_id === null && node.slug === selectedRepository.slug
     }) ?? null
   const sections = repositoryNode
-    ? nodes
+    ? visibleNodes
         .filter(
           (node) =>
             node.parent_id === repositoryNode.id && node.type === "folder"
@@ -313,34 +365,40 @@ export function WikiRepositorySidebar({
     : []
 
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-sidebar p-3 text-sidebar-foreground lg:w-72">
+    <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:w-72">
       <div className="shrink-0">
         <Select
           value={selectedRepository.slug}
-          onValueChange={(value) => router.push(`/wiki/${value}`)}
+          onValueChange={(value) =>
+            router.push(`/wiki/${value as WikiRepositorySlug}`)
+          }
         >
-          <SelectTrigger className="h-10 border-sidebar-border">
-            <SelectValue />
+          <SelectTrigger className="h-12 rounded-none border-x-0 border-t-0 border-sidebar-border bg-sidebar px-3">
+            <RepositorySelectLabel repository={selectedRepository} />
           </SelectTrigger>
           <SelectContent>
             {WIKI_REPOSITORIES.map((repository) => (
-              <SelectItem key={repository.slug} value={repository.slug}>
-                {repository.title}
+              <SelectItem
+                key={repository.slug}
+                value={repository.slug}
+                textValue={repository.title}
+              >
+                <RepositorySelectLabel repository={repository} />
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
-      <div className="mt-4 min-h-0 flex-1 space-y-5 overflow-y-auto">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 pt-4">
         {sections.length ? (
           sections.map((section) => {
-            const directPages = nodes
+            const directPages = visibleNodes
               .filter(
                 (node) => node.parent_id === section.id && node.type === "page"
               )
               .sort(compareWikiNodes)
-            const nestedFolders = nodes
+            const nestedFolders = visibleNodes
               .filter(
                 (node) =>
                   node.parent_id === section.id && node.type === "folder"
@@ -353,9 +411,9 @@ export function WikiRepositorySidebar({
                 section={section}
                 directPages={directPages}
                 nestedFolders={nestedFolders}
-                nodes={nodes}
+                nodes={visibleNodes}
                 activePath={activePath}
-                canManage={canManageWiki}
+                canManage={canEditSidebar}
               />
             )
           })
@@ -365,8 +423,9 @@ export function WikiRepositorySidebar({
           </p>
         )}
       </div>
-      {canManageWiki ? (
-        <div className="mt-4 shrink-0 border-t border-sidebar-border pt-3">
+      <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
+        <WikiEditModeToggle />
+        {canEditSidebar ? (
           <WikiCreateWizardDialog
             parentId={repositoryNode?.id ?? null}
             defaultType="folder"
@@ -380,8 +439,26 @@ export function WikiRepositorySidebar({
             triggerLabel="Create Section"
             triggerClassName="w-full justify-start gap-2"
           />
-        </div>
-      ) : null}
+        ) : !canManageWiki ? (
+          <PermissionRequestGate
+            hasPermission={canManageWiki}
+            permissionCode="wiki.manage"
+            permissionName="Edit Wiki"
+            className="w-full"
+            popupClassName="right-0 left-auto bottom-full top-auto mb-0"
+          >
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="w-full justify-start gap-2"
+            >
+              <PlusIcon />
+              Create Section
+            </Button>
+          </PermissionRequestGate>
+        ) : null}
+      </div>
     </aside>
   )
 }

@@ -20,7 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
 interface Citation {
@@ -321,9 +320,13 @@ function FlaggedMessageIcon() {
 export function WikiChat({
   className,
   showTitle = true,
+  queuedPrompt,
+  onQueuedPromptConsumed,
 }: {
   className?: string
   showTitle?: boolean
+  queuedPrompt?: string | null
+  onQueuedPromptConsumed?: () => void
 }) {
   const [threadId, setThreadId] = React.useState<string | null>(null)
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
@@ -332,8 +335,11 @@ export function WikiChat({
   const [input, setInput] = React.useState("")
   const [pending, setPending] = React.useState(false)
   const [loadingThread, setLoadingThread] = React.useState(false)
+  const [isReadyForQueuedPrompt, setIsReadyForQueuedPrompt] =
+    React.useState(false)
   const scrollContainerRef = React.useRef<HTMLDivElement | null>(null)
   const bottomSentinelRef = React.useRef<HTMLDivElement | null>(null)
+  const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
   const shouldFollowScrollRef = React.useRef(true)
 
   const scrollToBottom = React.useCallback(
@@ -399,12 +405,27 @@ export function WikiChat({
   )
 
   React.useEffect(() => {
-    refreshThreads()
-    const savedThreadId = window.localStorage.getItem(
-      MILO_CHAT_THREAD_STORAGE_KEY
-    )
-    if (savedThreadId) {
-      loadThread(savedThreadId)
+    let isCurrent = true
+
+    async function loadInitialState() {
+      await refreshThreads()
+      const savedThreadId = window.localStorage.getItem(
+        MILO_CHAT_THREAD_STORAGE_KEY
+      )
+
+      if (savedThreadId) {
+        await loadThread(savedThreadId)
+      }
+
+      if (isCurrent) {
+        setIsReadyForQueuedPrompt(true)
+      }
+    }
+
+    void loadInitialState()
+
+    return () => {
+      isCurrent = false
     }
   }, [loadThread, refreshThreads])
 
@@ -416,121 +437,164 @@ export function WikiChat({
     window.localStorage.removeItem(MILO_CHAT_THREAD_STORAGE_KEY)
   }
 
-  async function askQuestion(event: React.FormEvent<HTMLFormElement>) {
+  const sendQuestion = React.useCallback(
+    async (questionValue: string) => {
+      const question = questionValue.trim()
+      if (!question || pending) {
+        return
+      }
+
+      const userMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: question,
+      }
+      const assistantId = crypto.randomUUID()
+      setMessages((current) => [
+        ...current,
+        userMessage,
+        { id: assistantId, role: "assistant", content: "" },
+      ])
+      shouldFollowScrollRef.current = true
+      setInput("")
+      setPending(true)
+
+      try {
+        const response = await fetch("/api/wiki/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ threadId, message: question }),
+        })
+
+        if (!response.ok || !response.body) {
+          const payload = (await response.json().catch(() => null)) as {
+            error?: string
+          } | null
+          throw new Error(payload?.error ?? "Chat request failed.")
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) {
+            break
+          }
+
+          buffer += decoder.decode(value, { stream: true })
+          const parts = buffer.split("\n\n")
+          buffer = parts.pop() ?? ""
+
+          for (const part of parts) {
+            const line = part.trim()
+            if (!line.startsWith("data: ")) {
+              continue
+            }
+
+            const data = JSON.parse(line.slice(6)) as StreamEvent
+            if (data.type === "meta") {
+              setThreadId(data.threadId)
+              window.localStorage.setItem(
+                MILO_CHAT_THREAD_STORAGE_KEY,
+                data.threadId
+              )
+            }
+            if (data.type === "token") {
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantId
+                    ? { ...message, content: message.content + data.token }
+                    : message
+                )
+              )
+            }
+            if (data.type === "done") {
+              setThreadId(data.threadId)
+              window.localStorage.setItem(
+                MILO_CHAT_THREAD_STORAGE_KEY,
+                data.threadId
+              )
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantId
+                    ? {
+                        ...message,
+                        id: data.assistantMessageId ?? message.id,
+                        citations: data.citations,
+                        canFlag: Boolean(data.assistantMessageId),
+                      }
+                    : message.id === userMessage.id && data.userMessageId
+                      ? { ...message, id: data.userMessageId }
+                      : message
+                )
+              )
+            }
+          }
+        }
+      } catch (error) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  content:
+                    error instanceof Error
+                      ? error.message
+                      : "Unable to answer right now.",
+                }
+              : message
+          )
+        )
+      } finally {
+        setPending(false)
+        refreshThreads()
+      }
+    },
+    [pending, refreshThreads, threadId]
+  )
+
+  function askQuestion(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const question = input.trim()
-    if (!question || pending) {
+    void sendQuestion(input)
+  }
+
+  function resizeInput() {
+    const element = inputRef.current
+    if (!element) {
       return
     }
 
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: question,
-    }
-    const assistantId = crypto.randomUUID()
-    setMessages((current) => [
-      ...current,
-      userMessage,
-      { id: assistantId, role: "assistant", content: "" },
-    ])
-    shouldFollowScrollRef.current = true
-    setInput("")
-    setPending(true)
-
-    try {
-      const response = await fetch("/api/wiki/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, message: question }),
-      })
-
-      if (!response.ok || !response.body) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: string
-        } | null
-        throw new Error(payload?.error ?? "Chat request failed.")
-      }
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) {
-          break
-        }
-
-        buffer += decoder.decode(value, { stream: true })
-        const parts = buffer.split("\n\n")
-        buffer = parts.pop() ?? ""
-
-        for (const part of parts) {
-          const line = part.trim()
-          if (!line.startsWith("data: ")) {
-            continue
-          }
-
-          const data = JSON.parse(line.slice(6)) as StreamEvent
-          if (data.type === "meta") {
-            setThreadId(data.threadId)
-            window.localStorage.setItem(
-              MILO_CHAT_THREAD_STORAGE_KEY,
-              data.threadId
-            )
-          }
-          if (data.type === "token") {
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantId
-                  ? { ...message, content: message.content + data.token }
-                  : message
-              )
-            )
-          }
-          if (data.type === "done") {
-            setThreadId(data.threadId)
-            window.localStorage.setItem(
-              MILO_CHAT_THREAD_STORAGE_KEY,
-              data.threadId
-            )
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      id: data.assistantMessageId ?? message.id,
-                      citations: data.citations,
-                      canFlag: Boolean(data.assistantMessageId),
-                    }
-                  : message.id === userMessage.id && data.userMessageId
-                    ? { ...message, id: data.userMessageId }
-                    : message
-              )
-            )
-          }
-        }
-      }
-    } catch (error) {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId
-            ? {
-                ...message,
-                content:
-                  error instanceof Error
-                    ? error.message
-                    : "Unable to answer right now.",
-              }
-            : message
-        )
-      )
-    } finally {
-      setPending(false)
-      refreshThreads()
-    }
+    element.style.height = "auto"
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`
   }
+
+  React.useLayoutEffect(() => {
+    resizeInput()
+  }, [input])
+
+  React.useEffect(() => {
+    const nextPrompt = queuedPrompt?.trim()
+    if (!nextPrompt || !isReadyForQueuedPrompt || pending) {
+      return
+    }
+
+    setInput(nextPrompt)
+
+    const timeout = window.setTimeout(() => {
+      void sendQuestion(nextPrompt)
+      onQueuedPromptConsumed?.()
+    }, 120)
+
+    return () => window.clearTimeout(timeout)
+  }, [
+    isReadyForQueuedPrompt,
+    onQueuedPromptConsumed,
+    pending,
+    queuedPrompt,
+    sendQuestion,
+  ])
 
   React.useLayoutEffect(() => {
     if (!shouldFollowScrollRef.current) {
@@ -725,14 +789,28 @@ export function WikiChat({
         )}
         <div ref={bottomSentinelRef} aria-hidden="true" />
       </div>
-      <form onSubmit={askQuestion} className="flex gap-2 border-t p-3">
-        <Input
+      <form onSubmit={askQuestion} className="relative border-t bg-background">
+        <textarea
+          ref={inputRef}
           value={input}
           onChange={(event) => setInput(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault()
+              void sendQuestion(input)
+            }
+          }}
           placeholder="Ask Milo anything"
           disabled={pending}
+          rows={1}
+          className="block max-h-40 min-h-14 w-full resize-none border-0 bg-background px-4 py-4 pr-14 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
         />
-        <Button type="submit" size="icon" disabled={pending || !input.trim()}>
+        <Button
+          type="submit"
+          size="icon-sm"
+          disabled={pending || !input.trim()}
+          className="absolute right-3 bottom-3"
+        >
           <SendIcon />
           <span className="sr-only">Send</span>
         </Button>

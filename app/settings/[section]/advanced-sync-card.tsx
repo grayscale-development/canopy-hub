@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 
 import { runAllDataSyncsAction } from "@/app/settings/actions"
+import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -22,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
+import { DATA_SYNC_RUN_PERMISSION } from "@/lib/permission-codes"
 
 interface SyncStatus {
   ok: boolean
@@ -149,7 +151,7 @@ function getStatusIcon(source: DataSyncSourceStatus) {
   }
 }
 
-function DataSyncTab() {
+function DataSyncTab({ canRunDataSyncs }: { canRunDataSyncs: boolean }) {
   const [status, setStatus] = React.useState<SyncStatus | null>(null)
   const [syncSources, setSyncSources] = React.useState<DataSyncSourceStatus[]>(
     []
@@ -273,19 +275,25 @@ function DataSyncTab() {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          onClick={handleRunSync}
-          disabled={isButtonDisabled}
-          className="gap-2"
+        <PermissionRequestGate
+          hasPermission={canRunDataSyncs}
+          permissionCode={DATA_SYNC_RUN_PERMISSION}
+          permissionName="Run Sync"
         >
-          {isButtonDisabled ? (
-            <Loader2Icon className="h-4 w-4 animate-spin" />
-          ) : (
-            <PlayIcon className="h-4 w-4" />
-          )}
-          {isButtonDisabled ? "Running Data Syncs..." : "Run Data Syncs"}
-        </Button>
+          <Button
+            type="button"
+            onClick={handleRunSync}
+            disabled={isButtonDisabled}
+            className="gap-2"
+          >
+            {isButtonDisabled ? (
+              <Loader2Icon className="h-4 w-4 animate-spin" />
+            ) : (
+              <PlayIcon className="h-4 w-4" />
+            )}
+            {isButtonDisabled ? "Running Data Syncs..." : "Run Data Syncs"}
+          </Button>
+        </PermissionRequestGate>
         <Button
           type="button"
           variant="outline"
@@ -447,10 +455,14 @@ function DataSyncTab() {
   )
 }
 
-export function AdvancedSyncCard() {
+export function AdvancedSyncCard({
+  canRunDataSyncs,
+}: {
+  canRunDataSyncs: boolean
+}) {
   return (
     <div className="rounded-xl border bg-card p-6 text-card-foreground">
-      <DataSyncTab />
+      <DataSyncTab canRunDataSyncs={canRunDataSyncs} />
     </div>
   )
 }

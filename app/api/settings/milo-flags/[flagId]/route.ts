@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server"
 
+import {
+  AI_SETTINGS_ACCESS_PERMISSION,
+  BETA_1_PERMISSION,
+  SETTINGS_ACCESS_PERMISSION,
+} from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -25,20 +30,26 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const [canViewSettings, canViewMiloFlags] = await Promise.all([
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: "settings.access",
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: "milo.flags.view",
-    }),
-  ])
+  const [canViewSettings, canAccessAiSettings, canAccessBeta1] =
+    await Promise.all([
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: AI_SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: BETA_1_PERMISSION,
+      }),
+    ])
 
-  if (!canViewSettings || !canViewMiloFlags) {
+  if (!canViewSettings || !canAccessAiSettings || !canAccessBeta1) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

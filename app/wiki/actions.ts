@@ -3,15 +3,17 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { indexWikiPage } from "@/lib/wiki-ai"
+import { archiveKnowledgeSource, indexWikiPage } from "@/lib/wiki-ai"
 import { getWikiRepositoryBySlug } from "@/lib/wiki-repositories"
 import {
   blockNoteToPlainText,
   buildWikiPath,
   fetchCurrentRevision,
   fetchWikiNodes,
+  isPublishedWikiBranch,
   slugifyWikiTitle,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeStatus,
@@ -39,13 +41,20 @@ async function getWikiManagerClient() {
     redirect("/login")
   }
 
-  const canManageWiki = await userHasPermissionCode({
-    supabase,
-    userId: user.id,
-    code: WIKI_MANAGE_PERMISSION,
-  })
+  const [canAccessBeta1, canManageWiki] = await Promise.all([
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: BETA_1_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: WIKI_MANAGE_PERMISSION,
+    }),
+  ])
 
-  if (!canManageWiki) {
+  if (!canAccessBeta1 || !canManageWiki) {
     throw new Error("You do not have permission to manage the Wiki.")
   }
 
@@ -101,6 +110,42 @@ async function generateUniqueWikiSlug({
   }
 
   return `${baseSlug}-${suffix}`
+}
+
+async function syncWikiPageKnowledgeSource({
+  supabase,
+  nodeId,
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  nodeId: string
+}) {
+  const nodes = await fetchWikiNodes(supabase)
+  const node = nodes.find((item) => item.id === nodeId)
+  if (!node || node.type !== "page") {
+    return { nodes, path: node ? buildWikiPath(nodes, node) : "" }
+  }
+
+  const isVisibleToViewers = isPublishedWikiBranch(nodes, node)
+  if (!isVisibleToViewers) {
+    await archiveKnowledgeSource({
+      supabase,
+      sourceType: "wiki_page",
+      sourceId: node.id,
+    })
+    return { nodes, path: buildWikiPath(nodes, node) }
+  }
+
+  const revision = await fetchCurrentRevision(supabase, node)
+  const path = buildWikiPath(nodes, node)
+  await indexWikiPage({
+    supabase,
+    node,
+    revision,
+    path,
+    isPublished: isVisibleToViewers,
+  })
+
+  return { nodes, path }
 }
 
 export async function createWikiNodeAction(
@@ -268,9 +313,7 @@ export async function updateWikiNodeAction(
       return { ok: false, message: error.message }
     }
 
-    const nodes = await fetchWikiNodes(supabase)
-    const node = nodes.find((item) => item.id === id)
-    const path = node ? buildWikiPath(nodes, node) : ""
+    const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId: id })
     revalidatePath("/wiki")
     if (path) {
       revalidatePath(`/wiki/${path}`)
@@ -343,6 +386,14 @@ export async function archiveWikiNodeAction(
       return { ok: false, message: error.message }
     }
 
+    if (node.type === "page") {
+      await archiveKnowledgeSource({
+        supabase,
+        sourceType: "wiki_page",
+        sourceId: id,
+      })
+    }
+
     revalidatePath("/wiki")
     return { ok: true, message: "Archived.", path: "/wiki" }
   } catch (error) {
@@ -403,20 +454,8 @@ export async function saveWikiPageAction(
       return { ok: false, message: updateError.message }
     }
 
-    const nodes = await fetchWikiNodes(supabase)
-    const node = nodes.find((item) => item.id === nodeId)
-    if (node) {
-      const refreshedRevision = await fetchCurrentRevision(supabase, {
-        ...node,
-        current_revision_id: revision.id,
-      })
-      const path = buildWikiPath(nodes, node)
-      await indexWikiPage({
-        supabase,
-        node,
-        revision: refreshedRevision,
-        path,
-      })
+    const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
+    if (path) {
       revalidatePath("/wiki")
       revalidatePath(`/wiki/${path}`)
       return { ok: true, message: "Saved.", path: `/wiki/${path}` }
@@ -454,7 +493,11 @@ export async function updateWikiNodeStatusAction(
       return { ok: false, message: error.message }
     }
 
+    const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
     revalidatePath("/wiki")
+    if (path) {
+      revalidatePath(`/wiki/${path}`)
+    }
     return { ok: true, message: "Status updated." }
   } catch (error) {
     return {

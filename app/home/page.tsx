@@ -40,6 +40,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
+import { WikiHeaderSearch } from "@/components/wiki/wiki-header-search"
 import {
   compareNewsletterFilesDescending,
   NEWSLETTER_BUCKET,
@@ -76,7 +77,7 @@ const QUICK_ACTIONS = [
   {
     label: "Find People",
     description: "Look up teammates, departments, and contact details.",
-    href: "/employee-directory",
+    href: "/people",
   },
   {
     label: "Branches",
@@ -84,9 +85,9 @@ const QUICK_ACTIONS = [
     href: "/branches",
   },
   {
-    label: "Documents",
-    description: "Open shared documents, policies, newsletters, and floor plans.",
-    href: "/documents",
+    label: "Newsletters",
+    description: "Browse company newsletter PDFs by month and year.",
+    href: "/newsletters",
   },
 ] as const
 
@@ -101,7 +102,7 @@ const HELPFUL_RESOURCE_LINKS = [
   {
     label: "Department Directory",
     description: "Find the right group when you need help.",
-    href: "/support",
+    href: "/department-directory",
     external: false,
     image: "/department-directory.png",
   },
@@ -245,7 +246,10 @@ function HowWeWorkDialog() {
             </div>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {COMPANY_VALUES.map((value) => (
-                <div key={value.title} className="flex gap-3 rounded-lg border p-4">
+                <div
+                  key={value.title}
+                  className="flex gap-3 rounded-lg border p-4"
+                >
                   <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                     <value.icon className="h-4 w-4" />
                   </div>
@@ -412,16 +416,18 @@ export default async function HomePage() {
         </header>
 
         <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-4 md:p-6">
-          <section className="relative overflow-hidden rounded-lg bg-foreground text-white shadow-sm">
-            <Image
-              src="/background-subdivision.jpg"
-              alt=""
-              fill
-              sizes="(min-width: 1280px) 1280px, 100vw"
-              className="object-cover"
-              priority
-            />
-            <div className="absolute inset-0 bg-black/60 dark:bg-black/70" />
+          <section className="relative rounded-lg bg-foreground text-white shadow-sm">
+            <div className="absolute inset-0 overflow-hidden rounded-lg">
+              <Image
+                src="/background-subdivision.jpg"
+                alt=""
+                fill
+                sizes="(min-width: 1280px) 1280px, 100vw"
+                className="object-cover"
+                priority
+              />
+              <div className="absolute inset-0 bg-black/60 dark:bg-black/70" />
+            </div>
             <div className="relative grid min-h-[340px] gap-8 p-6 md:p-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:p-10">
               <div className="flex max-w-2xl flex-col justify-center">
                 <h1 className="text-4xl leading-[1.05] font-semibold md:text-5xl">
@@ -431,21 +437,8 @@ export default async function HomePage() {
                   Everything your team reaches for most is organized here, with
                   clear paths into files, reports, people, and support.
                 </p>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <a
-                    href={CANOPY_WIKI_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex h-11 items-center justify-center rounded-lg bg-white px-5 text-sm font-semibold text-slate-950 transition-colors hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
-                  >
-                    Canopy Wiki
-                  </a>
-                  <Link
-                    href="/support"
-                    className="inline-flex h-11 items-center justify-center rounded-lg border border-white/35 px-5 text-sm font-semibold text-white transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
-                  >
-                    Department Directory
-                  </Link>
+                <div className="mt-6 w-full max-w-xl">
+                  <WikiHeaderSearch className="max-w-xl" />
                 </div>
               </div>
               <div className="flex flex-col justify-center border-t border-white/20 pt-6 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">

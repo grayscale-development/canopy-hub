@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation"
 
 export const metadata = {
-  title: "Documents",
+  title: "Office Floor Plan",
 }
 
 export default function OfficeFloorPlanPage() {
-  redirect("/documents")
+  redirect("/home")
 }

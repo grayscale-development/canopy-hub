@@ -8,14 +8,15 @@ import {
   HomeIcon,
   LifeBuoyIcon,
   ListTreeIcon,
+  MessageSquarePlusIcon,
   Settings2Icon,
   UsersRoundIcon,
 } from "lucide-react"
 import { redirect } from "next/navigation"
 
-import { DocumentsSidebarLink } from "@/components/documents/documents-sidebar-link"
 import { NewslettersSidebarLauncher } from "@/components/newsletters/newsletters-sidebar-launcher"
 import { NavUser } from "@/components/nav-user"
+import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import {
   Sidebar,
   SidebarContent,
@@ -29,6 +30,10 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import {
+  BETA_1_PERMISSION,
+  SETTINGS_ACCESS_PERMISSION,
+} from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
@@ -53,12 +58,12 @@ const dashboardNav = [
 const directoryNav = [
   {
     title: "Department Directory",
-    url: "/support",
+    url: "/department-directory",
     icon: LifeBuoyIcon,
   },
   {
     title: "People",
-    url: "/employee-directory",
+    url: "/people",
     icon: UsersRoundIcon,
   },
   {
@@ -125,22 +130,18 @@ export async function AppSidebar({
       null,
   }
 
-  const [canViewSettings, canEditPermissions] = await Promise.all([
+  const [canViewSettings, canAccessBeta1] = await Promise.all([
     userHasPermissionCode({
       supabase,
       userId: authUser.id,
-      code: "settings.access",
+      code: SETTINGS_ACCESS_PERMISSION,
     }),
     userHasPermissionCode({
       supabase,
       userId: authUser.id,
-      code: "permissions.edit",
+      code: BETA_1_PERMISSION,
     }),
   ])
-  const navSecondary = adminNav.filter(
-    (item) =>
-      item.url !== "/settings" || (canViewSettings && canEditPermissions)
-  )
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -227,48 +228,82 @@ export async function AppSidebar({
           <SidebarGroupLabel>Library</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {libraryNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={activePath === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span className="group-data-[collapsible=icon]:hidden">
-                        {item.title}
-                      </span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {canAccessBeta1
+                ? libraryNav.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={activePath === item.url}
+                        tooltip={item.title}
+                      >
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span className="group-data-[collapsible=icon]:hidden">
+                            {item.title}
+                          </span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))
+                : null}
               <NewslettersSidebarLauncher
                 isActive={activePath === "/newsletters"}
               />
-              <DocumentsSidebarLink isActive={activePath === "/documents"} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-          {navSecondary.map((item) => (
+          {adminNav.map((item) => (
             <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton
-                asChild
-                isActive={activePath === item.url}
-                tooltip={item.title}
-              >
-                <Link href={item.url}>
-                  <item.icon />
-                  <span className="group-data-[collapsible=icon]:hidden">
-                    {item.title}
-                  </span>
-                </Link>
-              </SidebarMenuButton>
+              {canViewSettings ? (
+                <SidebarMenuButton
+                  asChild
+                  isActive={activePath === item.url}
+                  tooltip={item.title}
+                >
+                  <Link href={item.url}>
+                    <item.icon />
+                    <span className="group-data-[collapsible=icon]:hidden">
+                      {item.title}
+                    </span>
+                  </Link>
+                </SidebarMenuButton>
+              ) : (
+                <PermissionRequestGate
+                  hasPermission={canViewSettings}
+                  permissionCode={SETTINGS_ACCESS_PERMISSION}
+                  permissionName="Access Settings"
+                  className="w-full"
+                  popupClassName="bottom-full top-auto mb-0"
+                >
+                  <SidebarMenuButton tooltip={item.title}>
+                    <item.icon />
+                    <span className="group-data-[collapsible=icon]:hidden">
+                      {item.title}
+                    </span>
+                  </SidebarMenuButton>
+                </PermissionRequestGate>
+              )}
             </SidebarMenuItem>
           ))}
+        </SidebarMenu>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip="Submit Feedback">
+              <Link
+                href="https://canopyhub.featurebase.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <MessageSquarePlusIcon />
+                <span className="group-data-[collapsible=icon]:hidden">
+                  Submit Feedback
+                </span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
         <NavUser user={user} />
       </SidebarFooter>

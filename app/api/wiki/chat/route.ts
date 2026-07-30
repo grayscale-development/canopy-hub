@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
+import { userHasPermissionCode } from "@/lib/permissions"
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
@@ -55,6 +57,16 @@ export async function GET(request: Request) {
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const canAccessBeta1 = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: BETA_1_PERMISSION,
+  })
+
+  if (!canAccessBeta1) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const { searchParams } = new URL(request.url)
@@ -183,6 +195,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const canAccessBeta1 = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: BETA_1_PERMISSION,
+  })
+
+  if (!canAccessBeta1) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   const payload = (await request
     .json()
     .catch(() => null)) as ChatRequestBody | null
@@ -272,6 +294,10 @@ export async function POST(request: Request) {
           role: "assistant",
           content: result.answer,
           model: result.model,
+          metadata:
+            "metadata" in result && result.metadata
+              ? result.metadata
+              : {},
         })
         .select("id")
         .single()
@@ -289,8 +315,8 @@ export async function POST(request: Request) {
         .insert(
           result.citations.map((citation) => ({
             message_id: assistantMessage.id,
-            knowledge_source_id: citation.knowledgeSourceId,
-            knowledge_chunk_id: citation.knowledgeChunkId,
+            knowledge_source_id: citation.knowledgeSourceId ?? null,
+            knowledge_chunk_id: citation.knowledgeChunkId ?? null,
             title: citation.title,
             url: citation.url,
             snippet: citation.snippet,

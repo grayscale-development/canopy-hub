@@ -1,6 +1,11 @@
 import "server-only"
 
 import OpenAI from "openai"
+import type { ResponseCreateParamsNonStreaming } from "openai/resources/responses/responses"
+
+interface AgentResponseRequestOptions {
+  signal?: AbortSignal | null
+}
 
 function getOpenAIClient() {
   if (!process.env.OPENAI_API_KEY) {
@@ -30,6 +35,10 @@ export function getChatModel() {
   return model
 }
 
+export function getFormatModel() {
+  return process.env.OPENAI_FORMAT_MODEL?.trim() || "gpt-5-nano"
+}
+
 export async function createEmbeddingsWithOpenAI(texts: string[]) {
   if (!texts.length) {
     return []
@@ -55,4 +64,12 @@ export async function createChatResponseWithOpenAI({
 }) {
   const client = getOpenAIClient()
   return client.responses.create({ model, input })
+}
+
+export async function createAgentResponseWithOpenAI(
+  params: ResponseCreateParamsNonStreaming,
+  options?: AgentResponseRequestOptions
+) {
+  const client = getOpenAIClient()
+  return client.responses.create(params, options)
 }

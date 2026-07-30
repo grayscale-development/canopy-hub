@@ -16,6 +16,8 @@ const testState = vi.hoisted(() => ({
     ],
   },
   tables: {
+    permissions: [] as Array<Record<string, unknown>>,
+    user_permissions: [] as Array<Record<string, unknown>>,
     ai_chat_threads: [] as Array<Record<string, unknown>>,
     ai_chat_messages: [] as Array<Record<string, unknown>>,
     ai_chat_citations: [] as Array<Record<string, unknown>>,
@@ -124,7 +126,8 @@ class FakeSupabaseQuery {
       return { data: rows, error: null }
     }
 
-    return { data: this.getFilteredRows(), error: null }
+    const rows = this.getFilteredRows()
+    return { data: rows, error: null, count: rows.length }
   }
 
   private getFilteredRows() {
@@ -149,6 +152,19 @@ describe("/api/wiki/chat route", () => {
   beforeEach(() => {
     testState.user = null
     testState.nextId = 1
+    testState.tables.permissions = [
+      {
+        id: "permission-beta-1",
+        code: "beta.1",
+      },
+    ]
+    testState.tables.user_permissions = [
+      {
+        id: "user-permission-beta-1",
+        user_id: "user-1",
+        permission_id: "permission-beta-1",
+      },
+    ]
     testState.tables.ai_chat_threads = []
     testState.tables.ai_chat_messages = []
     testState.tables.ai_chat_citations = []

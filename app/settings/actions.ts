@@ -4,8 +4,15 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
 import { NEWSLETTER_BUCKET, parseNewsletterFileName } from "@/lib/newsletters"
+import {
+  ADVANCED_SETTINGS_ACCESS_PERMISSION,
+  AI_SETTINGS_ACCESS_PERMISSION,
+  BETA_1_PERMISSION,
+  DATA_SYNC_RUN_PERMISSION,
+  PERMISSIONS_ACCESS_PERMISSION,
+  SETTINGS_ACCESS_PERMISSION,
+} from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
-import { POLICIES_BUCKET, stripPolicyFileExtension } from "@/lib/policies"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { extractWikiDocumentText } from "@/lib/wiki-extract"
@@ -35,13 +42,102 @@ async function getPermissionsEditorClient() {
     redirect("/login")
   }
 
-  const canEditPermissions = await userHasPermissionCode({
+  const canAccessPermissions = await userHasPermissionCode({
     supabase,
     userId: user.id,
-    code: "permissions.edit",
+    code: PERMISSIONS_ACCESS_PERMISSION,
   })
 
-  if (!canEditPermissions) {
+  if (!canAccessPermissions) {
+    throw new Error("Unauthorized")
+  }
+
+  return supabase
+}
+
+async function getAiSettingsClient() {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const [canViewSettings, canAccessAiSettings, canAccessBeta1] =
+    await Promise.all([
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: AI_SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: BETA_1_PERMISSION,
+      }),
+    ])
+
+  if (!canViewSettings || !canAccessAiSettings || !canAccessBeta1) {
+    throw new Error("Unauthorized")
+  }
+
+  return supabase
+}
+
+async function getAdvancedSettingsClient() {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const [canViewSettings, canAccessAdvancedSettings] = await Promise.all([
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: SETTINGS_ACCESS_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: ADVANCED_SETTINGS_ACCESS_PERMISSION,
+    }),
+  ])
+
+  if (!canViewSettings || !canAccessAdvancedSettings) {
+    throw new Error("Unauthorized")
+  }
+
+  return supabase
+}
+
+async function getDataSyncRunnerClient() {
+  const supabase = await getAdvancedSettingsClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const canRunDataSyncs = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: DATA_SYNC_RUN_PERMISSION,
+  })
+
+  if (!canRunDataSyncs) {
     throw new Error("Unauthorized")
   }
 
@@ -92,14 +188,12 @@ export async function updatePermissionAction(formData: FormData) {
   const supabase = await getPermissionsEditorClient()
   const id = getRequiredString(formData, "permission_id", "Permission id")
   const name = getRequiredString(formData, "name", "Name")
-  const page = getRequiredString(formData, "page", "Page")
   const code = getRequiredString(formData, "code", "Code")
 
   const { error } = await supabase
     .from("permissions")
     .update({
       name,
-      page,
       code,
     })
     .eq("id", id)
@@ -202,6 +296,111 @@ export async function removePermissionUserAction(formData: FormData) {
   revalidatePath("/settings/permissions")
 }
 
+export async function approvePermissionRequestAction(formData: FormData) {
+  const supabase = await getPermissionsEditorClient()
+  const requestId = getRequiredString(formData, "request_id", "Request id")
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const { data: request, error: requestError } = await supabase
+    .from("permission_requests")
+    .select("id,permission_id,requested_by,status")
+    .eq("id", requestId)
+    .maybeSingle()
+
+  if (requestError) {
+    throw new Error(requestError.message)
+  }
+
+  if (!request?.id) {
+    throw new Error("Permission request was not found")
+  }
+
+  if (request.status !== "pending") {
+    throw new Error("Permission request is already complete")
+  }
+
+  const { error: grantError } = await supabase.from("user_permissions").upsert(
+    {
+      permission_id: request.permission_id,
+      user_id: request.requested_by,
+    },
+    {
+      onConflict: "user_id,permission_id",
+      ignoreDuplicates: true,
+    }
+  )
+
+  if (grantError) {
+    throw new Error(grantError.message)
+  }
+
+  const { error: updateError } = await supabase
+    .from("permission_requests")
+    .update({
+      status: "approved",
+      completed_at: new Date().toISOString(),
+      completed_by: user.id,
+    })
+    .eq("id", request.id)
+
+  if (updateError) {
+    throw new Error(updateError.message)
+  }
+
+  revalidatePath("/settings/permissions")
+}
+
+export async function denyPermissionRequestAction(formData: FormData) {
+  const supabase = await getPermissionsEditorClient()
+  const requestId = getRequiredString(formData, "request_id", "Request id")
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const { data: request, error: requestError } = await supabase
+    .from("permission_requests")
+    .select("id,status")
+    .eq("id", requestId)
+    .maybeSingle()
+
+  if (requestError) {
+    throw new Error(requestError.message)
+  }
+
+  if (!request?.id) {
+    throw new Error("Permission request was not found")
+  }
+
+  if (request.status !== "pending") {
+    throw new Error("Permission request is already complete")
+  }
+
+  const { error } = await supabase
+    .from("permission_requests")
+    .update({
+      status: "denied",
+      completed_at: new Date().toISOString(),
+      completed_by: user.id,
+    })
+    .eq("id", request.id)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath("/settings/permissions")
+}
+
 interface SourceConfigRow {
   id: string
   source_key: string
@@ -229,7 +428,7 @@ export interface RunMiloKnowledgeIndexResult {
 }
 
 export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
-  const editorSupabase = await getPermissionsEditorClient()
+  const editorSupabase = await getDataSyncRunnerClient()
   const invokeHeaders = await getDataSyncInvokeHeaders(editorSupabase)
   const supabase = createSupabaseAdminClient()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -331,16 +530,14 @@ async function extractStorageFileText({
 }
 
 export async function runMiloKnowledgeIndexAction(): Promise<RunMiloKnowledgeIndexResult> {
-  await getPermissionsEditorClient()
+  await getAiSettingsClient()
   const supabase = createSupabaseAdminClient()
 
   try {
     const curatedIndexedCount = await indexCuratedSiteKnowledge(supabase)
-    const [{ data: newsletterFiles }, { data: policyFiles }] =
-      await Promise.all([
-        supabase.storage.from(NEWSLETTER_BUCKET).list("", { limit: 1000 }),
-        supabase.storage.from(POLICIES_BUCKET).list("", { limit: 1000 }),
-      ])
+    const { data: newsletterFiles } = await supabase.storage
+      .from(NEWSLETTER_BUCKET)
+      .list("", { limit: 1000 })
 
     let fileIndexedCount = 0
 
@@ -368,42 +565,6 @@ export async function runMiloKnowledgeIndexAction(): Promise<RunMiloKnowledgeInd
           fileName: parsed.fileName,
           month: parsed.month,
           year: parsed.year,
-        },
-      })
-      fileIndexedCount += 1
-    }
-
-    for (const file of policyFiles ?? []) {
-      if (!file.name?.trim()) {
-        continue
-      }
-
-      const title = stripPolicyFileExtension(file.name)
-      const lowerName = file.name.toLowerCase()
-      const contentType = lowerName.endsWith(".pdf")
-        ? "application/pdf"
-        : lowerName.endsWith(".docx")
-          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          : lowerName.endsWith(".txt") || lowerName.endsWith(".md")
-            ? "text/plain"
-            : "application/octet-stream"
-
-      const text = await extractStorageFileText({
-        bucket: POLICIES_BUCKET,
-        fileName: file.name,
-        contentType,
-      })
-
-      await indexKnowledgeSource(supabase, {
-        sourceType: "document",
-        sourceId: file.name,
-        title,
-        url: `/policies/open?file=${encodeURIComponent(file.name)}`,
-        content:
-          text || `${title} shared document. Content extraction unavailable.`,
-        metadata: {
-          fileName: file.name,
-          contentType,
         },
       })
       fileIndexedCount += 1

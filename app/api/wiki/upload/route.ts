@@ -2,6 +2,7 @@ import crypto from "node:crypto"
 
 import { NextResponse } from "next/server"
 
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -11,6 +12,7 @@ import {
   buildWikiPath,
   fetchWikiNodes,
   getWikiAssetKind,
+  isPublishedWikiBranch,
   sanitizeWikiFileName,
   validateWikiUpload,
   WIKI_BUCKET,
@@ -30,13 +32,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const canManageWiki = await userHasPermissionCode({
-    supabase,
-    userId: user.id,
-    code: WIKI_MANAGE_PERMISSION,
-  })
+  const [canAccessBeta1, canManageWiki] = await Promise.all([
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: BETA_1_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: WIKI_MANAGE_PERMISSION,
+    }),
+  ])
 
-  if (!canManageWiki) {
+  if (!canAccessBeta1 || !canManageWiki) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -154,6 +163,7 @@ export async function POST(request: Request) {
     asset: asset as WikiAssetRow,
     pageTitle: pageNode.title,
     pagePath,
+    isPagePublished: isPublishedWikiBranch(nodes, pageNode),
   })
 
   return NextResponse.json({

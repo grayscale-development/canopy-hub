@@ -127,17 +127,19 @@ async function assertPermissionEditorBearer(req: Request): Promise<void> {
     });
   }
 
-  const { data: permission, error: permissionError } = await supabase
+  const { data: permissions, error: permissionError } = await supabase
     .from("permissions")
     .select("id")
-    .eq("code", "permissions.edit")
-    .maybeSingle<PermissionIdRow>();
+    .in("code", ["advanced-settings.access", "data-sync.run"])
+    .returns<PermissionIdRow[]>();
 
   if (permissionError) {
     throw new Error(`Unable to load sync permission: ${permissionError.message}`);
   }
 
-  if (!permission?.id) {
+  const permissionIds = (permissions ?? []).map((permission) => permission.id);
+
+  if (permissionIds.length !== 2) {
     throw new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { "content-type": "application/json" },
@@ -148,13 +150,13 @@ async function assertPermissionEditorBearer(req: Request): Promise<void> {
     .from("user_permissions")
     .select("id", { count: "exact", head: true })
     .eq("user_id", authData.user.id)
-    .eq("permission_id", permission.id);
+    .in("permission_id", permissionIds);
 
   if (permissionCountError) {
     throw new Error(`Unable to verify sync permission: ${permissionCountError.message}`);
   }
 
-  if ((count ?? 0) < 1) {
+  if ((count ?? 0) < permissionIds.length) {
     throw new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { "content-type": "application/json" },

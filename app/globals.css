@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@blocknote/core/fonts/inter.css";
 @import "@blocknote/shadcn/style.css";
 
 @custom-variant dark (&:is(.dark *));
@@ -159,8 +158,18 @@
 }
 
 .wiki-blocknote-surface {
+  font-family: var(--font-sans);
   min-width: 0;
   width: 100%;
+}
+
+.wiki-blocknote-surface .bn-default-styles,
+.wiki-blocknote-surface .bn-container,
+.wiki-blocknote-surface .bn-root,
+.wiki-blocknote-surface .bn-editor,
+.wiki-blocknote-surface .ProseMirror,
+.wiki-blocknote-surface [contenteditable="true"] {
+  font-family: var(--font-sans) !important;
 }
 
 .wiki-blocknote-surface .bn-container,
@@ -186,6 +195,16 @@
   max-width: none;
   min-width: 0;
   width: 100%;
+}
+
+.wiki-blocknote-modal-preview,
+.wiki-blocknote-modal-preview .bn-container,
+.wiki-blocknote-modal-preview .bn-root,
+.wiki-blocknote-modal-preview .bn-editor,
+.wiki-blocknote-modal-preview .ProseMirror,
+.wiki-blocknote-modal-preview [contenteditable="true"] {
+  background: #fff !important;
+  background-color: #fff !important;
 }
 
 .wiki-blocknote-surface .bn-editor {
@@ -221,44 +240,30 @@
 }
 
 #bn-suggestion-menu.bn-suggestion-menu {
+  font-family: var(--font-sans) !important;
   max-height: min(22rem, calc(100vh - 10rem)) !important;
   overflow-y: auto !important;
 }
 
+.bn-panel,
+.bn-toolbar,
+.bn-suggestion-menu,
+.bn-grid-suggestion-menu,
+.bn-side-menu,
+.bn-formatting-toolbar {
+  font-family: var(--font-sans) !important;
+}
+
 @layer utilities {
   .leaderboard-scroll-viewport {
-    mask-image: linear-gradient(
-      to bottom,
-      transparent,
-      black 1.25rem,
-      black calc(100% - 1.25rem),
-      transparent
-    );
+    scrollbar-gutter: stable;
   }
 
-  .leaderboard-scroll-track {
-    animation: leaderboard-scroll var(--leaderboard-scroll-duration, 80s) linear
-      infinite;
+  .file-quality-table-scroll {
+    scrollbar-gutter: stable;
   }
 
-  .leaderboard-scroll-viewport:hover .leaderboard-scroll-track,
-  .leaderboard-scroll-viewport:focus-within .leaderboard-scroll-track {
-    animation-play-state: paused;
-  }
-
-  @keyframes leaderboard-scroll {
-    from {
-      transform: translateY(0);
-    }
-
-    to {
-      transform: translateY(-50%);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .leaderboard-scroll-track {
-      animation: none;
-    }
+  .points-specialists-scroll-viewport {
+    scrollbar-gutter: stable;
   }
 }

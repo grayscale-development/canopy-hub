@@ -1,10 +1,16 @@
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
-import { ChevronRightIcon, FileTextIcon, FolderIcon } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
+import {
+  WikiEditModeGate,
+  WikiEditModeProvider,
+  WikiVisibleNodeGate,
+  WikiViewModeTitleSpacing,
+} from "@/components/wiki/wiki-edit-mode"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
+import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import {
   WikiCreateWizardDialog,
   WikiNodeActionsMenu,
@@ -31,8 +37,8 @@ import {
   getDefaultWikiRepository,
   getWikiRepositoryBySlug,
 } from "@/lib/wiki-repositories"
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
-  buildWikiPath,
   compareWikiNodes,
   fetchWikiNodes,
   fetchWikiPageData,
@@ -114,46 +120,6 @@ function formatWikiUpdatedAt(value: string) {
   }).format(new Date(value))
 }
 
-function FolderContents({
-  items,
-  nodes,
-  emptyLabel = "This section is empty.",
-}: {
-  items: WikiNodeRow[]
-  nodes: WikiNodeRow[]
-  emptyLabel?: string
-}) {
-  if (!items.length) {
-    return (
-      <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-        {emptyLabel}
-      </div>
-    )
-  }
-
-  return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      {items.sort(compareWikiNodes).map((node) => {
-        const Icon = node.type === "folder" ? FolderIcon : FileTextIcon
-        const path = buildWikiPath(nodes, node)
-        return (
-          <Link
-            key={node.id}
-            href={`/wiki/${path}`}
-            className="flex items-center gap-3 rounded-lg border bg-card p-4 hover:bg-accent hover:text-accent-foreground"
-          >
-            <Icon className="size-5 shrink-0 text-muted-foreground" />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{node.title}</p>
-            </div>
-            <ChevronRightIcon className="ml-auto size-4 text-muted-foreground" />
-          </Link>
-        )
-      })}
-    </div>
-  )
-}
-
 function DirectoryView({
   title,
   items,
@@ -177,12 +143,30 @@ function DirectoryView({
         <div className="flex flex-wrap items-center justify-between gap-3">
           {title ? <h2 className="text-xl font-semibold">{title}</h2> : null}
           {canManageWiki && showCreateControl ? (
-            <WikiCreateWizardDialog parentId={parentId} />
+            <WikiEditModeGate>
+              <WikiCreateWizardDialog parentId={parentId} />
+            </WikiEditModeGate>
           ) : null}
         </div>
       ) : null}
-      <FolderContents items={items} nodes={nodes} emptyLabel={emptyLabel} />
+      <WikiFolderContents items={items} nodes={nodes} emptyLabel={emptyLabel} />
     </div>
+  )
+}
+
+function HiddenDraftView({ title }: { title: string }) {
+  return (
+    <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+      <WikiViewModeTitleSpacing className="flex flex-col items-start gap-10">
+        <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
+          {title}
+        </h1>
+      </WikiViewModeTitleSpacing>
+      <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+        This draft page is hidden in viewer mode. Turn on Editor Mode to view or
+        edit it.
+      </div>
+    </section>
   )
 }
 
@@ -253,47 +237,51 @@ function getDirectoryEmptyLabel(breadcrumbs: WikiNodeRow[]) {
 function WikiSetupRequired({ canManageWiki }: { canManageWiki: boolean }) {
   return (
     <SidebarProvider>
-      <AppSidebar activePath="/wiki" />
-      <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
-        <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
-          <SidebarTrigger className="-ml-1" />
-          <Separator
-            orientation="vertical"
-            className="mr-2 data-vertical:h-4 data-vertical:self-auto"
-          />
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbPage>Wiki</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
-        </header>
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-          <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-4 md:p-6">
-              <div className="rounded-lg border bg-card p-6">
-                <h1 className="text-2xl font-semibold">Wiki Setup Required</h1>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  The Wiki database tables are not available in Supabase yet.
-                  Apply the latest migration, then refresh this page. If the
-                  migration was just applied, restart the local Supabase
-                  services or reload the API schema cache.
-                </p>
-                {canManageWiki ? (
-                  <p className="mt-4 rounded-lg bg-muted p-3 text-sm">
-                    Migration file:{" "}
-                    <code>
-                      supabase/migrations/202607280008_wiki_rag_chat.sql
-                    </code>
+      <WikiEditModeProvider canManageWiki={canManageWiki}>
+        <AppSidebar activePath="/wiki" />
+        <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
+          <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
+            <SidebarTrigger className="-ml-1" />
+            <Separator
+              orientation="vertical"
+              className="mr-2 data-vertical:h-4 data-vertical:self-auto"
+            />
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbPage>Wiki</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+            <HeaderFeedbackButton className="ml-auto" />
+          </header>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+            <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+              <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-4 md:p-6">
+                <div className="rounded-lg border bg-card p-6">
+                  <h1 className="text-2xl font-semibold">
+                    Wiki Setup Required
+                  </h1>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    The Wiki database tables are not available in Supabase yet.
+                    Apply the latest migration, then refresh this page. If the
+                    migration was just applied, restart the local Supabase
+                    services or reload the API schema cache.
                   </p>
-                ) : null}
+                  {canManageWiki ? (
+                    <p className="mt-4 rounded-lg bg-muted p-3 text-sm">
+                      Migration file:{" "}
+                      <code>
+                        supabase/migrations/202607280008_wiki_rag_chat.sql
+                      </code>
+                    </p>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </SidebarInset>
+        </SidebarInset>
+      </WikiEditModeProvider>
     </SidebarProvider>
   )
 }
@@ -312,6 +300,16 @@ export default async function WikiPage({
 
   if (!user) {
     redirect("/login")
+  }
+
+  const canAccessBeta1 = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: BETA_1_PERMISSION,
+  })
+
+  if (!canAccessBeta1) {
+    redirect("/home")
   }
 
   const canManageWiki = await userHasPermissionCode({
@@ -434,143 +432,181 @@ export default async function WikiPage({
 
   return (
     <SidebarProvider>
-      <AppSidebar activePath="/wiki" />
-      <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
-        <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
-          <SidebarTrigger className="-ml-1" />
-          <Separator
-            orientation="vertical"
-            className="mr-2 data-vertical:h-4 data-vertical:self-auto"
-          />
-          {displayedNode ? (
-            <WikiBreadcrumbs breadcrumbs={displayedBreadcrumbs} />
-          ) : (
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Wiki</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          )}
-          <HeaderFeedbackButton className="ml-auto" />
-        </header>
+      <WikiEditModeProvider canManageWiki={canManageWiki}>
+        <AppSidebar activePath="/wiki" />
+        <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
+          <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
+            <SidebarTrigger className="-ml-1" />
+            <Separator
+              orientation="vertical"
+              className="mr-2 data-vertical:h-4 data-vertical:self-auto"
+            />
+            {displayedNode ? (
+              <WikiBreadcrumbs breadcrumbs={displayedBreadcrumbs} />
+            ) : (
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Wiki</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            )}
+            <HeaderFeedbackButton className="ml-auto" />
+          </header>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-          <WikiRepositorySidebar
-            nodes={nodes}
-            activePath={activePath}
-            selectedRepositorySlug={selectedRepositorySlug}
-            canManageWiki={canManageWiki}
-          />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
-            <div className="flex min-h-full w-full flex-col">
-              {displayedNode ? (
-                <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <h1 className="text-3xl font-semibold">
-                        {displayedNode.title}
-                      </h1>
-                      {canManageWiki && pageData ? (
-                        <WikiNodeActionsMenu
-                          nodes={nodes}
-                          node={pageData.node}
-                          hasChildren={displayedChildren.length > 0}
-                          triggerClassName="shrink-0"
-                        />
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      {canManageWiki && pageData ? (
-                        <>
-                          <WikiStatusSelect
-                            nodeId={pageData.node.id}
-                            status={pageData.node.status}
-                          />
-                          {displayedNode.type === "folder" ? (
-                            <WikiCreateWizardDialog
-                              parentId={pageData.node.id}
-                              defaultType={displayedCreateConfig.defaultType}
-                              allowedTypes={displayedCreateConfig.allowedTypes}
-                              labels={displayedCreateConfig.labels}
-                              dialogTitle={displayedCreateConfig.dialogTitle}
-                              dialogDescription={
-                                displayedCreateConfig.dialogDescription
-                              }
-                            />
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+            <WikiRepositorySidebar
+              nodes={nodes}
+              activePath={activePath}
+              selectedRepositorySlug={selectedRepositorySlug}
+              canManageWiki={canManageWiki}
+            />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
+              <div className="flex min-h-full w-full flex-col">
+                {displayedNode ? (
+                  <WikiVisibleNodeGate
+                    node={displayedNode}
+                    nodes={nodes}
+                    fallback={<HiddenDraftView title={displayedNode.title} />}
+                  >
+                    <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+                      {displayedNode.type === "folder" ||
+                      missingRepositoryPage ? (
+                        <WikiViewModeTitleSpacing className="flex flex-col items-start gap-10">
+                          {canManageWiki ? (
+                            <WikiEditModeGate>
+                              <div className="flex flex-wrap items-center justify-start gap-3">
+                                {pageData ? (
+                                  <WikiStatusSelect
+                                    nodeId={pageData.node.id}
+                                    status={pageData.node.status}
+                                  />
+                                ) : null}
+                                {pageData && displayedNode.type === "folder" ? (
+                                  <WikiCreateWizardDialog
+                                    parentId={pageData.node.id}
+                                    defaultType={
+                                      displayedCreateConfig.defaultType
+                                    }
+                                    allowedTypes={
+                                      displayedCreateConfig.allowedTypes
+                                    }
+                                    labels={displayedCreateConfig.labels}
+                                    dialogTitle={
+                                      displayedCreateConfig.dialogTitle
+                                    }
+                                    dialogDescription={
+                                      displayedCreateConfig.dialogDescription
+                                    }
+                                  />
+                                ) : missingRepositoryPage ? (
+                                  <WikiCreateWizardDialog
+                                    parentId={null}
+                                    defaultType={
+                                      displayedCreateConfig.defaultType
+                                    }
+                                    allowedTypes={
+                                      displayedCreateConfig.allowedTypes
+                                    }
+                                    labels={displayedCreateConfig.labels}
+                                    dialogTitle={
+                                      displayedCreateConfig.dialogTitle
+                                    }
+                                    dialogDescription={
+                                      displayedCreateConfig.dialogDescription
+                                    }
+                                    repositorySlug={
+                                      displayedCreateConfig.repositorySlug
+                                    }
+                                  />
+                                ) : null}
+                                {pageData ? (
+                                  <WikiNodeActionsMenu
+                                    nodes={nodes}
+                                    node={pageData.node}
+                                    hasChildren={displayedChildren.length > 0}
+                                    triggerClassName="h-10 w-10 rounded-lg border border-border bg-background text-foreground shadow-sm hover:bg-muted data-[state=open]:bg-muted"
+                                  />
+                                ) : null}
+                              </div>
+                            </WikiEditModeGate>
                           ) : null}
-                        </>
-                      ) : canManageWiki && missingRepositoryPage ? (
-                        <WikiCreateWizardDialog
-                          parentId={null}
-                          defaultType={displayedCreateConfig.defaultType}
-                          allowedTypes={displayedCreateConfig.allowedTypes}
-                          labels={displayedCreateConfig.labels}
-                          dialogTitle={displayedCreateConfig.dialogTitle}
-                          dialogDescription={
-                            displayedCreateConfig.dialogDescription
-                          }
-                          repositorySlug={displayedCreateConfig.repositorySlug}
-                        />
+                          <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
+                            {displayedNode.title}
+                          </h1>
+                        </WikiViewModeTitleSpacing>
                       ) : null}
-                    </div>
-                  </div>
 
-                  {displayedNode.type === "folder" ? (
-                    <DirectoryView
-                      items={displayedChildren}
-                      nodes={nodes}
-                      canManageWiki={canManageWiki}
-                      parentId={pageData?.node.id ?? null}
-                      emptyLabel={displayedEmptyLabel}
-                    />
-                  ) : pageData ? (
-                    <div className="flex min-h-0 flex-1 flex-col gap-6">
-                      {isHistoricalRevision ? (
-                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-                          This is an old version of this Wiki page. Use Restore
-                          to Primary to make it the current version.
+                      {displayedNode.type === "folder" ? (
+                        <DirectoryView
+                          items={displayedChildren}
+                          nodes={nodes}
+                          canManageWiki={canManageWiki}
+                          parentId={pageData?.node.id ?? null}
+                          emptyLabel={displayedEmptyLabel}
+                        />
+                      ) : pageData ? (
+                        <div className="flex min-h-0 flex-1 flex-col gap-6">
+                          {isHistoricalRevision ? (
+                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                              This is an old version of this Wiki page. Use
+                              Restore to Primary to make it the current version.
+                            </div>
+                          ) : null}
+                          <WikiEditor
+                            key={displayedRevision?.id ?? pageData.node.id}
+                            node={pageData.node}
+                            revision={displayedRevision ?? null}
+                            canManage={canManageWiki}
+                            isHistorical={isHistoricalRevision}
+                            lastUpdatedLabel={
+                              lastUpdatedAt
+                                ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
+                                : null
+                            }
+                            showStatusControl
+                            headerActions={
+                              canManageWiki ? (
+                                <WikiEditModeGate>
+                                  <WikiNodeActionsMenu
+                                    nodes={nodes}
+                                    node={pageData.node}
+                                    hasChildren={displayedChildren.length > 0}
+                                    triggerClassName="h-10 w-10 rounded-lg border border-border bg-background text-foreground shadow-sm hover:bg-muted data-[state=open]:bg-muted"
+                                  />
+                                </WikiEditModeGate>
+                              ) : null
+                            }
+                          />
                         </div>
                       ) : null}
-                      <WikiEditor
-                        key={displayedRevision?.id ?? pageData.node.id}
-                        node={pageData.node}
-                        revision={displayedRevision ?? null}
-                        canManage={canManageWiki}
-                        isHistorical={isHistoricalRevision}
-                        lastUpdatedLabel={
-                          lastUpdatedAt
-                            ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
-                            : null
-                        }
-                      />
+                    </section>
+                  </WikiVisibleNodeGate>
+                ) : (
+                  <section className="mx-auto flex w-full max-w-[864px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
+                    <div>
+                      <h1 className="text-4xl font-semibold dark:text-[#CFCFCF]">
+                        Welcome to the Wiki
+                      </h1>
                     </div>
-                  ) : null}
-                </section>
-              ) : (
-                <section className="mx-auto flex w-full max-w-[864px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
-                  <div>
-                    <h1 className="text-4xl font-semibold">
-                      Welcome to the Wiki
-                    </h1>
-                  </div>
 
-                  <DirectoryView
-                    title="Documents"
-                    items={rootChildren}
-                    nodes={nodes}
-                    canManageWiki={canManageWiki}
-                    parentId={null}
-                    showCreateControl
-                    emptyLabel="No wikis yet."
-                  />
-                </section>
-              )}
+                    <DirectoryView
+                      title="Documents"
+                      items={rootChildren}
+                      nodes={nodes}
+                      canManageWiki={canManageWiki}
+                      parentId={null}
+                      showCreateControl
+                      emptyLabel="No wikis yet."
+                    />
+                  </section>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </SidebarInset>
+        </SidebarInset>
+      </WikiEditModeProvider>
     </SidebarProvider>
   )
 }

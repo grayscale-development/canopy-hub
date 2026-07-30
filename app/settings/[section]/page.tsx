@@ -6,6 +6,8 @@ import { MiloFlagsCard } from "@/app/settings/[section]/milo-flags-card"
 import { PermissionsTable } from "@/app/settings/[section]/permissions-table"
 import { AppSidebar } from "@/components/app-sidebar"
 import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
+import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
+import { Button } from "@/components/ui/button"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -20,11 +22,21 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import {
+  ADVANCED_SETTINGS_ACCESS_PERMISSION,
+  AI_SETTINGS_ACCESS_PERMISSION,
+  BETA_1_PERMISSION,
+  DATA_SYNC_RUN_PERMISSION,
+  PERMISSIONS_ACCESS_PERMISSION,
+  SETTINGS_ACCESS_PERMISSION,
+} from "@/lib/permission-codes"
+import {
   fetchPermissionDirectoryUsers,
+  fetchPermissionRequests,
   fetchPermissionUsers,
   fetchPermissions,
   type PermissionDirectoryUser,
   type Permission,
+  type PermissionRequest,
   type PermissionUser,
 } from "@/lib/permissions-data"
 import { userHasPermissionCode } from "@/lib/permissions"
@@ -35,10 +47,21 @@ const SETTINGS_PAGES = [
   {
     key: "permissions",
     label: "Permissions",
-    permissionCode: "permissions.edit",
+    permissionCode: PERMISSIONS_ACCESS_PERMISSION,
+    permissionName: "Access Permissions",
   },
-  { key: "advanced", label: "Advanced", permissionCode: "permissions.edit" },
-  { key: "milo", label: "Milo", permissionCode: "milo.flags.view" },
+  {
+    key: "ai",
+    label: "AI",
+    permissionCode: AI_SETTINGS_ACCESS_PERMISSION,
+    permissionName: "Access AI Settings",
+  },
+  {
+    key: "advanced",
+    label: "Advanced",
+    permissionCode: ADVANCED_SETTINGS_ACCESS_PERMISSION,
+    permissionName: "Access Advanced Settings",
+  },
 ] as const
 
 type SettingsPageKey = (typeof SETTINGS_PAGES)[number]["key"]
@@ -72,10 +95,10 @@ export default async function SettingsSubPage({
   const resolvedParams = await params
   const resolvedSearchParams = await searchParams
   const section = resolvedParams.section.toLowerCase()
-  const rawMiloTab = Array.isArray(resolvedSearchParams.tab)
+  const rawAiTab = Array.isArray(resolvedSearchParams.tab)
     ? resolvedSearchParams.tab[0]
     : resolvedSearchParams.tab
-  const activeMiloTab = rawMiloTab === "index" ? "index" : "flags"
+  const activeAiTab = rawAiTab === "index" ? "index" : "flags"
 
   if (!isSettingsPage(section)) {
     redirect("/settings/permissions")
@@ -93,52 +116,74 @@ export default async function SettingsSubPage({
   const canViewSettings = await userHasPermissionCode({
     supabase,
     userId: user.id,
-    code: "settings.access",
+    code: SETTINGS_ACCESS_PERMISSION,
   })
 
   if (!canViewSettings) {
     redirect("/home")
   }
 
-  const canEditPermissions = await userHasPermissionCode({
-    supabase,
-    userId: user.id,
-    code: "permissions.edit",
-  })
+  const [
+    canAccessPermissions,
+    canAccessAiSettings,
+    canAccessBeta1,
+    canAccessAdvancedSettings,
+    canRunDataSyncs,
+  ] = await Promise.all([
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: PERMISSIONS_ACCESS_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: AI_SETTINGS_ACCESS_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: BETA_1_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: ADVANCED_SETTINGS_ACCESS_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: DATA_SYNC_RUN_PERMISSION,
+    }),
+  ])
 
-  const canViewMiloFlags = await userHasPermissionCode({
-    supabase,
-    userId: user.id,
-    code: "milo.flags.view",
-  })
-
-  const visiblePages = SETTINGS_PAGES.filter((page) => {
-    if (page.permissionCode === "permissions.edit") {
-      return canEditPermissions
+  const pageAccess = new Map<SettingsPageKey, boolean>()
+  SETTINGS_PAGES.forEach((page) => {
+    if (page.permissionCode === PERMISSIONS_ACCESS_PERMISSION) {
+      pageAccess.set(page.key, canAccessPermissions)
+      return
     }
 
-    if (page.permissionCode === "milo.flags.view") {
-      return canViewMiloFlags
+    if (page.permissionCode === AI_SETTINGS_ACCESS_PERMISSION) {
+      pageAccess.set(page.key, canAccessAiSettings && canAccessBeta1)
+      return
     }
 
-    return false
+    if (page.permissionCode === ADVANCED_SETTINGS_ACCESS_PERMISSION) {
+      pageAccess.set(page.key, canAccessAdvancedSettings)
+    }
   })
+  const canOpenSection = Boolean(pageAccess.get(section))
 
-  if (!visiblePages.length) {
-    redirect("/home")
-  }
-
-  if (!visiblePages.some((page) => page.key === section)) {
-    redirect(`/settings/${visiblePages[0].key}`)
-  }
-
-  const activePage = visiblePages.find((page) => page.key === section)
+  const activePage = SETTINGS_PAGES.find((page) => page.key === section)
   let permissions: Permission[] = []
   let permissionUsers: PermissionUser[] = []
   let permissionDirectoryUsers: PermissionDirectoryUser[] = []
+  let permissionRequests: PermissionRequest[] = []
   let permissionsLoadError: string | null = null
+  let permissionRequestsLoadError: string | null = null
 
-  if (section === "permissions" && canEditPermissions) {
+  if (section === "permissions" && canOpenSection) {
     try {
       ;[permissions, permissionUsers, permissionDirectoryUsers] =
         await Promise.all([
@@ -146,8 +191,17 @@ export default async function SettingsSubPage({
           fetchPermissionUsers(),
           fetchPermissionDirectoryUsers(),
         ])
-    } catch {
+    } catch (error) {
+      console.error("Failed to load permissions settings data", error)
       permissionsLoadError = "Data load failed."
+    }
+
+    try {
+      permissionRequests = await fetchPermissionRequests()
+    } catch (error) {
+      console.error("Failed to load permission requests", error)
+      permissionRequestsLoadError =
+        "Permission requests are not available. Apply the latest database migration."
     }
   }
 
@@ -183,10 +237,21 @@ export default async function SettingsSubPage({
           <div className="flex flex-1 flex-col gap-4 md:flex-row">
             <aside className="h-fit w-full rounded-xl border bg-card p-2 text-card-foreground md:max-w-56">
               <nav className="grid gap-1">
-                {visiblePages.map((page) => {
+                {SETTINGS_PAGES.map((page) => {
                   const isActive = page.key === section
+                  const canOpenPage = Boolean(pageAccess.get(page.key))
+                  const missingPermission =
+                    page.key === "ai" && !canAccessBeta1
+                      ? {
+                          code: BETA_1_PERMISSION,
+                          name: "Beta 1",
+                        }
+                      : {
+                          code: page.permissionCode,
+                          name: page.permissionName,
+                        }
 
-                  return (
+                  return canOpenPage ? (
                     <Link
                       key={page.key}
                       href={`/settings/${page.key}`}
@@ -199,13 +264,57 @@ export default async function SettingsSubPage({
                     >
                       {page.label}
                     </Link>
+                  ) : (
+                    <PermissionRequestGate
+                      key={page.key}
+                      hasPermission={canOpenPage}
+                      permissionCode={missingPermission.code}
+                      permissionName={missingPermission.name}
+                      className="w-full"
+                    >
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-auto w-full justify-start rounded-md px-3 py-2 text-sm font-medium text-muted-foreground"
+                      >
+                        {page.label}
+                      </Button>
+                    </PermissionRequestGate>
                   )
                 })}
               </nav>
             </aside>
 
             <section className="min-h-[420px] min-w-0 flex-1">
-              {section === "permissions" ? (
+              {!canOpenSection && activePage ? (
+                <div className="rounded-xl border bg-card p-6 text-card-foreground">
+                  <h2 className="text-lg font-semibold">{activePage.label}</h2>
+                  <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+                    In order to view this Settings section, the{" "}
+                    {activePage.key === "ai" && !canAccessBeta1
+                      ? "Beta 1"
+                      : activePage.permissionName}{" "}
+                    permission is required.
+                  </p>
+                  <div className="mt-4">
+                    <PermissionRequestGate
+                      hasPermission={false}
+                      permissionCode={
+                        activePage.key === "ai" && !canAccessBeta1
+                          ? BETA_1_PERMISSION
+                          : activePage.permissionCode
+                      }
+                      permissionName={
+                        activePage.key === "ai" && !canAccessBeta1
+                          ? "Beta 1"
+                          : activePage.permissionName
+                      }
+                    >
+                      <Button type="button">Open {activePage.label}</Button>
+                    </PermissionRequestGate>
+                  </div>
+                </div>
+              ) : section === "permissions" ? (
                 permissionsLoadError ? (
                   <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
                     {permissionsLoadError}
@@ -215,12 +324,14 @@ export default async function SettingsSubPage({
                     permissions={permissions}
                     permissionUsers={permissionUsers}
                     permissionDirectoryUsers={permissionDirectoryUsers}
+                    permissionRequests={permissionRequests}
+                    permissionRequestsLoadError={permissionRequestsLoadError}
                   />
                 )
               ) : section === "advanced" ? (
-                <AdvancedSyncCard />
+                <AdvancedSyncCard canRunDataSyncs={canRunDataSyncs} />
               ) : (
-                <MiloFlagsCard activeTab={activeMiloTab} />
+                <MiloFlagsCard activeTab={activeAiTab} />
               )}
             </section>
           </div>

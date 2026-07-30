@@ -7,11 +7,13 @@ import {
   ArchiveIcon,
   FileIcon,
   ImageIcon,
+  MoreHorizontalIcon,
   SaveIcon,
   UploadIcon,
   VideoIcon,
 } from "lucide-react"
 
+import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -179,7 +181,19 @@ export function WikiAssetDrawer({
                 </form>
               </DialogContent>
             </Dialog>
-          ) : null}
+          ) : (
+            <PermissionRequestGate
+              hasPermission={canManage}
+              permissionCode="wiki.manage"
+              permissionName="Manage Wiki"
+              popupClassName="right-0 left-auto"
+            >
+              <Button type="button" variant="outline" size="icon-sm">
+                <UploadIcon />
+                <span className="sr-only">Upload asset</span>
+              </Button>
+            </PermissionRequestGate>
+          )}
         </div>
       </div>
 
@@ -232,7 +246,20 @@ export function WikiAssetDrawer({
                         <SaveIcon />
                       </Button>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="mt-3">
+                      <PermissionRequestGate
+                        hasPermission={canManage}
+                        permissionCode="wiki.manage"
+                        permissionName="Manage Wiki"
+                      >
+                        <Button type="button" size="sm" variant="outline">
+                          <MoreHorizontalIcon />
+                          Manage asset
+                        </Button>
+                      </PermissionRequestGate>
+                    </div>
+                  )}
                 </div>
                 {canManage ? (
                   <Button

@@ -1,11 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server"
 
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { indexWikiAsset } from "@/lib/wiki-ai"
 import {
   buildWikiPath,
   fetchWikiNodes,
+  isPublishedWikiBranch,
   WIKI_MANAGE_PERMISSION,
   type WikiAssetRow,
 } from "@/lib/wiki"
@@ -22,6 +24,16 @@ export async function GET(
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const canAccessBeta1 = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: BETA_1_PERMISSION,
+  })
+
+  if (!canAccessBeta1) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   const { data: asset, error } = await supabase
@@ -67,13 +79,20 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const canManageWiki = await userHasPermissionCode({
-    supabase,
-    userId: user.id,
-    code: WIKI_MANAGE_PERMISSION,
-  })
+  const [canAccessBeta1, canManageWiki] = await Promise.all([
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: BETA_1_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: WIKI_MANAGE_PERMISSION,
+    }),
+  ])
 
-  if (!canManageWiki) {
+  if (!canAccessBeta1 || !canManageWiki) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -134,6 +153,7 @@ export async function PATCH(
       asset: asset as WikiAssetRow,
       pageTitle: pageNode.title,
       pagePath: buildWikiPath(nodes, pageNode),
+      isPagePublished: isPublishedWikiBranch(nodes, pageNode),
     })
   }
 

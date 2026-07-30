@@ -74,7 +74,7 @@ export function FileQualityReport({
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-2">
         <FileQualityRollupTable
           title="By Division"
           entityLabel="Division"

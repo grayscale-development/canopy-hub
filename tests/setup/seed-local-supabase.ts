@@ -17,12 +17,26 @@ const TEST_USERS = {
 
 const TEST_PERMISSION_CODES = [
   "settings.access",
-  "permissions.edit",
+  "permissions.access",
+  "advanced-settings.access",
+  "data-sync.run",
   "wiki.manage",
-  "milo.flags.view",
+  "ai.settings.access",
+  "beta.1",
   "newsletters.upload",
-  "policies.manage",
 ] as const
+
+const TEST_PERMISSION_NAMES: Record<(typeof TEST_PERMISSION_CODES)[number], string> =
+  {
+    "settings.access": "Access Settings",
+    "permissions.access": "Access Permissions",
+    "advanced-settings.access": "Access Advanced Settings",
+    "data-sync.run": "Run Sync",
+    "wiki.manage": "Edit Wiki",
+    "ai.settings.access": "Access AI Settings",
+    "beta.1": "Beta 1",
+    "newsletters.upload": "Upload Newsletters",
+  }
 
 const FIXED_IDS = {
   section: "10000000-0000-4000-8000-000000000002",
@@ -82,10 +96,12 @@ async function ensureUser(
   email: string,
   fullName: string
 ) {
-  const { data: users, error: listError } = await supabase.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  })
+  const { data: users, error: listError } = await supabase.auth.admin.listUsers(
+    {
+      page: 1,
+      perPage: 1000,
+    }
+  )
 
   if (listError) {
     throw listError
@@ -114,7 +130,11 @@ async function ensureUser(
   return data.user
 }
 
-async function signInSeedUser(supabaseUrl: string, anonKey: string, email: string) {
+async function signInSeedUser(
+  supabaseUrl: string,
+  anonKey: string,
+  email: string
+) {
   const supabase = createClient<any>(supabaseUrl, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
@@ -178,7 +198,9 @@ async function grantPermissions({
   }
 
   const existingPermissionIds = new Set(
-    (existingRows ?? []).map((row: { permission_id: string }) => row.permission_id)
+    (existingRows ?? []).map(
+      (row: { permission_id: string }) => row.permission_id
+    )
   )
   const missingRows = rows.filter(
     (row) => !existingPermissionIds.has(row.permission_id)
@@ -197,20 +219,10 @@ async function grantPermissions({
   }
 }
 
-async function upsertRequiredPermissions(
-  supabase: AnySupabaseClient
-) {
+async function upsertRequiredPermissions(supabase: AnySupabaseClient) {
   const rows = TEST_PERMISSION_CODES.map((code) => ({
     code,
-    name: code
-      .split(".")
-      .map((part) => part[0]?.toUpperCase() + part.slice(1))
-      .join(" "),
-    page: code.startsWith("wiki")
-      ? "Wiki"
-      : code.startsWith("milo")
-        ? "Settings"
-        : "Settings",
+    name: TEST_PERMISSION_NAMES[code],
   }))
 
   const { error } = await supabase
@@ -300,12 +312,10 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
   ]
 
-  const { error: nodesError } = await supabase
-    .from("wiki_nodes")
-    .upsert(
-      nodeRows.map((row) => ({ ...row, current_revision_id: null })),
-      { onConflict: "id" }
-    )
+  const { error: nodesError } = await supabase.from("wiki_nodes").upsert(
+    nodeRows.map((row) => ({ ...row, current_revision_id: null })),
+    { onConflict: "id" }
+  )
 
   if (nodesError) {
     throw nodesError
@@ -338,13 +348,14 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
   ]
 
-  const { data: existingRevisions, error: existingRevisionsError } = await supabase
-    .from("wiki_page_revisions")
-    .select("id")
-    .in(
-      "id",
-      revisionRows.map((row) => row.id)
-    )
+  const { data: existingRevisions, error: existingRevisionsError } =
+    await supabase
+      .from("wiki_page_revisions")
+      .select("id")
+      .in(
+        "id",
+        revisionRows.map((row) => row.id)
+      )
 
   if (existingRevisionsError) {
     throw existingRevisionsError
@@ -426,7 +437,9 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
   const missingAssets = assetRows.filter((row) => !existingAssetIds.has(row.id))
 
   for (const asset of missingAssets) {
-    const { error: assetError } = await supabase.from("wiki_assets").insert(asset)
+    const { error: assetError } = await supabase
+      .from("wiki_assets")
+      .insert(asset)
 
     if (assetError) {
       if (assetError.code === "23505") {
@@ -573,7 +586,11 @@ async function seedLocalData({
   })
 
   const admin = await ensureUser(supabase, TEST_USERS.admin, "Admin Test")
-  const settings = await ensureUser(supabase, TEST_USERS.settings, "Settings Test")
+  const settings = await ensureUser(
+    supabase,
+    TEST_USERS.settings,
+    "Settings Test"
+  )
   const wikiManager = await ensureUser(
     supabase,
     TEST_USERS.wikiManager,
@@ -601,12 +618,19 @@ async function seedLocalData({
   await grantPermissions({
     supabase: adminSeedClient,
     userId: settings.id,
-    codes: ["settings.access", "permissions.edit", "milo.flags.view"],
+    codes: [
+      "settings.access",
+      "permissions.access",
+      "advanced-settings.access",
+      "data-sync.run",
+      "ai.settings.access",
+      "beta.1",
+    ],
   })
   await grantPermissions({
     supabase: adminSeedClient,
     userId: wikiManager.id,
-    codes: ["wiki.manage"],
+    codes: ["wiki.manage", "beta.1"],
   })
 
   await seedWiki(wikiManagerSeedClient, wikiManager.id)

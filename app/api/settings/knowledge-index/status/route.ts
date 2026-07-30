@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server"
 
+import {
+  AI_SETTINGS_ACCESS_PERMISSION,
+  BETA_1_PERMISSION,
+  SETTINGS_ACCESS_PERMISSION,
+} from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
@@ -20,20 +25,26 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const [canViewSettings, canEditPermissions] = await Promise.all([
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: "settings.access",
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: "permissions.edit",
-    }),
-  ])
+  const [canViewSettings, canAccessAiSettings, canAccessBeta1] =
+    await Promise.all([
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: AI_SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: BETA_1_PERMISSION,
+      }),
+    ])
 
-  if (!canViewSettings || !canEditPermissions) {
+  if (!canViewSettings || !canAccessAiSettings || !canAccessBeta1) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

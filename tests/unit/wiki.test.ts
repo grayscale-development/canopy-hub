@@ -10,6 +10,7 @@ import {
   estimateTokenCount,
   formatBytes,
   getWikiAssetKind,
+  isPublishedWikiBranch,
   resolveWikiPath,
   sanitizeWikiFileName,
   slugifyWikiTitle,
@@ -123,6 +124,37 @@ describe("wiki helpers", () => {
     expect(buildWikiPath(nodes, resolved as WikiNodeRow)).toBe(
       "canopy/getting-started"
     )
+  })
+
+  it("only treats a node as viewer-visible when its full branch is published", () => {
+    const root = node({
+      id: "root",
+      type: "folder",
+      slug: "root",
+      title: "Root",
+    })
+    const draftParent = node({
+      id: "draft-parent",
+      parent_id: "root",
+      type: "folder",
+      slug: "draft-parent",
+      title: "Draft Parent",
+      status: "draft",
+    })
+    const publishedChild = node({
+      id: "published-child",
+      parent_id: "draft-parent",
+      slug: "published-child",
+      title: "Published Child",
+    })
+
+    expect(
+      isPublishedWikiBranch([root, draftParent, publishedChild], root)
+    ).toBe(true)
+    expect(
+      isPublishedWikiBranch([root, draftParent, publishedChild], publishedChild)
+    ).toBe(false)
+    expect(isPublishedWikiBranch([publishedChild], publishedChild)).toBe(false)
   })
 
   it("compares folders, sort order, and title", () => {

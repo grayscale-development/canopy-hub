@@ -9,7 +9,7 @@ describe("featured reports", () => {
     expect(reports[0]).toMatchObject({
       id: "month-leaderboard",
       title: "July Leaderboard",
-      href: "/view/month-leaderboard",
+      href: "/reports/month-leaderboard",
     })
     expect(reports.map((report) => report.id)).toContain("file-quality")
   })

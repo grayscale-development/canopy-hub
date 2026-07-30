@@ -67,6 +67,8 @@ function buildMiloFlagReviewPrompt(flag: MiloFlag) {
 
 Review the user message, Milo response, displayed sources, and flag reason. Determine what likely went wrong, whether the answer was unsupported, misleading, incomplete, poorly cited, or correct despite the flag. Then recommend the smallest practical fix, such as improving indexed knowledge, retrieval, prompt instructions, UI behavior, or no action.
 
+Important: do not recommend a bandaid fix that only handles this exact message, user, page, source, or wording. Identify the broader failure mode behind the flag and recommend the smallest systemic fix that would prevent the same class of Milo failure in future questions. Only recommend a one-off data/content correction if the evidence shows the root cause is truly isolated to that single record.
+
 Flag details:
 - Reported at: ${formatDate(flag.createdAt)}
 - Reported by: ${flag.reporterName}${flag.reporterEmail ? ` <${flag.reporterEmail}>` : ""}
