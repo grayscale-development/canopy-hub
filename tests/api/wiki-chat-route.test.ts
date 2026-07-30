@@ -15,6 +15,7 @@ const testState = vi.hoisted(() => ({
       },
     ],
   },
+  answerError: null as Error | null,
   tables: {
     permissions: [] as Array<Record<string, unknown>>,
     user_permissions: [] as Array<Record<string, unknown>>,
@@ -36,7 +37,13 @@ vi.mock("@/lib/supabase/server", () => ({
 }))
 
 vi.mock("@/lib/wiki-ai", () => ({
-  answerKnowledgeQuestion: vi.fn(async () => testState.answer),
+  answerKnowledgeQuestion: vi.fn(async () => {
+    if (testState.answerError) {
+      throw testState.answerError
+    }
+
+    return testState.answer
+  }),
 }))
 
 class FakeSupabaseQuery {
@@ -169,6 +176,7 @@ describe("/api/wiki/chat route", () => {
     testState.tables.ai_chat_messages = []
     testState.tables.ai_chat_citations = []
     testState.tables.ai_chat_message_flags = []
+    testState.answerError = null
   })
 
   it("rejects unauthenticated requests", async () => {
@@ -234,5 +242,31 @@ describe("/api/wiki/chat route", () => {
     expect(testState.tables.ai_chat_threads).toHaveLength(1)
     expect(testState.tables.ai_chat_messages).toHaveLength(2)
     expect(testState.tables.ai_chat_citations).toHaveLength(1)
+  })
+
+  it("returns a sanitized runtime configuration error when OpenAI is not configured", async () => {
+    testState.user = { id: "user-1", email: "user@canopy.test" }
+    testState.answerError = new Error("Missing OPENAI_API_KEY.")
+    const { POST } = await import("@/app/api/wiki/chat/route")
+
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: "What changed today?" }),
+      })
+    )
+    const events = await readSseEvents(response)
+
+    expect(events).toContainEqual({
+      type: "token",
+      token:
+        "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
+    })
+    expect(testState.tables.ai_chat_messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content:
+        "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
+      metadata: { error: true },
+    })
   })
 })
