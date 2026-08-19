@@ -41,8 +41,10 @@ import {
 } from "@/components/wiki/wiki-edit-mode"
 import { useWikiChatDock } from "@/components/wiki/wiki-chat-dock"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
+import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   getWikiAssetKind,
+  WIKI_BUCKET,
   WIKI_MAX_UPLOAD_SIZE_BYTES,
   WIKI_MAX_UPLOAD_SIZE_LABEL,
   type WikiNodeRow,
@@ -93,6 +95,8 @@ type DiffRow = {
 type WikiUploadPayload = {
   ok?: boolean
   url?: string
+  path?: string
+  token?: string
   extractedText?: string
   asset?: {
     id?: string
@@ -103,6 +107,15 @@ type WikiUploadPayload = {
 
 type SuccessfulWikiUploadPayload = WikiUploadPayload & {
   url: string
+}
+
+type DirectVideoUploadPayload = SuccessfulWikiUploadPayload & {
+  path: string
+  token: string
+  asset: {
+    id: string
+    kind?: string
+  }
 }
 
 type VideoInstructionChoiceRequest = {
@@ -501,6 +514,45 @@ function WikiEditorMounted({
     return payload as SuccessfulWikiUploadPayload
   }
 
+  async function prepareDirectVideoUpload(
+    file: File
+  ): Promise<DirectVideoUploadPayload> {
+    const response = await fetch("/api/wiki/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        directUpload: true,
+        nodeId: node.id,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+      }),
+    })
+    const payload = (await response.json().catch(() => null)) as
+      | WikiUploadPayload
+      | null
+
+    if (
+      !response.ok ||
+      !payload?.url ||
+      !payload.path ||
+      !payload.token ||
+      !payload.asset?.id
+    ) {
+      throw new Error(payload?.error ?? "Upload failed.")
+    }
+
+    return payload as DirectVideoUploadPayload
+  }
+
+  async function archiveWikiAsset(assetId: string) {
+    await fetch(`/api/wiki/assets/${assetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "archived" }),
+    }).catch(() => null)
+  }
+
   async function postWikiAssetAction(
     assetId: string,
     action: "transcribe" | "index"
@@ -543,10 +595,22 @@ function WikiEditorMounted({
     setRewriteProgress(8)
 
     try {
-      const uploadPayload = await uploadWikiFile(file, { deferVideo: true })
+      const uploadPayload = await prepareDirectVideoUpload(file)
       const assetId = uploadPayload.asset?.id
       if (!assetId) {
         throw new Error("Uploaded video asset was not returned.")
+      }
+
+      const supabase = createSupabaseBrowserClient()
+      const { error: storageUploadError } = await supabase.storage
+        .from(WIKI_BUCKET)
+        .uploadToSignedUrl(uploadPayload.path, uploadPayload.token, file, {
+          contentType: file.type || "application/octet-stream",
+        })
+
+      if (storageUploadError) {
+        await archiveWikiAsset(assetId)
+        throw new Error(storageUploadError.message)
       }
 
       setProgressLabel("Transcribing video with OpenAI...")
