@@ -27,6 +27,8 @@ interface FormatWikiRequestBody {
   title?: unknown
   items?: unknown
   sections?: unknown
+  mode?: unknown
+  videoTranscript?: unknown
 }
 
 interface FormatSection {
@@ -82,6 +84,7 @@ const MAX_INSERTED_CALLOUTS = 1
 const MAX_INSERTED_DIVIDERS = 1
 const MAX_INSERTED_SPACERS = 4
 const MAX_CALLOUT_TEXT_LENGTH = 360
+const VIDEO_TRANSCRIPT_SOURCE_ID = "video-transcript-source"
 const GENERIC_OPENING_HEADINGS = new Set([
   "about this page",
   "document overview",
@@ -599,18 +602,23 @@ function parseRewriteSections(value: unknown): RewriteSection[] {
 function validateTextRatio({
   originalText,
   formattedText,
+  minRatio = MIN_PRESERVED_TEXT_RATIO,
+  minimumLength = 0,
 }: {
   originalText: string
   formattedText: string
+  minRatio?: number
+  minimumLength?: number
 }) {
   if (originalText.length < 80) {
     return
   }
 
-  const minimumLength = Math.floor(
-    originalText.length * MIN_PRESERVED_TEXT_RATIO
+  const requiredMinimumLength = Math.max(
+    minimumLength,
+    Math.floor(originalText.length * minRatio)
   )
-  if (formattedText.length < minimumLength) {
+  if (formattedText.length < requiredMinimumLength) {
     throw new Error(
       "AI rewrite removed too much document text. No changes were applied."
     )
@@ -827,9 +835,11 @@ function constrainLayoutComplexity(items: WikiFormatOutputItem[]) {
 function validateLayoutOutput({
   originalItems,
   outputItems,
+  instructionalVideo = false,
 }: {
   originalItems: WikiFormatItem[]
   outputItems: WikiFormatOutputItem[]
+  instructionalVideo?: boolean
 }) {
   if (!outputItems.length) {
     throw new Error("AI returned empty rewritten content.")
@@ -862,6 +872,8 @@ function validateLayoutOutput({
   validateTextRatio({
     originalText: getOriginalText(originalItems),
     formattedText: getFormattedText(outputItems),
+    minRatio: instructionalVideo ? 0.05 : MIN_PRESERVED_TEXT_RATIO,
+    minimumLength: instructionalVideo ? 80 : 0,
   })
 }
 
@@ -1049,6 +1061,66 @@ ${title || "Untitled Wiki page"}
 
 Document items:
 ${JSON.stringify(items, null, 2)}`
+}
+
+function buildVideoInstructionPrompt({
+  title,
+  items,
+  videoTranscript,
+}: {
+  title: string
+  items: WikiFormatItem[]
+  videoTranscript: string
+}) {
+  const itemsWithTranscript = [
+    ...items,
+    {
+      type: "text",
+      id: VIDEO_TRANSCRIPT_SOURCE_ID,
+      markdown: `Video transcript:\n\n${videoTranscript}`,
+    },
+  ]
+
+  return `Write an instructional Canopy Hub Wiki page from an uploaded video transcript and the current editor contents.
+
+The current editor contents may include existing text, images, documents, videos, tables, or other rich blocks. Rich items are protected references to existing editor blocks. Every protected ref must appear exactly once in the output. The uploaded video is one of those protected refs and should remain in the page.
+
+Use the video transcript as the primary source for the instructional procedure. Use the current editor contents for additional context, existing terminology, warnings, labels, and page-specific details. If the transcript and current page conflict, preserve exact operational facts from the current page unless the transcript clearly clarifies them. Do not invent facts, policy, contacts, system behavior, or procedural steps.
+
+${CANOPY_WIKI_REWRITE_STANDARD}
+
+Additional video instruction rules:
+- Produce a practical instructional page, not a verbatim transcript or meeting summary.
+- Convert spoken walkthrough language into clear steps, requirements, notes, and section headings.
+- Remove filler, false starts, greetings, repeated phrases, and off-topic commentary from the transcript.
+- Keep only instructions supported by the transcript or current page contents.
+- Preserve the uploaded video block as a reference. It may be placed near the top or near the most relevant section.
+- The page title is "${title || "Untitled Wiki page"}"; do not return it, a near-duplicate, or a generic "Overview"/"Introduction" opener as the first body heading.
+- Begin as if the visible page title is already directly above the returned body content.
+- Return JSON only. Do not wrap the response in Markdown.
+
+Output item rules:
+- markdown: use for rewritten instructional content. Include sourceIds when content comes from an existing text item or the transcript source.
+- callout: use rarely for one short operational warning/note. Include sourceIds. Set tone to red, yellow, gray, blue, or green by context.
+- ref: use for an original media/table/divider item by ID. Include mediaPatch only for caption/showPreview changes.
+- divider: use for a newly inserted divider only between major unrelated sections.
+- spacer: use for a newly inserted blank paragraph, mainly before or after rich content.
+- For strict JSON, include every item property. Use null for fields that do not apply.
+
+Output shape:
+{
+  "summary": "One short sentence describing the generated instructional page.",
+  "items": [
+    { "type": "markdown", "id": null, "markdown": "## Clear section\\n\\n1. First supported step.", "tone": null, "sourceIds": ["${VIDEO_TRANSCRIPT_SOURCE_ID}"], "mediaPatch": null },
+    { "type": "ref", "id": "media-1", "markdown": null, "tone": null, "sourceIds": null, "mediaPatch": { "caption": "Optional caption", "showPreview": true } }
+  ]
+}
+
+Wiki page title:
+${title || "Untitled Wiki page"}
+
+Document items and transcript source:
+${JSON.stringify(itemsWithTranscript, null, 2)}`
 }
 
 function buildRewritePrompt({
@@ -1442,6 +1514,58 @@ async function formatLayout({
   }
 }
 
+async function formatVideoInstructionPage({
+  title,
+  items,
+  videoTranscript,
+  signal,
+}: {
+  title: string
+  items: WikiFormatItem[]
+  videoTranscript: string
+  signal: AbortSignal
+}): Promise<WikiFormatResponse> {
+  const itemsWithTranscript: WikiFormatItem[] = [
+    ...items,
+    {
+      type: "text",
+      id: VIDEO_TRANSCRIPT_SOURCE_ID,
+      markdown: videoTranscript,
+    },
+  ]
+  const response = await callFormatter({
+    input: buildVideoInstructionPrompt({ title, items, videoTranscript }),
+    signal,
+    schemaName: "wiki_video_instruction_response",
+  })
+  const formatted = parseJsonResponse<LayoutFormatResponseBody>(response)
+  const outputItems = removeOpeningBodyHeadingFromItems(
+    constrainLayoutComplexity(
+      addLayoutSpacing(
+        materializePlanOutput({
+          title,
+          originalItems: itemsWithTranscript,
+          planItems: parseLayoutPlanItems(formatted.items),
+        })
+      )
+    ),
+    title
+  )
+  validateLayoutOutput({
+    originalItems: itemsWithTranscript,
+    outputItems,
+    instructionalVideo: true,
+  })
+
+  return {
+    summary:
+      getString(formatted.summary) ||
+      "Generated instructional page from video.",
+    items: outputItems,
+    stats: getStats({ originalItems: itemsWithTranscript, outputItems }),
+  }
+}
+
 async function formatLegacySections({
   title,
   sections,
@@ -1507,6 +1631,10 @@ export async function POST(request: Request) {
   const nodeId = getString(payload?.nodeId)
   const title = getString(payload?.title)
   const isVersionTwo = payload?.formatVersion === WIKI_FORMAT_VERSION
+  const mode = getString(payload?.mode)
+  const videoTranscript = getString(payload?.videoTranscript)
+  const isVideoInstructionMode =
+    isVersionTwo && mode === "video_instruction" && Boolean(videoTranscript)
   const items = isVersionTwo ? parseFormatItems(payload?.items) : []
   const sections = parseRequestSections(payload?.sections)
 
@@ -1521,7 +1649,11 @@ export async function POST(request: Request) {
     )
   }
 
-  if (isVersionTwo && !items.some((item) => item.type === "text")) {
+  if (
+    isVersionTwo &&
+    !isVideoInstructionMode &&
+    !items.some((item) => item.type === "text")
+  ) {
     return NextResponse.json(
       { error: "There is no editable text for AI to rewrite." },
       { status: 400 }
@@ -1550,7 +1682,14 @@ export async function POST(request: Request) {
     }, FORMAT_TIMEOUT_MS)
     const formatted = await (
       isVersionTwo
-        ? formatLayout({ title, items, signal: controller.signal })
+        ? isVideoInstructionMode
+          ? formatVideoInstructionPage({
+              title,
+              items,
+              videoTranscript,
+              signal: controller.signal,
+            })
+          : formatLayout({ title, items, signal: controller.signal })
         : formatLegacySections({ title, sections, signal: controller.signal })
     ).finally(() => clearTimeout(timeout))
 

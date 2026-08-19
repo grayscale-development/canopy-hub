@@ -6,7 +6,10 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { extractWikiDocumentText } from "@/lib/wiki-extract"
+import {
+  extractWikiDocumentText,
+  extractWikiVideoText,
+} from "@/lib/wiki-extract"
 import { indexWikiAsset } from "@/lib/wiki-ai"
 import {
   buildWikiPath,
@@ -21,6 +24,7 @@ import {
 } from "@/lib/wiki"
 
 export const runtime = "nodejs"
+export const maxDuration = 300
 
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
@@ -55,6 +59,7 @@ export async function POST(request: Request) {
   const titleValue = formData.get("title")
   const descriptionValue = formData.get("description")
   const altTextValue = formData.get("alt_text")
+  const deferVideoProcessing = formData.get("defer_video_processing") === "1"
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "File is required." }, { status: 400 })
@@ -120,6 +125,15 @@ export async function POST(request: Request) {
       extractedText = ""
       console.error("Wiki document extraction failed", error)
     }
+  } else if (kind === "video" && !deferVideoProcessing) {
+    try {
+      extractedText = await extractWikiVideoText(file)
+    } catch (error) {
+      await adminSupabase.storage.from(WIKI_BUCKET).remove([storagePath])
+      const message =
+        error instanceof Error ? error.message : "Unable to transcribe video."
+      return NextResponse.json({ error: message }, { status: 400 })
+    }
   }
 
   const title = typeof titleValue === "string" ? titleValue.trim() : ""
@@ -155,20 +169,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: assetError.message }, { status: 400 })
   }
 
-  const nodes = await fetchWikiNodes(supabase)
-  const pageNode = nodes.find((item) => item.id === nodeId) ?? node
-  const pagePath = buildWikiPath(nodes, pageNode)
-  await indexWikiAsset({
-    supabase,
-    asset: asset as WikiAssetRow,
-    pageTitle: pageNode.title,
-    pagePath,
-    isPagePublished: isPublishedWikiBranch(nodes, pageNode),
-  })
+  if (!(kind === "video" && deferVideoProcessing)) {
+    const nodes = await fetchWikiNodes(supabase)
+    const pageNode = nodes.find((item) => item.id === nodeId) ?? node
+    const pagePath = buildWikiPath(nodes, pageNode)
+    await indexWikiAsset({
+      supabase,
+      asset: asset as WikiAssetRow,
+      pageTitle: pageNode.title,
+      pagePath,
+      isPagePublished: isPublishedWikiBranch(nodes, pageNode),
+    })
+  }
 
   return NextResponse.json({
     ok: true,
     asset,
     url: `/api/wiki/assets/${assetId}`,
+    extractedText,
   })
 }

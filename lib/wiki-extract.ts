@@ -1,5 +1,7 @@
 import "server-only"
 
+import { createTranscriptionWithOpenAI } from "@/lib/ai/provider"
+
 export async function extractWikiDocumentText(file: File) {
   const lowerName = file.name.toLowerCase()
 
@@ -36,4 +38,8 @@ export async function extractWikiDocumentText(file: File) {
   }
 
   return ""
+}
+
+export async function extractWikiVideoText(file: File) {
+  return createTranscriptionWithOpenAI(file)
 }

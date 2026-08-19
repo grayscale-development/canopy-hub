@@ -8,6 +8,7 @@ import {
   ChevronDownIcon,
   Columns2Icon,
   FileTextIcon,
+  FileVideoIcon,
   TriangleAlertIcon,
   Loader2Icon,
   SaveIcon,
@@ -40,7 +41,13 @@ import {
 } from "@/components/wiki/wiki-edit-mode"
 import { useWikiChatDock } from "@/components/wiki/wiki-chat-dock"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
-import type { WikiNodeRow, WikiRevisionRow } from "@/lib/wiki"
+import {
+  getWikiAssetKind,
+  WIKI_MAX_UPLOAD_SIZE_BYTES,
+  WIKI_MAX_UPLOAD_SIZE_LABEL,
+  type WikiNodeRow,
+  type WikiRevisionRow,
+} from "@/lib/wiki"
 import {
   type WikiFormatCalloutTone,
   type WikiFormatItem,
@@ -83,10 +90,39 @@ type DiffRow = {
   kind: "same" | "removed" | "added" | "changed"
 }
 
+type WikiUploadPayload = {
+  ok?: boolean
+  url?: string
+  extractedText?: string
+  asset?: {
+    id?: string
+    kind?: string
+  }
+  error?: string
+}
+
+type SuccessfulWikiUploadPayload = WikiUploadPayload & {
+  url: string
+}
+
+type VideoInstructionChoiceRequest = {
+  fileName: string
+  resolve: (shouldRewrite: boolean) => void
+}
+
+type FormatDocumentOptions = {
+  videoTranscript?: string
+  useExistingProgress?: boolean
+}
+
 function normalizeInitialBlocks(value: unknown) {
   return Array.isArray(value) && value.length
     ? (value as Block[])
     : EMPTY_CONTENT
+}
+
+function isVideoFile(file: File) {
+  return getWikiAssetKind(file) === "video"
 }
 
 function isRichBlock(block: Block) {
@@ -365,6 +401,12 @@ function WikiEditorMounted({
     normalizeInitialBlocks(revision?.blocks)
   )
   const [formatPending, setFormatPending] = React.useState(false)
+  const [progressAutofill, setProgressAutofill] = React.useState(false)
+  const [progressTitle, setProgressTitle] = React.useState("Rewriting Page")
+  const [progressDescription, setProgressDescription] = React.useState(
+    "AI is rewriting the current Wiki page without saving changes. You can review the changed page and diff before accepting it."
+  )
+  const [progressLabel, setProgressLabel] = React.useState<string | null>(null)
   const [rewriteProgress, setRewriteProgress] = React.useState(0)
   const [formatError, setFormatError] = React.useState<string | null>(null)
   const [formattedBlocks, setFormattedBlocks] = React.useState<Block[] | null>(
@@ -376,6 +418,8 @@ function WikiEditorMounted({
     React.useState("")
   const [reviewMode, setReviewMode] = React.useState<RewriteReviewMode>("page")
   const [rewriteConfirmOpen, setRewriteConfirmOpen] = React.useState(false)
+  const [videoInstructionChoice, setVideoInstructionChoice] =
+    React.useState<VideoInstructionChoiceRequest | null>(null)
   const [previewOpen, setPreviewOpen] = React.useState(false)
   const diffRows = React.useMemo(
     () => buildDiffRows(originalPreviewMarkdown, rewrittenPreviewMarkdown),
@@ -385,16 +429,17 @@ function WikiEditorMounted({
   const hasHeaderControls =
     showEditorControls || (canEditPage && Boolean(headerActions))
   const rewriteProgressLabel =
-    rewriteProgress < 25
+    progressLabel ??
+    (rewriteProgress < 25
       ? "Preparing page content..."
       : rewriteProgress < 70
         ? "Rewriting with AI..."
         : rewriteProgress < 90
           ? "Building the review preview..."
-          : "Almost ready..."
+          : "Almost ready...")
 
   React.useEffect(() => {
-    if (!formatPending) {
+    if (!formatPending || !progressAutofill) {
       return
     }
 
@@ -409,26 +454,154 @@ function WikiEditorMounted({
     }, 500)
 
     return () => window.clearInterval(intervalId)
-  }, [formatPending])
+  }, [formatPending, progressAutofill])
+
+  function requestVideoInstructionChoice(file: File) {
+    return new Promise<boolean>((resolve) => {
+      setVideoInstructionChoice({
+        fileName: file.name,
+        resolve,
+      })
+    })
+  }
+
+  function resolveVideoInstructionChoice(shouldRewrite: boolean) {
+    const request = videoInstructionChoice
+    if (!request) {
+      return
+    }
+
+    setVideoInstructionChoice(null)
+    request.resolve(shouldRewrite)
+  }
+
+  async function uploadWikiFile(
+    file: File,
+    options?: { deferVideo?: boolean }
+  ): Promise<SuccessfulWikiUploadPayload> {
+    const formData = new FormData()
+    formData.set("node_id", node.id)
+    formData.set("file", file)
+    if (options?.deferVideo) {
+      formData.set("defer_video_processing", "1")
+    }
+
+    const response = await fetch("/api/wiki/upload", {
+      method: "POST",
+      body: formData,
+    })
+    const payload = (await response.json().catch(() => null)) as
+      | WikiUploadPayload
+      | null
+
+    if (!response.ok || !payload?.url) {
+      throw new Error(payload?.error ?? "Upload failed.")
+    }
+
+    return payload as SuccessfulWikiUploadPayload
+  }
+
+  async function postWikiAssetAction(
+    assetId: string,
+    action: "transcribe" | "index"
+  ) {
+    const response = await fetch(`/api/wiki/assets/${assetId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    })
+    const payload = (await response.json().catch(() => null)) as
+      | WikiUploadPayload
+      | null
+
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error ?? "Video processing failed.")
+    }
+
+    return payload
+  }
+
+  async function processVideoUpload(file: File) {
+    if (file.size > WIKI_MAX_UPLOAD_SIZE_BYTES) {
+      throw new Error(
+        `Videos must be ${WIKI_MAX_UPLOAD_SIZE_LABEL} or smaller.`
+      )
+    }
+
+    const shouldRewrite = await requestVideoInstructionChoice(file)
+
+    setProgressAutofill(false)
+    setFormatPending(true)
+    setFormatError(null)
+    setProgressTitle("Processing Video")
+    setProgressDescription(
+      shouldRewrite
+        ? "The video is being uploaded, transcribed, indexed for Milo, and then used to prepare a reviewable AI rewrite."
+        : "The video is being uploaded, transcribed, and indexed for Milo."
+    )
+    setProgressLabel("Uploading video...")
+    setRewriteProgress(8)
+
+    try {
+      const uploadPayload = await uploadWikiFile(file, { deferVideo: true })
+      const assetId = uploadPayload.asset?.id
+      if (!assetId) {
+        throw new Error("Uploaded video asset was not returned.")
+      }
+
+      setProgressLabel("Transcribing video with OpenAI...")
+      setRewriteProgress(35)
+      const transcriptionPayload = await postWikiAssetAction(
+        assetId,
+        "transcribe"
+      )
+      const transcript = transcriptionPayload.extractedText?.trim() ?? ""
+
+      setProgressLabel("Indexing video for Milo...")
+      setRewriteProgress(68)
+      await postWikiAssetAction(assetId, "index")
+
+      if (shouldRewrite) {
+        if (!transcript) {
+          throw new Error("Video transcription did not return any text.")
+        }
+
+        setProgressLabel("Adding video to the page...")
+        setRewriteProgress(82)
+        window.setTimeout(() => {
+          void formatDocument({
+            videoTranscript: transcript,
+            useExistingProgress: true,
+          })
+        }, 0)
+      } else {
+        setProgressLabel("Video uploaded, transcribed, and indexed.")
+        setRewriteProgress(100)
+        window.setTimeout(() => {
+          setFormatPending(false)
+          setProgressLabel(null)
+        }, 600)
+        toast.success("Video uploaded and indexed for Milo")
+      }
+
+      return uploadPayload.url
+    } catch (error) {
+      setFormatPending(false)
+      setProgressAutofill(false)
+      setProgressLabel(null)
+      throw error
+    }
+  }
 
   const editor = useCreateBlockNote({
     initialContent: normalizeInitialBlocks(revision?.blocks),
     uploadFile: canManage
       ? async (file) => {
-          const formData = new FormData()
-          formData.set("node_id", node.id)
-          formData.set("file", file)
-          const response = await fetch("/api/wiki/upload", {
-            method: "POST",
-            body: formData,
-          })
-          const payload = (await response.json().catch(() => null)) as {
-            url?: string
-            error?: string
-          } | null
-          if (!response.ok || !payload?.url) {
-            throw new Error(payload?.error ?? "Upload failed.")
+          if (isVideoFile(file)) {
+            return processVideoUpload(file)
           }
+
+          const payload = await uploadWikiFile(file)
           router.refresh()
           return payload.url
         }
@@ -452,9 +625,24 @@ function WikiEditorMounted({
     })
   }
 
-  async function formatDocument() {
-    setFormatPending(true)
-    setRewriteProgress(8)
+  async function formatDocument(options: FormatDocumentOptions = {}) {
+    const isVideoInstructionRewrite = Boolean(options.videoTranscript)
+    if (!options.useExistingProgress) {
+      setFormatPending(true)
+      setRewriteProgress(8)
+    } else {
+      setRewriteProgress((current) => Math.max(current, 84))
+    }
+    setProgressAutofill(true)
+    setProgressTitle(
+      isVideoInstructionRewrite ? "Creating Instructional Page" : "Rewriting Page"
+    )
+    setProgressDescription(
+      isVideoInstructionRewrite
+        ? "AI is using the video transcription and current page contents to prepare a reviewable instructional rewrite."
+        : "AI is rewriting the current Wiki page without saving changes. You can review the changed page and diff before accepting it."
+    )
+    setProgressLabel(null)
     setFormatError(null)
     setFormattedBlocks(null)
     setOriginalPreviewMarkdown("")
@@ -524,7 +712,10 @@ function WikiEditorMounted({
       await flushTextGroup()
       setRewriteProgress((current) => Math.max(current, 32))
 
-      if (!items.some((item) => item.type === "text")) {
+      if (
+        !options.videoTranscript &&
+        !items.some((item) => item.type === "text")
+      ) {
         throw new Error("There is no editable text for AI to rewrite.")
       }
 
@@ -537,6 +728,8 @@ function WikiEditorMounted({
           nodeId: node.id,
           title: node.title,
           items,
+          mode: options.videoTranscript ? "video_instruction" : undefined,
+          videoTranscript: options.videoTranscript,
         }),
       })
       const payload = (await response.json().catch(() => null)) as {
@@ -646,6 +839,8 @@ function WikiEditorMounted({
       toast.error(message)
     } finally {
       window.clearTimeout(timeout)
+      setProgressAutofill(false)
+      setProgressLabel(null)
       setFormatPending(false)
     }
   }
@@ -794,14 +989,54 @@ function WikiEditorMounted({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={Boolean(videoInstructionChoice)}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileVideoIcon className="size-5 text-blue-600" />
+              Create Page From Video?
+            </DialogTitle>
+            <DialogDescription>
+              The video will be uploaded, transcribed with OpenAI, and indexed
+              for Milo either way.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2 text-sm leading-6">
+            <p>
+              Would you like AI to write an instructional page based on{" "}
+              <span className="font-medium">
+                {videoInstructionChoice?.fileName}
+              </span>
+              ?
+            </p>
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+              If you select yes, AI will use both the video transcription and
+              the current contents of this page to rewrite the page.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => resolveVideoInstructionChoice(false)}
+            >
+              No
+            </Button>
+            <Button
+              type="button"
+              className="bg-blue-600 text-white hover:bg-blue-700"
+              onClick={() => resolveVideoInstructionChoice(true)}
+            >
+              Yes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={formatPending}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Rewriting Page</DialogTitle>
-            <DialogDescription>
-              AI is rewriting the current Wiki page without saving changes. You
-              can review the changed page and diff before accepting it.
-            </DialogDescription>
+            <DialogTitle>{progressTitle}</DialogTitle>
+            <DialogDescription>{progressDescription}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 rounded-md border bg-muted/40 p-3 text-sm">
             <div className="flex items-center gap-3">

@@ -780,6 +780,68 @@ describe("/api/wiki/format route", () => {
     expect(payload.items[0].markdown).not.toMatch(/^# /m)
   })
 
+  it("generates an instructional page from a video transcript and preserves the video block", async () => {
+    const transcript =
+      "Open the disclosure screen, confirm the borrower name, review every required field, click Generate, then send the package to the borrower for signature."
+    const generatedMarkdown =
+      "## Prepare the Disclosure\n\nUse the disclosure screen to confirm the borrower name and review every required field before generating the package.\n\n## Send the Package\n\n1. Click Generate.\n2. Send the package to the borrower for signature.\n3. Confirm the request was sent successfully."
+    testState.aiResponses = [
+      {
+        output_text: JSON.stringify({
+          summary: "Generated instructions from video.",
+          items: [
+            {
+              type: "markdown",
+              sourceIds: ["video-transcript-source"],
+              markdown: generatedMarkdown,
+            },
+            {
+              type: "ref",
+              id: "media-1",
+            },
+          ],
+        }),
+      },
+    ]
+    const { POST } = await import("@/app/api/wiki/format/route")
+
+    const response = await POST(
+      createRequest({
+        formatVersion: 2,
+        nodeId: "node-1",
+        title: "Send Disclosures",
+        mode: "video_instruction",
+        videoTranscript: transcript,
+        items: [
+          {
+            type: "media",
+            id: "media-1",
+            blockType: "video",
+            name: "walkthrough.mp4",
+          },
+        ],
+      })
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload.items).toEqual([
+      expect.objectContaining({
+        type: "markdown",
+        sourceIds: ["video-transcript-source"],
+        markdown: expect.stringContaining("Prepare the Disclosure"),
+      }),
+      expect.objectContaining({ type: "spacer" }),
+      expect.objectContaining({ type: "ref", id: "media-1" }),
+    ])
+    expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.stringContaining(transcript),
+      }),
+      expect.anything()
+    )
+  })
+
   it("plans long v2 documents and rewrites only requested text groups", async () => {
     const longMarkdown = `${originalMarkdown}\n\n`.repeat(70)
     testState.aiResponses = [

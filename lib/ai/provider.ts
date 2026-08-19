@@ -39,6 +39,10 @@ export function getFormatModel() {
   return process.env.OPENAI_FORMAT_MODEL?.trim() || "gpt-5-nano"
 }
 
+export function getTranscriptionModel() {
+  return process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "gpt-4o-transcribe"
+}
+
 export async function createEmbeddingsWithOpenAI(texts: string[]) {
   if (!texts.length) {
     return []
@@ -64,6 +68,16 @@ export async function createChatResponseWithOpenAI({
 }) {
   const client = getOpenAIClient()
   return client.responses.create({ model, input })
+}
+
+export async function createTranscriptionWithOpenAI(file: File) {
+  const client = getOpenAIClient()
+  const response = await client.audio.transcriptions.create({
+    file,
+    model: getTranscriptionModel(),
+  })
+
+  return typeof response.text === "string" ? response.text.trim() : ""
 }
 
 export async function createAgentResponseWithOpenAI(
