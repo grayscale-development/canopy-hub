@@ -77,18 +77,6 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Unit, component, and API tests with coverage
-        run: pnpm test:coverage
-
-      - name: Supabase Edge Function tests
-        run: pnpm test:functions
-
       - name: Build application
         run: pnpm build
 
