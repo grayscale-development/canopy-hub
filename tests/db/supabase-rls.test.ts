@@ -7,11 +7,6 @@ import { describe, expect, it } from "vitest"
 const TEST_PASSWORD = process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password"
 const shouldRunDbTests = process.env.CANOPY_DB_TESTS === "1"
 
-const IDS = {
-  group: "10000000-0000-4000-8000-000000000003",
-  draftPage: "10000000-0000-4000-8000-000000000005",
-} as const
-
 function loadEnvFile(filePath: string) {
   if (!fs.existsSync(filePath)) {
     return
@@ -70,7 +65,7 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
     const { data: standardDrafts, error: standardError } = await standard
       .from("wiki_nodes")
       .select("id,title")
-      .eq("id", IDS.draftPage)
+      .eq("slug", "draft-sop")
 
     expect(standardError).toBeNull()
     expect(standardDrafts).toEqual([])
@@ -78,17 +73,20 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
     const { data: managerDrafts, error: managerError } = await manager
       .from("wiki_nodes")
       .select("id,title")
-      .eq("id", IDS.draftPage)
+      .eq("slug", "draft-sop")
 
     expect(managerError).toBeNull()
-    expect(managerDrafts).toEqual([{ id: IDS.draftPage, title: "Draft SOP" }])
+    expect(managerDrafts).toEqual([
+      { id: expect.any(String), title: "Draft SOP" },
+    ])
   })
 
   it("prevents standard users from mutating Wiki nodes", async () => {
     const standard = await signIn("standard@canopy.test")
+    const groupId = await getWikiNodeId(standard, "closing")
 
     const { error } = await standard.from("wiki_nodes").insert({
-      parent_id: IDS.group,
+      parent_id: groupId,
       type: "page",
       slug: `standard-forbidden-${Date.now()}`,
       title: "Forbidden Standard Edit",
@@ -100,6 +98,7 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
 
   it("prevents moving a Wiki node below one of its descendants", async () => {
     const manager = await signIn("wiki-manager@canopy.test")
+    const groupId = await getWikiNodeId(manager, "closing")
     const { data: repository, error: repositoryError } = await manager
       .from("wiki_nodes")
       .select("id")
@@ -112,7 +111,7 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
 
     const { error } = await manager
       .from("wiki_nodes")
-      .update({ parent_id: IDS.group })
+      .update({ parent_id: groupId })
       .eq("id", repository!.id)
 
     expect(error?.message).toMatch(/descendants|recursive/i)
@@ -202,6 +201,19 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
     expect(titles).not.toContain("Archived SOP")
   })
 })
+
+async function getWikiNodeId(supabase: SupabaseClient, slug: string) {
+  const { data, error } = await supabase
+    .from("wiki_nodes")
+    .select("id")
+    .eq("slug", slug)
+    .single()
+
+  expect(error).toBeNull()
+  expect(data?.id).toEqual(expect.any(String))
+
+  return data!.id
+}
 
 async function createThread(supabase: SupabaseClient, title: string) {
   const {

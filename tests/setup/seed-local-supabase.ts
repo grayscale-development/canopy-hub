@@ -365,6 +365,73 @@ async function ensureSeedWikiRepositories(supabase: AnySupabaseClient) {
   return { canopy }
 }
 
+async function ensureSeedWikiNode(
+  supabase: AnySupabaseClient,
+  row: Record<string, unknown> & {
+    id: string
+    parent_id: string | null
+    slug: string
+  }
+) {
+  let existingQuery = supabase
+    .from("wiki_nodes")
+    .select("id")
+    .eq("slug", row.slug)
+    .limit(1)
+
+  existingQuery = row.parent_id
+    ? existingQuery.eq("parent_id", row.parent_id)
+    : existingQuery.is("parent_id", null)
+
+  const { data: existingRows, error: existingError } = await existingQuery
+
+  if (existingError) {
+    throw existingError
+  }
+
+  const existingId = existingRows?.[0]?.id as string | undefined
+  const values = {
+    parent_id: row.parent_id,
+    type: row.type,
+    slug: row.slug,
+    title: row.title,
+    status: row.status,
+    sort_order: row.sort_order,
+    is_pinned: false,
+    current_revision_id: null,
+    created_by: row.created_by,
+    updated_by: row.updated_by,
+  }
+
+  if (existingId) {
+    const { error } = await supabase
+      .from("wiki_nodes")
+      .update(values)
+      .eq("id", existingId)
+
+    if (error) {
+      throw error
+    }
+
+    return existingId
+  }
+
+  const { data, error } = await supabase
+    .from("wiki_nodes")
+    .insert({
+      id: row.id,
+      ...values,
+    })
+    .select("id")
+    .single()
+
+  if (error || !data?.id) {
+    throw error ?? new Error(`Unable to seed wiki node ${row.slug}.`)
+  }
+
+  return data.id as string
+}
+
 async function seedWiki(supabase: AnySupabaseClient, userId: string) {
   const now = new Date().toISOString()
   const repositoryId = (await ensureSeedWikiRepositories(supabase)).canopy
@@ -523,23 +590,22 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
   ]
 
-  const { error: nodesError } = await supabase.from("wiki_nodes").upsert(
-    nodeRows.map((row) => ({
-      ...row,
-      is_pinned: false,
-      current_revision_id: null,
-    })),
-    { onConflict: "id" }
-  )
+  const seededNodeIds = new Map<string, string>()
+  const seededNodeId = (id: string) => seededNodeIds.get(id) ?? id
 
-  if (nodesError) {
-    throw nodesError
+  for (const row of nodeRows) {
+    const parentId = row.parent_id ? seededNodeId(row.parent_id) : null
+    const id = await ensureSeedWikiNode(supabase, {
+      ...row,
+      parent_id: parentId,
+    })
+    seededNodeIds.set(row.id, id)
   }
 
   const revisionRows = [
     {
       id: FIXED_IDS.hubHomeRevision,
-      node_id: FIXED_IDS.hubHomePage,
+      node_id: seededNodeId(FIXED_IDS.hubHomePage),
       blocks: wikiParagraphBlocks([
         "The Home dashboard is the starting point for common Hub work. It brings search, quick actions, helpful resources, and recent company context into one place.",
         "Use the quick actions to jump into pipeline work, file lookup, reporting, people search, branches, and newsletters without browsing through the full navigation.",
@@ -551,7 +617,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.hubFileViewerRevision,
-      node_id: FIXED_IDS.hubFileViewerPage,
+      node_id: seededNodeId(FIXED_IDS.hubFileViewerPage),
       blocks: wikiParagraphBlocks([
         "File Viewer helps users find loan files and review file-level details without leaving the Hub. It is built for quick lookup, filtering, and follow-up from a single workspace.",
         "Start with the highest-confidence identifier you have, then narrow the result set with the available filters before opening a file detail view.",
@@ -563,7 +629,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.hubReportsRevision,
-      node_id: FIXED_IDS.hubReportsPage,
+      node_id: seededNodeId(FIXED_IDS.hubReportsPage),
       blocks: wikiParagraphBlocks([
         "Reports collect production, file quality, leaderboard, points, and turn-time views. Each report is meant to answer a specific operating question with current Hub data.",
         "Use report filters before comparing teams or time periods so the view matches the question you are trying to answer.",
@@ -575,7 +641,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.hubPeopleSupportRevision,
-      node_id: FIXED_IDS.hubPeopleSupportPage,
+      node_id: seededNodeId(FIXED_IDS.hubPeopleSupportPage),
       blocks: wikiParagraphBlocks([
         "People, Branches, and the Department Directory help users find teammates, branch context, and the right support channel for a question or escalation.",
         "Use People when you know who you need, Branches when location context matters, and Department Directory when you need the right team or monitored inbox.",
@@ -587,7 +653,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.hubMiloSearchRevision,
-      node_id: FIXED_IDS.hubMiloSearchPage,
+      node_id: seededNodeId(FIXED_IDS.hubMiloSearchPage),
       blocks: wikiParagraphBlocks([
         "Ask Milo and Wiki search help users locate Hub knowledge without already knowing where a page lives. Search is best for known titles or terms; Ask Milo is best for natural-language questions.",
         "Published wiki pages and indexed knowledge sources are available to Milo. Draft wiki pages stay out of viewer mode and should not be treated as final guidance.",
@@ -599,7 +665,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.hubWikiBasicsRevision,
-      node_id: FIXED_IDS.hubWikiBasicsPage,
+      node_id: seededNodeId(FIXED_IDS.hubWikiBasicsPage),
       blocks: wikiParagraphBlocks([
         "Draft: Use the wiki for durable operating guidance, not temporary announcements. Pages should explain what the user needs to do, where to do it, and what to check before they finish.",
         "Keep page titles specific, keep instructions in the body, and publish only after the page has been reviewed for accuracy.",
@@ -611,7 +677,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.hubPublishingRevision,
-      node_id: FIXED_IDS.hubPublishingPage,
+      node_id: seededNodeId(FIXED_IDS.hubPublishingPage),
       blocks: wikiParagraphBlocks([
         "Draft: Create pages in Editor Mode, organize them under the correct wiki section, and leave unfinished guidance in draft status until it is ready for viewers.",
         "Before publishing, confirm the page path, title, status, and any uploaded assets. Published pages become visible to standard viewers and eligible for knowledge indexing.",
@@ -623,7 +689,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.revisionOne,
-      node_id: FIXED_IDS.publishedPage,
+      node_id: seededNodeId(FIXED_IDS.publishedPage),
       blocks: [{ type: "paragraph", content: "Old checklist" }],
       plain_text: "Old checklist",
       change_note: "Initial draft",
@@ -631,7 +697,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.revisionTwo,
-      node_id: FIXED_IDS.publishedPage,
+      node_id: seededNodeId(FIXED_IDS.publishedPage),
       blocks: [{ type: "paragraph", content: "Funding checklist content" }],
       plain_text: "Funding checklist content",
       change_note: "Published content",
@@ -639,7 +705,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.draftRevision,
-      node_id: FIXED_IDS.draftPage,
+      node_id: seededNodeId(FIXED_IDS.draftPage),
       blocks: [{ type: "paragraph", content: "Draft only content" }],
       plain_text: "Draft only content",
       change_note: "Draft",
@@ -677,20 +743,30 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     }
   }
 
-  const { error: nodeRevisionError } = await supabase
-    .from("wiki_nodes")
-    .upsert(nodeRows, { onConflict: "id" })
+  for (const row of nodeRows) {
+    if (!("current_revision_id" in row)) {
+      continue
+    }
 
-  if (nodeRevisionError) {
-    throw nodeRevisionError
+    const { error: nodeRevisionError } = await supabase
+      .from("wiki_nodes")
+      .update({
+        current_revision_id: row.current_revision_id,
+        updated_by: userId,
+      })
+      .eq("id", seededNodeId(row.id))
+
+    if (nodeRevisionError) {
+      throw nodeRevisionError
+    }
   }
 
   const assetRows = [
     {
       id: FIXED_IDS.asset,
-      node_id: FIXED_IDS.publishedPage,
+      node_id: seededNodeId(FIXED_IDS.publishedPage),
       storage_bucket: "Wiki",
-      storage_path: `${FIXED_IDS.publishedPage}/${FIXED_IDS.asset}/guide.txt`,
+      storage_path: `${seededNodeId(FIXED_IDS.publishedPage)}/${FIXED_IDS.asset}/guide.txt`,
       file_name: "guide.txt",
       mime_type: "text/plain",
       size_bytes: 12,
@@ -705,9 +781,9 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
     },
     {
       id: FIXED_IDS.archivedAsset,
-      node_id: FIXED_IDS.publishedPage,
+      node_id: seededNodeId(FIXED_IDS.publishedPage),
       storage_bucket: "Wiki",
-      storage_path: `${FIXED_IDS.publishedPage}/${FIXED_IDS.archivedAsset}/old.txt`,
+      storage_path: `${seededNodeId(FIXED_IDS.publishedPage)}/${FIXED_IDS.archivedAsset}/old.txt`,
       file_name: "old.txt",
       mime_type: "text/plain",
       size_bytes: 10,
@@ -756,7 +832,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
         {
           id: FIXED_IDS.activeKnowledgeSource,
           source_type: "wiki_page",
-          source_id: FIXED_IDS.publishedPage,
+          source_id: seededNodeId(FIXED_IDS.publishedPage),
           title: "Funding Checklist",
           url: "/wiki/canopy-wiki/operations/closing/funding-checklist",
           metadata: { seeded: true },
@@ -767,7 +843,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
         {
           id: FIXED_IDS.archivedKnowledgeSource,
           source_type: "wiki_page",
-          source_id: FIXED_IDS.archivedPage,
+          source_id: seededNodeId(FIXED_IDS.archivedPage),
           title: "Archived SOP",
           url: "/wiki/canopy-wiki/operations/closing/archived-sop",
           metadata: { seeded: true },
