@@ -15,6 +15,10 @@ import {
   WikiCreateWizardDialog,
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
+import {
+  WikiLastPageRecorder,
+  WikiLastPageRedirect,
+} from "@/components/wiki/wiki-last-page-navigation"
 import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
 import {
@@ -40,8 +44,10 @@ import {
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
   compareWikiNodes,
+  findDefaultWikiPagePath,
   fetchWikiNodes,
   fetchWikiPageData,
+  isPublishedWikiBranch,
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeRow,
@@ -404,6 +410,14 @@ export default async function WikiPage({
     .sort(compareWikiNodes)
   const activePath = path.join("/")
   const selectedRepositorySlug = getSelectedRepositorySlug({ path, pageData })
+  const isRepositoryLanding =
+    path.length === 1 && Boolean(getWikiRepositoryBySlug(path[0]))
+  const publishedNodes = nodes.filter((node) =>
+    isPublishedWikiBranch(nodes, node)
+  )
+  const repositoryDefaultPagePath = isRepositoryLanding
+    ? findDefaultWikiPagePath(publishedNodes, selectedRepositorySlug)
+    : null
   const virtualRepositoryNode: WikiNodeRow | null = missingRepositoryPage
     ? {
         id: "",
@@ -413,6 +427,7 @@ export default async function WikiPage({
         title: missingRepositoryPage.title,
         status: "published",
         sort_order: missingRepositoryPage.sortOrder,
+        is_pinned: false,
         current_revision_id: null,
         created_by: null,
         updated_by: null,
@@ -429,11 +444,30 @@ export default async function WikiPage({
     repositorySlug: missingRepositoryPage?.slug,
   })
   const displayedEmptyLabel = getDirectoryEmptyLabel(displayedBreadcrumbs)
+  const sidebarActivePath = path.length
+    ? `/wiki/${activePath}`
+    : `/wiki/${selectedRepositorySlug}`
 
   return (
     <SidebarProvider>
       <WikiEditModeProvider canManageWiki={canManageWiki}>
-        <AppSidebar activePath="/wiki" />
+        {isRepositoryLanding ? (
+          <WikiLastPageRedirect
+            nodes={nodes}
+            repositorySlug={selectedRepositorySlug}
+            fallbackPath={repositoryDefaultPagePath}
+            canManageWiki={canManageWiki}
+          />
+        ) : null}
+        {pageData?.node.type === "page" ? (
+          <WikiLastPageRecorder
+            nodes={nodes}
+            path={activePath}
+            repositorySlug={selectedRepositorySlug}
+            canManageWiki={canManageWiki}
+          />
+        ) : null}
+        <AppSidebar activePath={sidebarActivePath} />
         <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
           <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
             <SidebarTrigger className="-ml-1" />
@@ -476,7 +510,7 @@ export default async function WikiPage({
                         <WikiViewModeTitleSpacing className="flex flex-col items-start gap-10">
                           {canManageWiki ? (
                             <WikiEditModeGate>
-                              <div className="flex flex-wrap items-center justify-start gap-3">
+                              <div className="flex w-full flex-wrap items-center gap-3">
                                 {pageData ? (
                                   <WikiStatusSelect
                                     nodeId={pageData.node.id}
@@ -499,6 +533,9 @@ export default async function WikiPage({
                                     dialogDescription={
                                       displayedCreateConfig.dialogDescription
                                     }
+                                    triggerLabel={
+                                      displayedCreateConfig.dialogTitle
+                                    }
                                   />
                                 ) : missingRepositoryPage ? (
                                   <WikiCreateWizardDialog
@@ -519,6 +556,9 @@ export default async function WikiPage({
                                     repositorySlug={
                                       displayedCreateConfig.repositorySlug
                                     }
+                                    triggerLabel={
+                                      displayedCreateConfig.dialogTitle
+                                    }
                                   />
                                 ) : null}
                                 {pageData ? (
@@ -526,7 +566,6 @@ export default async function WikiPage({
                                     nodes={nodes}
                                     node={pageData.node}
                                     hasChildren={displayedChildren.length > 0}
-                                    triggerClassName="h-10 w-10 rounded-lg border border-border bg-background text-foreground shadow-sm hover:bg-muted data-[state=open]:bg-muted"
                                   />
                                 ) : null}
                               </div>
@@ -573,7 +612,6 @@ export default async function WikiPage({
                                     nodes={nodes}
                                     node={pageData.node}
                                     hasChildren={displayedChildren.length > 0}
-                                    triggerClassName="h-10 w-10 rounded-lg border border-border bg-background text-foreground shadow-sm hover:bg-muted data-[state=open]:bg-muted"
                                   />
                                 </WikiEditModeGate>
                               ) : null

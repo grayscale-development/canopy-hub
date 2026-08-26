@@ -3,14 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const testState = vi.hoisted(() => ({
   user: null as { id: string; email?: string } | null,
   answer: {
-    answer: "Open /wiki/canopy-mortgage for the Wiki.",
+    answer: "Open /wiki/canopy-wiki for the Wiki.",
     model: "fake-chat",
     citations: [
       {
         knowledgeSourceId: "source-1",
         knowledgeChunkId: "chunk-1",
         title: "Wiki",
-        url: "/wiki/canopy-mortgage",
+        url: "/wiki/canopy-wiki",
         snippet: "Wiki documentation lives here.",
       },
     ],
@@ -32,7 +32,8 @@ vi.mock("@/lib/supabase/server", () => ({
     auth: {
       getUser: async () => ({ data: { user: testState.user } }),
     },
-    from: (table: keyof typeof testState.tables) => new FakeSupabaseQuery(table),
+    from: (table: keyof typeof testState.tables) =>
+      new FakeSupabaseQuery(table),
   }),
 }))
 
@@ -106,7 +107,10 @@ class FakeSupabaseQuery {
 
   then<TResult1 = unknown, TResult2 = never>(
     onfulfilled?:
-      | ((value: { data: unknown; error: null }) => TResult1 | PromiseLike<TResult1>)
+      | ((value: {
+          data: unknown
+          error: null
+        }) => TResult1 | PromiseLike<TResult1>)
       | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
   ) {
@@ -115,14 +119,14 @@ class FakeSupabaseQuery {
 
   private async resolve() {
     if (this.action === "insert") {
-      const rows = (Array.isArray(this.payload) ? this.payload : [this.payload]).map(
-        (row) => ({
-          id: `${this.table}-${testState.nextId++}`,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          ...(row as Record<string, unknown>),
-        })
-      )
+      const rows = (
+        Array.isArray(this.payload) ? this.payload : [this.payload]
+      ).map((row) => ({
+        id: `${this.table}-${testState.nextId++}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        ...(row as Record<string, unknown>),
+      }))
       testState.tables[this.table].push(...rows)
       return { data: rows, error: null }
     }
@@ -141,7 +145,9 @@ class FakeSupabaseQuery {
     return testState.tables[this.table].filter((row) => {
       return (
         this.filters.every((filter) => row[filter.key] === filter.value) &&
-        this.inFilters.every((filter) => filter.values.includes(row[filter.key]))
+        this.inFilters.every((filter) =>
+          filter.values.includes(row[filter.key])
+        )
       )
     })
   }
@@ -152,7 +158,10 @@ async function readSseEvents(response: Response) {
   return text
     .trim()
     .split("\n\n")
-    .map((line) => JSON.parse(line.replace(/^data: /, "")) as Record<string, unknown>)
+    .map(
+      (line) =>
+        JSON.parse(line.replace(/^data: /, "")) as Record<string, unknown>
+    )
 }
 
 describe("/api/wiki/chat route", () => {
@@ -234,7 +243,7 @@ describe("/api/wiki/chat route", () => {
       citations: [
         {
           title: "Wiki",
-          url: "/wiki/canopy-mortgage",
+          url: "/wiki/canopy-wiki",
           snippet: "Wiki documentation lives here.",
         },
       ],

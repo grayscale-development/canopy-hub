@@ -91,7 +91,8 @@ export async function POST(request: Request) {
     const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : ""
     const fileNameValue =
       typeof payload.fileName === "string" ? payload.fileName.trim() : ""
-    const fileType = typeof payload.fileType === "string" ? payload.fileType : ""
+    const fileType =
+      typeof payload.fileType === "string" ? payload.fileType : ""
     const fileSize =
       typeof payload.fileSize === "number" ? payload.fileSize : Number.NaN
 
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
     const { data: node, error: nodeError } = await supabase
       .from("wiki_nodes")
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,parent_id,type,slug,title,status,sort_order,is_pinned,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .eq("id", nodeId.trim())
       .eq("type", "page")
@@ -152,12 +153,9 @@ export async function POST(request: Request) {
     const fileName = sanitizeWikiFileName(fileNameValue)
     const storagePath = `${nodeId.trim()}/${assetId}/${fileName}`
     const mimeType = fileType || "application/octet-stream"
-    const title =
-      typeof payload.title === "string" ? payload.title.trim() : ""
+    const title = typeof payload.title === "string" ? payload.title.trim() : ""
     const description =
-      typeof payload.description === "string"
-        ? payload.description.trim()
-        : ""
+      typeof payload.description === "string" ? payload.description.trim() : ""
     const altText =
       typeof payload.altText === "string" ? payload.altText.trim() : ""
 
@@ -242,7 +240,7 @@ export async function POST(request: Request) {
   const { data: node, error: nodeError } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,parent_id,type,slug,title,status,sort_order,is_pinned,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .eq("id", nodeId)
     .eq("type", "page")

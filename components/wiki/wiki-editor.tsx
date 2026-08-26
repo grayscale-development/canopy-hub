@@ -503,9 +503,9 @@ function WikiEditorMounted({
       method: "POST",
       body: formData,
     })
-    const payload = (await response.json().catch(() => null)) as
-      | WikiUploadPayload
-      | null
+    const payload = (await response
+      .json()
+      .catch(() => null)) as WikiUploadPayload | null
 
     if (!response.ok || !payload?.url) {
       throw new Error(payload?.error ?? "Upload failed.")
@@ -528,9 +528,9 @@ function WikiEditorMounted({
         fileType: file.type,
       }),
     })
-    const payload = (await response.json().catch(() => null)) as
-      | WikiUploadPayload
-      | null
+    const payload = (await response
+      .json()
+      .catch(() => null)) as WikiUploadPayload | null
 
     if (
       !response.ok ||
@@ -562,9 +562,9 @@ function WikiEditorMounted({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
     })
-    const payload = (await response.json().catch(() => null)) as
-      | WikiUploadPayload
-      | null
+    const payload = (await response
+      .json()
+      .catch(() => null)) as WikiUploadPayload | null
 
     if (!response.ok || !payload?.ok) {
       throw new Error(payload?.error ?? "Video processing failed.")
@@ -699,7 +699,9 @@ function WikiEditorMounted({
     }
     setProgressAutofill(true)
     setProgressTitle(
-      isVideoInstructionRewrite ? "Creating Instructional Page" : "Rewriting Page"
+      isVideoInstructionRewrite
+        ? "Creating Instructional Page"
+        : "Rewriting Page"
     )
     setProgressDescription(
       isVideoInstructionRewrite
@@ -925,7 +927,7 @@ function WikiEditorMounted({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <WikiViewModeTitleSpacing className="mb-10 flex flex-col items-start gap-10">
         {hasHeaderControls ? (
-          <div className="flex flex-wrap items-center justify-start gap-3">
+          <div className="flex w-full flex-wrap items-center gap-3">
             {showEditorControls ? (
               <>
                 <WikiStatusSelect nodeId={node.id} status={node.status} />
@@ -936,8 +938,7 @@ function WikiEditorMounted({
                       variant="default"
                       disabled={formatPending}
                       className={cn(
-                        "h-10 border-0 px-4 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_0_22px_rgba(37,99,235,0.24)] transition-all duration-300 ease-out hover:brightness-110 focus-visible:ring-blue-400/50",
-                        "bg-[linear-gradient(135deg,#1d4ed8_0%,#2563eb_34%,#06b6d4_68%,#14b8a6_100%)]"
+                        "canopy-ai-button h-10 px-4 text-sm font-semibold"
                       )}
                     >
                       {formatPending ? (
@@ -945,7 +946,7 @@ function WikiEditorMounted({
                       ) : (
                         <SparklesIcon />
                       )}
-                      AI
+                      AI Tools
                       <ChevronDownIcon className="size-4 opacity-80" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -1057,7 +1058,7 @@ function WikiEditorMounted({
         <DialogContent showCloseButton={false}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FileVideoIcon className="size-5 text-blue-600" />
+              <FileVideoIcon className="size-5 text-primary" />
               Create Page From Video?
             </DialogTitle>
             <DialogDescription>
@@ -1088,7 +1089,7 @@ function WikiEditorMounted({
             </Button>
             <Button
               type="button"
-              className="bg-blue-600 text-white hover:bg-blue-700"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
               onClick={() => resolveVideoInstructionChoice(true)}
             >
               Yes
@@ -1106,7 +1107,7 @@ function WikiEditorMounted({
             <div className="flex items-center gap-3">
               <Loader2Icon className="size-4 animate-spin" />
               <span>{rewriteProgressLabel}</span>
-              <span className="ml-auto tabular-nums text-muted-foreground">
+              <span className="ml-auto text-muted-foreground tabular-nums">
                 {rewriteProgress}%
               </span>
             </div>
@@ -1119,7 +1120,7 @@ function WikiEditorMounted({
               aria-label="AI rewrite progress"
             >
               <div
-                className="h-full rounded-full bg-[linear-gradient(135deg,#1d4ed8_0%,#2563eb_42%,#06b6d4_100%)] transition-[width] duration-500 ease-out"
+                className="h-full rounded-full bg-[linear-gradient(135deg,#174968_0%,#2872a8_52%,#4395ce_100%)] transition-[width] duration-500 ease-out"
                 style={{ width: `${rewriteProgress}%` }}
               />
             </div>

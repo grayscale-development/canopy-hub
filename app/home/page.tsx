@@ -54,8 +54,7 @@ export const metadata = {
 }
 
 const BRIDGE_LOGIN_URL = "https://canopymortgage.bridgeapp.com/login"
-const CANOPY_WIKI_URL =
-  "https://sites.google.com/canopymortgage.com/trainingwiki/home?authuser=0"
+const CANOPY_WIKI_URL = "/wiki/canopy-wiki"
 
 const QUICK_ACTIONS = [
   {
@@ -96,7 +95,7 @@ const HELPFUL_RESOURCE_LINKS = [
     label: "Canopy Wiki",
     description: "Training, process guides, and team reference material.",
     href: CANOPY_WIKI_URL,
-    external: true,
+    external: false,
     image: "/training-wiki.jpg",
   },
   {

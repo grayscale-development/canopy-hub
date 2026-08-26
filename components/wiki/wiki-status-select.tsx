@@ -70,7 +70,7 @@ export function WikiStatusSelect({
 
   return (
     <>
-      <div className="inline-flex h-10 overflow-hidden rounded-lg border border-border bg-muted p-0.5 shadow-sm">
+      <div className="inline-flex h-10 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         {STATUS_OPTIONS.map((option) => {
           const isSelected = value === option.value
           return (
@@ -81,15 +81,15 @@ export function WikiStatusSelect({
               aria-pressed={isSelected}
               onClick={() => requestStatus(option.value)}
               className={cn(
-                "h-9 px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-70",
+                "h-9 min-w-24 rounded-md px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70",
                 option.value === "published" && isSelected
-                  ? "rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                  ? "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400"
                   : null,
                 option.value === "draft" && isSelected
-                  ? "rounded-md bg-zinc-500 text-white shadow-sm hover:bg-zinc-600"
+                  ? "bg-zinc-500 text-white shadow-sm hover:bg-zinc-600 dark:bg-zinc-400 dark:text-zinc-950 dark:hover:bg-zinc-300"
                   : null,
                 !isSelected
-                  ? "rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+                  ? "text-muted-foreground hover:bg-background hover:text-foreground dark:hover:bg-zinc-800"
                   : null
               )}
             >

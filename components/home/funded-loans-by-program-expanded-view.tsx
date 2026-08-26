@@ -12,16 +12,16 @@ import {
 } from "@/components/ui/chart"
 
 const SLICE_COLORS = [
-  "#2563eb",
-  "#0ea5e9",
-  "#14b8a6",
-  "#22c55e",
-  "#84cc16",
-  "#eab308",
-  "#f97316",
-  "#ef4444",
-  "#ec4899",
-  "#a855f7",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
 ] as const
 
 const INTEGER_FORMATTER = new Intl.NumberFormat("en-US", {

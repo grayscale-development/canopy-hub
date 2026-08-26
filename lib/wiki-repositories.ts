@@ -1,15 +1,18 @@
 export const WIKI_REPOSITORIES = [
   {
-    title: "Canopy Mortgage",
-    slug: "canopy-mortgage",
+    title: "Canopy Wiki",
+    slug: "canopy-wiki",
     sortOrder: 0,
-    logoSrc: "/canopy-logo-cube-100.png",
   },
   {
-    title: "Nano LOS",
-    slug: "nano-los",
+    title: "Learning Hub",
+    slug: "learning-hub",
     sortOrder: 1,
-    logoSrc: "/nano-logo.png",
+  },
+  {
+    title: "Nano Wiki",
+    slug: "nano-wiki",
+    sortOrder: 2,
   },
 ] as const
 

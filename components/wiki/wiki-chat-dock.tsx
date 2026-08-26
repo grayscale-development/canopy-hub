@@ -79,9 +79,7 @@ export function WikiChatDockProvider({
       }
 
       const nextIsAuthenticated = Boolean(user)
-      const nextHasBetaAccess = user
-        ? await userHasBetaAccess(user.id)
-        : false
+      const nextHasBetaAccess = user ? await userHasBetaAccess(user.id) : false
       setIsAuthenticated(nextIsAuthenticated)
       setHasBetaAccess(nextHasBetaAccess)
       setIsOpen(
@@ -187,11 +185,10 @@ export function WikiChatDockTrigger({ className }: { className?: string }) {
       variant="default"
       size="default"
       className={cn(
-        "relative h-auto self-stretch overflow-hidden rounded-none border-0 border-l border-white/20 px-5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_0_28px_rgba(37,99,235,0.28)] transition-all duration-300 ease-out hover:brightness-110 focus-visible:ring-blue-400/50",
-        "bg-[linear-gradient(135deg,#1d4ed8_0%,#2563eb_34%,#06b6d4_68%,#14b8a6_100%)]",
+        "canopy-ai-button h-10 self-center rounded-lg px-4 text-sm font-semibold",
         isOpen
-          ? "pointer-events-none w-0 border-l-0 px-0 opacity-0"
-          : "w-[8.75rem] opacity-100",
+          ? "pointer-events-none w-0 px-0 opacity-0"
+          : "w-[8.5rem] opacity-100",
         className
       )}
       aria-pressed={isOpen}
@@ -219,7 +216,7 @@ function WikiChatDockPanel({
 
   return (
     <aside className="flex h-full min-h-0 w-full shrink-0 flex-col border-t bg-sidebar text-sidebar-foreground lg:border-t-0">
-      <div className="flex h-16 shrink-0 items-center gap-3 bg-[linear-gradient(135deg,#1d4ed8_0%,#2563eb_34%,#06b6d4_68%,#14b8a6_100%)] px-4 text-white">
+      <div className="canopy-ai-panel-header flex h-16 shrink-0 items-center gap-3 px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <SparklesIcon className="size-4 shrink-0" />
           <h2 className="truncate text-sm font-semibold">Ask Milo</h2>

@@ -91,6 +91,7 @@ const node: WikiNodeRow = {
   title: "Cancel a Loan",
   status: "draft",
   sort_order: 0,
+  is_pinned: false,
   current_revision_id: "revision-1",
   created_by: "user-1",
   updated_by: "user-1",

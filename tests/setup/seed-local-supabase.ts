@@ -26,24 +26,41 @@ const TEST_PERMISSION_CODES = [
   "newsletters.upload",
 ] as const
 
-const TEST_PERMISSION_NAMES: Record<(typeof TEST_PERMISSION_CODES)[number], string> =
-  {
-    "settings.access": "Access Settings",
-    "permissions.access": "Access Permissions",
-    "advanced-settings.access": "Access Advanced Settings",
-    "data-sync.run": "Run Sync",
-    "wiki.manage": "Edit Wiki",
-    "ai.settings.access": "Access AI Settings",
-    "beta.1": "Beta 1",
-    "newsletters.upload": "Upload Newsletters",
-  }
+const TEST_PERMISSION_NAMES: Record<
+  (typeof TEST_PERMISSION_CODES)[number],
+  string
+> = {
+  "settings.access": "Access Settings",
+  "permissions.access": "Access Permissions",
+  "advanced-settings.access": "Access Advanced Settings",
+  "data-sync.run": "Run Sync",
+  "wiki.manage": "Edit Wiki",
+  "ai.settings.access": "Access AI Settings",
+  "beta.1": "Beta 1",
+  "newsletters.upload": "Upload Newsletters",
+}
 
 const FIXED_IDS = {
+  hubSection: "10000000-0000-4000-8000-000000000010",
+  hubHomePage: "10000000-0000-4000-8000-000000000011",
+  hubFileViewerPage: "10000000-0000-4000-8000-000000000012",
+  hubReportsPage: "10000000-0000-4000-8000-000000000013",
+  hubPeopleSupportPage: "10000000-0000-4000-8000-000000000014",
+  hubMiloSearchPage: "10000000-0000-4000-8000-000000000015",
+  hubWikiBasicsPage: "10000000-0000-4000-8000-000000000016",
+  hubPublishingPage: "10000000-0000-4000-8000-000000000017",
   section: "10000000-0000-4000-8000-000000000002",
   group: "10000000-0000-4000-8000-000000000003",
   publishedPage: "10000000-0000-4000-8000-000000000004",
   draftPage: "10000000-0000-4000-8000-000000000005",
   archivedPage: "10000000-0000-4000-8000-000000000006",
+  hubHomeRevision: "20000000-0000-4000-8000-000000000010",
+  hubFileViewerRevision: "20000000-0000-4000-8000-000000000011",
+  hubReportsRevision: "20000000-0000-4000-8000-000000000012",
+  hubPeopleSupportRevision: "20000000-0000-4000-8000-000000000013",
+  hubMiloSearchRevision: "20000000-0000-4000-8000-000000000014",
+  hubWikiBasicsRevision: "20000000-0000-4000-8000-000000000015",
+  hubPublishingRevision: "20000000-0000-4000-8000-000000000016",
   revisionOne: "20000000-0000-4000-8000-000000000001",
   revisionTwo: "20000000-0000-4000-8000-000000000002",
   draftRevision: "20000000-0000-4000-8000-000000000003",
@@ -234,25 +251,219 @@ async function upsertRequiredPermissions(supabase: AnySupabaseClient) {
   }
 }
 
-async function getSeedRepositoryId(supabase: AnySupabaseClient) {
+function wikiParagraphBlocks(paragraphs: string[]) {
+  return paragraphs.map((text) => ({
+    type: "paragraph",
+    content: [{ type: "text", text, styles: {} }],
+  }))
+}
+
+async function ensureSeedWikiRepository(
+  supabase: AnySupabaseClient,
+  {
+    title,
+    slug,
+    sortOrder,
+    legacySlugs = [],
+  }: {
+    title: string
+    slug: string
+    sortOrder: number
+    legacySlugs?: string[]
+  }
+) {
+  const { data: existingRows, error: existingError } = await supabase
+    .from("wiki_nodes")
+    .select("id,slug")
+    .is("parent_id", null)
+    .in("slug", [slug, ...legacySlugs])
+
+  if (existingError) {
+    throw existingError
+  }
+
+  const existing =
+    existingRows?.find((row: { slug: string }) => row.slug === slug) ??
+    existingRows?.[0]
+
+  if (existing?.id) {
+    const { error } = await supabase
+      .from("wiki_nodes")
+      .update({
+        title,
+        slug,
+        status: "published",
+        sort_order: sortOrder,
+      })
+      .eq("id", existing.id)
+
+    if (error) {
+      throw error
+    }
+
+    const duplicateRoots =
+      existingRows?.filter(
+        (row: { id: string; slug: string }) => row.id !== existing.id
+      ) ?? []
+
+    for (const duplicateRoot of duplicateRoots) {
+      const { error: archiveError } = await supabase
+        .from("wiki_nodes")
+        .update({
+          slug: `${duplicateRoot.slug}-archived-${duplicateRoot.id.slice(0, 8)}`,
+          status: "archived",
+        })
+        .eq("id", duplicateRoot.id)
+
+      if (archiveError) {
+        throw archiveError
+      }
+    }
+
+    return existing.id as string
+  }
+
   const { data, error } = await supabase
     .from("wiki_nodes")
+    .insert({
+      parent_id: null,
+      type: "folder",
+      slug,
+      title,
+      status: "published",
+      sort_order: sortOrder,
+    })
     .select("id")
-    .is("parent_id", null)
-    .eq("slug", "canopy-mortgage")
     .single()
 
   if (error || !data?.id) {
-    throw error ?? new Error("Missing seeded Canopy Mortgage Wiki repository.")
+    throw error ?? new Error(`Missing seeded ${title} repository.`)
   }
 
   return data.id as string
 }
 
+async function ensureSeedWikiRepositories(supabase: AnySupabaseClient) {
+  const canopy = await ensureSeedWikiRepository(supabase, {
+    title: "Canopy Wiki",
+    slug: "canopy-wiki",
+    sortOrder: 0,
+    legacySlugs: ["canopy-mortgage"],
+  })
+  await ensureSeedWikiRepository(supabase, {
+    title: "Learning Hub",
+    slug: "learning-hub",
+    sortOrder: 1,
+  })
+  await ensureSeedWikiRepository(supabase, {
+    title: "Nano Wiki",
+    slug: "nano-wiki",
+    sortOrder: 2,
+    legacySlugs: ["nano-los"],
+  })
+
+  return { canopy }
+}
+
 async function seedWiki(supabase: AnySupabaseClient, userId: string) {
   const now = new Date().toISOString()
-  const repositoryId = await getSeedRepositoryId(supabase)
+  const repositoryId = (await ensureSeedWikiRepositories(supabase)).canopy
   const nodeRows = [
+    {
+      id: FIXED_IDS.hubSection,
+      parent_id: repositoryId,
+      type: "folder",
+      slug: "hub",
+      title: "Hub",
+      status: "published",
+      sort_order: 0,
+      created_by: userId,
+      updated_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubHomePage,
+      parent_id: FIXED_IDS.hubSection,
+      type: "page",
+      slug: "home-dashboard",
+      title: "Home Dashboard",
+      status: "published",
+      sort_order: 0,
+      current_revision_id: FIXED_IDS.hubHomeRevision,
+      created_by: userId,
+      updated_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubFileViewerPage,
+      parent_id: FIXED_IDS.hubSection,
+      type: "page",
+      slug: "file-viewer",
+      title: "File Viewer",
+      status: "published",
+      sort_order: 1,
+      current_revision_id: FIXED_IDS.hubFileViewerRevision,
+      created_by: userId,
+      updated_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubReportsPage,
+      parent_id: FIXED_IDS.hubSection,
+      type: "page",
+      slug: "reports",
+      title: "Reports",
+      status: "published",
+      sort_order: 2,
+      current_revision_id: FIXED_IDS.hubReportsRevision,
+      created_by: userId,
+      updated_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubPeopleSupportPage,
+      parent_id: FIXED_IDS.hubSection,
+      type: "page",
+      slug: "people-and-support",
+      title: "People and Support",
+      status: "published",
+      sort_order: 3,
+      current_revision_id: FIXED_IDS.hubPeopleSupportRevision,
+      created_by: userId,
+      updated_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubMiloSearchPage,
+      parent_id: FIXED_IDS.hubSection,
+      type: "page",
+      slug: "ask-milo-and-search",
+      title: "Ask Milo and Search",
+      status: "published",
+      sort_order: 4,
+      current_revision_id: FIXED_IDS.hubMiloSearchRevision,
+      created_by: userId,
+      updated_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubWikiBasicsPage,
+      parent_id: FIXED_IDS.hubSection,
+      type: "page",
+      slug: "wiki-basics",
+      title: "Wiki Basics",
+      status: "draft",
+      sort_order: 5,
+      current_revision_id: FIXED_IDS.hubWikiBasicsRevision,
+      created_by: userId,
+      updated_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubPublishingPage,
+      parent_id: FIXED_IDS.hubSection,
+      type: "page",
+      slug: "writing-and-publishing",
+      title: "Writing and Publishing",
+      status: "draft",
+      sort_order: 6,
+      current_revision_id: FIXED_IDS.hubPublishingRevision,
+      created_by: userId,
+      updated_by: userId,
+    },
     {
       id: FIXED_IDS.section,
       parent_id: repositoryId,
@@ -260,7 +471,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
       slug: "operations",
       title: "Operations",
       status: "published",
-      sort_order: 0,
+      sort_order: 1,
       created_by: userId,
       updated_by: userId,
     },
@@ -313,7 +524,11 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
   ]
 
   const { error: nodesError } = await supabase.from("wiki_nodes").upsert(
-    nodeRows.map((row) => ({ ...row, current_revision_id: null })),
+    nodeRows.map((row) => ({
+      ...row,
+      is_pinned: false,
+      current_revision_id: null,
+    })),
     { onConflict: "id" }
   )
 
@@ -322,6 +537,90 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
   }
 
   const revisionRows = [
+    {
+      id: FIXED_IDS.hubHomeRevision,
+      node_id: FIXED_IDS.hubHomePage,
+      blocks: wikiParagraphBlocks([
+        "The Home dashboard is the starting point for common Hub work. It brings search, quick actions, helpful resources, and recent company context into one place.",
+        "Use the quick actions to jump into pipeline work, file lookup, reporting, people search, branches, and newsletters without browsing through the full navigation.",
+      ]),
+      plain_text:
+        "The Home dashboard is the starting point for common Hub work. It brings search, quick actions, helpful resources, and recent company context into one place.\n\nUse the quick actions to jump into pipeline work, file lookup, reporting, people search, branches, and newsletters without browsing through the full navigation.",
+      change_note: "Seeded Hub documentation",
+      created_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubFileViewerRevision,
+      node_id: FIXED_IDS.hubFileViewerPage,
+      blocks: wikiParagraphBlocks([
+        "File Viewer helps users find loan files and review file-level details without leaving the Hub. It is built for quick lookup, filtering, and follow-up from a single workspace.",
+        "Start with the highest-confidence identifier you have, then narrow the result set with the available filters before opening a file detail view.",
+      ]),
+      plain_text:
+        "File Viewer helps users find loan files and review file-level details without leaving the Hub. It is built for quick lookup, filtering, and follow-up from a single workspace.\n\nStart with the highest-confidence identifier you have, then narrow the result set with the available filters before opening a file detail view.",
+      change_note: "Seeded Hub documentation",
+      created_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubReportsRevision,
+      node_id: FIXED_IDS.hubReportsPage,
+      blocks: wikiParagraphBlocks([
+        "Reports collect production, file quality, leaderboard, points, and turn-time views. Each report is meant to answer a specific operating question with current Hub data.",
+        "Use report filters before comparing teams or time periods so the view matches the question you are trying to answer.",
+      ]),
+      plain_text:
+        "Reports collect production, file quality, leaderboard, points, and turn-time views. Each report is meant to answer a specific operating question with current Hub data.\n\nUse report filters before comparing teams or time periods so the view matches the question you are trying to answer.",
+      change_note: "Seeded Hub documentation",
+      created_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubPeopleSupportRevision,
+      node_id: FIXED_IDS.hubPeopleSupportPage,
+      blocks: wikiParagraphBlocks([
+        "People, Branches, and the Department Directory help users find teammates, branch context, and the right support channel for a question or escalation.",
+        "Use People when you know who you need, Branches when location context matters, and Department Directory when you need the right team or monitored inbox.",
+      ]),
+      plain_text:
+        "People, Branches, and the Department Directory help users find teammates, branch context, and the right support channel for a question or escalation.\n\nUse People when you know who you need, Branches when location context matters, and Department Directory when you need the right team or monitored inbox.",
+      change_note: "Seeded Hub documentation",
+      created_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubMiloSearchRevision,
+      node_id: FIXED_IDS.hubMiloSearchPage,
+      blocks: wikiParagraphBlocks([
+        "Ask Milo and Wiki search help users locate Hub knowledge without already knowing where a page lives. Search is best for known titles or terms; Ask Milo is best for natural-language questions.",
+        "Published wiki pages and indexed knowledge sources are available to Milo. Draft wiki pages stay out of viewer mode and should not be treated as final guidance.",
+      ]),
+      plain_text:
+        "Ask Milo and Wiki search help users locate Hub knowledge without already knowing where a page lives. Search is best for known titles or terms; Ask Milo is best for natural-language questions.\n\nPublished wiki pages and indexed knowledge sources are available to Milo. Draft wiki pages stay out of viewer mode and should not be treated as final guidance.",
+      change_note: "Seeded Hub documentation",
+      created_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubWikiBasicsRevision,
+      node_id: FIXED_IDS.hubWikiBasicsPage,
+      blocks: wikiParagraphBlocks([
+        "Draft: Use the wiki for durable operating guidance, not temporary announcements. Pages should explain what the user needs to do, where to do it, and what to check before they finish.",
+        "Keep page titles specific, keep instructions in the body, and publish only after the page has been reviewed for accuracy.",
+      ]),
+      plain_text:
+        "Draft: Use the wiki for durable operating guidance, not temporary announcements. Pages should explain what the user needs to do, where to do it, and what to check before they finish.\n\nKeep page titles specific, keep instructions in the body, and publish only after the page has been reviewed for accuracy.",
+      change_note: "Seeded draft wiki guidance",
+      created_by: userId,
+    },
+    {
+      id: FIXED_IDS.hubPublishingRevision,
+      node_id: FIXED_IDS.hubPublishingPage,
+      blocks: wikiParagraphBlocks([
+        "Draft: Create pages in Editor Mode, organize them under the correct wiki section, and leave unfinished guidance in draft status until it is ready for viewers.",
+        "Before publishing, confirm the page path, title, status, and any uploaded assets. Published pages become visible to standard viewers and eligible for knowledge indexing.",
+      ]),
+      plain_text:
+        "Draft: Create pages in Editor Mode, organize them under the correct wiki section, and leave unfinished guidance in draft status until it is ready for viewers.\n\nBefore publishing, confirm the page path, title, status, and any uploaded assets. Published pages become visible to standard viewers and eligible for knowledge indexing.",
+      change_note: "Seeded draft wiki guidance",
+      created_by: userId,
+    },
     {
       id: FIXED_IDS.revisionOne,
       node_id: FIXED_IDS.publishedPage,
@@ -459,7 +758,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
           source_type: "wiki_page",
           source_id: FIXED_IDS.publishedPage,
           title: "Funding Checklist",
-          url: "/wiki/canopy-mortgage/operations/closing/funding-checklist",
+          url: "/wiki/canopy-wiki/operations/closing/funding-checklist",
           metadata: { seeded: true },
           content_hash: "seed-active",
           status: "active",
@@ -470,7 +769,7 @@ async function seedWiki(supabase: AnySupabaseClient, userId: string) {
           source_type: "wiki_page",
           source_id: FIXED_IDS.archivedPage,
           title: "Archived SOP",
-          url: "/wiki/canopy-mortgage/operations/closing/archived-sop",
+          url: "/wiki/canopy-wiki/operations/closing/archived-sop",
           metadata: { seeded: true },
           content_hash: "seed-archived",
           status: "archived",

@@ -5,6 +5,8 @@ import {
   Building2Icon,
   BookOpenIcon,
   ChartNoAxesCombinedIcon,
+  CpuIcon,
+  GraduationCapIcon,
   HomeIcon,
   LifeBuoyIcon,
   ListTreeIcon,
@@ -75,9 +77,19 @@ const directoryNav = [
 
 const libraryNav = [
   {
-    title: "Wiki",
-    url: "/wiki",
+    title: "Canopy Wiki",
+    url: "/wiki/canopy-wiki",
     icon: BookOpenIcon,
+  },
+  {
+    title: "Learning Hub",
+    url: "/wiki/learning-hub",
+    icon: GraduationCapIcon,
+  },
+  {
+    title: "Nano Wiki",
+    url: "/wiki/nano-wiki",
+    icon: CpuIcon,
   },
 ]
 
@@ -88,6 +100,10 @@ const adminNav = [
     icon: Settings2Icon,
   },
 ]
+
+function isNavItemActive(activePath: string | undefined, url: string) {
+  return activePath === url || Boolean(activePath?.startsWith(`${url}/`))
+}
 
 export async function AppSidebar({
   activePath,
@@ -233,7 +249,7 @@ export async function AppSidebar({
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton
                         asChild
-                        isActive={activePath === item.url}
+                        isActive={isNavItemActive(activePath, item.url)}
                         tooltip={item.title}
                       >
                         <Link href={item.url}>
