@@ -1,11 +1,11 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRightIcon, PlusIcon } from "lucide-react"
+import { ChevronRightIcon, PinIcon, PlusIcon } from "lucide-react"
 
+import { toggleWikiSectionPinAction } from "@/app/wiki/actions"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
 import {
@@ -207,6 +207,9 @@ function SidebarSection({
   nodes,
   activePath,
   canManage,
+  isPinned,
+  isPinPending,
+  onTogglePinned,
 }: {
   section: WikiNodeRow
   directPages: WikiNodeRow[]
@@ -214,6 +217,9 @@ function SidebarSection({
   nodes: WikiNodeRow[]
   activePath: string
   canManage: boolean
+  isPinned: boolean
+  isPinPending: boolean
+  onTogglePinned: (sectionId: string) => void
 }) {
   const sectionPath = buildWikiPath(nodes, section)
   const [isOpen, setPersistedOpen] = usePersistedSidebarExpansion(
@@ -226,25 +232,54 @@ function SidebarSection({
 
   return (
     <section className="space-y-1">
-      <button
-        type="button"
+      <div
         className={cn(
-          "flex min-h-8 w-full items-center rounded-md px-2 py-1 text-left text-sm leading-5 font-semibold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          "flex min-h-8 w-full items-center rounded-md text-sm leading-5 font-semibold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
-        onClick={() => {
-          setPersistedOpen((current) => !current)
-          router.push(`/wiki/${sectionPath}`)
-        }}
       >
-        <span className="truncate">{section.title}</span>
-        <ChevronRightIcon
-          className={cn(
-            "ml-auto size-3.5 shrink-0 transition-transform",
-            isOpen && "rotate-90"
-          )}
-        />
-      </button>
+        <button
+          type="button"
+          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md border-0 bg-transparent px-2 py-1 text-left text-inherit"
+          onClick={() => {
+            setPersistedOpen((current) => !current)
+            router.push(`/wiki/${sectionPath}`)
+          }}
+        >
+          <span className="truncate">{section.title}</span>
+          <ChevronRightIcon
+            className={cn(
+              "ml-auto size-3.5 shrink-0 transition-transform",
+              isOpen && "rotate-90"
+            )}
+          />
+        </button>
+        {canManage ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                className={cn(
+                  "mr-1 size-7 text-sidebar-foreground/60 hover:text-sidebar-foreground",
+                  isPinned && "text-sidebar-foreground"
+                )}
+                disabled={isPinPending}
+                aria-label={`${isPinned ? "Unpin" : "Pin"} ${section.title}`}
+                onClick={() => onTogglePinned(section.id)}
+              >
+                <PinIcon
+                  className={cn("size-3.5", isPinned && "fill-current")}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right" align="start" sideOffset={8}>
+              {isPinned ? "Unpin section" : "Pin section"}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
+      </div>
       {isOpen ? (
         <div className="space-y-1">
           {directPages.map((page) => (
@@ -304,30 +339,13 @@ function WikiSidebarAddRow({
   )
 }
 
-function RepositoryLogo({
-  repository,
-}: {
-  repository: (typeof WIKI_REPOSITORIES)[number]
-}) {
-  return (
-    <Image
-      src={repository.logoSrc}
-      alt=""
-      width={24}
-      height={24}
-      className="size-6 shrink-0 object-contain"
-    />
-  )
-}
-
 function RepositorySelectLabel({
   repository,
 }: {
   repository: (typeof WIKI_REPOSITORIES)[number]
 }) {
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <RepositoryLogo repository={repository} />
+    <span className="flex min-w-0 items-center">
       <span className="truncate">{repository.title}</span>
     </span>
   )
@@ -346,6 +364,10 @@ export function WikiRepositorySidebar({
 }) {
   const router = useRouter()
   const { canEditWiki } = useWikiEditMode()
+  const [pendingSectionId, setPendingSectionId] = React.useState<string | null>(
+    null
+  )
+  const [isPinTransitionPending, startPinTransition] = React.useTransition()
   const canEditSidebar = canManageWiki && canEditWiki
   const visibleNodes = useVisibleWikiNodes(nodes)
   const selectedRepository =
@@ -355,14 +377,51 @@ export function WikiRepositorySidebar({
     visibleNodes.find((node) => {
       return node.parent_id === null && node.slug === selectedRepository.slug
     }) ?? null
-  const sections = repositoryNode
-    ? visibleNodes
-        .filter(
-          (node) =>
-            node.parent_id === repositoryNode.id && node.type === "folder"
-        )
-        .sort(compareWikiNodes)
-    : []
+  const sections = React.useMemo(
+    () =>
+      repositoryNode
+        ? visibleNodes
+            .filter(
+              (node) =>
+                node.parent_id === repositoryNode.id && node.type === "folder"
+            )
+            .sort(compareWikiNodes)
+        : [],
+    [repositoryNode, visibleNodes]
+  )
+  const pinnedSectionId =
+    sections.find((section) => section.is_pinned)?.id ?? null
+  const togglePinnedSection = React.useCallback(
+    (sectionId: string) => {
+      const formData = new FormData()
+      formData.set("section_id", sectionId)
+      setPendingSectionId(sectionId)
+      startPinTransition(() => {
+        void (async () => {
+          const result = await toggleWikiSectionPinAction(formData)
+          setPendingSectionId(null)
+          if (result.ok) {
+            router.refresh()
+          }
+        })()
+      })
+    },
+    [router]
+  )
+  const sortedSections = React.useMemo(
+    () =>
+      [...sections].sort((left, right) => {
+        const leftPinned = pinnedSectionId === left.id
+        const rightPinned = pinnedSectionId === right.id
+
+        if (leftPinned !== rightPinned) {
+          return leftPinned ? -1 : 1
+        }
+
+        return compareWikiNodes(left, right)
+      }),
+    [pinnedSectionId, sections]
+  )
 
   return (
     <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:w-72">
@@ -391,8 +450,8 @@ export function WikiRepositorySidebar({
       </div>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 pt-4">
-        {sections.length ? (
-          sections.map((section) => {
+        {sortedSections.length ? (
+          sortedSections.map((section) => {
             const directPages = visibleNodes
               .filter(
                 (node) => node.parent_id === section.id && node.type === "page"
@@ -414,6 +473,11 @@ export function WikiRepositorySidebar({
                 nodes={visibleNodes}
                 activePath={activePath}
                 canManage={canEditSidebar}
+                isPinned={pinnedSectionId === section.id}
+                isPinPending={
+                  isPinTransitionPending && pendingSectionId === section.id
+                }
+                onTogglePinned={togglePinnedSection}
               />
             )
           })

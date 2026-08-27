@@ -21,16 +21,16 @@ interface FundedLoansByProgramPieChartProps {
 }
 
 const SLICE_COLORS = [
-  "#2563eb",
-  "#0ea5e9",
-  "#14b8a6",
-  "#22c55e",
-  "#84cc16",
-  "#eab308",
-  "#f97316",
-  "#ef4444",
-  "#ec4899",
-  "#a855f7",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
 ] as const
 
 const INTEGER_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -105,7 +105,10 @@ export function FundedLoansByProgramPieChart({
 
   return (
     <>
-      <ChartContainer config={chartConfig} className="mx-auto h-[260px] w-full max-w-[320px]">
+      <ChartContainer
+        config={chartConfig}
+        className="mx-auto h-[260px] w-full max-w-[320px]"
+      >
         <PieChart>
           <ChartTooltip
             cursor={false}
@@ -120,7 +123,9 @@ export function FundedLoansByProgramPieChart({
 
                   return (
                     <div className="grid w-full gap-1">
-                      <div className="font-medium">{payload.programName || "Unknown Program"}</div>
+                      <div className="font-medium">
+                        {payload.programName || "Unknown Program"}
+                      </div>
                       <div className="flex items-center justify-between gap-3">
                         <span>Funded Loans</span>
                         <span className="font-mono tabular-nums">
@@ -130,7 +135,9 @@ export function FundedLoansByProgramPieChart({
                       <div className="flex items-center justify-between gap-3">
                         <span>Funded Volume</span>
                         <span className="font-mono tabular-nums">
-                          {formatCompactCurrency(Number(payload.fundedVolume ?? 0))}
+                          {formatCompactCurrency(
+                            Number(payload.fundedVolume ?? 0)
+                          )}
                         </span>
                       </div>
                     </div>
@@ -186,7 +193,8 @@ export function FundedLoansByProgramPieChart({
       </ChartContainer>
       <div className="mt-3 space-y-1.5">
         {chartData.map((entry) => {
-          const percent = totalFunded > 0 ? (entry.fundedCount / totalFunded) * 100 : 0
+          const percent =
+            totalFunded > 0 ? (entry.fundedCount / totalFunded) * 100 : 0
 
           return (
             <div
@@ -202,7 +210,7 @@ export function FundedLoansByProgramPieChart({
                   {entry.programName}
                 </span>
               </div>
-              <span className="font-mono tabular-nums text-muted-foreground">
+              <span className="font-mono text-muted-foreground tabular-nums">
                 {PERCENT_FORMATTER.format(percent)}%
               </span>
             </div>

@@ -26,8 +26,8 @@ export async function mockMiloChatApi(page: Page) {
       body: [
         'data: {"type":"meta","threadId":"e2e-thread"}',
         'data: {"type":"token","token":"Open "}',
-        'data: {"type":"token","token":"/wiki/canopy-mortgage"}',
-        'data: {"type":"done","threadId":"e2e-thread","userMessageId":"user-message","assistantMessageId":"assistant-message","citations":[{"title":"Wiki","url":"/wiki/canopy-mortgage","snippet":"Seeded Wiki source."}]}',
+        'data: {"type":"token","token":"/wiki/canopy-wiki"}',
+        'data: {"type":"done","threadId":"e2e-thread","userMessageId":"user-message","assistantMessageId":"assistant-message","citations":[{"title":"Wiki","url":"/wiki/canopy-wiki","snippet":"Seeded Wiki source."}]}',
         "",
       ].join("\n\n"),
     })

@@ -192,8 +192,7 @@ export function WikiHeaderSearch({ className }: { className?: string }) {
                 <Button
                   type="button"
                   className={cn(
-                    "relative min-h-10 w-full overflow-hidden border-0 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_0_20px_rgba(37,99,235,0.2)] transition-all duration-300 ease-out hover:brightness-110 focus-visible:ring-blue-400/50",
-                    "bg-[linear-gradient(135deg,#1d4ed8_0%,#2563eb_34%,#06b6d4_68%,#14b8a6_100%)]"
+                    "canopy-ai-button min-h-10 w-full text-sm font-semibold"
                   )}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={askMilo}

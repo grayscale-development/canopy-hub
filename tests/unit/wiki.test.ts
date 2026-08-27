@@ -8,6 +8,9 @@ import {
   chunkKnowledgeText,
   compareWikiNodes,
   estimateTokenCount,
+  findDefaultWikiPagePath,
+  findFirstWikiPagePathInSection,
+  findPinnedWikiSectionPagePath,
   formatBytes,
   getWikiAssetKind,
   isPublishedWikiBranch,
@@ -21,6 +24,7 @@ import {
 const baseNode = {
   status: "published",
   sort_order: 0,
+  is_pinned: false,
   current_revision_id: null,
   created_by: null,
   updated_by: null,
@@ -155,6 +159,205 @@ describe("wiki helpers", () => {
       isPublishedWikiBranch([root, draftParent, publishedChild], publishedChild)
     ).toBe(false)
     expect(isPublishedWikiBranch([publishedChild], publishedChild)).toBe(false)
+  })
+
+  it("finds the first direct page across wiki sections as the default page", () => {
+    const nodes = [
+      node({
+        id: "root",
+        type: "folder",
+        slug: "canopy-wiki",
+        title: "Canopy Wiki",
+      }),
+      node({
+        id: "first-section",
+        parent_id: "root",
+        type: "folder",
+        slug: "first-section",
+        title: "First Section",
+        sort_order: 0,
+      }),
+      node({
+        id: "group",
+        parent_id: "first-section",
+        type: "folder",
+        slug: "group",
+        title: "Group",
+        sort_order: 0,
+      }),
+      node({
+        id: "grouped-page",
+        parent_id: "group",
+        slug: "grouped-page",
+        title: "Grouped Page",
+        sort_order: 0,
+      }),
+      node({
+        id: "second-section",
+        parent_id: "root",
+        type: "folder",
+        slug: "second-section",
+        title: "Second Section",
+        sort_order: 1,
+      }),
+      node({
+        id: "direct-page",
+        parent_id: "second-section",
+        slug: "direct-page",
+        title: "Direct Page",
+        sort_order: 0,
+      }),
+    ]
+
+    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBe(
+      "canopy-wiki/second-section/direct-page"
+    )
+  })
+
+  it("falls back to the first grouped page when no section has a direct page", () => {
+    const nodes = [
+      node({
+        id: "root",
+        type: "folder",
+        slug: "canopy-wiki",
+        title: "Canopy Wiki",
+      }),
+      node({
+        id: "section",
+        parent_id: "root",
+        type: "folder",
+        slug: "section",
+        title: "Section",
+      }),
+      node({
+        id: "group",
+        parent_id: "section",
+        type: "folder",
+        slug: "group",
+        title: "Group",
+      }),
+      node({
+        id: "grouped-page",
+        parent_id: "group",
+        slug: "grouped-page",
+        title: "Grouped Page",
+      }),
+    ]
+
+    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBe(
+      "canopy-wiki/section/group/grouped-page"
+    )
+  })
+
+  it("finds the first page in a section before nested grouped pages", () => {
+    const nodes = [
+      node({
+        id: "root",
+        type: "folder",
+        slug: "canopy-wiki",
+        title: "Canopy Wiki",
+      }),
+      node({
+        id: "section",
+        parent_id: "root",
+        type: "folder",
+        slug: "section",
+        title: "Section",
+      }),
+      node({
+        id: "group",
+        parent_id: "section",
+        type: "folder",
+        slug: "group",
+        title: "Group",
+        sort_order: 0,
+      }),
+      node({
+        id: "grouped-page",
+        parent_id: "group",
+        slug: "grouped-page",
+        title: "Grouped Page",
+        sort_order: 0,
+      }),
+      node({
+        id: "direct-page",
+        parent_id: "section",
+        slug: "direct-page",
+        title: "Direct Page",
+        sort_order: 1,
+      }),
+    ]
+
+    expect(findFirstWikiPagePathInSection(nodes, "section")).toBe(
+      "canopy-wiki/section/direct-page"
+    )
+    expect(findFirstWikiPagePathInSection(nodes, "not-present")).toBeNull()
+  })
+
+  it("finds the first eligible page in a pinned wiki section", () => {
+    const nodes = [
+      node({
+        id: "root",
+        type: "folder",
+        slug: "canopy-wiki",
+        title: "Canopy Wiki",
+      }),
+      node({
+        id: "first-section",
+        parent_id: "root",
+        type: "folder",
+        slug: "first-section",
+        title: "First Section",
+        sort_order: 0,
+      }),
+      node({
+        id: "pinned-section",
+        parent_id: "root",
+        type: "folder",
+        slug: "pinned-section",
+        title: "Pinned Section",
+        is_pinned: true,
+        sort_order: 1,
+      }),
+      node({
+        id: "draft-page",
+        parent_id: "pinned-section",
+        slug: "draft-page",
+        title: "Draft Page",
+        status: "draft",
+        sort_order: 0,
+      }),
+      node({
+        id: "published-page",
+        parent_id: "pinned-section",
+        slug: "published-page",
+        title: "Published Page",
+        sort_order: 1,
+      }),
+    ]
+
+    expect(
+      findPinnedWikiSectionPagePath(
+        nodes,
+        "canopy-wiki",
+        (item) => item.status === "published"
+      )
+    ).toBe("canopy-wiki/pinned-section/published-page")
+    expect(findPinnedWikiSectionPagePath(nodes, "learning-hub")).toBeNull()
+  })
+
+  it("does not return a default page for missing or empty repositories", () => {
+    const nodes = [
+      node({
+        id: "root",
+        type: "folder",
+        slug: "canopy-wiki",
+        title: "Canopy Wiki",
+      }),
+    ]
+
+    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBeNull()
+    expect(findDefaultWikiPagePath(nodes, "learning-hub")).toBeNull()
   })
 
   it("compares folders, sort order, and title", () => {

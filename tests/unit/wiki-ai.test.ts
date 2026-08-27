@@ -15,7 +15,7 @@ type MockMiloToolResult = {
 const aiProvider = vi.hoisted(() => ({
   createEmbeddingsWithOpenAI: vi.fn(async () => [[0.1, 0.2, 0.3]]),
   createChatResponseWithOpenAI: vi.fn(async () => ({
-    output_text: "Use /wiki/canopy-mortgage [1].",
+    output_text: "Use /wiki/canopy-wiki [1].",
   })),
   createAgentResponseWithOpenAI: vi.fn(async (): Promise<unknown> => {
     throw new Error("agent unavailable")
@@ -168,7 +168,7 @@ describe("wiki AI orchestration", () => {
                 source_type: "wiki_page",
                 source_title: "How to Send a Borrower's Authorization",
                 source_url:
-                  "/wiki/nano-los/processing/how-to-send-a-borrowers-authorization",
+                  "/wiki/nano-wiki/processing/how-to-send-a-borrowers-authorization",
                 content:
                   "Borrower authorization steps are documented in this Wiki page.",
                 metadata: {},
@@ -191,7 +191,7 @@ describe("wiki AI orchestration", () => {
       question: "tell me about borrower auth",
     })
 
-    expect(result.answer).toBe("Use /wiki/canopy-mortgage [1].")
+    expect(result.answer).toBe("Use /wiki/canopy-wiki [1].")
     expect(result.answer).not.toContain("People directory")
     expect(hubData.fetchEmployeeDirectoryRows).toHaveBeenCalled()
     expect(supabase.rpc).toHaveBeenCalledWith(
@@ -256,7 +256,7 @@ describe("wiki AI orchestration", () => {
                 {
                   source_type: "wiki_page",
                   source_title: "Cancel a Loan",
-                  source_url: "/wiki/canopy-mortgage/lo-loa/cancel-a-loan",
+                  source_url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
                   content: "HOW TO CANCEL A LOAN: Step 1...",
                 },
               ],
@@ -271,19 +271,19 @@ describe("wiki AI orchestration", () => {
               },
               {
                 title: "Cancel a Loan",
-                url: "/wiki/canopy-mortgage/lo-loa/cancel-a-loan",
+                url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
                 snippet: "Policy guidance from the Wiki.",
                 sourceType: "wiki_page",
               },
               {
                 title: "Cancel a Loan",
-                url: "/wiki/canopy-mortgage/lo-loa/cancel-a-loan",
+                url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
                 snippet: "HOW TO CANCEL A LOAN: Step 1...",
                 sourceType: "wiki_page",
               },
               {
                 title: "Cancel a Loan",
-                url: "/wiki/canopy-mortgage/lo-loa/cancel-a-loan",
+                url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
                 snippet: "COMMON CANCELLATION ERRORS...",
                 sourceType: "wiki_page",
               },
@@ -326,7 +326,7 @@ describe("wiki AI orchestration", () => {
       citations: [
         {
           title: "Cancel a Loan",
-          url: "/wiki/canopy-mortgage/lo-loa/cancel-a-loan",
+          url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
         },
       ],
       metadata: {
@@ -369,8 +369,8 @@ describe("wiki AI orchestration", () => {
                 source_id: "source-1",
                 source_type: "site",
                 source_title: "Wiki",
-                source_url: "/wiki/canopy-mortgage",
-                content: "Wiki documentation lives at /wiki/canopy-mortgage.",
+                source_url: "/wiki/canopy-wiki",
+                content: "Wiki documentation lives at /wiki/canopy-wiki.",
                 metadata: {},
                 similarity: 0.95,
               },
@@ -386,7 +386,7 @@ describe("wiki AI orchestration", () => {
               source_id: "source-1",
               source_type: "site",
               source_title: "Wiki",
-              source_url: "/wiki/canopy-mortgage",
+              source_url: "/wiki/canopy-wiki",
               content: "Lower scoring duplicate.",
               metadata: {},
               similarity: 0.6,
@@ -403,14 +403,14 @@ describe("wiki AI orchestration", () => {
         question: "Where is the Wiki?",
       })
     ).resolves.toMatchObject({
-      answer: "Use /wiki/canopy-mortgage [1].",
+      answer: "Use /wiki/canopy-wiki [1].",
       model: "fake-chat",
       citations: [
         {
           knowledgeSourceId: "source-1",
           knowledgeChunkId: "chunk-1",
           title: "Wiki",
-          url: "/wiki/canopy-mortgage",
+          url: "/wiki/canopy-wiki",
         },
       ],
     })

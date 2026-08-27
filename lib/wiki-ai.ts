@@ -507,7 +507,7 @@ export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
       title: "Wiki",
       url: "/wiki",
       content:
-        "Wiki contains internal documentation. To view Wiki documentation, open /wiki. It is organized by Canopy Mortgage and Nano LOS repositories, sections, groups, and pages.",
+        "Wiki contains internal documentation. To view Wiki documentation, open /wiki. It is organized by Canopy Wiki, Learning Hub, and Nano Wiki repositories, sections, groups, and pages.",
     },
     {
       id: "newsletters",

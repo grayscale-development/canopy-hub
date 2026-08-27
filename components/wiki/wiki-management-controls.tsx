@@ -4,7 +4,6 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   ArchiveIcon,
-  EllipsisIcon,
   FilePlusIcon,
   FolderPlusIcon,
   PencilIcon,
@@ -28,12 +27,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import type { WikiNodeRow } from "@/lib/wiki"
 
@@ -179,7 +172,7 @@ export function WikiCreateDialog({
 export function WikiCreateWizardDialog({
   parentId,
   defaultType = "page",
-  triggerLabel,
+  triggerLabel = "Create",
   repositorySlug,
   allowedTypes = ["page", "folder"],
   labels = { page: "Page", folder: "Group" },
@@ -241,7 +234,7 @@ export function WikiCreateWizardDialog({
       <DialogTrigger asChild>
         <Button
           type="button"
-          size={triggerLabel ? "sm" : "icon-sm"}
+          size="sm"
           variant={triggerVariant}
           className={triggerClassName}
           aria-label="Create Wiki item"
@@ -303,12 +296,10 @@ export function WikiNodeActionsMenu({
   nodes,
   node,
   hasChildren = false,
-  triggerClassName,
 }: {
   nodes: WikiNodeRow[]
   node: WikiNodeRow
   hasChildren?: boolean
-  triggerClassName?: string
 }) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
@@ -363,36 +354,26 @@ export function WikiNodeActionsMenu({
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className={
-              triggerClassName ??
-              "mr-1 opacity-0 group-hover/wiki-tree-row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-            }
-            aria-label={`Open actions for ${node.title}`}
-          >
-            <EllipsisIcon />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-36 min-w-36">
-          <DropdownMenuItem onSelect={() => setOpen(true)}>
-            <PencilIcon />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={pending || cannotArchive}
-            className="text-destructive focus:text-destructive"
-            onSelect={handleArchive}
-          >
-            <ArchiveIcon />
-            Archive
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => setOpen(true)}
+      >
+        <PencilIcon />
+        Edit
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="destructive"
+        disabled={pending || cannotArchive}
+        className="ml-auto"
+        onClick={handleArchive}
+      >
+        <ArchiveIcon />
+        Archive
+      </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>

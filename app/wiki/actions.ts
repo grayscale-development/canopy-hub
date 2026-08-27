@@ -223,7 +223,7 @@ export async function createWikiNodeAction(
         updated_by: user.id,
       })
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,parent_id,type,slug,title,status,sort_order,is_pinned,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .single()
 
@@ -379,7 +379,7 @@ export async function archiveWikiNodeAction(
 
     const { error } = await supabase
       .from("wiki_nodes")
-      .update({ status: "archived", updated_by: user.id })
+      .update({ status: "archived", is_pinned: false, updated_by: user.id })
       .eq("id", id)
 
     if (error) {
@@ -401,6 +401,103 @@ export async function archiveWikiNodeAction(
       ok: false,
       message:
         error instanceof Error ? error.message : "Unable to archive Wiki item.",
+    }
+  }
+}
+
+export async function toggleWikiSectionPinAction(
+  formData: FormData
+): Promise<WikiActionResult> {
+  try {
+    const { supabase, user } = await getWikiManagerClient()
+    const sectionId = getString(formData, "section_id")
+
+    if (!sectionId) {
+      return { ok: false, message: "Section ID is required." }
+    }
+
+    const { data: section, error: sectionError } = await supabase
+      .from("wiki_nodes")
+      .select("id,parent_id,type,status,is_pinned")
+      .eq("id", sectionId)
+      .maybeSingle()
+
+    if (sectionError) {
+      return { ok: false, message: sectionError.message }
+    }
+
+    if (!section || section.type !== "folder" || !section.parent_id) {
+      return { ok: false, message: "Wiki section not found." }
+    }
+
+    const { data: repository, error: repositoryError } = await supabase
+      .from("wiki_nodes")
+      .select("id,parent_id,type,status")
+      .eq("id", section.parent_id)
+      .maybeSingle()
+
+    if (repositoryError) {
+      return { ok: false, message: repositoryError.message }
+    }
+
+    if (
+      !repository ||
+      repository.type !== "folder" ||
+      repository.parent_id !== null ||
+      repository.status === "archived"
+    ) {
+      return {
+        ok: false,
+        message: "Only top-level wiki sections can be pinned.",
+      }
+    }
+
+    if (section.status === "archived") {
+      return { ok: false, message: "Archived sections cannot be pinned." }
+    }
+
+    const shouldPin = !section.is_pinned
+
+    if (shouldPin) {
+      const { error: clearError } = await supabase
+        .from("wiki_nodes")
+        .update({ is_pinned: false, updated_by: user.id })
+        .eq("parent_id", section.parent_id)
+        .eq("type", "folder")
+        .neq("id", section.id)
+
+      if (clearError) {
+        return { ok: false, message: clearError.message }
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from("wiki_nodes")
+      .update({ is_pinned: shouldPin, updated_by: user.id })
+      .eq("id", section.id)
+
+    if (updateError) {
+      return { ok: false, message: updateError.message }
+    }
+
+    const nodes = await fetchWikiNodes(supabase)
+    const updatedSection = nodes.find((node) => node.id === section.id)
+    const path = updatedSection ? buildWikiPath(nodes, updatedSection) : ""
+
+    revalidatePath("/wiki")
+    if (path) {
+      revalidatePath(`/wiki/${path}`)
+    }
+
+    return {
+      ok: true,
+      message: shouldPin ? "Section pinned." : "Section unpinned.",
+      path: path ? `/wiki/${path}` : "/wiki",
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Unable to update pin.",
     }
   }
 }
