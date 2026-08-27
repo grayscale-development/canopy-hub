@@ -24,11 +24,27 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   formatBytes,
+  getWikiAssetKind,
+  WIKI_BUCKET,
+  WIKI_MAX_UPLOAD_SIZE_BYTES,
   WIKI_MAX_UPLOAD_SIZE_LABEL,
   type WikiAssetRow,
 } from "@/lib/wiki"
+
+type WikiUploadPayload = {
+  ok?: boolean
+  url?: string
+  path?: string
+  token?: string
+  asset?: {
+    id?: string
+    kind?: WikiAssetRow["kind"]
+  }
+  error?: string
+}
 
 function AssetIcon({ kind }: { kind: WikiAssetRow["kind"] }) {
   if (kind === "image") {
@@ -55,28 +71,114 @@ export function WikiAssetDrawer({
   const [pending, setPending] = React.useState(false)
   const [message, setMessage] = React.useState<string | null>(null)
 
+  async function archiveAssetRecord(assetId: string) {
+    await fetch(`/api/wiki/assets/${assetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "archived" }),
+    }).catch(() => null)
+  }
+
+  async function postWikiAssetAction(
+    assetId: string,
+    action: "extract" | "transcribe" | "index"
+  ) {
+    const response = await fetch(`/api/wiki/assets/${assetId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    })
+    const payload = (await response
+      .json()
+      .catch(() => null)) as WikiUploadPayload | null
+
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error ?? "Asset processing failed.")
+    }
+
+    return payload
+  }
+
   async function uploadAsset(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
     const formData = new FormData(form)
-    formData.set("node_id", nodeId)
+    const file = formData.get("file")
+    const title = formData.get("title")
+    const description = formData.get("description")
+    const altText = formData.get("alt_text")
     setPending(true)
     setMessage(null)
 
     try {
+      if (!(file instanceof File)) {
+        setMessage("File is required.")
+        return
+      }
+
+      if (file.size > WIKI_MAX_UPLOAD_SIZE_BYTES) {
+        setMessage(`Files must be ${WIKI_MAX_UPLOAD_SIZE_LABEL} or smaller.`)
+        return
+      }
+
+      const kind = getWikiAssetKind(file)
+      if (!kind) {
+        setMessage("Only image, document, and video uploads are allowed.")
+        return
+      }
+
       const response = await fetch("/api/wiki/upload", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          directUpload: true,
+          nodeId,
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.type,
+          title: typeof title === "string" ? title : "",
+          description: typeof description === "string" ? description : "",
+          altText: typeof altText === "string" ? altText : "",
+        }),
       })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-      } | null
+      const payload = (await response
+        .json()
+        .catch(() => null)) as WikiUploadPayload | null
 
-      if (!response.ok) {
+      if (
+        !response.ok ||
+        !payload?.path ||
+        !payload.token ||
+        !payload.asset?.id
+      ) {
         setMessage(payload?.error ?? "Upload failed.")
         return
       }
 
+      const supabase = createSupabaseBrowserClient()
+      const { error: uploadError } = await supabase.storage
+        .from(WIKI_BUCKET)
+        .uploadToSignedUrl(payload.path, payload.token, file, {
+          contentType: file.type || "application/octet-stream",
+        })
+
+      if (uploadError) {
+        await archiveAssetRecord(payload.asset.id)
+        setMessage(uploadError.message)
+        return
+      }
+
+      if (kind === "video") {
+        await postWikiAssetAction(payload.asset.id, "transcribe")
+      } else if (kind === "document") {
+        await postWikiAssetAction(payload.asset.id, "extract").catch(
+          (error) => {
+            console.error("Wiki document extraction failed", error)
+          }
+        )
+      }
+
+      await postWikiAssetAction(payload.asset.id, "index")
       form.reset()
       if (fileInputRef.current) {
         fileInputRef.current.value = ""
@@ -93,18 +195,7 @@ export function WikiAssetDrawer({
     setPending(true)
     setMessage(null)
     try {
-      const response = await fetch(`/api/wiki/assets/${assetId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "archived" }),
-      })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-      } | null
-      if (!response.ok) {
-        setMessage(payload?.error ?? "Unable to archive asset.")
-        return
-      }
+      await archiveAssetRecord(assetId)
       router.refresh()
     } finally {
       setPending(false)
