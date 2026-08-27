@@ -109,7 +109,7 @@ type SuccessfulWikiUploadPayload = WikiUploadPayload & {
   url: string
 }
 
-type DirectVideoUploadPayload = SuccessfulWikiUploadPayload & {
+type DirectWikiUploadPayload = SuccessfulWikiUploadPayload & {
   path: string
   token: string
   asset: {
@@ -488,35 +488,9 @@ function WikiEditorMounted({
     request.resolve(shouldRewrite)
   }
 
-  async function uploadWikiFile(
-    file: File,
-    options?: { deferVideo?: boolean }
-  ): Promise<SuccessfulWikiUploadPayload> {
-    const formData = new FormData()
-    formData.set("node_id", node.id)
-    formData.set("file", file)
-    if (options?.deferVideo) {
-      formData.set("defer_video_processing", "1")
-    }
-
-    const response = await fetch("/api/wiki/upload", {
-      method: "POST",
-      body: formData,
-    })
-    const payload = (await response
-      .json()
-      .catch(() => null)) as WikiUploadPayload | null
-
-    if (!response.ok || !payload?.url) {
-      throw new Error(payload?.error ?? "Upload failed.")
-    }
-
-    return payload as SuccessfulWikiUploadPayload
-  }
-
-  async function prepareDirectVideoUpload(
+  async function prepareDirectWikiUpload(
     file: File
-  ): Promise<DirectVideoUploadPayload> {
+  ): Promise<DirectWikiUploadPayload> {
     const response = await fetch("/api/wiki/upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -542,7 +516,7 @@ function WikiEditorMounted({
       throw new Error(payload?.error ?? "Upload failed.")
     }
 
-    return payload as DirectVideoUploadPayload
+    return payload as DirectWikiUploadPayload
   }
 
   async function archiveWikiAsset(assetId: string) {
@@ -555,7 +529,7 @@ function WikiEditorMounted({
 
   async function postWikiAssetAction(
     assetId: string,
-    action: "transcribe" | "index"
+    action: "extract" | "transcribe" | "index"
   ) {
     const response = await fetch(`/api/wiki/assets/${assetId}`, {
       method: "POST",
@@ -567,10 +541,41 @@ function WikiEditorMounted({
       .catch(() => null)) as WikiUploadPayload | null
 
     if (!response.ok || !payload?.ok) {
-      throw new Error(payload?.error ?? "Video processing failed.")
+      throw new Error(payload?.error ?? "Asset processing failed.")
     }
 
     return payload
+  }
+
+  async function uploadWikiFile(
+    file: File
+  ): Promise<SuccessfulWikiUploadPayload> {
+    if (file.size > WIKI_MAX_UPLOAD_SIZE_BYTES) {
+      throw new Error(`Files must be ${WIKI_MAX_UPLOAD_SIZE_LABEL} or smaller.`)
+    }
+
+    const uploadPayload = await prepareDirectWikiUpload(file)
+    const assetId = uploadPayload.asset.id
+    const supabase = createSupabaseBrowserClient()
+    const { error: storageUploadError } = await supabase.storage
+      .from(WIKI_BUCKET)
+      .uploadToSignedUrl(uploadPayload.path, uploadPayload.token, file, {
+        contentType: file.type || "application/octet-stream",
+      })
+
+    if (storageUploadError) {
+      await archiveWikiAsset(assetId)
+      throw new Error(storageUploadError.message)
+    }
+
+    if (uploadPayload.asset.kind === "document") {
+      await postWikiAssetAction(assetId, "extract").catch((error) => {
+        console.error("Wiki document extraction failed", error)
+      })
+    }
+
+    await postWikiAssetAction(assetId, "index")
+    return uploadPayload
   }
 
   async function processVideoUpload(file: File) {
@@ -595,7 +600,7 @@ function WikiEditorMounted({
     setRewriteProgress(8)
 
     try {
-      const uploadPayload = await prepareDirectVideoUpload(file)
+      const uploadPayload = await prepareDirectWikiUpload(file)
       const assetId = uploadPayload.asset?.id
       if (!assetId) {
         throw new Error("Uploaded video asset was not returned.")

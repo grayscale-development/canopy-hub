@@ -4,7 +4,10 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { extractWikiVideoText } from "@/lib/wiki-extract"
+import {
+  extractWikiDocumentText,
+  extractWikiVideoText,
+} from "@/lib/wiki-extract"
 import { indexWikiAsset } from "@/lib/wiki-ai"
 import {
   buildWikiPath,
@@ -217,10 +220,16 @@ export async function POST(
     return NextResponse.json({ error: "Asset not found." }, { status: 404 })
   }
 
-  if (action === "transcribe") {
-    if (asset.kind !== "video") {
+  if (action === "extract" || action === "transcribe") {
+    const expectedKind = action === "extract" ? "document" : "video"
+    if (asset.kind !== expectedKind) {
       return NextResponse.json(
-        { error: "Only video assets can be transcribed." },
+        {
+          error:
+            action === "extract"
+              ? "Only document assets can be extracted."
+              : "Only video assets can be transcribed.",
+        },
         { status: 400 }
       )
     }
@@ -232,7 +241,13 @@ export async function POST(
 
     if (downloadError || !fileData) {
       return NextResponse.json(
-        { error: downloadError?.message ?? "Unable to read video file." },
+        {
+          error:
+            downloadError?.message ??
+            (action === "extract"
+              ? "Unable to read document file."
+              : "Unable to read video file."),
+        },
         { status: 400 }
       )
     }
@@ -242,11 +257,23 @@ export async function POST(
       const file = new File([fileData], asset.file_name, {
         type: asset.mime_type || "application/octet-stream",
       })
-      extractedText = await extractWikiVideoText(file)
+      extractedText =
+        action === "extract"
+          ? await extractWikiDocumentText(file)
+          : await extractWikiVideoText(file)
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unable to transcribe video."
-      return NextResponse.json({ error: message }, { status: 400 })
+        error instanceof Error
+          ? error.message
+          : action === "extract"
+            ? "Unable to extract document text."
+            : "Unable to transcribe video."
+
+      if (action === "transcribe") {
+        return NextResponse.json({ error: message }, { status: 400 })
+      }
+
+      console.error("Wiki document extraction failed", error)
     }
 
     const { data: updatedAsset, error: updateError } = await supabase

@@ -121,9 +121,12 @@ export async function POST(request: Request) {
     }
 
     const kind = getMetadataAssetKind(fileNameValue, fileType)
-    if (kind !== "video") {
+    if (!kind) {
       return NextResponse.json(
-        { error: "Direct Wiki uploads are only supported for videos." },
+        {
+          error:
+            "Direct Wiki uploads are only supported for images, documents, and videos.",
+        },
         { status: 400 }
       )
     }
