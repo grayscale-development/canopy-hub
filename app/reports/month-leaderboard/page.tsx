@@ -12,6 +12,7 @@ import {
 } from "@/lib/hub-data"
 import type { FileViewerFilterField } from "@/lib/file-viewer-filters"
 import type { FileViewerFilterOperator } from "@/lib/file-viewer-filters"
+import { getLeaderboardPostedMonth } from "@/lib/leaderboard-month"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 type FileViewerUrlFilter = {
@@ -78,14 +79,14 @@ function toFileViewerHref({
   entity,
   entityId,
   label,
-  closedDateStart,
-  closedDateEnd,
+  fundedDateStart,
+  fundedDateEnd,
 }: {
   entity: LeaderboardEntityKey
   entityId: string | null
   label: string
-  closedDateStart?: string
-  closedDateEnd?: string
+  fundedDateStart?: string
+  fundedDateEnd?: string
 }) {
   const filters: FileViewerUrlFilter[] = []
   const entityIdField = ENTITY_ID_FILTER_FIELD[entity]
@@ -103,18 +104,18 @@ function toFileViewerHref({
       value: label,
     })
   }
-  if (closedDateStart) {
+  if (fundedDateStart) {
     filters.push({
-      field: "closedDate",
+      field: "fundedDate",
       operator: "onOrAfter",
-      value: closedDateStart,
+      value: fundedDateStart,
     })
   }
-  if (closedDateEnd) {
+  if (fundedDateEnd) {
     filters.push({
-      field: "closedDate",
+      field: "fundedDate",
       operator: "onOrBefore",
-      value: closedDateEnd,
+      value: fundedDateEnd,
     })
   }
 
@@ -122,13 +123,10 @@ function toFileViewerHref({
 }
 
 export function generateMetadata() {
-  const currentDate = new Date()
-  const monthLabel = new Intl.DateTimeFormat("en-US", {
-    month: "long",
-  }).format(currentDate)
+  const { monthName } = getLeaderboardPostedMonth()
 
   return {
-    title: `${monthLabel} Leaderboard`,
+    title: `${monthName} Leaderboard`,
   }
 }
 
@@ -142,26 +140,11 @@ export default async function MonthLeaderboardViewPage() {
     redirect("/login")
   }
 
-  const referenceDate = new Date()
-  const leaderboardYear = referenceDate.getFullYear()
-  const leaderboardMonthIndex = referenceDate.getMonth()
-  const leaderboardMonthNumber = String(leaderboardMonthIndex + 1).padStart(
-    2,
-    "0"
-  )
-  const leaderboardMonthName = new Intl.DateTimeFormat("en-US", {
-    month: "long",
-  }).format(referenceDate)
-  const leaderboardMonthLabel = `${leaderboardMonthName} ${leaderboardYear}`
-  const leaderboardMonthEndDay = new Date(
-    leaderboardYear,
-    leaderboardMonthIndex + 1,
-    0
-  ).getDate()
-  const leaderboardClosedStart = `${leaderboardYear}-${leaderboardMonthNumber}-01`
-  const leaderboardClosedEnd = `${leaderboardYear}-${leaderboardMonthNumber}-${String(
-    leaderboardMonthEndDay
-  ).padStart(2, "0")}`
+  const postedMonth = getLeaderboardPostedMonth()
+  const leaderboardMonthName = postedMonth.monthName
+  const leaderboardMonthLabel = postedMonth.monthLabel
+  const leaderboardFundedStart = postedMonth.startIso
+  const leaderboardFundedEnd = postedMonth.endIso
 
   const [
     divisionResult,
@@ -194,8 +177,8 @@ export default async function MonthLeaderboardViewPage() {
               entity: "division",
               entityId: row.divisionId,
               label: row.divisionName,
-              closedDateStart: leaderboardClosedStart,
-              closedDateEnd: leaderboardClosedEnd,
+              fundedDateStart: leaderboardFundedStart,
+              fundedDateEnd: leaderboardFundedEnd,
             }),
           }))
         )
@@ -216,8 +199,8 @@ export default async function MonthLeaderboardViewPage() {
               entity: "branch",
               entityId: row.branchId,
               label: row.branchName,
-              closedDateStart: leaderboardClosedStart,
-              closedDateEnd: leaderboardClosedEnd,
+              fundedDateStart: leaderboardFundedStart,
+              fundedDateEnd: leaderboardFundedEnd,
             }),
           }))
         )
@@ -238,8 +221,8 @@ export default async function MonthLeaderboardViewPage() {
               entity: "loanOfficer",
               entityId: row.loanOfficerId,
               label: row.loanOfficerName,
-              closedDateStart: leaderboardClosedStart,
-              closedDateEnd: leaderboardClosedEnd,
+              fundedDateStart: leaderboardFundedStart,
+              fundedDateEnd: leaderboardFundedEnd,
             }),
           }))
         )
@@ -260,8 +243,8 @@ export default async function MonthLeaderboardViewPage() {
               entity: "processor",
               entityId: row.processorId,
               label: row.processorName,
-              closedDateStart: leaderboardClosedStart,
-              closedDateEnd: leaderboardClosedEnd,
+              fundedDateStart: leaderboardFundedStart,
+              fundedDateEnd: leaderboardFundedEnd,
             }),
           }))
         )
@@ -282,8 +265,8 @@ export default async function MonthLeaderboardViewPage() {
               entity: "underwriter",
               entityId: row.underwriterId,
               label: row.underwriterName,
-              closedDateStart: leaderboardClosedStart,
-              closedDateEnd: leaderboardClosedEnd,
+              fundedDateStart: leaderboardFundedStart,
+              fundedDateEnd: leaderboardFundedEnd,
             }),
           }))
         )
@@ -301,8 +284,8 @@ export default async function MonthLeaderboardViewPage() {
               entity: "underwritingOrg",
               entityId: row.underwritingOrgId,
               label: row.underwritingOrgName,
-              closedDateStart: leaderboardClosedStart,
-              closedDateEnd: leaderboardClosedEnd,
+              fundedDateStart: leaderboardFundedStart,
+              fundedDateEnd: leaderboardFundedEnd,
             }),
           }))
         )
@@ -317,7 +300,10 @@ export default async function MonthLeaderboardViewPage() {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Top {TOP_ROW_COUNT} by funded file count and volume for{" "}
-            {leaderboardMonthLabel}.
+            {leaderboardMonthLabel}, using the Funded date.
+            {postedMonth.isPreviousMonthHoldover
+              ? " Previous month standings stay posted through the 5th while the new month accumulates."
+              : ""}
           </p>
         </section>
 

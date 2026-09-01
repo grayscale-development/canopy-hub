@@ -22,6 +22,7 @@ export type FileViewerFilterField =
   | "funder"
   | "lastStatus"
   | "estimatedClosingDate"
+  | "fundedDate"
   | "closedDate"
   | "loanAmount"
 
@@ -59,9 +60,24 @@ const FILTER_FIELDS: Array<{
 }> = [
   { value: "divisionId", label: "Division ID", type: "text", isVisible: false },
   { value: "branchId", label: "Branch ID", type: "text", isVisible: false },
-  { value: "loanOfficerId", label: "Loan Officer ID", type: "text", isVisible: false },
-  { value: "processorId", label: "Processor ID", type: "text", isVisible: false },
-  { value: "underwriterId", label: "Underwriter ID", type: "text", isVisible: false },
+  {
+    value: "loanOfficerId",
+    label: "Loan Officer ID",
+    type: "text",
+    isVisible: false,
+  },
+  {
+    value: "processorId",
+    label: "Processor ID",
+    type: "text",
+    isVisible: false,
+  },
+  {
+    value: "underwriterId",
+    label: "Underwriter ID",
+    type: "text",
+    isVisible: false,
+  },
   {
     value: "underwritingOrgId",
     label: "Underwriting Org ID",
@@ -70,17 +86,37 @@ const FILTER_FIELDS: Array<{
   },
   { value: "borrower", label: "Borrower", type: "text", isVisible: true },
   { value: "address", label: "Address", type: "text", isVisible: true },
-  { value: "cityStateZip", label: "City, State, Zip", type: "text", isVisible: true },
+  {
+    value: "cityStateZip",
+    label: "City, State, Zip",
+    type: "text",
+    isVisible: true,
+  },
   { value: "loanType", label: "Loan Type", type: "text", isVisible: true },
-  { value: "loanPurpose", label: "Loan Purpose", type: "text", isVisible: true },
+  {
+    value: "loanPurpose",
+    label: "Loan Purpose",
+    type: "text",
+    isVisible: true,
+  },
   { value: "loanTerm", label: "Loan Term", type: "number", isVisible: true },
   { value: "investor", label: "Investor", type: "text", isVisible: true },
   { value: "division", label: "Division", type: "text", isVisible: true },
   { value: "branch", label: "Branch", type: "text", isVisible: true },
-  { value: "loanOfficer", label: "Loan Officer", type: "text", isVisible: true },
+  {
+    value: "loanOfficer",
+    label: "Loan Officer",
+    type: "text",
+    isVisible: true,
+  },
   { value: "processor", label: "Processor", type: "text", isVisible: true },
   { value: "underwriter", label: "Underwriter", type: "text", isVisible: true },
-  { value: "underwritingOrg", label: "Underwriting Org", type: "text", isVisible: true },
+  {
+    value: "underwritingOrg",
+    label: "Underwriting Org",
+    type: "text",
+    isVisible: true,
+  },
   { value: "closer", label: "Closer", type: "text", isVisible: true },
   { value: "funder", label: "Funder", type: "text", isVisible: true },
   { value: "lastStatus", label: "Last Status", type: "text", isVisible: true },
@@ -90,8 +126,14 @@ const FILTER_FIELDS: Array<{
     type: "date",
     isVisible: true,
   },
+  { value: "fundedDate", label: "Funded Date", type: "date", isVisible: true },
   { value: "closedDate", label: "Closed Date", type: "date", isVisible: true },
-  { value: "loanAmount", label: "Loan Amount", type: "number", isVisible: true },
+  {
+    value: "loanAmount",
+    label: "Loan Amount",
+    type: "number",
+    isVisible: true,
+  },
 ]
 
 const TEXT_OPERATORS: FileViewerFilterOperator[] = [
@@ -148,9 +190,9 @@ const FIELD_DEFS_BY_VALUE = new Map(
   FILTER_FIELDS.map((fieldDef) => [fieldDef.value, fieldDef] as const)
 )
 
-export const FILE_VIEWER_FILTER_FIELDS = FILTER_FIELDS
-  .filter((fieldDef) => fieldDef.isVisible)
-  .map(({ value, label, type }) => ({ value, label, type }))
+export const FILE_VIEWER_FILTER_FIELDS = FILTER_FIELDS.filter(
+  (fieldDef) => fieldDef.isVisible
+).map(({ value, label, type }) => ({ value, label, type }))
 
 export function getFilterFieldLabel(field: FileViewerFilterField) {
   return FIELD_DEFS_BY_VALUE.get(field)?.label ?? field
@@ -160,7 +202,9 @@ export function isVisibleFilterField(field: FileViewerFilterField) {
   return FIELD_DEFS_BY_VALUE.get(field)?.isVisible ?? false
 }
 
-export function getFieldType(field: FileViewerFilterField): FileViewerFilterFieldType {
+export function getFieldType(
+  field: FileViewerFilterField
+): FileViewerFilterFieldType {
   return FIELD_DEFS_BY_VALUE.get(field)?.type ?? "text"
 }
 
@@ -308,17 +352,25 @@ function matchesNumberFilter(value: unknown, filter: FileViewerFilter) {
     case "isNotEmpty":
       return rowValue !== null
     case "equals":
-      return rowValue !== null && filterValue !== null && rowValue === filterValue
+      return (
+        rowValue !== null && filterValue !== null && rowValue === filterValue
+      )
     case "notEquals":
-      return rowValue !== null && filterValue !== null && rowValue !== filterValue
+      return (
+        rowValue !== null && filterValue !== null && rowValue !== filterValue
+      )
     case "gt":
       return rowValue !== null && filterValue !== null && rowValue > filterValue
     case "gte":
-      return rowValue !== null && filterValue !== null && rowValue >= filterValue
+      return (
+        rowValue !== null && filterValue !== null && rowValue >= filterValue
+      )
     case "lt":
       return rowValue !== null && filterValue !== null && rowValue < filterValue
     case "lte":
-      return rowValue !== null && filterValue !== null && rowValue <= filterValue
+      return (
+        rowValue !== null && filterValue !== null && rowValue <= filterValue
+      )
     default:
       return false
   }
@@ -334,15 +386,21 @@ function matchesDateFilter(value: unknown, filter: FileViewerFilter) {
     case "isNotEmpty":
       return rowValue !== null
     case "on":
-      return rowValue !== null && filterValue !== null && rowValue === filterValue
+      return (
+        rowValue !== null && filterValue !== null && rowValue === filterValue
+      )
     case "before":
       return rowValue !== null && filterValue !== null && rowValue < filterValue
     case "after":
       return rowValue !== null && filterValue !== null && rowValue > filterValue
     case "onOrBefore":
-      return rowValue !== null && filterValue !== null && rowValue <= filterValue
+      return (
+        rowValue !== null && filterValue !== null && rowValue <= filterValue
+      )
     case "onOrAfter":
-      return rowValue !== null && filterValue !== null && rowValue >= filterValue
+      return (
+        rowValue !== null && filterValue !== null && rowValue >= filterValue
+      )
     default:
       return false
   }

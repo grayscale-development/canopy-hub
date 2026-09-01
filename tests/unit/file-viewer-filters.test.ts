@@ -19,6 +19,8 @@ describe("file viewer filters", () => {
     expect(isVisibleFilterField("branchId")).toBe(false)
     expect(getFieldType("loanAmount")).toBe("number")
     expect(getOperatorsForField("closedDate")).toContain("onOrAfter")
+    expect(getFilterFieldLabel("fundedDate")).toBe("Funded Date")
+    expect(getOperatorsForField("fundedDate")).toContain("onOrAfter")
     expect(getOperatorLabel("notEquals")).toBe("Does Not Equal")
     expect(operatorRequiresValue("isEmpty")).toBe(false)
   })
@@ -51,11 +53,13 @@ describe("file viewer filters", () => {
         borrower: "Ada Lovelace",
         loanAmount: 500000,
         closedDate: "2026-07-15",
+        fundedDate: "2026-07-16",
       },
       {
         borrower: "Grace Hopper",
         loanAmount: 275000,
         closedDate: "2026-06-30",
+        fundedDate: "2026-06-29",
       },
     ]
 
@@ -64,6 +68,7 @@ describe("file viewer filters", () => {
         { field: "borrower", operator: "contains", value: "ada" },
         { field: "loanAmount", operator: "gte", value: "400000" },
         { field: "closedDate", operator: "onOrAfter", value: "2026-07-01" },
+        { field: "fundedDate", operator: "onOrAfter", value: "2026-07-01" },
       ])
     ).toEqual([rows[0]])
   })
