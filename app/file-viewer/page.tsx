@@ -67,11 +67,46 @@ function normalizeDateValue(value: string) {
   return `${year}-${month}-${day}`
 }
 
+function applyDateBounds(
+  operator: FileViewerFilter["operator"],
+  normalizedDate: string,
+  start: string | undefined,
+  end: string | undefined
+) {
+  let nextStart = start
+  let nextEnd = end
+
+  if (operator === "on" || operator === "onOrAfter") {
+    if (!nextStart || normalizedDate > nextStart) {
+      nextStart = normalizedDate
+    }
+  }
+  if (operator === "on" || operator === "onOrBefore") {
+    if (!nextEnd || normalizedDate < nextEnd) {
+      nextEnd = normalizedDate
+    }
+  }
+  if (operator === "after") {
+    if (!nextStart || normalizedDate >= nextStart) {
+      nextStart = normalizedDate
+    }
+  }
+  if (operator === "before") {
+    if (!nextEnd || normalizedDate <= nextEnd) {
+      nextEnd = normalizedDate
+    }
+  }
+
+  return { start: nextStart, end: nextEnd }
+}
+
 function deriveServerPreFilters(filters: FileViewerFilter[]) {
   let entity: LeaderboardEntityKey | undefined
   let entityId: string | null | undefined
   let closedDateStart: string | undefined
   let closedDateEnd: string | undefined
+  let fundedDateStart: string | undefined
+  let fundedDateEnd: string | undefined
 
   for (const filter of filters) {
     if (filter.field in ENTITY_FIELD_MAP && filter.operator === "equals") {
@@ -89,7 +124,7 @@ function deriveServerPreFilters(filters: FileViewerFilter[]) {
       continue
     }
 
-    if (filter.field !== "closedDate") {
+    if (filter.field !== "closedDate" && filter.field !== "fundedDate") {
       continue
     }
 
@@ -98,26 +133,26 @@ function deriveServerPreFilters(filters: FileViewerFilter[]) {
       continue
     }
 
-    if (filter.operator === "on" || filter.operator === "onOrAfter") {
-      if (!closedDateStart || normalizedDate > closedDateStart) {
-        closedDateStart = normalizedDate
-      }
+    if (filter.field === "closedDate") {
+      const next = applyDateBounds(
+        filter.operator,
+        normalizedDate,
+        closedDateStart,
+        closedDateEnd
+      )
+      closedDateStart = next.start
+      closedDateEnd = next.end
+      continue
     }
-    if (filter.operator === "on" || filter.operator === "onOrBefore") {
-      if (!closedDateEnd || normalizedDate < closedDateEnd) {
-        closedDateEnd = normalizedDate
-      }
-    }
-    if (filter.operator === "after") {
-      if (!closedDateStart || normalizedDate >= closedDateStart) {
-        closedDateStart = normalizedDate
-      }
-    }
-    if (filter.operator === "before") {
-      if (!closedDateEnd || normalizedDate <= closedDateEnd) {
-        closedDateEnd = normalizedDate
-      }
-    }
+
+    const next = applyDateBounds(
+      filter.operator,
+      normalizedDate,
+      fundedDateStart,
+      fundedDateEnd
+    )
+    fundedDateStart = next.start
+    fundedDateEnd = next.end
   }
 
   return {
@@ -125,6 +160,8 @@ function deriveServerPreFilters(filters: FileViewerFilter[]) {
     entityId,
     closedDateStart,
     closedDateEnd,
+    fundedDateStart,
+    fundedDateEnd,
   }
 }
 
@@ -160,6 +197,8 @@ export default async function FileViewerPage({
       entityId: serverPreFilters.entityId,
       closedDateStart: serverPreFilters.closedDateStart,
       closedDateEnd: serverPreFilters.closedDateEnd,
+      fundedDateStart: serverPreFilters.fundedDateStart,
+      fundedDateEnd: serverPreFilters.fundedDateEnd,
       limit: MAX_FILE_VIEWER_ROWS,
     })
   } catch {

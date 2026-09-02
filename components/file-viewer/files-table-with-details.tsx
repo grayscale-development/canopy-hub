@@ -39,6 +39,7 @@ export interface FileViewerRow {
   funder: string | null
   lastStatus: string | null
   estimatedClosingDate: string | null
+  fundedDate: string | null
   closedDate: string | null
   loanAmount: number
 }
@@ -118,6 +119,11 @@ const DETAIL_FIELDS: Array<{
     format: (value) => formatDate(typeof value === "string" ? value : null),
   },
   {
+    label: "Funded Date",
+    key: "fundedDate",
+    format: (value) => formatDate(typeof value === "string" ? value : null),
+  },
+  {
     label: "Closed Date",
     key: "closedDate",
     format: (value) => formatDate(typeof value === "string" ? value : null),
@@ -164,10 +170,12 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
         row.funder,
         row.lastStatus,
         row.estimatedClosingDate,
+        row.fundedDate,
         row.closedDate,
         row.loanAmount,
         CURRENCY_FORMATTER.format(row.loanAmount),
         formatDate(row.estimatedClosingDate),
+        formatDate(row.fundedDate),
         formatDate(row.closedDate),
       ]
 
@@ -205,32 +213,63 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/40 text-left text-muted-foreground">
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Loan No.</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Borrower</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Address</th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Loan No.
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Borrower
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Address
+              </th>
               <th className="px-4 py-2.5 font-medium whitespace-nowrap">
                 City, State, Zip
               </th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Loan Type</th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Loan Type
+              </th>
               <th className="px-4 py-2.5 font-medium whitespace-nowrap">
                 Loan Purpose
               </th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Loan Term</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Investor</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Division</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Branch</th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Loan Term
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Investor
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Division
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Branch
+              </th>
               <th className="px-4 py-2.5 font-medium whitespace-nowrap">
                 Loan Officer
               </th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Processor</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Underwriter</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Closer</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Funder</th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Last Status</th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Processor
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Underwriter
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Closer
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Funder
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Last Status
+              </th>
               <th className="px-4 py-2.5 font-medium whitespace-nowrap">
                 Est. Closing Date
               </th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap">Closed Date</th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Funded Date
+              </th>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap">
+                Closed Date
+              </th>
               <th className="px-4 py-2.5 text-right font-medium whitespace-nowrap">
                 Loan Amount
               </th>
@@ -240,7 +279,7 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
             {searchedRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={19}
+                  colSpan={20}
                   className="px-4 py-6 text-center text-sm text-muted-foreground"
                 >
                   No files match your search.
@@ -250,7 +289,7 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
               pagedRows.map((row) => (
                 <tr
                   key={row.externalRowKey}
-                  className="cursor-pointer border-b transition-colors hover:bg-muted/30 last:border-0"
+                  className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/30"
                   onClick={() => setSelectedRow(row)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
@@ -356,9 +395,12 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
                     {formatDate(row.estimatedClosingDate)}
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap">
+                    {formatDate(row.fundedDate)}
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
                     {formatDate(row.closedDate)}
                   </td>
-                  <td className="px-4 py-2.5 text-right font-mono tabular-nums whitespace-nowrap">
+                  <td className="px-4 py-2.5 text-right font-mono whitespace-nowrap tabular-nums">
                     {CURRENCY_FORMATTER.format(row.loanAmount)}
                   </td>
                 </tr>
@@ -376,8 +418,11 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
         />
       ) : null}
 
-      <Dialog open={Boolean(selectedRow)} onOpenChange={(open) => !open && setSelectedRow(null)}>
-        <DialogContent className="w-[min(96vw,72rem)] max-h-[88vh] overflow-y-auto">
+      <Dialog
+        open={Boolean(selectedRow)}
+        onOpenChange={(open) => !open && setSelectedRow(null)}
+      >
+        <DialogContent className="max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               File Details
@@ -391,7 +436,10 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
           {selectedRow ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {DETAIL_FIELDS.map((field) => {
-                const rawValue = selectedRow[field.key] as string | number | null
+                const rawValue = selectedRow[field.key] as
+                  | string
+                  | number
+                  | null
                 const renderedValue = field.format
                   ? field.format(rawValue)
                   : displayOrDash(rawValue)

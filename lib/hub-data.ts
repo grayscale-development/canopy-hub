@@ -1,5 +1,6 @@
 import "server-only"
 
+import { getLeaderboardPostedMonth } from "@/lib/leaderboard-month"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import type { CanopyProductionSeries } from "@/lib/hub-metrics"
 
@@ -304,7 +305,9 @@ export type LeaderboardEntityKey =
   | "underwritingOrg"
 
 export type PipelineViewKey =
-  "active" | "new-applications" | "upcoming-closings"
+  | "active"
+  | "new-applications"
+  | "upcoming-closings"
 
 export interface LeaderboardFile {
   externalRowKey: string
@@ -332,6 +335,7 @@ export interface LeaderboardFile {
   funder: string | null
   lastStatus: string | null
   estimatedClosingDate: string | null
+  fundedDate: string | null
   closedDate: string | null
   loanAmount: number
 }
@@ -359,6 +363,7 @@ interface LeaderboardFileViewRow {
   last_status: string | null
   estimated_closing_date: string | null
   loan_amount: number | string | null
+  funded_date: string | null
   closed_date: string | null
 }
 
@@ -2312,6 +2317,7 @@ async function enrichLeaderboardRows({
     funder: resolveLookupName(row.funder_id, employeeNamesById, "User"),
     lastStatus: row.last_status,
     estimatedClosingDate: row.estimated_closing_date,
+    fundedDate: row.funded_date ?? null,
     closedDate: row.closed_date,
     loanAmount: toRpcNumber(row.loan_amount),
   }))
@@ -2361,6 +2367,7 @@ export async function fetchPipelineFilesForUser({
         "funder_id",
         "last_status",
         "estimated_closing_date",
+        "funded_date",
         "closed_date",
         "loan_amount",
       ].join(",")
@@ -2408,6 +2415,8 @@ export async function fetchFileViewerFiles({
   employeeId,
   closedDateStart,
   closedDateEnd,
+  fundedDateStart,
+  fundedDateEnd,
   openPipelineOnly = false,
   limit = 500,
 }: {
@@ -2416,6 +2425,8 @@ export async function fetchFileViewerFiles({
   employeeId?: string | null
   closedDateStart?: string | null
   closedDateEnd?: string | null
+  fundedDateStart?: string | null
+  fundedDateEnd?: string | null
   openPipelineOnly?: boolean
   limit?: number
 }): Promise<LeaderboardFile[]> {
@@ -2447,11 +2458,14 @@ export async function fetchFileViewerFiles({
         "funder_id",
         "last_status",
         "estimated_closing_date",
+        "funded_date",
         "closed_date",
         "loan_amount",
       ].join(",")
     )
-    .order("closed_date", { ascending: false })
+    .order(fundedDateStart || fundedDateEnd ? "funded_date" : "closed_date", {
+      ascending: false,
+    })
     .order("loan_amount", { ascending: false, nullsFirst: false })
     .limit(limit)
 
@@ -2460,6 +2474,12 @@ export async function fetchFileViewerFiles({
   }
   if (closedDateEnd) {
     query = query.lte("closed_date", closedDateEnd)
+  }
+  if (fundedDateStart) {
+    query = query.gte("funded_date", fundedDateStart)
+  }
+  if (fundedDateEnd) {
+    query = query.lte("funded_date", fundedDateEnd)
   }
   if (openPipelineOnly) {
     query = query.is("funded_date", null).is("closed_date", null)
@@ -2526,16 +2546,13 @@ export async function fetchCurrentMonthLeaderboardFiles({
   entityId: string | null
   referenceDate?: Date
 }): Promise<LeaderboardFile[]> {
-  const year = referenceDate.getFullYear()
-  const month = referenceDate.getMonth()
-  const monthNumber = String(month + 1).padStart(2, "0")
-  const monthEndDay = new Date(year, month + 1, 0).getDate()
+  const postedMonth = getLeaderboardPostedMonth(referenceDate)
 
   return fetchFileViewerFiles({
     entity,
     entityId,
-    closedDateStart: `${year}-${monthNumber}-01`,
-    closedDateEnd: `${year}-${monthNumber}-${String(monthEndDay).padStart(2, "0")}`,
+    fundedDateStart: postedMonth.startIso,
+    fundedDateEnd: postedMonth.endIso,
     limit: 500,
   })
 }

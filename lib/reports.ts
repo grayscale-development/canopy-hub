@@ -1,3 +1,5 @@
+import { getLeaderboardPostedMonth } from "@/lib/leaderboard-month"
+
 export interface FeaturedReport {
   id: string
   title: string
@@ -6,9 +8,7 @@ export interface FeaturedReport {
 }
 
 export function getFeaturedReports(date = new Date()): FeaturedReport[] {
-  const currentMonthName = new Intl.DateTimeFormat("en-US", {
-    month: "long",
-  }).format(date)
+  const currentMonthName = getLeaderboardPostedMonth(date).monthName
 
   return [
     {
