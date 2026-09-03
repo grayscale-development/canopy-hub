@@ -41,12 +41,15 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { WikiHeaderSearch } from "@/components/wiki/wiki-header-search"
+import { getHelpfulResourceLinks } from "@/lib/home-resources"
 import {
   compareNewsletterFilesDescending,
   NEWSLETTER_BUCKET,
   parseNewsletterFileName,
   type NewsletterFileSummary,
 } from "@/lib/newsletters"
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
+import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export const metadata = {
@@ -54,7 +57,6 @@ export const metadata = {
 }
 
 const BRIDGE_LOGIN_URL = "https://canopymortgage.bridgeapp.com/login"
-const CANOPY_WIKI_URL = "/wiki/canopy-wiki"
 
 const QUICK_ACTIONS = [
   {
@@ -87,30 +89,6 @@ const QUICK_ACTIONS = [
     label: "Newsletters",
     description: "Browse company newsletter PDFs by month and year.",
     href: "/newsletters",
-  },
-] as const
-
-const HELPFUL_RESOURCE_LINKS = [
-  {
-    label: "Canopy Wiki",
-    description: "Training, process guides, and team reference material.",
-    href: CANOPY_WIKI_URL,
-    external: false,
-    image: "/training-wiki.jpg",
-  },
-  {
-    label: "Department Directory",
-    description: "Find the right group when you need help.",
-    href: "/department-directory",
-    external: false,
-    image: "/department-directory.png",
-  },
-  {
-    label: "Compliment Your Team",
-    description: "Send recognition when someone makes the work easier.",
-    href: "https://docs.google.com/forms/d/e/1FAIpQLSd8FR2h37lG3e64t9_qNIoAn6qkUQaiycSyTzrGQO4unHaceA/viewform",
-    external: true,
-    image: "/compliment-employee.jpg",
   },
 ] as const
 
@@ -356,6 +334,13 @@ export default async function HomePage() {
     redirect("/login")
   }
 
+  const canAccessBeta1 = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: BETA_1_PERMISSION,
+  })
+  const helpfulResourceLinks = getHelpfulResourceLinks(canAccessBeta1)
+
   const googleIdentity = user.identities?.find(
     (identity) => identity.provider === "google"
   )
@@ -477,7 +462,7 @@ export default async function HomePage() {
               <h2 className="text-2xl font-semibold">Helpful Resources</h2>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
-              {HELPFUL_RESOURCE_LINKS.map((item) => (
+              {helpfulResourceLinks.map((item) => (
                 <ResourceCard key={item.label} {...item} />
               ))}
             </div>
