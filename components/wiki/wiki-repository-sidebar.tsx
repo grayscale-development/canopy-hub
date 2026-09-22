@@ -379,7 +379,7 @@ function WikiTagsAccordion({ tags }: { tags: string[] }) {
       ) : null}
       <button
         type="button"
-        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        className="flex w-full items-center gap-2 px-3 py-3 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         onClick={() => setIsOpen((current) => !current)}
         aria-expanded={isOpen}
       >
@@ -535,7 +535,7 @@ export function WikiRepositorySidebar({
         )}
       </div>
       <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
-        <div className="border-b border-sidebar-border pb-3">
+        <div className="-mx-3 border-b border-sidebar-border">
           <WikiTagsAccordion tags={availableTags} />
         </div>
         <WikiEditModeToggle />
