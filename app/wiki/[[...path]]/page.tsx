@@ -428,6 +428,7 @@ export default async function WikiPage({
         status: "published",
         sort_order: missingRepositoryPage.sortOrder,
         is_pinned: false,
+        role_tags: [],
         current_revision_id: null,
         created_by: null,
         updated_by: null,

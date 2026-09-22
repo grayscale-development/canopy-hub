@@ -14,6 +14,7 @@ import {
   fetchCurrentRevision,
   fetchWikiNodes,
   isPublishedWikiBranch,
+  normalizeWikiRoleTags,
   slugifyWikiTitle,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeStatus,
@@ -160,6 +161,10 @@ export async function createWikiNodeAction(
       getString(formData, "repository_slug")
     )
     const status = parseNodeStatus(getString(formData, "status"), type)
+    const roleTags =
+      type === "page"
+        ? normalizeWikiRoleTags(getString(formData, "role_tags"))
+        : []
 
     if (!title) {
       return { ok: false, message: "Title is required." }
@@ -219,11 +224,12 @@ export async function createWikiNodeAction(
         title,
         slug,
         status,
+        role_tags: roleTags,
         created_by: user.id,
         updated_by: user.id,
       })
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,is_pinned,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,parent_id,type,slug,title,status,sort_order,is_pinned,role_tags,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .single()
 
@@ -292,6 +298,20 @@ export async function updateWikiNodeAction(
       return { ok: false, message: "ID and title are required." }
     }
 
+    const { data: existingNode, error: existingNodeError } = await supabase
+      .from("wiki_nodes")
+      .select("type")
+      .eq("id", id)
+      .maybeSingle()
+
+    if (existingNodeError) {
+      return { ok: false, message: existingNodeError.message }
+    }
+
+    if (!existingNode) {
+      return { ok: false, message: "Wiki item not found." }
+    }
+
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,
@@ -305,6 +325,13 @@ export async function updateWikiNodeAction(
         title,
         slug,
         parent_id: parentId,
+        ...(existingNode.type === "page"
+          ? {
+              role_tags: normalizeWikiRoleTags(
+                getString(formData, "role_tags")
+              ),
+            }
+          : {}),
         updated_by: user.id,
       })
       .eq("id", id)

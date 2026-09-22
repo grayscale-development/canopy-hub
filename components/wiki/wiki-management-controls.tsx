@@ -119,6 +119,25 @@ export function WikiCreateDialog({
             </label>
             <Input id={`wiki-${type}-title`} name="title" required />
           </div>
+          {type === "page" ? (
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium"
+                htmlFor={`wiki-${type}-roles`}
+              >
+                Role tags
+              </label>
+              <Input
+                id={`wiki-${type}-roles`}
+                name="role_tags"
+                placeholder="LO, LOA, Processor, UW"
+              />
+              <p className="text-xs text-muted-foreground">
+                Separate roles with commas. Leave blank for content that applies
+                to everyone.
+              </p>
+            </div>
+          ) : null}
           <div className="grid gap-2">
             <label
               className="text-sm font-medium"
@@ -280,6 +299,25 @@ export function WikiCreateWizardDialog({
             </label>
             <Input id="wiki-create-title" name="title" required />
           </div>
+          {type === "page" ? (
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium"
+                htmlFor="wiki-create-roles"
+              >
+                Role tags
+              </label>
+              <Input
+                id="wiki-create-roles"
+                name="role_tags"
+                placeholder="LO, LOA, Processor, UW"
+              />
+              <p className="text-xs text-muted-foreground">
+                Separate roles with commas. Leave blank for content that applies
+                to everyone.
+              </p>
+            </div>
+          ) : null}
           <DialogFooter>
             <Button type="submit" disabled={pending}>
               {pending ? "Creating..." : "Create"}
@@ -398,6 +436,26 @@ export function WikiNodeActionsMenu({
                 required
               />
             </div>
+            {node.type === "page" ? (
+              <div className="grid gap-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="wiki-edit-roles"
+                >
+                  Role tags
+                </label>
+                <Input
+                  id="wiki-edit-roles"
+                  name="role_tags"
+                  defaultValue={(node.role_tags ?? []).join(", ")}
+                  placeholder="LO, LOA, Processor, UW"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Separate roles with commas. Leave blank for content that
+                  applies to everyone.
+                </p>
+              </div>
+            ) : null}
             <div className="grid gap-2">
               <label className="text-sm font-medium" htmlFor="wiki-edit-parent">
                 Parent

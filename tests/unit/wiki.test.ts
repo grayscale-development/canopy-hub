@@ -14,6 +14,7 @@ import {
   formatBytes,
   getWikiAssetKind,
   isPublishedWikiBranch,
+  normalizeWikiRoleTags,
   resolveWikiPath,
   sanitizeWikiFileName,
   slugifyWikiTitle,
@@ -49,6 +50,16 @@ describe("wiki helpers", () => {
       "borrowers-guide-nano-los"
     )
     expect(slugifyWikiTitle("***")).toBe("untitled")
+  })
+
+  it("normalizes role tags for consistent filtering", () => {
+    expect(normalizeWikiRoleTags(" LO, Processor, lo,  Underwriter  ")).toEqual(
+      ["LO", "Processor", "Underwriter"]
+    )
+    expect(normalizeWikiRoleTags(["LOA", "", "LOA", " UW "])).toEqual([
+      "LOA",
+      "UW",
+    ])
   })
 
   it("sanitizes uploaded file names without preserving path separators", () => {

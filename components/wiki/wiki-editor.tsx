@@ -975,6 +975,11 @@ function WikiEditorMounted({
         <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
           {node.title}
         </h1>
+        {node.role_tags?.length ? (
+          <p className="-mt-6 text-sm text-muted-foreground">
+            Applies to: {node.role_tags.join(" · ")}
+          </p>
+        ) : null}
       </WikiViewModeTitleSpacing>
       {formatError ? (
         <p className="mb-3 text-sm text-destructive">{formatError}</p>

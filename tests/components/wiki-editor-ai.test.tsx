@@ -306,6 +306,46 @@ describe("WikiEditor AI rewrite", () => {
     ).toBeInTheDocument()
   })
 
+  it("filters topic pages by role while keeping general content visible", async () => {
+    const user = userEvent.setup()
+    const loPage = {
+      ...publishedPage,
+      id: "lo-page",
+      title: "LO Guide",
+      role_tags: ["LO"],
+    }
+    const uwPage = {
+      ...publishedPage,
+      id: "uw-page",
+      title: "UW Guide",
+      role_tags: ["UW"],
+    }
+    const generalPage = {
+      ...publishedPage,
+      id: "general-page",
+      title: "General Guide",
+    }
+
+    render(
+      <WikiEditModeProvider canManageWiki={false}>
+        <WikiFolderContents
+          items={[loPage, uwPage, generalPage]}
+          nodes={[loPage, uwPage, generalPage]}
+        />
+      </WikiEditModeProvider>
+    )
+
+    await user.selectOptions(screen.getByLabelText("Filter by role"), "LO")
+
+    expect(screen.getByRole("link", { name: /LO Guide/i })).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: /General Guide/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /UW Guide/i })
+    ).not.toBeInTheDocument()
+  })
+
   it("hides the AI menu for non-managers and historical revisions", () => {
     const { rerender } = renderEditor({ canManage: false })
 
