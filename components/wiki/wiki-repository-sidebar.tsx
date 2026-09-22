@@ -535,7 +535,7 @@ export function WikiRepositorySidebar({
         )}
       </div>
       <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
-        <div className="-mx-3 border-b border-sidebar-border">
+        <div className="-mx-3 -mt-3 border-b border-sidebar-border">
           <WikiTagsAccordion tags={availableTags} />
         </div>
         <WikiEditModeToggle />
