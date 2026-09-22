@@ -188,9 +188,11 @@ function tagAnchorId(tag: string) {
 function WikiTagsDirectory({
   tags,
   nodes,
+  highlightedTag,
 }: {
   tags: string[]
   nodes: WikiNodeRow[]
+  highlightedTag?: string
 }) {
   const visiblePages = nodes.filter(
     (node) => node.type === "page" && isPublishedWikiBranch(nodes, node)
@@ -218,7 +220,14 @@ function WikiTagsDirectory({
 
             return (
               <section key={tag} id={tagAnchorId(tag)} className="space-y-3">
-                <h2 className="inline-flex rounded-full border bg-muted px-3 py-1 text-sm font-semibold">
+                <h2
+                  className={
+                    tag.toLocaleLowerCase() ===
+                    highlightedTag?.toLocaleLowerCase()
+                      ? "inline-flex rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-semibold ring-2 ring-primary/30"
+                      : "inline-flex rounded-full border bg-muted px-3 py-1 text-sm font-semibold"
+                  }
+                >
                   {tag}
                 </h2>
                 {pages.length ? (
@@ -372,7 +381,7 @@ export default async function WikiPage({
   searchParams,
 }: {
   params: Promise<{ path?: string[] }>
-  searchParams: Promise<{ revision?: string }>
+  searchParams: Promise<{ revision?: string; tag?: string }>
 }) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -399,8 +408,10 @@ export default async function WikiPage({
     code: WIKI_MANAGE_PERMISSION,
   })
 
-  const [{ path = [] }, { revision: selectedRevisionParam = "" }] =
-    await Promise.all([params, searchParams])
+  const [
+    { path = [] },
+    { revision: selectedRevisionParam = "", tag: highlightedTag = "" },
+  ] = await Promise.all([params, searchParams])
   let nodes: WikiNodeRow[]
   try {
     nodes = await fetchWikiNodes(supabase)
@@ -596,6 +607,7 @@ export default async function WikiPage({
                   <WikiTagsDirectory
                     tags={wikiTags.map((tag) => tag.name)}
                     nodes={nodes}
+                    highlightedTag={highlightedTag}
                   />
                 ) : displayedNode ? (
                   <WikiVisibleNodeGate

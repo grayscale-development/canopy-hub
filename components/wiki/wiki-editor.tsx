@@ -22,6 +22,7 @@ import {
   WandSparklesIcon,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
@@ -236,6 +237,14 @@ function cloneBlockWithCalloutTone(block: Block, tone: WikiFormatCalloutTone) {
 function splitDiffLines(value: string) {
   const normalized = value.replace(/\r\n?/g, "\n").trim()
   return normalized ? normalized.split("\n") : []
+}
+
+function getTagDirectoryHref(tag: string) {
+  const anchor = tag
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
 }
 
 function buildDiffRows(oldMarkdown: string, newMarkdown: string): DiffRow[] {
@@ -1088,31 +1097,37 @@ function WikiEditorMounted({
       </div>
       <div className="mt-auto flex min-h-11 flex-col items-center justify-center gap-3 pt-3 pb-4">
         {node.tags?.length || canEditPage ? (
-          <button
-            type="button"
-            className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
-            onClick={openTagDialog}
-            disabled={!canEditPage || isHistorical}
-            aria-label="Edit page tags"
-          >
-            <span className="text-xs font-medium tracking-wide uppercase">
+          <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+            <button
+              type="button"
+              className="text-xs font-medium tracking-wide uppercase transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+              onClick={openTagDialog}
+              disabled={!canEditPage || isHistorical}
+              aria-label="Edit page tags"
+            >
               Tags
-            </span>
+            </button>
             {node.tags?.length ? (
               node.tags.map((tag) => (
-                <span
+                <Link
                   key={tag}
+                  href={getTagDirectoryHref(tag)}
                   className="rounded-full border bg-muted px-3 py-1 text-xs font-medium text-foreground"
                 >
                   {tag}
-                </span>
+                </Link>
               ))
             ) : (
-              <span className="rounded-full border border-dashed px-3 py-1 text-xs">
+              <button
+                type="button"
+                className="rounded-full border border-dashed px-3 py-1 text-xs transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+                onClick={openTagDialog}
+                disabled={!canEditPage || isHistorical}
+              >
                 Add tags
-              </span>
+              </button>
             )}
-          </button>
+          </div>
         ) : null}
         <p className="w-full text-center text-xs text-muted-foreground/70">
           {lastUpdatedLabel ?? null}
