@@ -43,6 +43,32 @@ interface RelationConfig {
 const MAX_ROWS = 50
 const MAX_AGGREGATE_ROWS = 5000
 const MAX_STORAGE_TEXT_BYTES = 80 * 1024
+const TAG_SEARCH_STOP_WORDS = new Set([
+  "about",
+  "and",
+  "are",
+  "available",
+  "can",
+  "documents",
+  "for",
+  "from",
+  "have",
+  "how",
+  "in",
+  "is",
+  "me",
+  "of",
+  "on",
+  "pages",
+  "show",
+  "tag",
+  "tagged",
+  "tags",
+  "the",
+  "what",
+  "which",
+  "with",
+])
 
 const RELATIONS: RelationConfig[] = [
   {
@@ -757,6 +783,17 @@ function wikiTagDirectoryUrl(tag: string) {
   return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
 }
 
+function getTagSearchTerms(query: string) {
+  return [
+    ...new Set(
+      query
+        .toLocaleLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((term) => term.length > 1 && !TAG_SEARCH_STOP_WORDS.has(term))
+    ),
+  ]
+}
+
 async function wikiTagSearch(args: JsonObject) {
   const query = getString(args.query)
   if (!query) {
@@ -764,18 +801,28 @@ async function wikiTagSearch(args: JsonObject) {
   }
 
   const supabase = createSupabaseAdminClient()
-  const { data: tags, error: tagsError } = await supabase
+  const { data: allTags, error: tagsError } = await supabase
     .from("wiki_tags")
     .select("id,name")
-    .ilike("name", `%${query}%`)
     .order("name")
-    .limit(getLimit(args.limit, 8, 20))
 
   if (tagsError) {
     throw new Error(tagsError.message)
   }
 
-  const tagIds = (tags ?? []).map((tag) => tag.id)
+  const normalizedQuery = query.toLocaleLowerCase().trim()
+  const searchTerms = getTagSearchTerms(query)
+  const tags = (allTags ?? [])
+    .filter((tag) => {
+      const name = tag.name.toLocaleLowerCase()
+      return (
+        name.includes(normalizedQuery) ||
+        normalizedQuery.includes(name) ||
+        searchTerms.some((term) => name.includes(term) || term.includes(name))
+      )
+    })
+    .slice(0, getLimit(args.limit, 8, 20))
+  const tagIds = tags.map((tag) => tag.id)
   const { data: assignments, error: assignmentsError } = tagIds.length
     ? await supabase
         .from("wiki_page_tags")

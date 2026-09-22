@@ -241,10 +241,6 @@ function isAggregateQuestion(question: string) {
   )
 }
 
-function isTagQuestion(question: string) {
-  return /\b(tag|tags|tagged)\b/i.test(question)
-}
-
 function getQuestionProfile(question: string) {
   return (
     [
@@ -279,7 +275,6 @@ function buildInitialResearchCalls(
   const focusedQueryVariants = getSearchQueryVariants(focusedQuery)
   const procedureQuestion = isProcedureQuestion(question)
   const documentQuestion = isDocumentQuestion(question)
-  const tagQuestion = isTagQuestion(question)
 
   for (const query of getSearchQueryVariants(question)) {
     addUniqueResearchCall(calls, {
@@ -289,14 +284,12 @@ function buildInitialResearchCalls(
     })
   }
 
-  if (tagQuestion) {
-    for (const query of focusedQueryVariants) {
-      addUniqueResearchCall(calls, {
-        toolName: "wiki_tag_search",
-        arguments: { query, limit: 8 },
-        reason: "Check matching Wiki tags and their published pages.",
-      })
-    }
+  for (const query of focusedQueryVariants) {
+    addUniqueResearchCall(calls, {
+      toolName: "wiki_tag_search",
+      arguments: { query, limit: 8 },
+      reason: "Check matching Wiki tags and their published pages.",
+    })
   }
 
   if (focusedQuery && focusedQuery !== normalizeSearchText(question)) {

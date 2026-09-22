@@ -28,6 +28,7 @@ vi.mock("@/lib/ai/provider", () => aiProvider)
 const miloMcp = vi.hoisted(() => ({
   MILO_MCP_TOOLS: [
     { name: "knowledge_search", description: "Search knowledge." },
+    { name: "wiki_tag_search", description: "Search Wiki tags." },
     { name: "db_search", description: "Search database." },
     { name: "db_schema", description: "List schema." },
     { name: "storage_list", description: "List storage." },
@@ -228,6 +229,7 @@ describe("wiki AI orchestration", () => {
         mode: "agentic_mcp",
         toolCalls: [
           { toolName: "knowledge_search", ok: true, error: undefined },
+          { toolName: "wiki_tag_search", ok: true, error: undefined },
           { toolName: "knowledge_search", ok: true, error: undefined },
           { toolName: "db_search", ok: true, error: undefined },
           { toolName: "storage_list", ok: true, error: undefined },
