@@ -1111,7 +1111,7 @@ function WikiEditorMounted({
                 <Link
                   key={tag}
                   href={getTagDirectoryHref(tag)}
-                  className="rounded-full border bg-muted px-3 py-1 text-xs font-medium text-foreground"
+                  className="rounded-md border bg-background px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
                 >
                   {tag}
                 </Link>
