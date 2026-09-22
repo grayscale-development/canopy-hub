@@ -6,6 +6,7 @@ type JsonObject = Record<string, unknown>
 
 export type MiloMcpToolName =
   | "knowledge_search"
+  | "wiki_tag_search"
   | "db_schema"
   | "db_select"
   | "db_search"
@@ -387,6 +388,20 @@ export const MILO_MCP_TOOLS = [
     },
   },
   {
+    name: "wiki_tag_search",
+    description:
+      "Search Wiki tags and return the published pages assigned to each matching tag.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        limit: { type: "number" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "db_schema",
     description:
       "List the read-only database relations and columns available to Milo.",
@@ -733,6 +748,79 @@ async function knowledgeSearch(args: JsonObject) {
   )
 }
 
+function wikiTagDirectoryUrl(tag: string) {
+  const anchor = tag
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+
+  return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
+}
+
+async function wikiTagSearch(args: JsonObject) {
+  const query = getString(args.query)
+  if (!query) {
+    throw new Error("query is required")
+  }
+
+  const supabase = createSupabaseAdminClient()
+  const { data: tags, error: tagsError } = await supabase
+    .from("wiki_tags")
+    .select("id,name")
+    .ilike("name", `%${query}%`)
+    .order("name")
+    .limit(getLimit(args.limit, 8, 20))
+
+  if (tagsError) {
+    throw new Error(tagsError.message)
+  }
+
+  const tagIds = (tags ?? []).map((tag) => tag.id)
+  const { data: assignments, error: assignmentsError } = tagIds.length
+    ? await supabase
+        .from("wiki_page_tags")
+        .select("tag_id,wiki_nodes(id,title,status)")
+        .in("tag_id", tagIds)
+    : { data: [], error: null }
+
+  if (assignmentsError) {
+    throw new Error(assignmentsError.message)
+  }
+
+  const pagesByTagId = new Map<string, string[]>()
+  for (const assignment of assignments ?? []) {
+    const page = Array.isArray(assignment.wiki_nodes)
+      ? assignment.wiki_nodes[0]
+      : assignment.wiki_nodes
+    if (!page || page.status !== "published") {
+      continue
+    }
+
+    const pages = pagesByTagId.get(assignment.tag_id) ?? []
+    pages.push(page.title)
+    pagesByTagId.set(assignment.tag_id, pages)
+  }
+
+  const matches = (tags ?? []).map((tag) => ({
+    tag: tag.name,
+    url: wikiTagDirectoryUrl(tag.name),
+    pages: pagesByTagId.get(tag.id) ?? [],
+  }))
+
+  return ok(
+    "wiki_tag_search",
+    { query, matches },
+    matches.map((match) => ({
+      title: `Tag: ${match.tag}`,
+      url: match.url,
+      snippet: match.pages.length
+        ? `Published pages: ${match.pages.join(", ")}`
+        : "No published Wiki pages use this tag yet.",
+      sourceType: "wiki_tag",
+    }))
+  )
+}
+
 async function dbSchema() {
   return ok("db_schema", {
     relations: RELATIONS.map((relation) => ({
@@ -1037,6 +1125,8 @@ export async function callMiloMcpTool(
     switch (normalizedToolName) {
       case "knowledge_search":
         return await knowledgeSearch(objectArgs)
+      case "wiki_tag_search":
+        return await wikiTagSearch(objectArgs)
       case "db_schema":
         return await dbSchema()
       case "db_select":

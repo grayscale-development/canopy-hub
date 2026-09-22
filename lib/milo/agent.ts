@@ -50,6 +50,7 @@ Rules:
 - If an exact title, slug, URL, or source-title match appears in the research brief, use that source first.
 - Prefer db_search for person, branch, support, wiki, and document lookup questions.
 - Prefer knowledge_search for policy, newsletter, wiki, and general Canopy Hub knowledge questions.
+- Use wiki_tag_search when the user asks about a Wiki tag or pages assigned to a role, topic, or other tag.
 - Prefer db_aggregate for counts, totals, averages, and grouped operational summaries.
 - When the user asks what documents or files are available, call storage_list for Newsletters and Misc before answering. Do not answer from Wiki assets alone unless the user specifically asks about Wiki uploads.
 - Prefer storage_signed_url when the user asks to open a document or file.
@@ -240,6 +241,10 @@ function isAggregateQuestion(question: string) {
   )
 }
 
+function isTagQuestion(question: string) {
+  return /\b(tag|tags|tagged)\b/i.test(question)
+}
+
 function getQuestionProfile(question: string) {
   return (
     [
@@ -274,6 +279,7 @@ function buildInitialResearchCalls(
   const focusedQueryVariants = getSearchQueryVariants(focusedQuery)
   const procedureQuestion = isProcedureQuestion(question)
   const documentQuestion = isDocumentQuestion(question)
+  const tagQuestion = isTagQuestion(question)
 
   for (const query of getSearchQueryVariants(question)) {
     addUniqueResearchCall(calls, {
@@ -281,6 +287,16 @@ function buildInitialResearchCalls(
       arguments: { query, limit: 8 },
       reason: "Search indexed Hub knowledge before answering.",
     })
+  }
+
+  if (tagQuestion) {
+    for (const query of focusedQueryVariants) {
+      addUniqueResearchCall(calls, {
+        toolName: "wiki_tag_search",
+        arguments: { query, limit: 8 },
+        reason: "Check matching Wiki tags and their published pages.",
+      })
+    }
   }
 
   if (focusedQuery && focusedQuery !== normalizeSearchText(question)) {

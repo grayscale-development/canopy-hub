@@ -8,6 +8,7 @@ import {
   NewspaperIcon,
   SearchIcon,
   SparklesIcon,
+  TagsIcon,
   XIcon,
 } from "lucide-react"
 
@@ -26,6 +27,10 @@ interface WikiSearchResult {
 }
 
 function ResultIcon({ type }: { type: string }) {
+  if (type === "wiki_tag") {
+    return <TagsIcon className="size-4" />
+  }
+
   if (type === "newsletter") {
     return <NewspaperIcon className="size-4" />
   }
