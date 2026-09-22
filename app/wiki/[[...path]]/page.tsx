@@ -589,7 +589,6 @@ export default async function WikiPage({
               activePath={activePath}
               selectedRepositorySlug={selectedRepositorySlug}
               canManageWiki={canManageWiki}
-              availableTags={wikiTags.map((tag) => tag.name)}
             />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
               <div className="flex min-h-full w-full flex-col">

@@ -351,58 +351,15 @@ function RepositorySelectLabel({
   )
 }
 
-function WikiTagsAccordion({ tags }: { tags: string[] }) {
-  const [isOpen, setIsOpen] = React.useState(false)
-  const tagIndexHref = "/wiki/tags"
-
+function WikiTagsAccordion() {
   return (
-    <div className="relative">
-      {isOpen ? (
-        <div className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-lg border border-sidebar-border bg-sidebar p-3 shadow-lg">
-          <p className="mb-2 text-xs font-semibold text-sidebar-foreground/70 uppercase">
-            Tags
-          </p>
-          {tags.length ? (
-            <div className="flex flex-wrap gap-2">
-              {tags.map((tag) => (
-                <Link
-                  key={tag}
-                  href={tagIndexHref}
-                  className="rounded-full bg-sidebar-accent px-2.5 py-1 text-xs font-medium text-sidebar-accent-foreground"
-                >
-                  {tag}
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">No tags yet.</p>
-          )}
-        </div>
-      ) : null}
-      <div className="flex w-full items-center text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-        <Link
-          href={tagIndexHref}
-          className="flex flex-1 items-center gap-2 px-3 py-3"
-        >
-          <TagsIcon className="size-4" />
-          Tags
-        </Link>
-        <button
-          type="button"
-          className="self-stretch px-3"
-          onClick={() => setIsOpen((current) => !current)}
-          aria-label={isOpen ? "Collapse tags" : "Expand tags"}
-          aria-expanded={isOpen}
-        >
-          <ChevronRightIcon
-            className={cn(
-              "size-3.5 transition-transform",
-              isOpen && "-rotate-90"
-            )}
-          />
-        </button>
-      </div>
-    </div>
+    <Link
+      href="/wiki/tags"
+      className="flex w-full items-center gap-2 px-3 py-3 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+    >
+      <TagsIcon className="size-4" />
+      Tags
+    </Link>
   )
 }
 
@@ -411,13 +368,11 @@ export function WikiRepositorySidebar({
   activePath,
   selectedRepositorySlug,
   canManageWiki,
-  availableTags = [],
 }: {
   nodes: WikiNodeRow[]
   activePath: string
   selectedRepositorySlug: string
   canManageWiki: boolean
-  availableTags?: string[]
 }) {
   const router = useRouter()
   const { canEditWiki } = useWikiEditMode()
@@ -546,7 +501,7 @@ export function WikiRepositorySidebar({
       </div>
       <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
         <div className="-mx-3 -mt-3 border-b border-sidebar-border">
-          <WikiTagsAccordion tags={availableTags} />
+          <WikiTagsAccordion />
         </div>
         <WikiEditModeToggle />
         {canEditSidebar ? (
