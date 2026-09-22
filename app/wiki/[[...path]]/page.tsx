@@ -43,6 +43,7 @@ import {
 } from "@/lib/wiki-repositories"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
+  buildWikiPath,
   compareWikiNodes,
   findDefaultWikiPagePath,
   fetchWikiNodes,
@@ -173,6 +174,79 @@ function HiddenDraftView({ title }: { title: string }) {
         This draft page is hidden in viewer mode. Turn on Editor Mode to view or
         edit it.
       </div>
+    </section>
+  )
+}
+
+function tagAnchorId(tag: string) {
+  return `tag-${tag
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}`
+}
+
+function WikiTagsDirectory({
+  tags,
+  nodes,
+}: {
+  tags: string[]
+  nodes: WikiNodeRow[]
+}) {
+  const visiblePages = nodes.filter(
+    (node) => node.type === "page" && isPublishedWikiBranch(nodes, node)
+  )
+
+  return (
+    <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-8 bg-white px-6 py-10 md:px-8 dark:bg-[#1F1F1F]">
+      <div>
+        <h1 className="text-4xl font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
+          Tags
+        </h1>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Browse every tag and the published Wiki pages that use it.
+        </p>
+      </div>
+      {tags.length ? (
+        <div className="space-y-6">
+          {tags.map((tag) => {
+            const pages = visiblePages.filter((page) =>
+              page.tags?.some(
+                (pageTag) =>
+                  pageTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+              )
+            )
+
+            return (
+              <section key={tag} id={tagAnchorId(tag)} className="space-y-3">
+                <h2 className="inline-flex rounded-full border bg-muted px-3 py-1 text-sm font-semibold">
+                  {tag}
+                </h2>
+                {pages.length ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {pages.map((page) => (
+                      <Link
+                        key={page.id}
+                        href={`/wiki/${buildWikiPath(nodes, page)}`}
+                        className="rounded-lg border p-3 text-sm font-medium hover:bg-accent"
+                      >
+                        {page.title}
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No published pages use this tag yet.
+                  </p>
+                )}
+              </section>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+          No tags have been created yet.
+        </p>
+      )}
     </section>
   )
 }
@@ -369,8 +443,9 @@ export default async function WikiPage({
   const isHistoricalRevision = Boolean(selectedHistoricalRevision)
   const missingRepositoryPage =
     !pageData && path.length === 1 ? getWikiRepositoryBySlug(path[0]) : null
+  const isTagsDirectory = path.length === 1 && path[0] === "tags"
 
-  if (path.length && !pageData && !missingRepositoryPage) {
+  if (path.length && !pageData && !missingRepositoryPage && !isTagsDirectory) {
     notFound()
   }
 
@@ -482,6 +557,20 @@ export default async function WikiPage({
             />
             {displayedNode ? (
               <WikiBreadcrumbs breadcrumbs={displayedBreadcrumbs} />
+            ) : isTagsDirectory ? (
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <Link href="/wiki">Wiki</Link>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Tags</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
             ) : (
               <Breadcrumb>
                 <BreadcrumbList>
@@ -504,7 +593,12 @@ export default async function WikiPage({
             />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
               <div className="flex min-h-full w-full flex-col">
-                {displayedNode ? (
+                {isTagsDirectory ? (
+                  <WikiTagsDirectory
+                    tags={wikiTags.map((tag) => tag.name)}
+                    nodes={nodes}
+                  />
+                ) : displayedNode ? (
                   <WikiVisibleNodeGate
                     node={displayedNode}
                     nodes={nodes}

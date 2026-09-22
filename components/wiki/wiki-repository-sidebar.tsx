@@ -353,6 +353,7 @@ function RepositorySelectLabel({
 
 function WikiTagsAccordion({ tags }: { tags: string[] }) {
   const [isOpen, setIsOpen] = React.useState(false)
+  const tagIndexHref = "/wiki/tags"
 
   return (
     <div className="relative">
@@ -364,12 +365,13 @@ function WikiTagsAccordion({ tags }: { tags: string[] }) {
           {tags.length ? (
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (
-                <span
+                <Link
                   key={tag}
+                  href={tagIndexHref}
                   className="rounded-full bg-sidebar-accent px-2.5 py-1 text-xs font-medium text-sidebar-accent-foreground"
                 >
                   {tag}
-                </span>
+                </Link>
               ))}
             </div>
           ) : (
@@ -377,21 +379,29 @@ function WikiTagsAccordion({ tags }: { tags: string[] }) {
           )}
         </div>
       ) : null}
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-3 py-3 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        onClick={() => setIsOpen((current) => !current)}
-        aria-expanded={isOpen}
-      >
-        <TagsIcon className="size-4" />
-        Tags
-        <ChevronRightIcon
-          className={cn(
-            "ml-auto size-3.5 transition-transform",
-            isOpen && "-rotate-90"
-          )}
-        />
-      </button>
+      <div className="flex w-full items-center text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+        <Link
+          href={tagIndexHref}
+          className="flex flex-1 items-center gap-2 px-3 py-3"
+        >
+          <TagsIcon className="size-4" />
+          Tags
+        </Link>
+        <button
+          type="button"
+          className="self-stretch px-3"
+          onClick={() => setIsOpen((current) => !current)}
+          aria-label={isOpen ? "Collapse tags" : "Expand tags"}
+          aria-expanded={isOpen}
+        >
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 transition-transform",
+              isOpen && "-rotate-90"
+            )}
+          />
+        </button>
+      </div>
     </div>
   )
 }
