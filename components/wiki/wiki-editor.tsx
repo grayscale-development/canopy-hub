@@ -1096,19 +1096,18 @@ function WikiEditorMounted({
         </BlockNoteView>
       </div>
       <div className="mt-auto flex min-h-11 flex-col items-center justify-center gap-3 pt-3 pb-4">
-        {node.tags?.length || canEditPage ? (
-          <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
-            <button
-              type="button"
-              className="text-xs font-medium tracking-wide uppercase transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
-              onClick={openTagDialog}
-              disabled={!canEditPage || isHistorical}
-              aria-label="Edit page tags"
-            >
-              Tags
-            </button>
-            {node.tags?.length ? (
-              node.tags.map((tag) => (
+        <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+          <button
+            type="button"
+            className="text-xs font-medium tracking-wide uppercase transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+            onClick={openTagDialog}
+            disabled={!canEditPage || isHistorical}
+            aria-label="Edit page tags"
+          >
+            Tags
+          </button>
+          {node.tags?.length
+            ? node.tags.map((tag) => (
                 <Link
                   key={tag}
                   href={getTagDirectoryHref(tag)}
@@ -1117,18 +1116,8 @@ function WikiEditorMounted({
                   {tag}
                 </Link>
               ))
-            ) : (
-              <button
-                type="button"
-                className="rounded-full border border-dashed px-3 py-1 text-xs transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
-                onClick={openTagDialog}
-                disabled={!canEditPage || isHistorical}
-              >
-                Add tags
-              </button>
-            )}
-          </div>
-        ) : null}
+            : null}
+        </div>
         <p className="w-full text-center text-xs text-muted-foreground/70">
           {lastUpdatedLabel ?? null}
         </p>
