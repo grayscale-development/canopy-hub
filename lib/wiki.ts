@@ -78,6 +78,11 @@ export interface WikiRevisionRow {
   created_at: string
 }
 
+export interface WikiTagRow {
+  id: string
+  name: string
+}
+
 export interface WikiAssetRow {
   id: string
   node_id: string
@@ -450,6 +455,64 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   }
 
   return (data ?? []) as WikiNodeRow[]
+}
+
+export async function fetchWikiTags(supabase: SupabaseWikiClient) {
+  const { data, error } = await supabase
+    .from("wiki_tags")
+    .select("id,name")
+    .order("name", { ascending: true })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data ?? []) as WikiTagRow[]
+}
+
+export async function syncWikiPageTags({
+  supabase,
+  nodeId,
+  tags,
+}: {
+  supabase: SupabaseWikiClient
+  nodeId: string
+  tags: string[]
+}) {
+  const { error: removeError } = await supabase
+    .from("wiki_page_tags")
+    .delete()
+    .eq("node_id", nodeId)
+
+  if (removeError) {
+    throw new Error(removeError.message)
+  }
+
+  if (!tags.length) {
+    return
+  }
+
+  const tagIds: string[] = []
+  for (const name of tags) {
+    const { data: tag, error: tagError } = await supabase
+      .from("wiki_tags")
+      .upsert({ name }, { onConflict: "name" })
+      .select("id")
+      .single()
+
+    if (tagError) {
+      throw new Error(tagError.message)
+    }
+    tagIds.push(tag.id)
+  }
+
+  const { error: insertError } = await supabase
+    .from("wiki_page_tags")
+    .insert(tagIds.map((tagId) => ({ node_id: nodeId, tag_id: tagId })))
+
+  if (insertError) {
+    throw new Error(insertError.message)
+  }
 }
 
 export async function fetchWikiAssetsForNode(

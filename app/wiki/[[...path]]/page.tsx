@@ -47,6 +47,7 @@ import {
   findDefaultWikiPagePath,
   fetchWikiNodes,
   fetchWikiPageData,
+  fetchWikiTags,
   isPublishedWikiBranch,
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
@@ -335,7 +336,10 @@ export default async function WikiPage({
     }
     throw error
   }
-  const pageData = path.length ? await fetchWikiPageData(supabase, path) : null
+  const [pageData, wikiTags] = await Promise.all([
+    path.length ? fetchWikiPageData(supabase, path) : null,
+    fetchWikiTags(supabase),
+  ])
   const revisions =
     pageData?.node.type === "page"
       ? (((
@@ -598,6 +602,7 @@ export default async function WikiPage({
                             key={displayedRevision?.id ?? pageData.node.id}
                             node={pageData.node}
                             revision={displayedRevision ?? null}
+                            availableTags={wikiTags.map((tag) => tag.name)}
                             canManage={canManageWiki}
                             isHistorical={isHistoricalRevision}
                             lastUpdatedLabel={

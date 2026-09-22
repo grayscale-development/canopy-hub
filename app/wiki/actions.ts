@@ -15,6 +15,7 @@ import {
   fetchWikiNodes,
   isPublishedWikiBranch,
   normalizeWikiTags,
+  syncWikiPageTags,
   slugifyWikiTitle,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeStatus,
@@ -265,6 +266,8 @@ export async function createWikiNodeAction(
       if (updateError) {
         return { ok: false, message: updateError.message }
       }
+
+      await syncWikiPageTags({ supabase, nodeId: node.id, tags })
     }
 
     const nodes = await fetchWikiNodes(supabase)
@@ -336,6 +339,14 @@ export async function updateWikiNodeAction(
       return { ok: false, message: error.message }
     }
 
+    if (existingNode.type === "page") {
+      await syncWikiPageTags({
+        supabase,
+        nodeId: id,
+        tags: normalizeWikiTags(getString(formData, "tags")),
+      })
+    }
+
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId: id })
     revalidatePath("/wiki")
     if (path) {
@@ -392,6 +403,12 @@ export async function updateWikiNodeTagsAction(
     if (error) {
       return { ok: false, message: error.message }
     }
+
+    await syncWikiPageTags({
+      supabase,
+      nodeId,
+      tags: normalizeWikiTags(getString(formData, "tags")),
+    })
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
     revalidatePath("/wiki")

@@ -364,6 +364,7 @@ export function WikiEditor({
   lastUpdatedLabel,
   showStatusControl = false,
   headerActions,
+  availableTags = [],
 }: {
   node: WikiNodeRow
   revision: WikiRevisionRow | null
@@ -372,6 +373,7 @@ export function WikiEditor({
   lastUpdatedLabel?: string | null
   showStatusControl?: boolean
   headerActions?: React.ReactNode
+  availableTags?: string[]
 }) {
   const [mounted, setMounted] = React.useState(false)
 
@@ -392,6 +394,7 @@ export function WikiEditor({
       lastUpdatedLabel={lastUpdatedLabel}
       showStatusControl={showStatusControl}
       headerActions={headerActions}
+      availableTags={availableTags}
     />
   )
 }
@@ -404,6 +407,7 @@ function WikiEditorMounted({
   lastUpdatedLabel,
   showStatusControl = false,
   headerActions,
+  availableTags,
 }: {
   node: WikiNodeRow
   revision: WikiRevisionRow | null
@@ -412,6 +416,7 @@ function WikiEditorMounted({
   lastUpdatedLabel?: string | null
   showStatusControl?: boolean
   headerActions?: React.ReactNode
+  availableTags: string[]
 }) {
   const router = useRouter()
   const { resolvedTheme } = useTheme()
@@ -1087,7 +1092,13 @@ function WikiEditorMounted({
                 defaultValue={(node.tags ?? []).join(", ")}
                 placeholder="Assets, Credit, Income"
                 autoFocus
+                list="wiki-page-tag-suggestions"
               />
+              <datalist id="wiki-page-tag-suggestions">
+                {availableTags.map((tag) => (
+                  <option key={tag} value={tag} />
+                ))}
+              </datalist>
             </div>
             <DialogFooter>
               <Button type="submit" disabled={pending}>
