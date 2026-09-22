@@ -1064,11 +1064,6 @@ function WikiEditorMounted({
         <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
           {node.title}
         </h1>
-        {node.tags?.length ? (
-          <p className="-mt-6 text-sm text-muted-foreground">
-            Tags: {node.tags.join(" · ")}
-          </p>
-        ) : null}
       </WikiViewModeTitleSpacing>
       {formatError ? (
         <p className="mb-3 text-sm text-destructive">{formatError}</p>
@@ -1091,7 +1086,34 @@ function WikiEditorMounted({
           />
         </BlockNoteView>
       </div>
-      <div className="mt-auto flex min-h-11 items-center justify-center gap-3 pt-3 pb-4">
+      <div className="mt-auto flex min-h-11 flex-col items-center justify-center gap-3 pt-3 pb-4">
+        {node.tags?.length || canEditPage ? (
+          <button
+            type="button"
+            className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+            onClick={openTagDialog}
+            disabled={!canEditPage || isHistorical}
+            aria-label="Edit page tags"
+          >
+            <span className="text-xs font-medium tracking-wide uppercase">
+              Tags
+            </span>
+            {node.tags?.length ? (
+              node.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border bg-muted px-3 py-1 text-xs font-medium text-foreground"
+                >
+                  {tag}
+                </span>
+              ))
+            ) : (
+              <span className="rounded-full border border-dashed px-3 py-1 text-xs">
+                Add tags
+              </span>
+            )}
+          </button>
+        ) : null}
         <p className="w-full text-center text-xs text-muted-foreground/70">
           {lastUpdatedLabel ?? null}
         </p>
