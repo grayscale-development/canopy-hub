@@ -451,6 +451,8 @@ function WikiEditorMounted({
     React.useState<VideoInstructionChoiceRequest | null>(null)
   const [previewOpen, setPreviewOpen] = React.useState(false)
   const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [tagQuery, setTagQuery] = React.useState("")
   const diffRows = React.useMemo(
     () => buildDiffRows(originalPreviewMarkdown, rewrittenPreviewMarkdown),
     [originalPreviewMarkdown, rewrittenPreviewMarkdown]
@@ -724,6 +726,44 @@ function WikiEditorMounted({
     })
   }
 
+  const openTagDialog = React.useCallback(() => {
+    setSelectedTags(node.tags ?? [])
+    setTagQuery("")
+    setTagDialogOpen(true)
+  }, [node.tags])
+
+  function addTag(value: string) {
+    const requestedTag = value.trim().replace(/\s+/g, " ")
+    const tag =
+      availableTags.find(
+        (availableTag) =>
+          availableTag.toLocaleLowerCase() === requestedTag.toLocaleLowerCase()
+      ) ?? requestedTag
+    if (
+      !tag ||
+      selectedTags.some(
+        (selectedTag) =>
+          selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+      )
+    ) {
+      return
+    }
+
+    setSelectedTags((currentTags) => [...currentTags, tag])
+    setTagQuery("")
+  }
+
+  const matchingTags = availableTags
+    .filter(
+      (tag) =>
+        tag.toLocaleLowerCase().includes(tagQuery.trim().toLocaleLowerCase()) &&
+        !selectedTags.some(
+          (selectedTag) =>
+            selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+        )
+    )
+    .slice(0, 8)
+
   const getSlashMenuItems = React.useCallback(
     async (query: string) =>
       filterSuggestionItems(
@@ -735,12 +775,12 @@ function WikiEditorMounted({
             aliases: ["tag", "tags", "label"],
             group: "Page",
             icon: <TagsIcon className="size-4" />,
-            onItemClick: () => setTagDialogOpen(true),
+            onItemClick: openTagDialog,
           },
         ],
         query
       ),
-    [editor]
+    [editor, openTagDialog]
   )
 
   async function formatDocument(options: FormatDocumentOptions = {}) {
@@ -1078,7 +1118,7 @@ function WikiEditorMounted({
           <DialogHeader>
             <DialogTitle>Page tags</DialogTitle>
             <DialogDescription>
-              Separate tags with commas to help people filter this page.
+              Search existing tags or create a new one for this page.
             </DialogDescription>
           </DialogHeader>
           <form action={saveTags} className="grid gap-4">
@@ -1086,19 +1126,66 @@ function WikiEditorMounted({
               <label className="text-sm font-medium" htmlFor="wiki-page-tags">
                 Tags
               </label>
+              <input
+                type="hidden"
+                name="tags"
+                value={selectedTags.join(", ")}
+              />
+              {selectedTags.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedTags.map((tag) => (
+                    <Button
+                      key={tag}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        setSelectedTags((currentTags) =>
+                          currentTags.filter((currentTag) => currentTag !== tag)
+                        )
+                      }
+                    >
+                      {tag} ×
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
               <Input
                 id="wiki-page-tags"
-                name="tags"
-                defaultValue={(node.tags ?? []).join(", ")}
-                placeholder="Assets, Credit, Income"
+                value={tagQuery}
+                onChange={(event) => setTagQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && tagQuery.trim()) {
+                    event.preventDefault()
+                    addTag(tagQuery)
+                  }
+                }}
+                placeholder="Search or create a tag"
                 autoFocus
-                list="wiki-page-tag-suggestions"
               />
-              <datalist id="wiki-page-tag-suggestions">
-                {availableTags.map((tag) => (
-                  <option key={tag} value={tag} />
-                ))}
-              </datalist>
+              {tagQuery.trim() ? (
+                <div className="max-h-44 overflow-y-auto rounded-md border p-1">
+                  {matchingTags.map((tag) => (
+                    <Button
+                      key={tag}
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start"
+                      onClick={() => addTag(tag)}
+                    >
+                      {tag}
+                    </Button>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full justify-start"
+                    onClick={() => addTag(tagQuery)}
+                  >
+                    Add “{tagQuery.trim()}”
+                  </Button>
+                </div>
+              ) : null}
             </div>
             <DialogFooter>
               <Button type="submit" disabled={pending}>
