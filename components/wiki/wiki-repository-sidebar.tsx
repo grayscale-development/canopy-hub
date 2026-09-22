@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRightIcon, PinIcon, PlusIcon } from "lucide-react"
+import { ChevronRightIcon, PinIcon, PlusIcon, TagsIcon } from "lucide-react"
 
 import { toggleWikiSectionPinAction } from "@/app/wiki/actions"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
@@ -351,16 +351,63 @@ function RepositorySelectLabel({
   )
 }
 
+function WikiTagsAccordion({ tags }: { tags: string[] }) {
+  const [isOpen, setIsOpen] = React.useState(false)
+
+  return (
+    <div className="relative">
+      {isOpen ? (
+        <div className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-64 overflow-y-auto rounded-lg border border-sidebar-border bg-sidebar p-3 shadow-lg">
+          <p className="mb-2 text-xs font-semibold text-sidebar-foreground/70 uppercase">
+            Tags
+          </p>
+          {tags.length ? (
+            <div className="flex flex-wrap gap-2">
+              {tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full bg-sidebar-accent px-2.5 py-1 text-xs font-medium text-sidebar-accent-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No tags yet.</p>
+          )}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+      >
+        <TagsIcon className="size-4" />
+        Tags
+        <ChevronRightIcon
+          className={cn(
+            "ml-auto size-3.5 transition-transform",
+            isOpen && "-rotate-90"
+          )}
+        />
+      </button>
+    </div>
+  )
+}
+
 export function WikiRepositorySidebar({
   nodes,
   activePath,
   selectedRepositorySlug,
   canManageWiki,
+  availableTags = [],
 }: {
   nodes: WikiNodeRow[]
   activePath: string
   selectedRepositorySlug: string
   canManageWiki: boolean
+  availableTags?: string[]
 }) {
   const router = useRouter()
   const { canEditWiki } = useWikiEditMode()
@@ -488,6 +535,7 @@ export function WikiRepositorySidebar({
         )}
       </div>
       <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
+        <WikiTagsAccordion tags={availableTags} />
         <WikiEditModeToggle />
         {canEditSidebar ? (
           <WikiCreateWizardDialog
