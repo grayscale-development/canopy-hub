@@ -2,10 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { FileTextIcon, SearchIcon } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
 
 export type WikiTagDirectoryEntry = {
   name: string
@@ -38,35 +36,24 @@ export function WikiTagsDirectory({
   )
 
   return (
-    <section className="mx-auto flex min-h-full w-full max-w-[960px] flex-1 flex-col gap-6 bg-white px-6 py-8 md:px-8 dark:bg-[#1F1F1F]">
-      <header className="border-b pb-5">
-        <div className="flex items-baseline justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">
-              Tags
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Browse pages by topic, workflow, or audience.
-            </p>
-          </div>
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
-            {visibleEntries.length}{" "}
-            {visibleEntries.length === 1 ? "tag" : "tags"}
-          </span>
-        </div>
-        <div className="relative mt-4 max-w-72">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Filter tags"
-            aria-label="Search tags"
-            className="h-8 rounded-md pl-8 text-sm shadow-none"
-          />
-        </div>
-      </header>
+    <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-8 bg-white px-6 py-10 md:px-8 dark:bg-[#1F1F1F]">
+      <div>
+        <h1 className="text-4xl font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
+          Tags
+        </h1>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Browse every tag and the published Wiki pages that use it.
+        </p>
+        <Input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search tags"
+          aria-label="Search tags"
+          className="mt-4 h-9 max-w-xs"
+        />
+      </div>
       {visibleEntries.length ? (
-        <div className="divide-y overflow-hidden rounded-md border">
+        <div className="space-y-6">
           {visibleEntries.map((entry) => {
             const isHighlighted =
               Boolean(normalizedSearch) &&
@@ -76,40 +63,31 @@ export function WikiTagsDirectory({
               <section
                 key={entry.name}
                 id={tagAnchorId(entry.name)}
-                className={cn(
-                  "scroll-mt-4",
-                  isHighlighted && "bg-primary/[0.04]"
-                )}
+                className="space-y-3"
               >
-                <div
-                  className={cn(
-                    "flex min-h-11 items-center justify-between gap-4 px-4",
-                    isHighlighted && "border-l-2 border-primary pl-[14px]"
-                  )}
+                <h2
+                  className={
+                    isHighlighted
+                      ? "inline-flex rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-semibold ring-2 ring-primary/30"
+                      : "inline-flex rounded-full border bg-muted px-3 py-1 text-sm font-semibold"
+                  }
                 >
-                  <h2 className="font-mono text-sm font-medium text-foreground">
-                    {entry.name}
-                  </h2>
-                  <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-                    {entry.pages.length}{" "}
-                    {entry.pages.length === 1 ? "page" : "pages"}
-                  </span>
-                </div>
+                  {entry.name}
+                </h2>
                 {entry.pages.length ? (
-                  <div className="border-t">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     {entry.pages.map((page) => (
                       <Link
                         key={page.id}
                         href={`/wiki/${page.path}`}
-                        className="flex min-h-10 items-center gap-2 border-b px-4 text-sm text-foreground last:border-b-0 hover:bg-muted/50"
+                        className="rounded-lg border p-3 text-sm font-medium hover:bg-accent"
                       >
-                        <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
                         {page.title}
                       </Link>
                     ))}
                   </div>
                 ) : (
-                  <p className="border-t px-4 py-3 text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     No published pages use this tag yet.
                   </p>
                 )}
@@ -118,7 +96,7 @@ export function WikiTagsDirectory({
           })}
         </div>
       ) : (
-        <p className="border px-4 py-3 text-sm text-muted-foreground">
+        <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
           No tags match “{search.trim()}”.
         </p>
       )}
