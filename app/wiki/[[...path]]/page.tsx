@@ -74,9 +74,9 @@ function WikiBreadcrumbs({ breadcrumbs }: { breadcrumbs: WikiNodeRow[] }) {
             .join("/")
           const isLast = index === breadcrumbs.length - 1
 
-          return (
+          return [
+            <BreadcrumbSeparator key={`${node.id}-separator`} />,
             <BreadcrumbItem key={node.id}>
-              <BreadcrumbSeparator />
               {isLast ? (
                 <BreadcrumbPage>{node.title}</BreadcrumbPage>
               ) : (
@@ -84,8 +84,8 @@ function WikiBreadcrumbs({ breadcrumbs }: { breadcrumbs: WikiNodeRow[] }) {
                   <Link href={`/wiki/${path}`}>{node.title}</Link>
                 </BreadcrumbLink>
               )}
-            </BreadcrumbItem>
-          )
+            </BreadcrumbItem>,
+          ]
         })}
       </BreadcrumbList>
     </Breadcrumb>
