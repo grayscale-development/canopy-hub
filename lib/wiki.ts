@@ -45,7 +45,7 @@ export interface WikiNodeRow {
   status: WikiNodeStatus
   sort_order: number
   is_pinned: boolean
-  role_tags?: string[]
+  tags?: string[]
   current_revision_id: string | null
   created_by: string | null
   updated_by: string | null
@@ -53,9 +53,7 @@ export interface WikiNodeRow {
   updated_at: string
 }
 
-export function normalizeWikiRoleTags(
-  value: string | string[] | null | undefined
-) {
+export function normalizeWikiTags(value: string | string[] | null | undefined) {
   const values = Array.isArray(value) ? value : (value ?? "").split(",")
   const seen = new Set<string>()
 
@@ -438,7 +436,7 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,is_pinned,role_tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,parent_id,type,slug,title,status,sort_order,is_pinned,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .neq("status", "archived")
     .order("sort_order", { ascending: true })

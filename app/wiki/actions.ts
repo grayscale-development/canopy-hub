@@ -14,7 +14,7 @@ import {
   fetchCurrentRevision,
   fetchWikiNodes,
   isPublishedWikiBranch,
-  normalizeWikiRoleTags,
+  normalizeWikiTags,
   slugifyWikiTitle,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeStatus,
@@ -161,10 +161,8 @@ export async function createWikiNodeAction(
       getString(formData, "repository_slug")
     )
     const status = parseNodeStatus(getString(formData, "status"), type)
-    const roleTags =
-      type === "page"
-        ? normalizeWikiRoleTags(getString(formData, "role_tags"))
-        : []
+    const tags =
+      type === "page" ? normalizeWikiTags(getString(formData, "tags")) : []
 
     if (!title) {
       return { ok: false, message: "Title is required." }
@@ -224,12 +222,12 @@ export async function createWikiNodeAction(
         title,
         slug,
         status,
-        role_tags: roleTags,
+        tags,
         created_by: user.id,
         updated_by: user.id,
       })
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,is_pinned,role_tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,parent_id,type,slug,title,status,sort_order,is_pinned,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .single()
 
@@ -327,9 +325,7 @@ export async function updateWikiNodeAction(
         parent_id: parentId,
         ...(existingNode.type === "page"
           ? {
-              role_tags: normalizeWikiRoleTags(
-                getString(formData, "role_tags")
-              ),
+              tags: normalizeWikiTags(getString(formData, "tags")),
             }
           : {}),
         updated_by: user.id,
@@ -356,6 +352,59 @@ export async function updateWikiNodeAction(
       ok: false,
       message:
         error instanceof Error ? error.message : "Unable to update Wiki item.",
+    }
+  }
+}
+
+export async function updateWikiNodeTagsAction(
+  formData: FormData
+): Promise<WikiActionResult> {
+  try {
+    const { supabase, user } = await getWikiManagerClient()
+    const nodeId = getString(formData, "node_id")
+
+    if (!nodeId) {
+      return { ok: false, message: "Page ID is required." }
+    }
+
+    const { data: node, error: nodeError } = await supabase
+      .from("wiki_nodes")
+      .select("id,type")
+      .eq("id", nodeId)
+      .maybeSingle()
+
+    if (nodeError) {
+      return { ok: false, message: nodeError.message }
+    }
+
+    if (!node || node.type !== "page") {
+      return { ok: false, message: "Wiki page not found." }
+    }
+
+    const { error } = await supabase
+      .from("wiki_nodes")
+      .update({
+        tags: normalizeWikiTags(getString(formData, "tags")),
+        updated_by: user.id,
+      })
+      .eq("id", nodeId)
+
+    if (error) {
+      return { ok: false, message: error.message }
+    }
+
+    const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
+    revalidatePath("/wiki")
+    if (path) {
+      revalidatePath(`/wiki/${path}`)
+    }
+
+    return { ok: true, message: "Tags updated." }
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error ? error.message : "Unable to update tags.",
     }
   }
 }

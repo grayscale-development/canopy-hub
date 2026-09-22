@@ -36,6 +36,8 @@ const blockNoteState = vi.hoisted(() => ({
 
 vi.mock("@blocknote/react", () => ({
   useCreateBlockNote: vi.fn(() => blockNoteState),
+  SuggestionMenuController: () => null,
+  getDefaultReactSlashMenuItems: () => [],
 }))
 
 vi.mock("@blocknote/shadcn", () => ({
@@ -73,6 +75,10 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/app/wiki/actions", () => ({
   saveWikiPageAction: vi.fn(async () => ({ ok: true, message: "Saved." })),
+  updateWikiNodeTagsAction: vi.fn(async () => ({
+    ok: true,
+    message: "Tags updated.",
+  })),
   updateWikiNodeStatusAction: vi.fn(async () => ({
     ok: true,
     message: "Status updated.",
@@ -306,19 +312,19 @@ describe("WikiEditor AI rewrite", () => {
     ).toBeInTheDocument()
   })
 
-  it("filters topic pages by role while keeping general content visible", async () => {
+  it("filters topic pages by tag while keeping general content visible", async () => {
     const user = userEvent.setup()
     const loPage = {
       ...publishedPage,
       id: "lo-page",
       title: "LO Guide",
-      role_tags: ["LO"],
+      tags: ["Assets"],
     }
     const uwPage = {
       ...publishedPage,
       id: "uw-page",
       title: "UW Guide",
-      role_tags: ["UW"],
+      tags: ["Credit"],
     }
     const generalPage = {
       ...publishedPage,
@@ -335,7 +341,7 @@ describe("WikiEditor AI rewrite", () => {
       </WikiEditModeProvider>
     )
 
-    await user.selectOptions(screen.getByLabelText("Filter by role"), "LO")
+    await user.selectOptions(screen.getByLabelText("Filter by tag"), "Assets")
 
     expect(screen.getByRole("link", { name: /LO Guide/i })).toBeInTheDocument()
     expect(

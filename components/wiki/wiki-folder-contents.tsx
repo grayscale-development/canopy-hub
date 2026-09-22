@@ -21,21 +21,21 @@ export function WikiFolderContents({
   const visibleItems = items
     .filter((node) => visibleNodeIds.has(node.id))
     .sort(compareWikiNodes)
-  const roleTags = Array.from(
+  const availableTags = Array.from(
     new Set(
       visibleItems.flatMap((node) =>
-        node.type === "page" ? (node.role_tags ?? []) : []
+        node.type === "page" ? (node.tags ?? []) : []
       )
     )
   ).sort((left, right) => left.localeCompare(right))
-  const [selectedRole, setSelectedRole] = React.useState("")
+  const [selectedTag, setSelectedTag] = React.useState("")
   const filteredItems = visibleItems.filter(
     (node) =>
       node.type === "folder" ||
-      !selectedRole ||
-      !node.role_tags?.length ||
-      (node.role_tags ?? []).some(
-        (tag) => tag.toLocaleLowerCase() === selectedRole.toLocaleLowerCase()
+      !selectedTag ||
+      !node.tags?.length ||
+      (node.tags ?? []).some(
+        (tag) => tag.toLocaleLowerCase() === selectedTag.toLocaleLowerCase()
       )
   )
 
@@ -49,16 +49,16 @@ export function WikiFolderContents({
 
   return (
     <div className="space-y-3">
-      {roleTags.length ? (
+      {availableTags.length ? (
         <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
-          Filter by role
+          Filter by tag
           <select
-            value={selectedRole}
-            onChange={(event) => setSelectedRole(event.target.value)}
+            value={selectedTag}
+            onChange={(event) => setSelectedTag(event.target.value)}
             className="h-9 rounded-md border bg-background px-2 text-sm font-normal"
           >
-            <option value="">All roles</option>
-            {roleTags.map((tag) => (
+            <option value="">All tags</option>
+            {availableTags.map((tag) => (
               <option key={tag} value={tag}>
                 {tag}
               </option>
@@ -80,9 +80,9 @@ export function WikiFolderContents({
                 <Icon className="size-5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{node.title}</p>
-                  {node.type === "page" && node.role_tags?.length ? (
+                  {node.type === "page" && node.tags?.length ? (
                     <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {node.role_tags.join(" · ")}
+                      {node.tags.join(" · ")}
                     </p>
                   ) : null}
                 </div>
@@ -93,7 +93,7 @@ export function WikiFolderContents({
         </div>
       ) : (
         <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-          No content is tagged for {selectedRole}.
+          No content is tagged with {selectedTag}.
         </div>
       )}
     </div>

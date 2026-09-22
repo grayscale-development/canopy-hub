@@ -14,7 +14,7 @@ import {
   formatBytes,
   getWikiAssetKind,
   isPublishedWikiBranch,
-  normalizeWikiRoleTags,
+  normalizeWikiTags,
   resolveWikiPath,
   sanitizeWikiFileName,
   slugifyWikiTitle,
@@ -52,14 +52,15 @@ describe("wiki helpers", () => {
     expect(slugifyWikiTitle("***")).toBe("untitled")
   })
 
-  it("normalizes role tags for consistent filtering", () => {
-    expect(normalizeWikiRoleTags(" LO, Processor, lo,  Underwriter  ")).toEqual(
-      ["LO", "Processor", "Underwriter"]
-    )
-    expect(normalizeWikiRoleTags(["LOA", "", "LOA", " UW "])).toEqual([
-      "LOA",
-      "UW",
+  it("normalizes tags for consistent filtering", () => {
+    expect(normalizeWikiTags(" Assets, Credit, assets,  Income  ")).toEqual([
+      "Assets",
+      "Credit",
+      "Income",
     ])
+    expect(
+      normalizeWikiTags(["Loan Setup", "", "Loan Setup", " Fees "])
+    ).toEqual(["Loan Setup", "Fees"])
   })
 
   it("sanitizes uploaded file names without preserving path separators", () => {

@@ -2,7 +2,12 @@
 
 import * as React from "react"
 import type { Block } from "@blocknote/core"
-import { useCreateBlockNote } from "@blocknote/react"
+import { filterSuggestionItems } from "@blocknote/core/extensions"
+import {
+  getDefaultReactSlashMenuItems,
+  SuggestionMenuController,
+  useCreateBlockNote,
+} from "@blocknote/react"
 import { BlockNoteView } from "@blocknote/shadcn"
 import {
   ChevronDownIcon,
@@ -13,14 +18,20 @@ import {
   Loader2Icon,
   SaveIcon,
   SparklesIcon,
+  TagsIcon,
   WandSparklesIcon,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
-import { saveWikiPageAction, type WikiActionResult } from "@/app/wiki/actions"
+import {
+  saveWikiPageAction,
+  updateWikiNodeTagsAction,
+  type WikiActionResult,
+} from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -434,6 +445,7 @@ function WikiEditorMounted({
   const [videoInstructionChoice, setVideoInstructionChoice] =
     React.useState<VideoInstructionChoiceRequest | null>(null)
   const [previewOpen, setPreviewOpen] = React.useState(false)
+  const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
   const diffRows = React.useMemo(
     () => buildDiffRows(originalPreviewMarkdown, rewrittenPreviewMarkdown),
     [originalPreviewMarkdown, rewrittenPreviewMarkdown]
@@ -693,6 +705,38 @@ function WikiEditorMounted({
       }
     })
   }
+
+  function saveTags(formData: FormData) {
+    formData.set("node_id", node.id)
+    startTransition(async () => {
+      const result = await updateWikiNodeTagsAction(formData)
+      setState(result)
+      if (result.ok) {
+        setTagDialogOpen(false)
+        toast.success("Tags updated")
+        router.refresh()
+      }
+    })
+  }
+
+  const getSlashMenuItems = React.useCallback(
+    async (query: string) =>
+      filterSuggestionItems(
+        [
+          ...getDefaultReactSlashMenuItems(editor),
+          {
+            title: "Tag page",
+            subtext: "Add or edit page tags",
+            aliases: ["tag", "tags", "label"],
+            group: "Page",
+            icon: <TagsIcon className="size-4" />,
+            onItemClick: () => setTagDialogOpen(true),
+          },
+        ],
+        query
+      ),
+    [editor]
+  )
 
   async function formatDocument(options: FormatDocumentOptions = {}) {
     const isVideoInstructionRewrite = Boolean(options.videoTranscript)
@@ -975,9 +1019,9 @@ function WikiEditorMounted({
         <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
           {node.title}
         </h1>
-        {node.role_tags?.length ? (
+        {node.tags?.length ? (
           <p className="-mt-6 text-sm text-muted-foreground">
-            Applies to: {node.role_tags.join(" · ")}
+            Tags: {node.tags.join(" · ")}
           </p>
         ) : null}
       </WikiViewModeTitleSpacing>
@@ -994,6 +1038,11 @@ function WikiEditorMounted({
             setIsDirty(true)
           }}
           className="w-full min-w-0"
+          slashMenu={false}
+        />
+        <SuggestionMenuController
+          triggerCharacter="/"
+          getItems={getSlashMenuItems}
         />
       </div>
       <div className="mt-auto flex min-h-11 items-center justify-center gap-3 pt-3 pb-4">
@@ -1018,6 +1067,35 @@ function WikiEditorMounted({
       {state && !state.ok ? (
         <p className="mt-2 text-sm text-destructive">{state.message}</p>
       ) : null}
+      <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Page tags</DialogTitle>
+            <DialogDescription>
+              Separate tags with commas to help people filter this page.
+            </DialogDescription>
+          </DialogHeader>
+          <form action={saveTags} className="grid gap-4">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium" htmlFor="wiki-page-tags">
+                Tags
+              </label>
+              <Input
+                id="wiki-page-tags"
+                name="tags"
+                defaultValue={(node.tags ?? []).join(", ")}
+                placeholder="Assets, Credit, Income"
+                autoFocus
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={pending}>
+                {pending ? "Saving..." : "Save tags"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={rewriteConfirmOpen}
         onOpenChange={(nextOpen) => {

@@ -250,7 +250,7 @@ export async function indexWikiPage({
       nodeId: node.id,
       path,
       status: node.status,
-      roleTags: node.role_tags ?? [],
+      tags: node.tags ?? [],
       revisionId: revision?.id ?? null,
     },
     status: isPublished ? "active" : "archived",
