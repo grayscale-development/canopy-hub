@@ -329,10 +329,12 @@ export function WikiNodeActionsMenu({
   nodes,
   node,
   hasChildren = false,
+  availableTags = [],
 }: {
   nodes: WikiNodeRow[]
   node: WikiNodeRow
   hasChildren?: boolean
+  availableTags?: string[]
 }) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
@@ -340,8 +342,48 @@ export function WikiNodeActionsMenu({
   const [state, setState] = React.useState<WikiActionResult | null>(null)
   const [archiveState, setArchiveState] =
     React.useState<WikiActionResult | null>(null)
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [tagQuery, setTagQuery] = React.useState("")
   const options = parentOptions(nodes, node.id)
   const cannotArchive = node.type === "folder" && hasChildren
+  const matchingTags = availableTags
+    .filter(
+      (tag) =>
+        tag.toLocaleLowerCase().includes(tagQuery.trim().toLocaleLowerCase()) &&
+        !selectedTags.some(
+          (selectedTag) =>
+            selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+        )
+    )
+    .slice(0, 8)
+
+  function openEditDialog() {
+    setSelectedTags(node.tags ?? [])
+    setTagQuery("")
+    setOpen(true)
+  }
+
+  function addTag(value: string) {
+    const requestedTag = value.trim().replace(/\s+/g, " ")
+    const tag =
+      availableTags.find(
+        (availableTag) =>
+          availableTag.toLocaleLowerCase() === requestedTag.toLocaleLowerCase()
+      ) ?? requestedTag
+
+    if (
+      !tag ||
+      selectedTags.some(
+        (selectedTag) =>
+          selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+      )
+    ) {
+      return
+    }
+
+    setSelectedTags((currentTags) => [...currentTags, tag])
+    setTagQuery("")
+  }
 
   function handleSubmit(formData: FormData) {
     setState(null)
@@ -391,7 +433,7 @@ export function WikiNodeActionsMenu({
         type="button"
         size="sm"
         variant="outline"
-        onClick={() => setOpen(true)}
+        onClick={openEditDialog}
       >
         <PencilIcon />
         Edit
@@ -436,15 +478,67 @@ export function WikiNodeActionsMenu({
                 <label className="text-sm font-medium" htmlFor="wiki-edit-tags">
                   Tags
                 </label>
+                <input
+                  type="hidden"
+                  name="tags"
+                  value={selectedTags.join(", ")}
+                />
+                {selectedTags.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTags.map((tag) => (
+                      <Button
+                        key={tag}
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          setSelectedTags((currentTags) =>
+                            currentTags.filter(
+                              (currentTag) => currentTag !== tag
+                            )
+                          )
+                        }
+                      >
+                        {tag} ×
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
                 <Input
                   id="wiki-edit-tags"
-                  name="tags"
-                  defaultValue={(node.tags ?? []).join(", ")}
-                  placeholder="Assets, Credit, Income"
+                  value={tagQuery}
+                  onChange={(event) => setTagQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && tagQuery.trim()) {
+                      event.preventDefault()
+                      addTag(tagQuery)
+                    }
+                  }}
+                  placeholder="Search or create a tag"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Separate tags with commas.
-                </p>
+                {tagQuery.trim() ? (
+                  <div className="max-h-44 overflow-y-auto rounded-md border p-1">
+                    {matchingTags.map((tag) => (
+                      <Button
+                        key={tag}
+                        type="button"
+                        variant="ghost"
+                        className="w-full justify-start"
+                        onClick={() => addTag(tag)}
+                      >
+                        {tag}
+                      </Button>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start"
+                      onClick={() => addTag(tagQuery)}
+                    >
+                      Add “{tagQuery.trim()}”
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <div className="grid gap-2">

@@ -571,6 +571,9 @@ export default async function WikiPage({
                                     nodes={nodes}
                                     node={pageData.node}
                                     hasChildren={displayedChildren.length > 0}
+                                    availableTags={wikiTags.map(
+                                      (tag) => tag.name
+                                    )}
                                   />
                                 ) : null}
                               </div>
@@ -618,6 +621,9 @@ export default async function WikiPage({
                                     nodes={nodes}
                                     node={pageData.node}
                                     hasChildren={displayedChildren.length > 0}
+                                    availableTags={wikiTags.map(
+                                      (tag) => tag.name
+                                    )}
                                   />
                                 </WikiEditModeGate>
                               ) : null
