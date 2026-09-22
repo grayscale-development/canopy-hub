@@ -1039,11 +1039,12 @@ function WikiEditorMounted({
           }}
           className="w-full min-w-0"
           slashMenu={false}
-        />
-        <SuggestionMenuController
-          triggerCharacter="/"
-          getItems={getSlashMenuItems}
-        />
+        >
+          <SuggestionMenuController
+            triggerCharacter="/"
+            getItems={getSlashMenuItems}
+          />
+        </BlockNoteView>
       </div>
       <div className="mt-auto flex min-h-11 items-center justify-center gap-3 pt-3 pb-4">
         <p className="w-full text-center text-xs text-muted-foreground/70">
