@@ -28,6 +28,11 @@ interface KnowledgeSearchRow {
   similarity: number
 }
 
+interface WikiTagRow {
+  id: string
+  name: string
+}
+
 function compactSnippet(value: string) {
   return value.replace(/\s+/g, " ").trim().slice(0, 260)
 }
@@ -106,7 +111,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const results = [...bySource.values()].slice(0, 8).map((row) => ({
+  const knowledgeResults = [...bySource.values()].slice(0, 8).map((row) => ({
     id: row.source_id,
     title: row.source_title || "Untitled",
     url: row.source_url || "/home",
@@ -115,5 +120,28 @@ export async function GET(request: NextRequest) {
     snippet: compactSnippet(row.content),
   }))
 
-  return NextResponse.json({ results })
+  const { data: tagData } = canAccessBeta1
+    ? await supabase
+        .from("wiki_tags")
+        .select("id,name")
+        .ilike("name", `%${query}%`)
+        .order("name")
+        .limit(5)
+    : { data: [] }
+
+  const tagResults = ((tagData ?? []) as WikiTagRow[]).map((tag) => ({
+    id: `wiki-tag-${tag.id}`,
+    title: tag.name,
+    url: `/wiki/tags?tag=${encodeURIComponent(tag.name)}#tag-${tag.name
+      .toLocaleLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")}`,
+    type: "wiki_tag",
+    typeLabel: "Tag",
+    snippet: "Browse Wiki pages with this tag.",
+  }))
+
+  return NextResponse.json({
+    results: [...tagResults, ...knowledgeResults].slice(0, 8),
+  })
 }

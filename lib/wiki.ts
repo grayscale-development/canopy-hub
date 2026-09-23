@@ -45,11 +45,27 @@ export interface WikiNodeRow {
   status: WikiNodeStatus
   sort_order: number
   is_pinned: boolean
+  tags?: string[]
   current_revision_id: string | null
   created_by: string | null
   updated_by: string | null
   created_at: string
   updated_at: string
+}
+
+export function normalizeWikiTags(value: string | string[] | null | undefined) {
+  const values = Array.isArray(value) ? value : (value ?? "").split(",")
+  const seen = new Set<string>()
+
+  return values.reduce<string[]>((tags, tag) => {
+    const normalized = tag.trim().replace(/\s+/g, " ").slice(0, 60)
+    const key = normalized.toLocaleLowerCase()
+    if (normalized && !seen.has(key)) {
+      seen.add(key)
+      tags.push(normalized)
+    }
+    return tags
+  }, [])
 }
 
 export interface WikiRevisionRow {
@@ -60,6 +76,11 @@ export interface WikiRevisionRow {
   change_note: string | null
   created_by: string | null
   created_at: string
+}
+
+export interface WikiTagRow {
+  id: string
+  name: string
 }
 
 export interface WikiAssetRow {
@@ -420,7 +441,7 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,is_pinned,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,parent_id,type,slug,title,status,sort_order,is_pinned,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .neq("status", "archived")
     .order("sort_order", { ascending: true })
@@ -434,6 +455,64 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   }
 
   return (data ?? []) as WikiNodeRow[]
+}
+
+export async function fetchWikiTags(supabase: SupabaseWikiClient) {
+  const { data, error } = await supabase
+    .from("wiki_tags")
+    .select("id,name")
+    .order("name", { ascending: true })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data ?? []) as WikiTagRow[]
+}
+
+export async function syncWikiPageTags({
+  supabase,
+  nodeId,
+  tags,
+}: {
+  supabase: SupabaseWikiClient
+  nodeId: string
+  tags: string[]
+}) {
+  const { error: removeError } = await supabase
+    .from("wiki_page_tags")
+    .delete()
+    .eq("node_id", nodeId)
+
+  if (removeError) {
+    throw new Error(removeError.message)
+  }
+
+  if (!tags.length) {
+    return
+  }
+
+  const tagIds: string[] = []
+  for (const name of tags) {
+    const { data: tag, error: tagError } = await supabase
+      .from("wiki_tags")
+      .upsert({ name }, { onConflict: "name" })
+      .select("id")
+      .single()
+
+    if (tagError) {
+      throw new Error(tagError.message)
+    }
+    tagIds.push(tag.id)
+  }
+
+  const { error: insertError } = await supabase
+    .from("wiki_page_tags")
+    .insert(tagIds.map((tagId) => ({ node_id: nodeId, tag_id: tagId })))
+
+  if (insertError) {
+    throw new Error(insertError.message)
+  }
 }
 
 export async function fetchWikiAssetsForNode(

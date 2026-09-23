@@ -134,7 +134,7 @@ export async function POST(request: Request) {
     const { data: node, error: nodeError } = await supabase
       .from("wiki_nodes")
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,is_pinned,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,parent_id,type,slug,title,status,sort_order,is_pinned,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .eq("id", nodeId.trim())
       .eq("type", "page")
@@ -243,7 +243,7 @@ export async function POST(request: Request) {
   const { data: node, error: nodeError } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,is_pinned,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,parent_id,type,slug,title,status,sort_order,is_pinned,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .eq("id", nodeId)
     .eq("type", "page")

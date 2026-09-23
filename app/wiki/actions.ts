@@ -14,6 +14,8 @@ import {
   fetchCurrentRevision,
   fetchWikiNodes,
   isPublishedWikiBranch,
+  normalizeWikiTags,
+  syncWikiPageTags,
   slugifyWikiTitle,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeStatus,
@@ -160,6 +162,8 @@ export async function createWikiNodeAction(
       getString(formData, "repository_slug")
     )
     const status = parseNodeStatus(getString(formData, "status"), type)
+    const tags =
+      type === "page" ? normalizeWikiTags(getString(formData, "tags")) : []
 
     if (!title) {
       return { ok: false, message: "Title is required." }
@@ -219,11 +223,12 @@ export async function createWikiNodeAction(
         title,
         slug,
         status,
+        tags,
         created_by: user.id,
         updated_by: user.id,
       })
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,is_pinned,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,parent_id,type,slug,title,status,sort_order,is_pinned,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .single()
 
@@ -261,6 +266,8 @@ export async function createWikiNodeAction(
       if (updateError) {
         return { ok: false, message: updateError.message }
       }
+
+      await syncWikiPageTags({ supabase, nodeId: node.id, tags })
     }
 
     const nodes = await fetchWikiNodes(supabase)
@@ -292,6 +299,20 @@ export async function updateWikiNodeAction(
       return { ok: false, message: "ID and title are required." }
     }
 
+    const { data: existingNode, error: existingNodeError } = await supabase
+      .from("wiki_nodes")
+      .select("type")
+      .eq("id", id)
+      .maybeSingle()
+
+    if (existingNodeError) {
+      return { ok: false, message: existingNodeError.message }
+    }
+
+    if (!existingNode) {
+      return { ok: false, message: "Wiki item not found." }
+    }
+
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,
@@ -305,12 +326,25 @@ export async function updateWikiNodeAction(
         title,
         slug,
         parent_id: parentId,
+        ...(existingNode.type === "page"
+          ? {
+              tags: normalizeWikiTags(getString(formData, "tags")),
+            }
+          : {}),
         updated_by: user.id,
       })
       .eq("id", id)
 
     if (error) {
       return { ok: false, message: error.message }
+    }
+
+    if (existingNode.type === "page") {
+      await syncWikiPageTags({
+        supabase,
+        nodeId: id,
+        tags: normalizeWikiTags(getString(formData, "tags")),
+      })
     }
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId: id })
@@ -329,6 +363,65 @@ export async function updateWikiNodeAction(
       ok: false,
       message:
         error instanceof Error ? error.message : "Unable to update Wiki item.",
+    }
+  }
+}
+
+export async function updateWikiNodeTagsAction(
+  formData: FormData
+): Promise<WikiActionResult> {
+  try {
+    const { supabase, user } = await getWikiManagerClient()
+    const nodeId = getString(formData, "node_id")
+
+    if (!nodeId) {
+      return { ok: false, message: "Page ID is required." }
+    }
+
+    const { data: node, error: nodeError } = await supabase
+      .from("wiki_nodes")
+      .select("id,type")
+      .eq("id", nodeId)
+      .maybeSingle()
+
+    if (nodeError) {
+      return { ok: false, message: nodeError.message }
+    }
+
+    if (!node || node.type !== "page") {
+      return { ok: false, message: "Wiki page not found." }
+    }
+
+    const { error } = await supabase
+      .from("wiki_nodes")
+      .update({
+        tags: normalizeWikiTags(getString(formData, "tags")),
+        updated_by: user.id,
+      })
+      .eq("id", nodeId)
+
+    if (error) {
+      return { ok: false, message: error.message }
+    }
+
+    await syncWikiPageTags({
+      supabase,
+      nodeId,
+      tags: normalizeWikiTags(getString(formData, "tags")),
+    })
+
+    const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
+    revalidatePath("/wiki")
+    if (path) {
+      revalidatePath(`/wiki/${path}`)
+    }
+
+    return { ok: true, message: "Tags updated." }
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error ? error.message : "Unable to update tags.",
     }
   }
 }

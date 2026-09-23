@@ -14,6 +14,7 @@ import {
   formatBytes,
   getWikiAssetKind,
   isPublishedWikiBranch,
+  normalizeWikiTags,
   resolveWikiPath,
   sanitizeWikiFileName,
   slugifyWikiTitle,
@@ -49,6 +50,17 @@ describe("wiki helpers", () => {
       "borrowers-guide-nano-los"
     )
     expect(slugifyWikiTitle("***")).toBe("untitled")
+  })
+
+  it("normalizes tags for consistent filtering", () => {
+    expect(normalizeWikiTags(" Assets, Credit, assets,  Income  ")).toEqual([
+      "Assets",
+      "Credit",
+      "Income",
+    ])
+    expect(
+      normalizeWikiTags(["Loan Setup", "", "Loan Setup", " Fees "])
+    ).toEqual(["Loan Setup", "Fees"])
   })
 
   it("sanitizes uploaded file names without preserving path separators", () => {

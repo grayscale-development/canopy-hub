@@ -22,6 +22,10 @@ import {
 import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
 import {
+  WikiTagsDirectory,
+  type WikiTagDirectoryEntry,
+} from "@/components/wiki/wiki-tags-directory"
+import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
@@ -43,10 +47,12 @@ import {
 } from "@/lib/wiki-repositories"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
+  buildWikiPath,
   compareWikiNodes,
   findDefaultWikiPagePath,
   fetchWikiNodes,
   fetchWikiPageData,
+  fetchWikiTags,
   isPublishedWikiBranch,
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
@@ -74,9 +80,9 @@ function WikiBreadcrumbs({ breadcrumbs }: { breadcrumbs: WikiNodeRow[] }) {
             .join("/")
           const isLast = index === breadcrumbs.length - 1
 
-          return (
+          return [
+            <BreadcrumbSeparator key={`${node.id}-separator`} />,
             <BreadcrumbItem key={node.id}>
-              <BreadcrumbSeparator />
               {isLast ? (
                 <BreadcrumbPage>{node.title}</BreadcrumbPage>
               ) : (
@@ -84,8 +90,8 @@ function WikiBreadcrumbs({ breadcrumbs }: { breadcrumbs: WikiNodeRow[] }) {
                   <Link href={`/wiki/${path}`}>{node.title}</Link>
                 </BreadcrumbLink>
               )}
-            </BreadcrumbItem>
-          )
+            </BreadcrumbItem>,
+          ]
         })}
       </BreadcrumbList>
     </Breadcrumb>
@@ -297,7 +303,7 @@ export default async function WikiPage({
   searchParams,
 }: {
   params: Promise<{ path?: string[] }>
-  searchParams: Promise<{ revision?: string }>
+  searchParams: Promise<{ revision?: string; tag?: string }>
 }) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -324,8 +330,10 @@ export default async function WikiPage({
     code: WIKI_MANAGE_PERMISSION,
   })
 
-  const [{ path = [] }, { revision: selectedRevisionParam = "" }] =
-    await Promise.all([params, searchParams])
+  const [
+    { path = [] },
+    { revision: selectedRevisionParam = "", tag: highlightedTag = "" },
+  ] = await Promise.all([params, searchParams])
   let nodes: WikiNodeRow[]
   try {
     nodes = await fetchWikiNodes(supabase)
@@ -335,7 +343,10 @@ export default async function WikiPage({
     }
     throw error
   }
-  const pageData = path.length ? await fetchWikiPageData(supabase, path) : null
+  const [pageData, wikiTags] = await Promise.all([
+    path.length ? fetchWikiPageData(supabase, path) : null,
+    fetchWikiTags(supabase),
+  ])
   const revisions =
     pageData?.node.type === "page"
       ? (((
@@ -365,8 +376,9 @@ export default async function WikiPage({
   const isHistoricalRevision = Boolean(selectedHistoricalRevision)
   const missingRepositoryPage =
     !pageData && path.length === 1 ? getWikiRepositoryBySlug(path[0]) : null
+  const isTagsDirectory = path.length === 1 && path[0] === "tags"
 
-  if (path.length && !pageData && !missingRepositoryPage) {
+  if (path.length && !pageData && !missingRepositoryPage && !isTagsDirectory) {
     notFound()
   }
 
@@ -415,6 +427,23 @@ export default async function WikiPage({
   const publishedNodes = nodes.filter((node) =>
     isPublishedWikiBranch(nodes, node)
   )
+  const tagDirectoryEntries: WikiTagDirectoryEntry[] = wikiTags.map((tag) => ({
+    name: tag.name,
+    pages: publishedNodes
+      .filter(
+        (node) =>
+          node.type === "page" &&
+          node.tags?.some(
+            (pageTag) =>
+              pageTag.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
+          )
+      )
+      .map((page) => ({
+        id: page.id,
+        title: page.title,
+        path: buildWikiPath(nodes, page),
+      })),
+  }))
   const repositoryDefaultPagePath = isRepositoryLanding
     ? findDefaultWikiPagePath(publishedNodes, selectedRepositorySlug)
     : null
@@ -428,6 +457,7 @@ export default async function WikiPage({
         status: "published",
         sort_order: missingRepositoryPage.sortOrder,
         is_pinned: false,
+        tags: [],
         current_revision_id: null,
         created_by: null,
         updated_by: null,
@@ -477,6 +507,20 @@ export default async function WikiPage({
             />
             {displayedNode ? (
               <WikiBreadcrumbs breadcrumbs={displayedBreadcrumbs} />
+            ) : isTagsDirectory ? (
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <Link href="/wiki">Wiki</Link>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Tags</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
             ) : (
               <Breadcrumb>
                 <BreadcrumbList>
@@ -498,7 +542,12 @@ export default async function WikiPage({
             />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
               <div className="flex min-h-full w-full flex-col">
-                {displayedNode ? (
+                {isTagsDirectory ? (
+                  <WikiTagsDirectory
+                    entries={tagDirectoryEntries}
+                    initialSearch={highlightedTag}
+                  />
+                ) : displayedNode ? (
                   <WikiVisibleNodeGate
                     node={displayedNode}
                     nodes={nodes}
@@ -566,6 +615,9 @@ export default async function WikiPage({
                                     nodes={nodes}
                                     node={pageData.node}
                                     hasChildren={displayedChildren.length > 0}
+                                    availableTags={wikiTags.map(
+                                      (tag) => tag.name
+                                    )}
                                   />
                                 ) : null}
                               </div>
@@ -597,6 +649,7 @@ export default async function WikiPage({
                             key={displayedRevision?.id ?? pageData.node.id}
                             node={pageData.node}
                             revision={displayedRevision ?? null}
+                            availableTags={wikiTags.map((tag) => tag.name)}
                             canManage={canManageWiki}
                             isHistorical={isHistoricalRevision}
                             lastUpdatedLabel={
@@ -612,6 +665,9 @@ export default async function WikiPage({
                                     nodes={nodes}
                                     node={pageData.node}
                                     hasChildren={displayedChildren.length > 0}
+                                    availableTags={wikiTags.map(
+                                      (tag) => tag.name
+                                    )}
                                   />
                                 </WikiEditModeGate>
                               ) : null
