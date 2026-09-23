@@ -49,6 +49,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+
       - name: Validate deployment environment
         run: |
           missing=0
@@ -77,8 +80,8 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      - name: Build application
-        run: pnpm build
+      - name: Run release checks
+        run: pnpm test:ci
 
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@v1
