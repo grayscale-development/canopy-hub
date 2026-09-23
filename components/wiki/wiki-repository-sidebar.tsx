@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRightIcon, PinIcon, PlusIcon } from "lucide-react"
+import { ChevronRightIcon, PinIcon, PlusIcon, TagsIcon } from "lucide-react"
 
 import { toggleWikiSectionPinAction } from "@/app/wiki/actions"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
@@ -351,6 +351,18 @@ function RepositorySelectLabel({
   )
 }
 
+function WikiTagsAccordion() {
+  return (
+    <Link
+      href="/wiki/tags"
+      className="flex w-full items-center gap-2 px-3 py-3 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+    >
+      <TagsIcon className="size-4" />
+      Tags
+    </Link>
+  )
+}
+
 export function WikiRepositorySidebar({
   nodes,
   activePath,
@@ -488,6 +500,9 @@ export function WikiRepositorySidebar({
         )}
       </div>
       <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
+        <div className="-mx-3 -mt-3 border-b border-sidebar-border">
+          <WikiTagsAccordion />
+        </div>
         <WikiEditModeToggle />
         {canEditSidebar ? (
           <WikiCreateWizardDialog

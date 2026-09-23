@@ -6,6 +6,7 @@ type JsonObject = Record<string, unknown>
 
 export type MiloMcpToolName =
   | "knowledge_search"
+  | "wiki_tag_search"
   | "db_schema"
   | "db_select"
   | "db_search"
@@ -42,6 +43,32 @@ interface RelationConfig {
 const MAX_ROWS = 50
 const MAX_AGGREGATE_ROWS = 5000
 const MAX_STORAGE_TEXT_BYTES = 80 * 1024
+const TAG_SEARCH_STOP_WORDS = new Set([
+  "about",
+  "and",
+  "are",
+  "available",
+  "can",
+  "documents",
+  "for",
+  "from",
+  "have",
+  "how",
+  "in",
+  "is",
+  "me",
+  "of",
+  "on",
+  "pages",
+  "show",
+  "tag",
+  "tagged",
+  "tags",
+  "the",
+  "what",
+  "which",
+  "with",
+])
 
 const RELATIONS: RelationConfig[] = [
   {
@@ -381,6 +408,20 @@ export const MILO_MCP_TOOLS = [
         query: { type: "string" },
         limit: { type: "number" },
         sourceTypes: { type: "array", items: { type: "string" } },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "wiki_tag_search",
+    description:
+      "Search Wiki tags and return the published pages assigned to each matching tag.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        limit: { type: "number" },
       },
       required: ["query"],
       additionalProperties: false,
@@ -733,6 +774,100 @@ async function knowledgeSearch(args: JsonObject) {
   )
 }
 
+function wikiTagDirectoryUrl(tag: string) {
+  const anchor = tag
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+
+  return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
+}
+
+function getTagSearchTerms(query: string) {
+  return [
+    ...new Set(
+      query
+        .toLocaleLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((term) => term.length > 1 && !TAG_SEARCH_STOP_WORDS.has(term))
+    ),
+  ]
+}
+
+async function wikiTagSearch(args: JsonObject) {
+  const query = getString(args.query)
+  if (!query) {
+    throw new Error("query is required")
+  }
+
+  const supabase = createSupabaseAdminClient()
+  const { data: allTags, error: tagsError } = await supabase
+    .from("wiki_tags")
+    .select("id,name")
+    .order("name")
+
+  if (tagsError) {
+    throw new Error(tagsError.message)
+  }
+
+  const normalizedQuery = query.toLocaleLowerCase().trim()
+  const searchTerms = getTagSearchTerms(query)
+  const tags = (allTags ?? [])
+    .filter((tag) => {
+      const name = tag.name.toLocaleLowerCase()
+      return (
+        name.includes(normalizedQuery) ||
+        normalizedQuery.includes(name) ||
+        searchTerms.some((term) => name.includes(term) || term.includes(name))
+      )
+    })
+    .slice(0, getLimit(args.limit, 8, 20))
+  const tagIds = tags.map((tag) => tag.id)
+  const { data: assignments, error: assignmentsError } = tagIds.length
+    ? await supabase
+        .from("wiki_page_tags")
+        .select("tag_id,wiki_nodes(id,title,status)")
+        .in("tag_id", tagIds)
+    : { data: [], error: null }
+
+  if (assignmentsError) {
+    throw new Error(assignmentsError.message)
+  }
+
+  const pagesByTagId = new Map<string, string[]>()
+  for (const assignment of assignments ?? []) {
+    const page = Array.isArray(assignment.wiki_nodes)
+      ? assignment.wiki_nodes[0]
+      : assignment.wiki_nodes
+    if (!page || page.status !== "published") {
+      continue
+    }
+
+    const pages = pagesByTagId.get(assignment.tag_id) ?? []
+    pages.push(page.title)
+    pagesByTagId.set(assignment.tag_id, pages)
+  }
+
+  const matches = (tags ?? []).map((tag) => ({
+    tag: tag.name,
+    url: wikiTagDirectoryUrl(tag.name),
+    pages: pagesByTagId.get(tag.id) ?? [],
+  }))
+
+  return ok(
+    "wiki_tag_search",
+    { query, matches },
+    matches.map((match) => ({
+      title: `Tag: ${match.tag}`,
+      url: match.url,
+      snippet: match.pages.length
+        ? `Published pages: ${match.pages.join(", ")}`
+        : "No published Wiki pages use this tag yet.",
+      sourceType: "wiki_tag",
+    }))
+  )
+}
+
 async function dbSchema() {
   return ok("db_schema", {
     relations: RELATIONS.map((relation) => ({
@@ -1037,6 +1172,8 @@ export async function callMiloMcpTool(
     switch (normalizedToolName) {
       case "knowledge_search":
         return await knowledgeSearch(objectArgs)
+      case "wiki_tag_search":
+        return await wikiTagSearch(objectArgs)
       case "db_schema":
         return await dbSchema()
       case "db_select":

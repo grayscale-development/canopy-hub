@@ -2,7 +2,12 @@
 
 import * as React from "react"
 import type { Block } from "@blocknote/core"
-import { useCreateBlockNote } from "@blocknote/react"
+import { filterSuggestionItems } from "@blocknote/core/extensions"
+import {
+  getDefaultReactSlashMenuItems,
+  SuggestionMenuController,
+  useCreateBlockNote,
+} from "@blocknote/react"
 import { BlockNoteView } from "@blocknote/shadcn"
 import {
   ChevronDownIcon,
@@ -13,14 +18,21 @@ import {
   Loader2Icon,
   SaveIcon,
   SparklesIcon,
+  TagsIcon,
   WandSparklesIcon,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
-import { saveWikiPageAction, type WikiActionResult } from "@/app/wiki/actions"
+import {
+  saveWikiPageAction,
+  updateWikiNodeTagsAction,
+  type WikiActionResult,
+} from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -227,6 +239,14 @@ function splitDiffLines(value: string) {
   return normalized ? normalized.split("\n") : []
 }
 
+function getTagDirectoryHref(tag: string) {
+  const anchor = tag
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
+}
+
 function buildDiffRows(oldMarkdown: string, newMarkdown: string): DiffRow[] {
   const oldLines = splitDiffLines(oldMarkdown)
   const newLines = splitDiffLines(newMarkdown)
@@ -353,6 +373,7 @@ export function WikiEditor({
   lastUpdatedLabel,
   showStatusControl = false,
   headerActions,
+  availableTags = [],
 }: {
   node: WikiNodeRow
   revision: WikiRevisionRow | null
@@ -361,6 +382,7 @@ export function WikiEditor({
   lastUpdatedLabel?: string | null
   showStatusControl?: boolean
   headerActions?: React.ReactNode
+  availableTags?: string[]
 }) {
   const [mounted, setMounted] = React.useState(false)
 
@@ -381,6 +403,7 @@ export function WikiEditor({
       lastUpdatedLabel={lastUpdatedLabel}
       showStatusControl={showStatusControl}
       headerActions={headerActions}
+      availableTags={availableTags}
     />
   )
 }
@@ -393,6 +416,7 @@ function WikiEditorMounted({
   lastUpdatedLabel,
   showStatusControl = false,
   headerActions,
+  availableTags,
 }: {
   node: WikiNodeRow
   revision: WikiRevisionRow | null
@@ -401,6 +425,7 @@ function WikiEditorMounted({
   lastUpdatedLabel?: string | null
   showStatusControl?: boolean
   headerActions?: React.ReactNode
+  availableTags: string[]
 }) {
   const router = useRouter()
   const { resolvedTheme } = useTheme()
@@ -434,6 +459,9 @@ function WikiEditorMounted({
   const [videoInstructionChoice, setVideoInstructionChoice] =
     React.useState<VideoInstructionChoiceRequest | null>(null)
   const [previewOpen, setPreviewOpen] = React.useState(false)
+  const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [tagQuery, setTagQuery] = React.useState("")
   const diffRows = React.useMemo(
     () => buildDiffRows(originalPreviewMarkdown, rewrittenPreviewMarkdown),
     [originalPreviewMarkdown, rewrittenPreviewMarkdown]
@@ -693,6 +721,76 @@ function WikiEditorMounted({
       }
     })
   }
+
+  function saveTags(formData: FormData) {
+    formData.set("node_id", node.id)
+    startTransition(async () => {
+      const result = await updateWikiNodeTagsAction(formData)
+      setState(result)
+      if (result.ok) {
+        setTagDialogOpen(false)
+        toast.success("Tags updated")
+        router.refresh()
+      }
+    })
+  }
+
+  const openTagDialog = React.useCallback(() => {
+    setSelectedTags(node.tags ?? [])
+    setTagQuery("")
+    setTagDialogOpen(true)
+  }, [node.tags])
+
+  function addTag(value: string) {
+    const requestedTag = value.trim().replace(/\s+/g, " ")
+    const tag =
+      availableTags.find(
+        (availableTag) =>
+          availableTag.toLocaleLowerCase() === requestedTag.toLocaleLowerCase()
+      ) ?? requestedTag
+    if (
+      !tag ||
+      selectedTags.some(
+        (selectedTag) =>
+          selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+      )
+    ) {
+      return
+    }
+
+    setSelectedTags((currentTags) => [...currentTags, tag])
+    setTagQuery("")
+  }
+
+  const matchingTags = availableTags
+    .filter(
+      (tag) =>
+        tag.toLocaleLowerCase().includes(tagQuery.trim().toLocaleLowerCase()) &&
+        !selectedTags.some(
+          (selectedTag) =>
+            selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+        )
+    )
+    .slice(0, 8)
+
+  const getSlashMenuItems = React.useCallback(
+    async (query: string) =>
+      filterSuggestionItems(
+        [
+          ...getDefaultReactSlashMenuItems(editor),
+          {
+            title: "Tag page",
+            subtext: "Add or edit page tags",
+            aliases: ["tag", "tags", "label"],
+            group: "Page",
+            icon: <TagsIcon className="size-4" />,
+            onItemClick: openTagDialog,
+          },
+        ],
+        query
+      ),
+    [editor, openTagDialog]
+  )
 
   async function formatDocument(options: FormatDocumentOptions = {}) {
     const isVideoInstructionRewrite = Boolean(options.videoTranscript)
@@ -989,9 +1087,37 @@ function WikiEditorMounted({
             setIsDirty(true)
           }}
           className="w-full min-w-0"
-        />
+          slashMenu={false}
+        >
+          <SuggestionMenuController
+            triggerCharacter="/"
+            getItems={getSlashMenuItems}
+          />
+        </BlockNoteView>
       </div>
-      <div className="mt-auto flex min-h-11 items-center justify-center gap-3 pt-3 pb-4">
+      <div className="mt-auto flex min-h-11 flex-col items-center justify-center gap-3 pt-3 pb-4">
+        <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+          <button
+            type="button"
+            className="text-xs font-medium tracking-wide uppercase transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+            onClick={openTagDialog}
+            disabled={!canEditPage || isHistorical}
+            aria-label="Edit page tags"
+          >
+            Tags
+          </button>
+          {node.tags?.length
+            ? node.tags.map((tag) => (
+                <Link
+                  key={tag}
+                  href={getTagDirectoryHref(tag)}
+                  className="rounded-full border bg-muted px-3 py-1 text-xs font-medium text-foreground"
+                >
+                  {tag}
+                </Link>
+              ))
+            : null}
+        </div>
         <p className="w-full text-center text-xs text-muted-foreground/70">
           {lastUpdatedLabel ?? null}
         </p>
@@ -1013,6 +1139,88 @@ function WikiEditorMounted({
       {state && !state.ok ? (
         <p className="mt-2 text-sm text-destructive">{state.message}</p>
       ) : null}
+      <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Page tags</DialogTitle>
+            <DialogDescription>
+              Search existing tags or create a new one for this page.
+            </DialogDescription>
+          </DialogHeader>
+          <form action={saveTags} className="grid gap-4">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium" htmlFor="wiki-page-tags">
+                Tags
+              </label>
+              <input
+                type="hidden"
+                name="tags"
+                value={selectedTags.join(", ")}
+              />
+              {selectedTags.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedTags.map((tag) => (
+                    <Button
+                      key={tag}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        setSelectedTags((currentTags) =>
+                          currentTags.filter((currentTag) => currentTag !== tag)
+                        )
+                      }
+                    >
+                      {tag} ×
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+              <Input
+                id="wiki-page-tags"
+                value={tagQuery}
+                onChange={(event) => setTagQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && tagQuery.trim()) {
+                    event.preventDefault()
+                    addTag(tagQuery)
+                  }
+                }}
+                placeholder="Search or create a tag"
+                autoFocus
+              />
+              {tagQuery.trim() ? (
+                <div className="max-h-44 overflow-y-auto rounded-md border p-1">
+                  {matchingTags.map((tag) => (
+                    <Button
+                      key={tag}
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start"
+                      onClick={() => addTag(tag)}
+                    >
+                      {tag}
+                    </Button>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full justify-start"
+                    onClick={() => addTag(tagQuery)}
+                  >
+                    Add “{tagQuery.trim()}”
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={pending}>
+                {pending ? "Saving..." : "Save tags"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={rewriteConfirmOpen}
         onOpenChange={(nextOpen) => {

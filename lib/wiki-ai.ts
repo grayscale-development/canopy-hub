@@ -240,16 +240,20 @@ export async function indexWikiPage({
   isPublished?: boolean
 }) {
   const content = revision?.plain_text?.trim() ?? ""
+  const tagText = node.tags?.length ? `Tags: ${node.tags.join(", ")}` : ""
   return indexKnowledgeSource(supabase, {
     sourceType: "wiki_page",
     sourceId: node.id,
     title: node.title,
     url: `/wiki/${path}`,
-    content: content || `${node.title}\n${node.status} wiki page.`,
+    content: [node.title, tagText, content || `${node.status} wiki page.`]
+      .filter(Boolean)
+      .join("\n\n"),
     metadata: {
       nodeId: node.id,
       path,
       status: node.status,
+      tags: node.tags ?? [],
       revisionId: revision?.id ?? null,
     },
     status: isPublished ? "active" : "archived",

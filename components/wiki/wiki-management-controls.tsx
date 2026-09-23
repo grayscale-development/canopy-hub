@@ -119,6 +119,24 @@ export function WikiCreateDialog({
             </label>
             <Input id={`wiki-${type}-title`} name="title" required />
           </div>
+          {type === "page" ? (
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium"
+                htmlFor={`wiki-${type}-tags`}
+              >
+                Tags
+              </label>
+              <Input
+                id={`wiki-${type}-tags`}
+                name="tags"
+                placeholder="Assets, Credit, Income"
+              />
+              <p className="text-xs text-muted-foreground">
+                Separate tags with commas.
+              </p>
+            </div>
+          ) : null}
           <div className="grid gap-2">
             <label
               className="text-sm font-medium"
@@ -280,6 +298,21 @@ export function WikiCreateWizardDialog({
             </label>
             <Input id="wiki-create-title" name="title" required />
           </div>
+          {type === "page" ? (
+            <div className="grid gap-2">
+              <label className="text-sm font-medium" htmlFor="wiki-create-tags">
+                Tags
+              </label>
+              <Input
+                id="wiki-create-tags"
+                name="tags"
+                placeholder="Assets, Credit, Income"
+              />
+              <p className="text-xs text-muted-foreground">
+                Separate tags with commas.
+              </p>
+            </div>
+          ) : null}
           <DialogFooter>
             <Button type="submit" disabled={pending}>
               {pending ? "Creating..." : "Create"}
@@ -296,10 +329,12 @@ export function WikiNodeActionsMenu({
   nodes,
   node,
   hasChildren = false,
+  availableTags = [],
 }: {
   nodes: WikiNodeRow[]
   node: WikiNodeRow
   hasChildren?: boolean
+  availableTags?: string[]
 }) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
@@ -307,8 +342,48 @@ export function WikiNodeActionsMenu({
   const [state, setState] = React.useState<WikiActionResult | null>(null)
   const [archiveState, setArchiveState] =
     React.useState<WikiActionResult | null>(null)
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [tagQuery, setTagQuery] = React.useState("")
   const options = parentOptions(nodes, node.id)
   const cannotArchive = node.type === "folder" && hasChildren
+  const matchingTags = availableTags
+    .filter(
+      (tag) =>
+        tag.toLocaleLowerCase().includes(tagQuery.trim().toLocaleLowerCase()) &&
+        !selectedTags.some(
+          (selectedTag) =>
+            selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+        )
+    )
+    .slice(0, 8)
+
+  function openEditDialog() {
+    setSelectedTags(node.tags ?? [])
+    setTagQuery("")
+    setOpen(true)
+  }
+
+  function addTag(value: string) {
+    const requestedTag = value.trim().replace(/\s+/g, " ")
+    const tag =
+      availableTags.find(
+        (availableTag) =>
+          availableTag.toLocaleLowerCase() === requestedTag.toLocaleLowerCase()
+      ) ?? requestedTag
+
+    if (
+      !tag ||
+      selectedTags.some(
+        (selectedTag) =>
+          selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
+      )
+    ) {
+      return
+    }
+
+    setSelectedTags((currentTags) => [...currentTags, tag])
+    setTagQuery("")
+  }
 
   function handleSubmit(formData: FormData) {
     setState(null)
@@ -358,7 +433,7 @@ export function WikiNodeActionsMenu({
         type="button"
         size="sm"
         variant="outline"
-        onClick={() => setOpen(true)}
+        onClick={openEditDialog}
       >
         <PencilIcon />
         Edit
@@ -398,6 +473,74 @@ export function WikiNodeActionsMenu({
                 required
               />
             </div>
+            {node.type === "page" ? (
+              <div className="grid gap-2">
+                <label className="text-sm font-medium" htmlFor="wiki-edit-tags">
+                  Tags
+                </label>
+                <input
+                  type="hidden"
+                  name="tags"
+                  value={selectedTags.join(", ")}
+                />
+                {selectedTags.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTags.map((tag) => (
+                      <Button
+                        key={tag}
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          setSelectedTags((currentTags) =>
+                            currentTags.filter(
+                              (currentTag) => currentTag !== tag
+                            )
+                          )
+                        }
+                      >
+                        {tag} ×
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+                <Input
+                  id="wiki-edit-tags"
+                  value={tagQuery}
+                  onChange={(event) => setTagQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && tagQuery.trim()) {
+                      event.preventDefault()
+                      addTag(tagQuery)
+                    }
+                  }}
+                  placeholder="Search or create a tag"
+                />
+                {tagQuery.trim() ? (
+                  <div className="max-h-44 overflow-y-auto rounded-md border p-1">
+                    {matchingTags.map((tag) => (
+                      <Button
+                        key={tag}
+                        type="button"
+                        variant="ghost"
+                        className="w-full justify-start"
+                        onClick={() => addTag(tag)}
+                      >
+                        {tag}
+                      </Button>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-start"
+                      onClick={() => addTag(tagQuery)}
+                    >
+                      Add “{tagQuery.trim()}”
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="grid gap-2">
               <label className="text-sm font-medium" htmlFor="wiki-edit-parent">
                 Parent
