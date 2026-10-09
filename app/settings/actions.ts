@@ -17,6 +17,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { extractWikiDocumentText } from "@/lib/wiki-extract"
 import { indexCuratedSiteKnowledge, indexKnowledgeSource } from "@/lib/wiki-ai"
+import { indexWikiKnowledge } from "@/lib/wiki-index"
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key)
@@ -424,6 +425,7 @@ export interface RunMiloKnowledgeIndexResult {
   message: string
   indexedCount?: number
   curatedIndexedCount?: number
+  wikiIndexedCount?: number
   fileIndexedCount?: number
 }
 
@@ -535,6 +537,7 @@ export async function runMiloKnowledgeIndexAction(): Promise<RunMiloKnowledgeInd
 
   try {
     const curatedIndexedCount = await indexCuratedSiteKnowledge(supabase)
+    const wikiIndexedCount = await indexWikiKnowledge(supabase)
     const { data: newsletterFiles } = await supabase.storage
       .from(NEWSLETTER_BUCKET)
       .list("", { limit: 1000 })
@@ -570,7 +573,8 @@ export async function runMiloKnowledgeIndexAction(): Promise<RunMiloKnowledgeInd
       fileIndexedCount += 1
     }
 
-    const indexedCount = curatedIndexedCount + fileIndexedCount
+    const indexedCount =
+      curatedIndexedCount + wikiIndexedCount + fileIndexedCount
     revalidatePath("/settings/advanced")
 
     return {
@@ -578,6 +582,7 @@ export async function runMiloKnowledgeIndexAction(): Promise<RunMiloKnowledgeInd
       message: `Indexed ${indexedCount} Milo knowledge sources.`,
       indexedCount,
       curatedIndexedCount,
+      wikiIndexedCount,
       fileIndexedCount,
     }
   } catch (error) {
