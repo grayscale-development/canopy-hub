@@ -178,6 +178,7 @@ export function MiloIndexPanel() {
           {status.ok ? (
             <span className="ml-2 text-xs opacity-80">
               {formatNumber(status.curatedIndexedCount)} curated,{" "}
+              {formatNumber(status.wikiIndexedCount)} Wiki,{" "}
               {formatNumber(status.fileIndexedCount)} files.
             </span>
           ) : null}

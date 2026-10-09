@@ -48,6 +48,11 @@ authorized account. Previously excluded drafts have no chunks until this reindex
 or their next save. No OpenAI calls are required for keyword retrieval; embeddings
 can remain null. Do not enable the draft-retaining indexer before the migration.
 
+Settings → AI → Index and the Wiki reindex endpoint share the Wiki page/asset
+indexer. The Settings receipt includes a separate Wiki source count, including
+drafts retained behind live permission checks. A successful receipt containing
+only curated sources and files does not demonstrate Wiki index coverage.
+
 ## Coverage
 
 - Unit/API tests cover user-client propagation, denied snippets/citations,
