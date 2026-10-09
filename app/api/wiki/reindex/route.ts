@@ -155,10 +155,9 @@ export async function POST() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const curatedIndexedCount = await indexCuratedSiteKnowledge(supabase)
-  const wikiIndexedCount = await indexWikiKnowledge(supabase)
-
   const adminSupabase = createSupabaseAdminClient()
+  const curatedIndexedCount = await indexCuratedSiteKnowledge(adminSupabase)
+  const wikiIndexedCount = await indexWikiKnowledge(adminSupabase)
   const { data: newsletterFiles } = await adminSupabase.storage
     .from(NEWSLETTER_BUCKET)
     .list("", { limit: 1000 })
@@ -177,7 +176,7 @@ export async function POST() {
       contentType: "application/pdf",
     })
 
-    await indexKnowledgeSource(supabase, {
+    await indexKnowledgeSource(adminSupabase, {
       sourceType: "newsletter",
       sourceId: parsed.fileName,
       title: parsed.label,

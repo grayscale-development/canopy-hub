@@ -321,4 +321,146 @@ dbDescribe("Milo user permission enforcement", () => {
         .sources
     ).toEqual([])
   })
+  it("allows current public source classes but retains site route gates", async () => {
+    const catalogToken = `catalog${randomUUID().replaceAll("-", "")}`
+    const fixtures = [
+      { type: "report", url: "/reports/corporate-turn-times" },
+      { type: "employee", url: "/employee/example" },
+      { type: "branch", url: "/branch/example" },
+      { type: "site", url: "/home" },
+      { type: "site", url: "/wiki" },
+      { type: "site", url: "/settings" },
+      { type: "site", url: "/unreviewed-private-route" },
+    ]
+    const sources = fixtures.map((fixture, index) => ({
+      id: randomUUID(),
+      source_type: fixture.type,
+      source_id: `${catalogToken}-${index}`,
+      title: `${catalogToken} ${index}`,
+      url: fixture.url,
+      content_hash: catalogToken,
+      status: "active",
+    }))
+    expect(
+      (await admin.from("knowledge_sources").insert(sources)).error
+    ).toBeNull()
+    const chunks = sources.map((source) => ({
+      id: randomUUID(),
+      source_id: source.id,
+      chunk_index: 0,
+      content: `${catalogToken} ${source.url}`,
+    }))
+    expect(
+      (await admin.from("knowledge_chunks").insert(chunks)).error
+    ).toBeNull()
+    const publicResult = await callMiloMcpTool(
+      "knowledge_search",
+      { query: catalogToken },
+      outsider
+    )
+    expect(publicResult.ok).toBe(true)
+    expect(publicResult.sources?.map((source) => source.url).sort()).toEqual(
+      [
+        "/reports/corporate-turn-times",
+        "/employee/example",
+        "/branch/example",
+        "/home",
+      ].sort()
+    )
+    const viewerResult = await callMiloMcpTool(
+      "knowledge_search",
+      { query: catalogToken },
+      viewer
+    )
+    expect(viewerResult.sources?.map((source) => source.url)).toContain("/wiki")
+    expect(viewerResult.sources?.map((source) => source.url)).not.toContain(
+      "/settings"
+    )
+    const settingsResult = await callMiloMcpTool(
+      "knowledge_search",
+      { query: catalogToken },
+      settings
+    )
+    expect(settingsResult.sources?.map((source) => source.url)).toContain(
+      "/settings"
+    )
+    expect(settingsResult.sources?.map((source) => source.url)).not.toContain(
+      "/unreviewed-private-route"
+    )
+
+    // Direct PostgREST writes must fail even for a Wiki manager who can read
+    // these globally available rows; no source relabeling or chunk poisoning.
+    for (const client of [manager, viewer]) {
+      for (const type of [
+        "wiki_page",
+        "wiki_asset",
+        "newsletter",
+        "document",
+        "support",
+        "report",
+        "employee",
+        "branch",
+        "site",
+      ]) {
+        const { error } = await client
+          .from("knowledge_sources")
+          .insert({
+            source_type: type,
+            source_id: randomUUID(),
+            title: "Forged draft",
+            url: "/home",
+            content_hash: "forged",
+          })
+        expect(error?.code).toBe("42501")
+      }
+      expect(
+        (
+          await client
+            .from("knowledge_sources")
+            .update({ source_type: "site", url: "/home" })
+            .eq("id", sources[0].id)
+        ).error?.code
+      ).toBe("42501")
+      expect(
+        (
+          await client
+            .from("knowledge_sources")
+            .delete()
+            .eq("id", sources[0].id)
+        ).error?.code
+      ).toBe("42501")
+      expect(
+        (
+          await client
+            .from("knowledge_chunks")
+            .insert({
+              source_id: sources[0].id,
+              chunk_index: 1,
+              content: "Forged draft content",
+            })
+        ).error?.code
+      ).toBe("42501")
+      expect(
+        (
+          await client
+            .from("knowledge_chunks")
+            .update({ content: "Forged draft content" })
+            .eq("id", chunks[0].id)
+        ).error?.code
+      ).toBe("42501")
+      expect(
+        (await client.from("knowledge_chunks").delete().eq("id", chunks[0].id))
+          .error?.code
+      ).toBe("42501")
+    }
+    expect(
+      (
+        await admin
+          .from("knowledge_chunks")
+          .select("content")
+          .eq("id", chunks[0].id)
+          .single()
+      ).data?.content
+    ).toBe(chunks[0].content)
+  })
 })

@@ -71,7 +71,14 @@ as $$
           and o.name = source_metadata->>'storagePath'
       )
       when 'support' then exists (select 1 from public.support_directory_sections s where s.id::text = source_id)
-      when 'site' then true
+      -- Only the current curated route catalog is eligible. Wiki and Settings
+      -- still require the route permissions above; unknown routes fail closed.
+      when 'site' then source_url in (
+        '/home', '/reports', '/pipeline', '/department-directory', '/people',
+        '/branches', '/wiki', '/newsletters', '/bridge', '/file-viewer',
+        '/reports/file-quality', '/reports/specialists-points', '/settings',
+        '/settings/permissions', '/settings/ai', '/settings/advanced'
+      )
       when 'report' then true
       when 'employee' then true
       when 'branch' then true
@@ -81,16 +88,14 @@ $$;
 revoke all on function public.milo_can_access_knowledge_source(text,text,text,jsonb) from public;
 grant execute on function public.milo_can_access_knowledge_source(text,text,text,jsonb) to authenticated;
 
--- FOR ALL grants are permissive SELECT grants too. Split writes so wiki.manage
--- cannot override another source's read permissions or expose archived chunks.
+-- Indexed content is a derived, trusted copy written by authorized server
+-- handlers. A Wiki editor must not be able to relabel draft content as a public
+-- report/site source, overwrite somebody else's chunks, or change read gates.
 drop policy if exists knowledge_sources_mutate_wiki_managers on public.knowledge_sources;
 drop policy if exists knowledge_chunks_mutate_wiki_managers on public.knowledge_chunks;
-create policy knowledge_sources_insert_wiki_managers on public.knowledge_sources for insert to authenticated with check (public.user_has_permission_code(auth.uid(), 'wiki.manage'));
-create policy knowledge_sources_update_wiki_managers on public.knowledge_sources for update to authenticated using (public.user_has_permission_code(auth.uid(), 'wiki.manage')) with check (public.user_has_permission_code(auth.uid(), 'wiki.manage'));
-create policy knowledge_sources_delete_wiki_managers on public.knowledge_sources for delete to authenticated using (public.user_has_permission_code(auth.uid(), 'wiki.manage'));
-create policy knowledge_chunks_insert_wiki_managers on public.knowledge_chunks for insert to authenticated with check (public.user_has_permission_code(auth.uid(), 'wiki.manage'));
-create policy knowledge_chunks_update_wiki_managers on public.knowledge_chunks for update to authenticated using (public.user_has_permission_code(auth.uid(), 'wiki.manage')) with check (public.user_has_permission_code(auth.uid(), 'wiki.manage'));
-create policy knowledge_chunks_delete_wiki_managers on public.knowledge_chunks for delete to authenticated using (public.user_has_permission_code(auth.uid(), 'wiki.manage'));
+revoke all on public.knowledge_sources, public.knowledge_chunks from anon, authenticated;
+grant select on public.knowledge_sources, public.knowledge_chunks to authenticated;
+grant all on public.knowledge_sources, public.knowledge_chunks to service_role;
 
 drop policy if exists knowledge_sources_select_authenticated on public.knowledge_sources;
 create policy knowledge_sources_select_authenticated on public.knowledge_sources for select to authenticated

@@ -331,7 +331,7 @@ export async function POST(request: Request) {
     const pageNode = nodes.find((item) => item.id === nodeId) ?? node
     const pagePath = buildWikiPath(nodes, pageNode)
     await indexWikiAsset({
-      supabase,
+      supabase: adminSupabase,
       asset: asset as WikiAssetRow,
       pageTitle: pageNode.title,
       pagePath,
