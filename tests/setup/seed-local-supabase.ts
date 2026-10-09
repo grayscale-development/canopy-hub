@@ -971,17 +971,16 @@ async function seedLocalData({
     TEST_USERS.wikiManager,
     "Wiki Manager Test"
   )
-  await ensureUser(supabase, TEST_USERS.standard, "Standard Test")
+  const standard = await ensureUser(
+    supabase,
+    TEST_USERS.standard,
+    "Standard Test"
+  )
 
   const adminSeedClient = await signInSeedUser(
     supabaseUrl,
     anonKey,
     TEST_USERS.admin
-  )
-  const wikiManagerSeedClient = await signInSeedUser(
-    supabaseUrl,
-    anonKey,
-    TEST_USERS.wikiManager
   )
 
   await upsertRequiredPermissions(adminSeedClient)
@@ -1008,7 +1007,12 @@ async function seedLocalData({
     codes: ["wiki.manage", "beta.1"],
   })
 
-  await seedWiki(wikiManagerSeedClient, wikiManager.id)
+  await grantPermissions({
+    supabase: adminSeedClient,
+    userId: standard.id,
+    codes: ["beta.1"],
+  })
+  await seedWiki(supabase, wikiManager.id)
   await seedSupportDirectory(adminSeedClient)
 }
 

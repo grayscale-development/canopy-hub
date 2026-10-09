@@ -1,6 +1,9 @@
 import "server-only"
 
-import { createSupabaseAdminClient } from "@/lib/supabase/admin"
+import { userHasPermissionCode } from "@/lib/permissions"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
+
+type MiloClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
 type JsonObject = Record<string, unknown>
 
@@ -588,11 +591,33 @@ function getRelation(value: unknown) {
   return relation
 }
 
-function getRelationClient(relation: RelationConfig) {
-  const supabase = createSupabaseAdminClient()
+function getRelationClient(relation: RelationConfig, supabase: MiloClient) {
   return relation.schema === "public"
     ? supabase
     : supabase.schema(relation.schema)
+}
+
+function getRelationTable(relation: RelationConfig) {
+  return relation.schema === "public" &&
+    ["wiki_nodes", "wiki_assets"].includes(relation.table)
+    ? `milo_${relation.table}`
+    : relation.table
+}
+
+async function assertRelationAccess(
+  relation: RelationConfig,
+  supabase: MiloClient
+) {
+  if (relation.table !== "permissions") return
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) throw new Error("Authenticated user is required")
+  for (const code of ["settings.access", "permissions.access"]) {
+    if (!(await userHasPermissionCode({ supabase, userId: user.id, code }))) {
+      throw new Error("Permission metadata is not available to this user")
+    }
+  }
 }
 
 function sanitizeColumns(relation: RelationConfig, columns: unknown) {
@@ -659,6 +684,7 @@ function applyFilters<T>(
 function applyMiloVisibilityFilters<T>(query: T, relation: RelationConfig): T {
   const nextQuery = query as {
     eq: (column: string, value: unknown) => T
+    neq: (column: string, value: unknown) => T
   }
 
   if (relation.schema !== "public") {
@@ -667,7 +693,7 @@ function applyMiloVisibilityFilters<T>(query: T, relation: RelationConfig): T {
 
   switch (relation.table) {
     case "wiki_nodes":
-      return nextQuery.eq("status", "published")
+      return nextQuery.neq("status", "archived")
     case "wiki_assets":
     case "knowledge_sources":
       return nextQuery.eq("status", "active")
@@ -743,14 +769,13 @@ function ok(
   return { ok: true, toolName, content: safeJson(content), sources }
 }
 
-async function knowledgeSearch(args: JsonObject) {
+async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
   const query = getString(args.query)
   if (!query) {
     throw new Error("query is required")
   }
 
   const limit = getLimit(args.limit, 8, 20)
-  const supabase = createSupabaseAdminClient()
   const { data, error } = await supabase.rpc("match_knowledge_chunks_keyword", {
     search_query: query,
     match_count: limit,
@@ -794,13 +819,25 @@ function getTagSearchTerms(query: string) {
   ]
 }
 
-async function wikiTagSearch(args: JsonObject) {
+async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (
+    !user ||
+    !(await userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: "beta.1",
+    }))
+  ) {
+    throw new Error("Wiki tags are not available to this user")
+  }
   const query = getString(args.query)
   if (!query) {
     throw new Error("query is required")
   }
 
-  const supabase = createSupabaseAdminClient()
   const { data: allTags, error: tagsError } = await supabase
     .from("wiki_tags")
     .select("id,name")
@@ -826,7 +863,7 @@ async function wikiTagSearch(args: JsonObject) {
   const { data: assignments, error: assignmentsError } = tagIds.length
     ? await supabase
         .from("wiki_page_tags")
-        .select("tag_id,wiki_nodes(id,title,status)")
+        .select("tag_id,node_id")
         .in("tag_id", tagIds)
     : { data: [], error: null }
 
@@ -834,18 +871,22 @@ async function wikiTagSearch(args: JsonObject) {
     throw new Error(assignmentsError.message)
   }
 
+  const pageIds = [...new Set((assignments ?? []).map((item) => item.node_id))]
+  const { data: pages, error: pagesError } = pageIds.length
+    ? await supabase
+        .from("milo_wiki_nodes")
+        .select("id,title")
+        .in("id", pageIds)
+    : { data: [], error: null }
+  if (pagesError) throw new Error(pagesError.message)
+  const pageById = new Map((pages ?? []).map((page) => [page.id, page]))
   const pagesByTagId = new Map<string, string[]>()
   for (const assignment of assignments ?? []) {
-    const page = Array.isArray(assignment.wiki_nodes)
-      ? assignment.wiki_nodes[0]
-      : assignment.wiki_nodes
-    if (!page || page.status !== "published") {
-      continue
-    }
-
-    const pages = pagesByTagId.get(assignment.tag_id) ?? []
-    pages.push(page.title)
-    pagesByTagId.set(assignment.tag_id, pages)
+    const page = pageById.get(assignment.node_id)
+    if (!page) continue
+    const titles = pagesByTagId.get(assignment.tag_id) ?? []
+    titles.push(page.title)
+    pagesByTagId.set(assignment.tag_id, titles)
   }
 
   const matches = (tags ?? []).map((tag) => ({
@@ -861,8 +902,8 @@ async function wikiTagSearch(args: JsonObject) {
       title: `Tag: ${match.tag}`,
       url: match.url,
       snippet: match.pages.length
-        ? `Published pages: ${match.pages.join(", ")}`
-        : "No published Wiki pages use this tag yet.",
+        ? `Accessible pages: ${match.pages.join(", ")}`
+        : "No accessible Wiki pages use this tag yet.",
       sourceType: "wiki_tag",
     }))
   )
@@ -881,12 +922,13 @@ async function dbSchema() {
   })
 }
 
-async function dbSelect(args: JsonObject) {
+async function dbSelect(args: JsonObject, supabase: MiloClient) {
   const relation = getRelation(args.relation)
+  await assertRelationAccess(relation, supabase)
   const columns = sanitizeColumns(relation, args.columns)
   const limit = getLimit(args.limit)
-  let query = getRelationClient(relation)
-    .from(relation.table)
+  let query = getRelationClient(relation, supabase)
+    .from(getRelationTable(relation))
     .select(columns.join(","))
 
   query = applyMiloVisibilityFilters(query, relation)
@@ -911,7 +953,7 @@ async function dbSelect(args: JsonObject) {
   )
 }
 
-async function dbSearch(args: JsonObject) {
+async function dbSearch(args: JsonObject, supabase: MiloClient) {
   const queryText = getString(args.query)
   if (!queryText) {
     throw new Error("query is required")
@@ -938,13 +980,14 @@ async function dbSearch(args: JsonObject) {
   const sources: MiloSourceCard[] = []
 
   for (const relation of relations) {
+    await assertRelationAccess(relation, supabase)
     const columns = relation.defaultColumns
     const search = relation.searchColumns
       .map((column) => `${column}.ilike.%${queryText.replaceAll(",", " ")}%`)
       .join(",")
     const query = applyMiloVisibilityFilters(
-      getRelationClient(relation)
-        .from(relation.table)
+      getRelationClient(relation, supabase)
+        .from(getRelationTable(relation))
         .select(columns.join(","))
         .or(search),
       relation
@@ -968,8 +1011,9 @@ async function dbSearch(args: JsonObject) {
   return ok("db_search", { query: queryText, results }, sources)
 }
 
-async function dbAggregate(args: JsonObject) {
+async function dbAggregate(args: JsonObject, supabase: MiloClient) {
   const relation = getRelation(args.relation)
+  await assertRelationAccess(relation, supabase)
   const operation = getString(args.operation)
   const column = getString(args.column)
   const groupBy = getString(args.groupBy)
@@ -985,8 +1029,8 @@ async function dbAggregate(args: JsonObject) {
     throw new Error("groupBy column is not allowed")
   }
 
-  let query = getRelationClient(relation)
-    .from(relation.table)
+  let query = getRelationClient(relation, supabase)
+    .from(getRelationTable(relation))
     .select(
       selectedColumns.length
         ? selectedColumns.join(",")
@@ -1052,18 +1096,14 @@ function assertBucket(bucket: unknown) {
   return value
 }
 
-async function storageList(args: JsonObject) {
-  const supabase = createSupabaseAdminClient()
+async function storageList(args: JsonObject, supabase: MiloClient) {
   const bucket = getString(args.bucket)
 
   if (!bucket) {
-    const { data, error } = await supabase.storage.listBuckets()
-    if (error) {
-      throw new Error(error.message)
-    }
-
+    // Bucket enumeration requires elevated privileges. Return only the fixed
+    // allowlist; object listing still uses the user's Storage RLS policies.
     return ok("storage_list", {
-      buckets: (data ?? []).filter((item) => STORAGE_BUCKETS.has(item.id)),
+      buckets: [...STORAGE_BUCKETS].map((id) => ({ id })),
     })
   }
 
@@ -1095,15 +1135,15 @@ async function storageList(args: JsonObject) {
   )
 }
 
-async function storageSignedUrl(args: JsonObject) {
+async function storageSignedUrl(args: JsonObject, supabase: MiloClient) {
   const bucket = assertBucket(args.bucket)
   const path = getString(args.path)
   if (!path) {
     throw new Error("path is required")
   }
 
-  const { data, error } = await createSupabaseAdminClient()
-    .storage.from(bucket)
+  const { data, error } = await supabase.storage
+    .from(bucket)
     .createSignedUrl(path, 60 * 10)
 
   if (error || !data?.signedUrl) {
@@ -1120,7 +1160,7 @@ async function storageSignedUrl(args: JsonObject) {
   ])
 }
 
-async function storageReadText(args: JsonObject) {
+async function storageReadText(args: JsonObject, supabase: MiloClient) {
   const bucket = assertBucket(args.bucket)
   const path = getString(args.path)
   if (!path) {
@@ -1128,12 +1168,10 @@ async function storageReadText(args: JsonObject) {
   }
 
   if (!/\.(txt|md|json|csv)$/i.test(path)) {
-    return storageSignedUrl(args)
+    return storageSignedUrl(args, supabase)
   }
 
-  const { data, error } = await createSupabaseAdminClient()
-    .storage.from(bucket)
-    .download(path)
+  const { data, error } = await supabase.storage.from(bucket).download(path)
 
   if (error || !data) {
     throw new Error(error?.message ?? "Unable to download object")
@@ -1163,31 +1201,40 @@ async function storageReadText(args: JsonObject) {
 
 export async function callMiloMcpTool(
   toolName: string,
-  args: unknown
+  args: unknown,
+  userClient?: MiloClient
 ): Promise<MiloMcpToolResult> {
   const normalizedToolName = getString(toolName) as MiloMcpToolName
   const objectArgs = getObject(args)
 
   try {
+    const supabase = userClient ?? (await createSupabaseServerClient())
+    if (!userClient) {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser()
+      if (error || !user) throw new Error("Authenticated user is required")
+    }
     switch (normalizedToolName) {
       case "knowledge_search":
-        return await knowledgeSearch(objectArgs)
+        return await knowledgeSearch(objectArgs, supabase)
       case "wiki_tag_search":
-        return await wikiTagSearch(objectArgs)
+        return await wikiTagSearch(objectArgs, supabase)
       case "db_schema":
         return await dbSchema()
       case "db_select":
-        return await dbSelect(objectArgs)
+        return await dbSelect(objectArgs, supabase)
       case "db_search":
-        return await dbSearch(objectArgs)
+        return await dbSearch(objectArgs, supabase)
       case "db_aggregate":
-        return await dbAggregate(objectArgs)
+        return await dbAggregate(objectArgs, supabase)
       case "storage_list":
-        return await storageList(objectArgs)
+        return await storageList(objectArgs, supabase)
       case "storage_signed_url":
-        return await storageSignedUrl(objectArgs)
+        return await storageSignedUrl(objectArgs, supabase)
       case "storage_read_text":
-        return await storageReadText(objectArgs)
+        return await storageReadText(objectArgs, supabase)
       default:
         throw new Error(`Unknown Milo MCP tool: ${toolName}`)
     }

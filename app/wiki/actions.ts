@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
+import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { archiveKnowledgeSource, indexWikiPage } from "@/lib/wiki-ai"
 import { getWikiRepositoryBySlug } from "@/lib/wiki-repositories"
@@ -128,19 +129,10 @@ async function syncWikiPageKnowledgeSource({
   }
 
   const isVisibleToViewers = isPublishedWikiBranch(nodes, node)
-  if (!isVisibleToViewers) {
-    await archiveKnowledgeSource({
-      supabase,
-      sourceType: "wiki_page",
-      sourceId: node.id,
-    })
-    return { nodes, path: buildWikiPath(nodes, node) }
-  }
-
   const revision = await fetchCurrentRevision(supabase, node)
   const path = buildWikiPath(nodes, node)
   await indexWikiPage({
-    supabase,
+    supabase: createSupabaseAdminClient(),
     node,
     revision,
     path,
@@ -481,7 +473,7 @@ export async function archiveWikiNodeAction(
 
     if (node.type === "page") {
       await archiveKnowledgeSource({
-        supabase,
+        supabase: createSupabaseAdminClient(),
         sourceType: "wiki_page",
         sourceId: id,
       })

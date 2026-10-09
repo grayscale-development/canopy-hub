@@ -157,7 +157,7 @@ export async function PATCH(
   const pageNode = nodes.find((item) => item.id === asset.node_id)
   if (pageNode) {
     await indexWikiAsset({
-      supabase,
+      supabase: createSupabaseAdminClient(),
       asset: asset as WikiAssetRow,
       pageTitle: pageNode.title,
       pagePath: buildWikiPath(nodes, pageNode),
@@ -310,7 +310,7 @@ export async function POST(
     }
 
     await indexWikiAsset({
-      supabase,
+      supabase: createSupabaseAdminClient(),
       asset: asset as WikiAssetRow,
       pageTitle: pageNode.title,
       pagePath: buildWikiPath(nodes, pageNode),

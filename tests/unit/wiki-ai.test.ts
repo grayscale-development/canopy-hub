@@ -239,7 +239,8 @@ describe("wiki AI orchestration", () => {
     })
     expect(miloMcp.callMiloMcpTool).toHaveBeenCalledWith(
       "storage_list",
-      expect.objectContaining({ bucket: "Newsletters" })
+      expect.objectContaining({ bucket: "Newsletters" }),
+      expect.anything()
     )
     expect(supabase.rpc).not.toHaveBeenCalled()
     expect(aiProvider.createChatResponseWithOpenAI).not.toHaveBeenCalled()
@@ -341,11 +342,13 @@ describe("wiki AI orchestration", () => {
     ])
     expect(miloMcp.callMiloMcpTool).toHaveBeenCalledWith(
       "knowledge_search",
-      expect.objectContaining({ query: expect.stringContaining("cancel") })
+      expect.objectContaining({ query: expect.stringContaining("cancel") }),
+      expect.anything()
     )
     expect(miloMcp.callMiloMcpTool).toHaveBeenCalledWith(
       "db_search",
-      expect.objectContaining({ relation: "public.wiki_nodes" })
+      expect.objectContaining({ relation: "public.wiki_nodes" }),
+      expect.anything()
     )
     expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -425,6 +428,66 @@ describe("wiki AI orchestration", () => {
         model: "fake-chat",
         input: expect.stringContaining("Wiki documentation lives"),
       })
+    )
+  })
+  it("indexes draft pages and assets as active while preserving visibility metadata", async () => {
+    const { indexWikiPage, indexWikiAsset } = await import("@/lib/wiki-ai")
+    const sources: Array<Record<string, unknown>> = []
+    const chunks: unknown[] = []
+    const chain = {
+      select: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+      upsert: vi.fn((row) => {
+        sources.push(row)
+        return chain
+      }),
+      single: vi.fn(async () => ({
+        data: { id: "indexed-source" },
+        error: null,
+      })),
+      delete: vi.fn(() => chain),
+      insert: vi.fn(async (rows) => {
+        chunks.push(...rows)
+        return { error: null }
+      }),
+      then: (resolve: (value: unknown) => void) => resolve({ error: null }),
+    }
+    const supabase = { from: vi.fn(() => chain) }
+    await indexWikiPage({
+      supabase: supabase as never,
+      node: { id: "draft-page", title: "Draft SOP", status: "draft" } as never,
+      revision: { id: "revision", plain_text: "Draft procedure" } as never,
+      path: "draft",
+      isPublished: false,
+    })
+    await indexWikiAsset({
+      supabase: supabase as never,
+      asset: {
+        id: "asset",
+        node_id: "draft-page",
+        status: "active",
+        file_name: "draft.md",
+        extracted_text: "Draft attachment",
+      } as never,
+      pageTitle: "Draft SOP",
+      pagePath: "draft",
+      isPagePublished: false,
+    })
+    expect(sources.map((source) => source.status)).toEqual(["active", "active"])
+    expect(sources[0].metadata).toMatchObject({
+      status: "draft",
+      isPublished: false,
+    })
+    expect(chunks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          content: expect.stringContaining("Draft procedure"),
+        }),
+        expect.objectContaining({
+          content: expect.stringContaining("Draft attachment"),
+        }),
+      ])
     )
   })
 })

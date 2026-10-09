@@ -6,6 +6,8 @@ import type {
   Tool,
 } from "openai/resources/responses/responses"
 
+import type { createSupabaseServerClient } from "@/lib/supabase/server"
+
 import { createAgentResponseWithOpenAI, getChatModel } from "@/lib/ai/provider"
 import {
   callMiloMcpTool,
@@ -595,7 +597,8 @@ function selectFinalCitations({
 }
 
 async function buildInitialResearchBrief(
-  question: string
+  question: string,
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
 ): Promise<InitialResearchResult> {
   const calls = buildInitialResearchCalls(question)
   const sources: MiloSourceCard[] = []
@@ -603,7 +606,11 @@ async function buildInitialResearchBrief(
   const resultBlocks: string[] = []
 
   for (const call of calls) {
-    const result = await callMiloMcpTool(call.toolName, call.arguments)
+    const result = await callMiloMcpTool(
+      call.toolName,
+      call.arguments,
+      supabase
+    )
     toolCalls.push({
       toolName: result.toolName,
       ok: result.ok,
@@ -656,11 +663,13 @@ function toCitations(sources: MiloSourceCard[]): MiloAgentCitation[] {
 
 export async function answerMiloQuestionWithAgent({
   question,
+  supabase,
 }: {
   question: string
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
 }): Promise<MiloAgentAnswer> {
   const model = getChatModel()
-  const initialResearch = await buildInitialResearchBrief(question)
+  const initialResearch = await buildInitialResearchBrief(question, supabase)
   let input: ResponseInputItem[] = [
     {
       role: "user",
@@ -696,7 +705,7 @@ export async function answerMiloQuestionWithAgent({
 
       try {
         const args = parseProxyArguments(functionCall.arguments)
-        output = await callMiloMcpTool(args.toolName, args.arguments)
+        output = await callMiloMcpTool(args.toolName, args.arguments, supabase)
       } catch (error) {
         output = {
           ok: false,
