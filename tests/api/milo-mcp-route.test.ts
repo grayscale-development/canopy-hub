@@ -17,12 +17,30 @@ const mcpTools = vi.hoisted(() => ({
 
 vi.mock("@/lib/milo/mcp/tools", () => mcpTools)
 
+const userSession = vi.hoisted(() => ({
+  auth: {
+    getUser: vi.fn(
+      async (): Promise<unknown> => ({
+        data: { user: { id: "viewer" } },
+        error: null,
+      })
+    ),
+  },
+}))
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServerClient: vi.fn(async () => userSession),
+}))
+
 describe("/api/milo/mcp route", () => {
   const originalToken = process.env.MILO_MCP_SERVER_TOKEN
 
   beforeEach(() => {
     process.env.MILO_MCP_SERVER_TOKEN = "test-token"
     vi.clearAllMocks()
+    userSession.auth.getUser.mockResolvedValue({
+      data: { user: { id: "viewer" } },
+      error: null,
+    })
   })
 
   afterEach(() => {
@@ -99,6 +117,32 @@ describe("/api/milo/mcp route", () => {
         isError: false,
       },
     })
-    expect(mcpTools.callMiloMcpTool).toHaveBeenCalledWith("db_schema", {})
+    expect(mcpTools.callMiloMcpTool).toHaveBeenCalledWith(
+      "db_schema",
+      {},
+      userSession
+    )
+  })
+  it("does not treat the shared MCP bearer as a user identity", async () => {
+    userSession.auth.getUser.mockResolvedValue({
+      data: { user: null },
+      error: null,
+    })
+    const { POST } = await import("@/app/api/milo/mcp/route")
+    const response = await POST(
+      new Request("http://test.local/api/milo/mcp", {
+        method: "POST",
+        headers: { authorization: "Bearer test-token" },
+        body: JSON.stringify({
+          method: "tools/call",
+          params: {
+            name: "knowledge_search",
+            arguments: { userId: "manager" },
+          },
+        }),
+      })
+    )
+    expect(response.status).toBe(401)
+    expect(mcpTools.callMiloMcpTool).not.toHaveBeenCalled()
   })
 })

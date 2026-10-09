@@ -253,10 +253,11 @@ export async function indexWikiPage({
       nodeId: node.id,
       path,
       status: node.status,
+      isPublished,
       tags: node.tags ?? [],
       revisionId: revision?.id ?? null,
     },
-    status: isPublished ? "active" : "archived",
+    status: node.status !== "archived" ? "active" : "archived",
   })
 }
 
@@ -297,9 +298,9 @@ export async function indexWikiAsset({
       mimeType: asset.mime_type,
       pageTitle,
       pagePath,
+      isPagePublished,
     },
-    status:
-      asset.status === "active" && isPagePublished ? "active" : "archived",
+    status: asset.status === "active" ? "active" : "archived",
   })
 }
 
@@ -924,7 +925,7 @@ export async function answerKnowledgeQuestion({
   }
 
   try {
-    return await answerMiloQuestionWithAgent({ question })
+    return await answerMiloQuestionWithAgent({ question, supabase })
   } catch {
     // Keep the existing RAG path as a reliable fallback if the agent/tool loop fails.
   }

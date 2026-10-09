@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 
 import { callMiloMcpTool, MILO_MCP_TOOLS } from "@/lib/milo/mcp/tools"
 
+import { createSupabaseServerClient } from "@/lib/supabase/server"
+
 export const runtime = "nodejs"
 
 interface JsonRpcBody {
@@ -93,7 +95,18 @@ export async function POST(request: Request) {
   if (method === "tools/call") {
     const name = typeof params.name === "string" ? params.name : ""
     const args = "arguments" in params ? params.arguments : {}
-    const result = await callMiloMcpTool(name, args)
+    const supabase = await createSupabaseServerClient()
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser()
+    if (error || !user) {
+      return NextResponse.json(
+        { error: "Authenticated user is required" },
+        { status: 401 }
+      )
+    }
+    const result = await callMiloMcpTool(name, args, supabase)
 
     return jsonRpcResult(id, {
       content: [
