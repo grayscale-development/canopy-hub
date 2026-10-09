@@ -178,7 +178,11 @@ dbDescribe("Milo user permission enforcement", () => {
     ]) {
       const result = await callMiloMcpTool(
         "db_search",
-        { relation, query: token },
+        {
+          relation,
+          query:
+            relation === "public.wiki_nodes" ? `${token} Draft SOP` : token,
+        },
         viewer
       )
       expect(result.ok).toBe(true)
