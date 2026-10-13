@@ -147,27 +147,6 @@ async function ensureUser(
   return data.user
 }
 
-async function signInSeedUser(
-  supabaseUrl: string,
-  anonKey: string,
-  email: string
-) {
-  const supabase = createClient<any>(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password: TEST_PASSWORD,
-  })
-
-  if (error) {
-    throw error
-  }
-
-  return supabase
-}
-
 async function grantPermissions({
   supabase,
   userId,
@@ -949,11 +928,9 @@ async function seedSupportDirectory(supabase: AnySupabaseClient) {
 
 async function seedLocalData({
   supabaseUrl,
-  anonKey,
   serviceRoleKey,
 }: {
   supabaseUrl: string
-  anonKey: string
   serviceRoleKey: string
 }) {
   const supabase = createClient<any>(supabaseUrl, serviceRoleKey, {
@@ -977,20 +954,14 @@ async function seedLocalData({
     "Standard Test"
   )
 
-  const adminSeedClient = await signInSeedUser(
-    supabaseUrl,
-    anonKey,
-    TEST_USERS.admin
-  )
-
-  await upsertRequiredPermissions(adminSeedClient)
+  await upsertRequiredPermissions(supabase)
   await grantPermissions({
-    supabase: adminSeedClient,
+    supabase,
     userId: admin.id,
     codes: TEST_PERMISSION_CODES,
   })
   await grantPermissions({
-    supabase: adminSeedClient,
+    supabase,
     userId: settings.id,
     codes: [
       "settings.access",
@@ -1002,18 +973,18 @@ async function seedLocalData({
     ],
   })
   await grantPermissions({
-    supabase: adminSeedClient,
+    supabase,
     userId: wikiManager.id,
     codes: ["wiki.manage", "beta.1"],
   })
 
   await grantPermissions({
-    supabase: adminSeedClient,
+    supabase,
     userId: standard.id,
     codes: ["beta.1"],
   })
   await seedWiki(supabase, wikiManager.id)
-  await seedSupportDirectory(adminSeedClient)
+  await seedSupportDirectory(supabase)
 }
 
 async function main() {
@@ -1039,7 +1010,7 @@ async function main() {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      await seedLocalData({ supabaseUrl, anonKey, serviceRoleKey })
+      await seedLocalData({ supabaseUrl, serviceRoleKey })
       console.log("Seeded local Supabase test data.")
       return
     } catch (error) {
