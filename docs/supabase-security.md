@@ -52,10 +52,19 @@ dedicated `net` schema, although the extension's installation namespace can be
 could interrupt queued requests and scheduler dependencies, and changing system
 catalogs to hide the warning is inappropriate. See the [provider installation documentation](https://supabase.github.io/pg_net/installation/).
 
-The verifier allows **only** `extension_in_public` for `pg_net`. This remains a
-reported provider warning, not a resolved finding. All other advisor findings and
-disabled leaked-password protection fail acceptance. Review any provider-supported
-extension upgrade/relocation separately before claiming a completely clear advisor.
+The verifier allows **only** `extension_in_public` for `pg_net` and the following
+intentional service-only tables reported as `rls_enabled_no_policy`:
+`public.allowed_domains`, `public.source_configs`, `raw.retention_cleanup_runs`,
+`raw.retention_policies`, `raw.row_ingest_log`, `raw.source_payloads`, and
+`raw.sync_runs`. Each has RLS enabled, no client policy, no client grant, and an
+explicit `service_role` grant; this is a deny-by-default boundary, not an unresolved
+public-table exposure. The allowlist checks exact schema, relation name, type and
+finding level, so another policyless table still fails acceptance.
+
+The `pg_net` finding remains a reported provider warning, not a resolved finding.
+All other advisor findings and disabled leaked-password protection fail acceptance.
+Review any provider-supported extension upgrade/relocation separately before
+claiming a completely clear advisor.
 
 ## Rollback
 
