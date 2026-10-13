@@ -9,17 +9,28 @@ grant usage on schema app_private to authenticated, service_role;
 revoke create on schema public from public, anon, authenticated;
 revoke create on schema data, raw, extensions from public, anon, authenticated;
 
-alter table public.allowed_domains enable row level security;
-alter table public.roles enable row level security;
-alter table public.user_roles enable row level security;
-alter table public.source_configs enable row level security;
-revoke all on public.allowed_domains, public.roles, public.user_roles,
-  public.source_configs from public, anon, authenticated;
-grant select on public.roles, public.user_roles to authenticated;
-grant all on public.allowed_domains, public.roles, public.user_roles,
-  public.source_configs to service_role;
-create policy roles_read on public.roles for select to authenticated using (auth.uid() is not null);
-create policy user_roles_read_own on public.user_roles for select to authenticated using (user_id = auth.uid());
+-- Legacy tables were provisioned outside the checked-in baseline on hosted
+-- projects. Harden them when present; do not invent new tables on fresh installs.
+do $$
+declare table_name text;
+begin
+  foreach table_name in array array['allowed_domains', 'roles', 'user_roles', 'source_configs']
+  loop
+    if to_regclass(format('public.%I', table_name)) is null then
+      continue;
+    end if;
+    execute format('alter table public.%I enable row level security', table_name);
+    execute format('revoke all on public.%I from public, anon, authenticated', table_name);
+    execute format('grant all on public.%I to service_role', table_name);
+    if table_name = 'roles' then
+      execute 'grant select on public.roles to authenticated';
+      execute 'create policy roles_read on public.roles for select to authenticated using (auth.uid() is not null)';
+    elsif table_name = 'user_roles' then
+      execute 'grant select on public.user_roles to authenticated';
+      execute 'create policy user_roles_read_own on public.user_roles for select to authenticated using (user_id = auth.uid())';
+    end if;
+  end loop;
+end $$;
 -- allowed_domains and source_configs are backend-only, with no client policy.
 
 -- Reports already permit signed-in users. Invoker views now enforce that rule
@@ -69,13 +80,21 @@ alter function data.get_branch_production_last_12_months(text, date) security in
 alter function data.get_employee_production_last_12_months(text, date) security invoker;
 alter function data.get_file_quality_rollups(date) security invoker;
 alter function data.get_points_specialists_summary(date, text) security invoker;
-alter function public.get_current_user_role_code() security invoker;
+do $$ begin
+  if to_regprocedure('public.get_current_user_role_code()') is not null then
+    alter function public.get_current_user_role_code() security invoker;
+  end if;
+end $$;
 
 alter function public.user_has_permission_code(uuid, text) set schema app_private;
 alter function public.milo_can_access_wiki_node(text) set schema app_private;
 alter function public.list_permission_users() set schema app_private;
 alter function public.list_permission_directory_users() set schema app_private;
-alter function public.list_canopy_users_simple() set schema app_private;
+do $$ begin
+  if to_regprocedure('public.list_canopy_users_simple()') is not null then
+    alter function public.list_canopy_users_simple() set schema app_private;
+  end if;
+end $$;
 
 create function public.user_has_permission_code(p_user_id uuid, p_code text)
 returns boolean language sql stable security invoker set search_path = '' as $$
@@ -118,12 +137,18 @@ language sql security invoker set search_path = '' as $$
   select * from app_private.list_permission_directory_users()
   where auth.uid() is not null or auth.role() = 'service_role';
 $$;
-create function public.list_canopy_users_simple()
-returns table(full_name text, email text, role text)
-language sql security invoker set search_path = '' as $$
-  select * from app_private.list_canopy_users_simple()
-  where auth.uid() is not null or auth.role() = 'service_role';
-$$;
+do $migration$ begin
+  if to_regprocedure('app_private.list_canopy_users_simple()') is not null then
+    execute $wrapper$
+      create function public.list_canopy_users_simple()
+      returns table(full_name text, email text, role text)
+      language sql security invoker set search_path = '' as $body$
+        select * from app_private.list_canopy_users_simple()
+        where auth.uid() is not null or auth.role() = 'service_role';
+      $body$;
+    $wrapper$;
+  end if;
+end $migration$;
 
 -- RLS must enforce the same editor gate as the server actions. Restrictive
 -- policies remain effective even if an older permissive policy is retained.

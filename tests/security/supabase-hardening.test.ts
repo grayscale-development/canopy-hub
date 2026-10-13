@@ -287,3 +287,40 @@ describe("Supabase security migration in PostgreSQL", () => {
     expect(grants.rows).toEqual([{ anon: false, authenticated: false }])
   })
 })
+
+describe("security migration with the checked-in legacy baseline", () => {
+  it("hardens existing objects when hosted-only legacy objects are absent", async () => {
+    const fresh = new PGlite({ extensions: { vector } })
+    try {
+      await fresh.exec(read("tests/security/security-fixture.sql"))
+      await fresh.exec(`
+        drop function public.get_current_user_role_code();
+        drop function public.list_canopy_users_simple();
+        drop table public.allowed_domains, public.roles, public.user_roles;
+      `)
+      const milo = read(
+        "supabase/migrations/202610090001_milo_effective_knowledge_access.sql"
+      )
+      await fresh.exec(milo.slice(0, milo.indexOf("-- Direct select/search")))
+      await fresh.exec(
+        read("supabase/migrations/202610130001_security_hardening.sql")
+      )
+      expect(
+        (
+          await fresh.query(
+            "select relrowsecurity from pg_class where oid = 'public.source_configs'::regclass"
+          )
+        ).rows
+      ).toEqual([{ relrowsecurity: true }])
+      expect(
+        (
+          await fresh.query(
+            "select to_regclass('public.roles') as legacy_table"
+          )
+        ).rows
+      ).toEqual([{ legacy_table: null }])
+    } finally {
+      await fresh.close()
+    }
+  }, 60_000)
+})
