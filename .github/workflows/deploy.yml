@@ -99,6 +99,9 @@ jobs:
           supabase functions deploy data-sync --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy data-sync-dispatch --project-ref "$SUPABASE_PROJECT_REF"
 
+      - name: Enable leaked-password protection and verify security advisors
+        run: node scripts/supabase-security.mjs --apply
+
       - name: Validate Supabase Data API schema
         run: |
           node --input-type=module <<'NODE'
