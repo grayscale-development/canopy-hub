@@ -1,5 +1,35 @@
 import { pathToFileURL } from "node:url"
 
+const serviceOnlyRlsTables = new Set([
+  "public.allowed_domains",
+  "public.source_configs",
+  "raw.retention_cleanup_runs",
+  "raw.retention_policies",
+  "raw.row_ingest_log",
+  "raw.source_payloads",
+  "raw.sync_runs",
+])
+
+function isAcceptedFinding(finding) {
+  if (
+    finding.name === "extension_in_public" &&
+    finding.level === "WARN" &&
+    finding.metadata?.schema === "public" &&
+    finding.metadata?.type === "extension" &&
+    finding.metadata?.name === "pg_net"
+  )
+    return true
+
+  return (
+    finding.name === "rls_enabled_no_policy" &&
+    finding.level === "INFO" &&
+    finding.metadata?.type === "table" &&
+    serviceOnlyRlsTables.has(
+      `${finding.metadata?.schema}.${finding.metadata?.name}`
+    )
+  )
+}
+
 // Auth configuration lives outside SQL migrations. No changes without --apply.
 export async function enforceSecurity({
   projectRef,
@@ -59,16 +89,9 @@ export async function enforceSecurity({
   )
   // pg_net is non-relocatable and installs its objects in net. Do not drop it
   // or alter system catalogs to silence its installation-namespace warning.
-  const unhandled = findings.filter(
-    (finding) =>
-      !(
-        finding.name === "extension_in_public" &&
-        finding.level === "WARN" &&
-        finding.metadata?.schema === "public" &&
-        finding.metadata?.type === "extension" &&
-        finding.metadata?.name === "pg_net"
-      )
-  )
+  // The named RLS tables are intentionally service-only: RLS with no client
+  // policy denies clients while service_role retains the explicit backend grant.
+  const unhandled = findings.filter((finding) => !isAcceptedFinding(finding))
   if (auth.password_hibp_enabled !== true || unhandled.length) {
     throw new Error(
       "Supabase security acceptance is incomplete; review sanitized finding counts. Leaked-password protection may require an existing Pro plan; this script never purchases one."

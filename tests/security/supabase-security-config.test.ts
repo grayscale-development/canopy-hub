@@ -43,6 +43,52 @@ describe("Supabase Auth security deployment", () => {
     )
     expect(request).toHaveBeenCalledTimes(4)
   })
+  it("permits only the named service-only tables with RLS and no client policy", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ password_hibp_enabled: true }))
+      .mockResolvedValueOnce(
+        ok({
+          lints: [
+            {
+              name: "rls_enabled_no_policy",
+              level: "INFO",
+              metadata: {
+                schema: "raw",
+                name: "sync_runs",
+                type: "table",
+              },
+            },
+          ],
+        })
+      )
+    await expect(
+      enforceSecurity({ projectRef, token: "test", request })
+    ).resolves.toMatchObject({ acceptedProviderWarnings: 1 })
+  })
+  it("fails on an unlisted RLS-with-no-policy table", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ password_hibp_enabled: true }))
+      .mockResolvedValueOnce(
+        ok({
+          lints: [
+            {
+              name: "rls_enabled_no_policy",
+              level: "INFO",
+              metadata: {
+                schema: "public",
+                name: "unexpected_table",
+                type: "table",
+              },
+            },
+          ],
+        })
+      )
+    await expect(
+      enforceSecurity({ projectRef, token: "test", request })
+    ).rejects.toThrow(/acceptance is incomplete/)
+  })
   it("does not retry or purchase an upgrade when Auth rejects the setting", async () => {
     const request = vi
       .fn()
