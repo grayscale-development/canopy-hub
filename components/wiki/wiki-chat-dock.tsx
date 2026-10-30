@@ -4,7 +4,10 @@ import * as React from "react"
 import { SparklesIcon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { WikiChat } from "@/components/wiki/wiki-chat"
+import {
+  MILO_CHAT_THREAD_STORAGE_KEY,
+  WikiChat,
+} from "@/components/wiki/wiki-chat"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
@@ -139,7 +142,11 @@ export function WikiChatDockProvider({
         }
         setPersistedOpen(true)
       },
-      close: () => setPersistedOpen(false),
+      close: () => {
+        window.localStorage.removeItem(MILO_CHAT_THREAD_STORAGE_KEY)
+        setQueuedPrompt(null)
+        setPersistedOpen(false)
+      },
     }),
     [hasBetaAccess, isAuthenticated, isOpen, setPersistedOpen]
   )

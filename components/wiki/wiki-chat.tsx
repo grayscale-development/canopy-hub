@@ -9,6 +9,7 @@ import {
   PlusIcon,
   SendIcon,
   UserIcon,
+  XIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -54,7 +55,7 @@ type StreamEvent =
       citations: Citation[]
     }
 
-const MILO_CHAT_THREAD_STORAGE_KEY = "milo-chat-thread-id"
+export const MILO_CHAT_THREAD_STORAGE_KEY = "milo-chat-thread-id"
 const FLAG_REASON_OPTIONS = [
   "Incorrect answer",
   "Wrong source",
@@ -341,6 +342,14 @@ export function WikiChat({
   const bottomSentinelRef = React.useRef<HTMLDivElement | null>(null)
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null)
   const shouldFollowScrollRef = React.useRef(true)
+  const isMountedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   const scrollToBottom = React.useCallback(
     (behavior: ScrollBehavior = "auto") => {
@@ -366,7 +375,9 @@ export function WikiChat({
     }
 
     const payload = (await response.json()) as { threads?: ChatThread[] }
-    setThreads(payload.threads ?? [])
+    if (isMountedRef.current) {
+      setThreads(payload.threads ?? [])
+    }
   }, [])
 
   const loadThread = React.useCallback(
@@ -386,6 +397,9 @@ export function WikiChat({
           thread?: ChatThread
           messages?: ChatMessage[]
         }
+        if (!isMountedRef.current) {
+          return
+        }
         setThreadId(payload.thread?.id ?? nextThreadId)
         setMessages(
           (payload.messages ?? []).map((message) => ({
@@ -398,7 +412,9 @@ export function WikiChat({
         shouldFollowScrollRef.current = true
         requestAnimationFrame(() => scrollToBottom())
       } finally {
-        setLoadingThread(false)
+        if (isMountedRef.current) {
+          setLoadingThread(false)
+        }
       }
     },
     [scrollToBottom]
@@ -409,6 +425,10 @@ export function WikiChat({
 
     async function loadInitialState() {
       await refreshThreads()
+      if (!isCurrent) {
+        return
+      }
+
       const savedThreadId = window.localStorage.getItem(
         MILO_CHAT_THREAD_STORAGE_KEY
       )
@@ -473,6 +493,11 @@ export function WikiChat({
           throw new Error(payload?.error ?? "Chat request failed.")
         }
 
+        if (!isMountedRef.current) {
+          await response.body.cancel()
+          return
+        }
+
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ""
@@ -481,6 +506,10 @@ export function WikiChat({
           const { value, done } = await reader.read()
           if (done) {
             break
+          }
+          if (!isMountedRef.current) {
+            await reader.cancel()
+            return
           }
 
           buffer += decoder.decode(value, { stream: true })
@@ -534,22 +563,26 @@ export function WikiChat({
           }
         }
       } catch (error) {
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId
-              ? {
-                  ...message,
-                  content:
-                    error instanceof Error
-                      ? error.message
-                      : "Unable to answer right now.",
-                }
-              : message
+        if (isMountedRef.current) {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId
+                ? {
+                    ...message,
+                    content:
+                      error instanceof Error
+                        ? error.message
+                        : "Unable to answer right now.",
+                  }
+                : message
+            )
           )
-        )
+        }
       } finally {
-        setPending(false)
-        refreshThreads()
+        if (isMountedRef.current) {
+          setPending(false)
+          void refreshThreads()
+        }
       }
     },
     [pending, refreshThreads, threadId]
@@ -618,16 +651,28 @@ export function WikiChat({
         </div>
       ) : null}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowSessions((current) => !current)}
-          aria-pressed={showSessions}
-        >
-          <HistoryIcon />
-          Sessions
-        </Button>
+        {showSessions ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Return to current chat"
+            title="Return to current chat"
+            onClick={() => setShowSessions(false)}
+          >
+            <XIcon />
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowSessions(true)}
+          >
+            <HistoryIcon />
+            Sessions
+          </Button>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -640,181 +685,194 @@ export function WikiChat({
         </Button>
       </div>
       {showSessions ? (
-        <div className="max-h-56 shrink-0 overflow-y-auto border-b p-2">
-          {threads.length ? (
-            <div className="grid gap-1">
-              {threads.map((thread) => (
-                <button
-                  key={thread.id}
-                  type="button"
-                  className={cn(
-                    "rounded-md px-2 py-2 text-left text-sm hover:bg-muted",
-                    thread.id === threadId && "bg-muted"
-                  )}
-                  onClick={() => loadThread(thread.id)}
-                  disabled={loadingThread}
-                >
-                  <span className="block truncate font-medium">
-                    {thread.title || "New chat"}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {new Date(thread.updatedAt).toLocaleString()}
-                  </span>
-                </button>
-              ))}
+        <section
+          aria-label="Milo sessions"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <h3 className="shrink-0 px-4 pt-4 text-sm font-semibold">Sessions</h3>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {threads.length ? (
+              <div className="grid gap-1">
+                {threads.map((thread) => (
+                  <button
+                    key={thread.id}
+                    type="button"
+                    className={cn(
+                      "rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                      thread.id === threadId && "bg-muted"
+                    )}
+                    onClick={() => loadThread(thread.id)}
+                    disabled={loadingThread}
+                  >
+                    <span className="block truncate font-medium">
+                      {thread.title || "New chat"}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {new Date(thread.updatedAt).toLocaleString()}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                No previous sessions yet.
+              </p>
+            )}
+          </div>
+        </section>
+      ) : null}
+      {!showSessions ? (
+        <div
+          ref={scrollContainerRef}
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
+          onScroll={handleMessagesScroll}
+        >
+          {loadingThread ? (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              Loading session...
             </div>
+          ) : messages.length ? (
+            messages.map((message) => (
+              <div
+                key={message.id}
+                className={cn(
+                  "group/milo-message relative",
+                  "-mx-2 px-3 py-3",
+                  message.role === "user" && "bg-sky-100/80 dark:bg-sky-900/35"
+                )}
+              >
+                {message.role === "assistant" &&
+                message.canFlag &&
+                !message.flagged ? (
+                  <FlagMiloResponseButton
+                    assistantMessageId={message.id}
+                    onFlagged={(assistantMessageId) =>
+                      setMessages((current) => {
+                        const assistantIndex = current.findIndex(
+                          (item) => item.id === assistantMessageId
+                        )
+                        let userMessageId: string | null = null
+
+                        for (
+                          let index = assistantIndex - 1;
+                          index >= 0;
+                          index--
+                        ) {
+                          if (current[index]?.role === "user") {
+                            userMessageId = current[index].id
+                            break
+                          }
+                        }
+
+                        return current.map((item) =>
+                          item.id === assistantMessageId ||
+                          item.id === userMessageId
+                            ? { ...item, flagged: true }
+                            : item
+                        )
+                      })
+                    }
+                  />
+                ) : null}
+                {message.flagged ? <FlaggedMessageIcon /> : null}
+                <div className="mb-1.5 flex items-center gap-2">
+                  <div
+                    className={cn(
+                      "flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground",
+                      message.role === "user" &&
+                        "bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-200"
+                    )}
+                  >
+                    {message.role === "user" ? (
+                      <UserIcon className="size-3.5" />
+                    ) : (
+                      <BotIcon className="size-3.5" />
+                    )}
+                  </div>
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    {message.role === "user" ? "You" : "Milo"}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <MessageContent
+                    content={
+                      message.content ||
+                      (message.role === "assistant" ? "Thinking..." : "")
+                    }
+                  />
+                  {message.citations?.length ? (
+                    <div className="mt-3 space-y-2">
+                      {message.citations.map((citation, index) => (
+                        <div
+                          key={`${citation.title}-${index}`}
+                          className="relative rounded-md border p-2 pr-9"
+                        >
+                          <span className="absolute top-2 right-2 rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none font-medium text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          {citation.url ? (
+                            <Link
+                              href={citation.url}
+                              className="text-xs font-medium hover:underline"
+                            >
+                              {citation.title}
+                            </Link>
+                          ) : (
+                            <p className="text-xs font-medium">
+                              {citation.title}
+                            </p>
+                          )}
+                          <MessageContent
+                            content={citation.snippet}
+                            className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))
           ) : (
-            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-              No previous sessions yet.
-            </p>
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              Ask Milo about Wiki pages, uploaded documents, reports,
+              newsletters, or support directory information.
+            </div>
           )}
+          <div ref={bottomSentinelRef} aria-hidden="true" />
         </div>
       ) : null}
-      <div
-        ref={scrollContainerRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
-        onScroll={handleMessagesScroll}
-      >
-        {loadingThread ? (
-          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            Loading session...
-          </div>
-        ) : messages.length ? (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={cn(
-                "group/milo-message relative",
-                "-mx-2 px-3 py-3",
-                message.role === "user" && "bg-sky-100/80 dark:bg-sky-900/35"
-              )}
-            >
-              {message.role === "assistant" &&
-              message.canFlag &&
-              !message.flagged ? (
-                <FlagMiloResponseButton
-                  assistantMessageId={message.id}
-                  onFlagged={(assistantMessageId) =>
-                    setMessages((current) => {
-                      const assistantIndex = current.findIndex(
-                        (item) => item.id === assistantMessageId
-                      )
-                      let userMessageId: string | null = null
-
-                      for (
-                        let index = assistantIndex - 1;
-                        index >= 0;
-                        index--
-                      ) {
-                        if (current[index]?.role === "user") {
-                          userMessageId = current[index].id
-                          break
-                        }
-                      }
-
-                      return current.map((item) =>
-                        item.id === assistantMessageId ||
-                        item.id === userMessageId
-                          ? { ...item, flagged: true }
-                          : item
-                      )
-                    })
-                  }
-                />
-              ) : null}
-              {message.flagged ? <FlaggedMessageIcon /> : null}
-              <div className="mb-1.5 flex items-center gap-2">
-                <div
-                  className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground",
-                    message.role === "user" &&
-                      "bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-200"
-                  )}
-                >
-                  {message.role === "user" ? (
-                    <UserIcon className="size-3.5" />
-                  ) : (
-                    <BotIcon className="size-3.5" />
-                  )}
-                </div>
-                <span className="text-xs font-semibold text-muted-foreground">
-                  {message.role === "user" ? "You" : "Milo"}
-                </span>
-              </div>
-              <div className="min-w-0">
-                <MessageContent
-                  content={
-                    message.content ||
-                    (message.role === "assistant" ? "Thinking..." : "")
-                  }
-                />
-                {message.citations?.length ? (
-                  <div className="mt-3 space-y-2">
-                    {message.citations.map((citation, index) => (
-                      <div
-                        key={`${citation.title}-${index}`}
-                        className="relative rounded-md border p-2 pr-9"
-                      >
-                        <span className="absolute top-2 right-2 rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none font-medium text-muted-foreground">
-                          {index + 1}
-                        </span>
-                        {citation.url ? (
-                          <Link
-                            href={citation.url}
-                            className="text-xs font-medium hover:underline"
-                          >
-                            {citation.title}
-                          </Link>
-                        ) : (
-                          <p className="text-xs font-medium">
-                            {citation.title}
-                          </p>
-                        )}
-                        <MessageContent
-                          content={citation.snippet}
-                          className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            Ask Milo about Wiki pages, uploaded documents, reports, newsletters,
-            or support directory information.
-          </div>
-        )}
-        <div ref={bottomSentinelRef} aria-hidden="true" />
-      </div>
-      <form onSubmit={askQuestion} className="relative border-t bg-background">
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(event) => setInput(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault()
-              void sendQuestion(input)
-            }
-          }}
-          placeholder="Ask Milo anything"
-          disabled={pending}
-          rows={1}
-          className="block max-h-40 min-h-14 w-full resize-none border-0 bg-background px-4 py-4 pr-14 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
-        />
-        <Button
-          type="submit"
-          size="icon-sm"
-          disabled={pending || !input.trim()}
-          className="absolute right-3 bottom-3"
+      {!showSessions ? (
+        <form
+          onSubmit={askQuestion}
+          className="relative border-t bg-background"
         >
-          <SendIcon />
-          <span className="sr-only">Send</span>
-        </Button>
-      </form>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(event) => setInput(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault()
+                void sendQuestion(input)
+              }
+            }}
+            placeholder="Ask Milo anything"
+            disabled={pending}
+            rows={1}
+            className="block max-h-40 min-h-14 w-full resize-none border-0 bg-background px-4 py-4 pr-14 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <Button
+            type="submit"
+            size="icon-sm"
+            disabled={pending || !input.trim()}
+            className="absolute right-3 bottom-3"
+          >
+            <SendIcon />
+            <span className="sr-only">Send</span>
+          </Button>
+        </form>
+      ) : null}
     </aside>
   )
 }
