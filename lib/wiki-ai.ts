@@ -550,6 +550,20 @@ export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
         "Points Specialists is a Canopy Hub page for reviewing specialist point totals by month, week, organization, and user. To view Points Specialists, open /reports/specialists-points.",
     },
     {
+      id: "processing-dashboard",
+      title: "Processing",
+      url: "/reports/processing",
+      content:
+        "Processing is a Canopy Hub department dashboard for processor and processing-organization metrics computed from the last 12 months of events. To view Processing, open /reports/processing.",
+    },
+    {
+      id: "underwriting-dashboard",
+      title: "Underwriting",
+      url: "/reports/underwriting",
+      content:
+        "Underwriting is a Canopy Hub department dashboard for underwriter and underwriting-organization metrics computed from the last 12 months of events. To view Underwriting, open /reports/underwriting.",
+    },
+    {
       id: "settings",
       title: "Settings",
       url: "/settings",

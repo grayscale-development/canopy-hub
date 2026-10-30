@@ -11,7 +11,9 @@ describe("featured reports", () => {
       title: "July Leaderboard",
       href: "/reports/month-leaderboard",
     })
-    expect(reports.map((report) => report.id)).toContain("file-quality")
+    expect(reports.map((report) => report.id)).toEqual(
+      expect.arrayContaining(["file-quality", "processing", "underwriting"])
+    )
   })
 
   it("keeps the previous month in the featured leaderboard title for the first 5 days", () => {

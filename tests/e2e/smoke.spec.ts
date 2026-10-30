@@ -13,6 +13,16 @@ test("protected app routes redirect signed-out users to login @smoke", async ({
   ).toBeVisible()
 })
 
+test("department dashboards redirect signed-out users to login @smoke", async ({
+  page,
+}) => {
+  await page.goto("/reports/processing")
+  await expect(page).toHaveURL(/\/login$/)
+  await page.goto("/reports/underwriting")
+  await expect(page).toHaveURL(/\/login$/)
+  await expect(page.getByText("Login to your account")).toBeVisible()
+})
+
 test("local dev user can sign in and see the app shell @smoke", async ({
   page,
 }) => {

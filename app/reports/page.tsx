@@ -101,7 +101,8 @@ export default async function ReportsPage() {
                 </h1>
                 <p className="mt-4 max-w-xl text-base leading-7 text-white/75">
                   Choose a focused view for production, turn times, file
-                  quality, specialists points, and loan program trends.
+                  quality, specialists points, processing, underwriting, and
+                  loan program trends.
                 </p>
               </div>
               <div className="shrink-0">
