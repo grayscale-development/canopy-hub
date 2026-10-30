@@ -239,21 +239,104 @@ export function mapSpecialistPointsOldRow(rawRow: RowRecord): TransformedRowResu
   return finalise(row, stableHash(row));
 }
 
-export function mapSpecialistPointsNewRow(rawRow: RowRecord): TransformedRowResult {
+interface SpecialistPointsIdentity {
+  app_id: string | null;
+  pa_org_id: string | null;
+  record_id: string | null;
+  event: string | null;
+  event_date: string | null;
+  user_id: string | null;
+}
+
+function specialistPointsIdentity(rawRow: RowRecord): SpecialistPointsIdentity {
+  return {
+    app_id: toNullableText(rawRow["AppId"]),
+    pa_org_id: toNullableText(rawRow["PA Org ID"]),
+    record_id: toNullableText(rawRow["RecordId"]),
+    event: toNullableText(rawRow["Event"]),
+    event_date: toDate(rawRow["Date"]),
+    user_id: toNullableText(rawRow["User ID"]),
+  };
+}
+
+function compareNullableNumber(left: number | null, right: number | null): number {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+function compareNullableText(left: string | null, right: string | null): number {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
+// Identity excludes raw_payload on purpose. Qlik cells carry qElemNumber and
+// qState, and the hypercube can include columns that change on every app
+// reload. Hashing those made external_row_key miss the upsert and insert a
+// full copy each sync. Occurrence keeps legitimate repeats of the same
+// AppId / PA Org ID / RecordId / Event / Date / User ID. data-sync transforms
+// one chunk at a time (QLIK_MAX_ROWS_PER_RUN), so this rank is only unique
+// inside that chunk.
+function specialistPointsOccurrences(rows: RowRecord[]): number[] {
+  const groups = new Map<string, number[]>();
+
+  rows.forEach((row, index) => {
+    const groupKey = stableHash(specialistPointsIdentity(row));
+    const indexes = groups.get(groupKey);
+    if (indexes) {
+      indexes.push(index);
+    } else {
+      groups.set(groupKey, [index]);
+    }
+  });
+
+  const occurrence = new Array<number>(rows.length).fill(0);
+  for (const indexes of groups.values()) {
+    const ordered = [...indexes].sort((left, right) => {
+      const leftRow = rows[left];
+      const rightRow = rows[right];
+      if (!leftRow || !rightRow) return left - right;
+
+      const byPoints = compareNullableNumber(toNumber(leftRow["Points"]), toNumber(rightRow["Points"]));
+      if (byPoints !== 0) return byPoints;
+
+      const byMonth = compareNullableText(toDate(leftRow["Month"]), toDate(rightRow["Month"]));
+      if (byMonth !== 0) return byMonth;
+
+      return left - right;
+    });
+
+    ordered.forEach((rowIndex, index) => {
+      occurrence[rowIndex] = index;
+    });
+  }
+
+  return occurrence;
+}
+
+// Do not pass this to Array.map. map supplies the index as the second
+// argument, and that index is not a stable identity.
+export function mapSpecialistPointsNewRow(rawRow: RowRecord, occurrence = 0): TransformedRowResult {
+  const identity = specialistPointsIdentity(rawRow);
   const row = withMeta(
     {
-      app_id: toNullableText(rawRow["AppId"]),
-      pa_org_id: toNullableText(rawRow["PA Org ID"]),
-      record_id: toNullableText(rawRow["RecordId"]),
-      event: toNullableText(rawRow["Event"]),
-      event_date: toDate(rawRow["Date"]),
-      user_id: toNullableText(rawRow["User ID"]),
+      ...identity,
       points: toNumber(rawRow["Points"]),
       month_date: toDate(rawRow["Month"]),
     },
     rawRow,
   );
-  return finalise(row, stableHash(row));
+  return finalise(row, stableHash({ ...identity, occurrence }));
+}
+
+function mapSpecialistPointsNewRows(rows: RowRecord[]): TransformedRowResult[] {
+  const occurrences = specialistPointsOccurrences(rows);
+  return rows.map((row, index) => mapSpecialistPointsNewRow(row, occurrences[index] ?? 0));
 }
 
 export function mapProcessingAssistantOrgRow(rawRow: RowRecord): TransformedRowResult {
@@ -292,7 +375,7 @@ export function transformByTargetTable(
     case "specialist_points_old":
       return rows.map(mapSpecialistPointsOldRow);
     case "specialist_points_new":
-      return rows.map(mapSpecialistPointsNewRow);
+      return mapSpecialistPointsNewRows(rows);
     case "processing_assistant_orgs":
       return rows.map(mapProcessingAssistantOrgRow);
     case "underwriting_orgs":
