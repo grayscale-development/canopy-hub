@@ -257,6 +257,14 @@ export async function AppSidebar({
                           <span className="group-data-[collapsible=icon]:hidden">
                             {item.title}
                           </span>
+                          {item.title === "Nano Wiki" ? (
+                            <span
+                              aria-hidden="true"
+                              className="ml-auto text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden"
+                            >
+                              Coming soon
+                            </span>
+                          ) : null}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

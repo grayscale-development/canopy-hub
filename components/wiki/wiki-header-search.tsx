@@ -128,7 +128,7 @@ export function WikiHeaderSearch({ className }: { className?: string }) {
             event.currentTarget.blur()
           }
         }}
-        placeholder="Search the Hub"
+        placeholder="Search"
         className="min-h-12 bg-white pr-10 pl-9 text-slate-950 caret-slate-950 [color-scheme:light] placeholder:text-slate-500 focus-visible:border-white focus-visible:ring-white/60 dark:border-white/10 dark:bg-[#1F1F1F] dark:text-white dark:caret-white dark:[color-scheme:dark] dark:placeholder:text-white/55 dark:focus-visible:border-white/20 dark:focus-visible:ring-white/20"
       />
       {isLoading ? (

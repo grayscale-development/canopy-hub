@@ -2,18 +2,10 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { ChevronRightIcon, PinIcon, PlusIcon, TagsIcon } from "lucide-react"
+import { ChevronRightIcon, PlusIcon, TagsIcon } from "lucide-react"
 
-import { toggleWikiSectionPinAction } from "@/app/wiki/actions"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select"
 import {
   Tooltip,
   TooltipContent,
@@ -24,8 +16,6 @@ import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 import {
   getDefaultWikiRepository,
   getWikiRepositoryBySlug,
-  WIKI_REPOSITORIES,
-  type WikiRepositorySlug,
 } from "@/lib/wiki-repositories"
 import {
   useWikiEditMode,
@@ -71,15 +61,21 @@ function usePersistedSidebarExpansion(
   defaultOpen: boolean,
   autoOpen: boolean
 ) {
+  const hasUserSetPreference = React.useRef(false)
   const [isOpen, setIsOpen] = React.useState(defaultOpen)
 
   React.useEffect(() => {
+    if (hasUserSetPreference.current) {
+      return
+    }
+
     const savedValue = readPersistedExpansion(storageKey)
     setIsOpen(savedValue ?? (autoOpen || defaultOpen))
   }, [storageKey, defaultOpen, autoOpen])
 
   const setPersistedOpen = React.useCallback(
     (value: React.SetStateAction<boolean>) => {
+      hasUserSetPreference.current = true
       setIsOpen((current) => {
         const next =
           typeof value === "function"
@@ -93,6 +89,27 @@ function usePersistedSidebarExpansion(
   )
 
   return [isOpen, setPersistedOpen] as const
+}
+
+function toggleExpansionWithoutScrollJump(
+  event: React.MouseEvent<HTMLButtonElement>,
+  toggle: () => void
+) {
+  const button = event.currentTarget
+  const sidebar = button.closest<HTMLElement>("[data-wiki-sidebar-scroll]")
+  const buttonTop = button.getBoundingClientRect().top
+  const scrollTop = sidebar?.scrollTop
+
+  toggle()
+
+  if (!sidebar || scrollTop === undefined) {
+    return
+  }
+
+  window.requestAnimationFrame(() => {
+    sidebar.scrollTop =
+      scrollTop + button.getBoundingClientRect().top - buttonTop
+  })
 }
 
 function SidebarPageLink({
@@ -153,49 +170,73 @@ function SidebarNestedFolder({
     activePath.startsWith(`${folderPath}/`)
   )
   const isActive = nodeIsActive(folder, nodes, activePath)
-  const router = useRouter()
+  const contentId = `wiki-sidebar-group-${folder.id}`
 
   return (
     <div>
-      <button
-        type="button"
+      <div
         className={cn(
-          "flex min-h-8 w-full items-center rounded-md px-2 py-1 text-left text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          "flex min-h-8 w-full items-center rounded-md text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
-        onClick={() => {
-          setPersistedOpen((current) => !current)
-          router.push(`/wiki/${folderPath}`)
-        }}
       >
-        <span className="truncate">{folder.title}</span>
-        <ChevronRightIcon
-          className={cn(
-            "ml-auto size-3.5 shrink-0 transition-transform",
-            isOpen && "rotate-90"
-          )}
-        />
-      </button>
-      {isOpen ? (
-        <div className="mt-1 ml-2 border-l border-sidebar-border pl-3">
-          {children.map((child) => (
-            <SidebarPageLink
-              key={child.id}
-              node={child}
-              nodes={nodes}
-              activePath={activePath}
-            />
-          ))}
-          {canManage ? (
-            <WikiSidebarAddRow
-              parentId={folder.id}
-              allowedTypes={["page"]}
-              dialogTitle="Add Page"
-              dialogDescription="Add a page to this group."
-            />
-          ) : null}
-        </div>
-      ) : null}
+        <Link
+          href={`/wiki/${folderPath}`}
+          aria-current={isActive ? "page" : undefined}
+          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <span className="truncate">{folder.title}</span>
+        </Link>
+        {canManage ? (
+          <WikiCreateWizardDialog
+            parentId={folder.id}
+            defaultType="page"
+            allowedTypes={["page"]}
+            labels={{ page: "Page" }}
+            dialogTitle="Add Page"
+            dialogDescription="Add a page to this group."
+            triggerLabel=""
+            triggerAriaLabel={`Add a page to ${folder.title}`}
+            triggerTitle={`Add a page to ${folder.title}`}
+            iconOnly
+            triggerVariant="ghost"
+            triggerClassName="size-8 shrink-0 px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+          />
+        ) : null}
+        <button
+          type="button"
+          aria-label={`${isOpen ? "Collapse" : "Expand"} ${folder.title}`}
+          aria-expanded={isOpen}
+          aria-controls={contentId}
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={(event) =>
+            toggleExpansionWithoutScrollJump(event, () =>
+              setPersistedOpen((current) => !current)
+            )
+          }
+        >
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 transition-transform",
+              isOpen && "rotate-90"
+            )}
+          />
+        </button>
+      </div>
+      <div
+        id={contentId}
+        hidden={!isOpen}
+        className="mt-1 ml-2 border-l border-sidebar-border pl-3"
+      >
+        {children.map((child) => (
+          <SidebarPageLink
+            key={child.id}
+            node={child}
+            nodes={nodes}
+            activePath={activePath}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -207,9 +248,6 @@ function SidebarSection({
   nodes,
   activePath,
   canManage,
-  isPinned,
-  isPinPending,
-  onTogglePinned,
 }: {
   section: WikiNodeRow
   directPages: WikiNodeRow[]
@@ -217,9 +255,6 @@ function SidebarSection({
   nodes: WikiNodeRow[]
   activePath: string
   canManage: boolean
-  isPinned: boolean
-  isPinPending: boolean
-  onTogglePinned: (sectionId: string) => void
 }) {
   const sectionPath = buildWikiPath(nodes, section)
   const [isOpen, setPersistedOpen] = usePersistedSidebarExpansion(
@@ -228,7 +263,7 @@ function SidebarSection({
     activePath.startsWith(`${sectionPath}/`)
   )
   const isActive = nodeIsActive(section, nodes, activePath)
-  const router = useRouter()
+  const contentId = `wiki-sidebar-section-${section.id}`
 
   return (
     <section className="space-y-1">
@@ -238,116 +273,69 @@ function SidebarSection({
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
       >
-        <button
-          type="button"
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md border-0 bg-transparent px-2 py-1 text-left text-inherit"
-          onClick={() => {
-            setPersistedOpen((current) => !current)
-            router.push(`/wiki/${sectionPath}`)
-          }}
+        <Link
+          href={`/wiki/${sectionPath}`}
+          aria-current={isActive ? "page" : undefined}
+          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <span className="truncate">{section.title}</span>
+        </Link>
+        {canManage ? (
+          <WikiCreateWizardDialog
+            parentId={section.id}
+            defaultType="page"
+            allowedTypes={["page", "folder"]}
+            labels={{ page: "Page", folder: "Group" }}
+            dialogTitle="Add to Section"
+            dialogDescription="Create a page or group in this section."
+            triggerLabel=""
+            triggerAriaLabel={`Add a page or group to ${section.title}`}
+            triggerTitle={`Add a page or group to ${section.title}`}
+            iconOnly
+            triggerVariant="ghost"
+            triggerClassName="size-8 shrink-0 px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+          />
+        ) : null}
+        <button
+          type="button"
+          aria-label={`${isOpen ? "Collapse" : "Expand"} ${section.title}`}
+          aria-expanded={isOpen}
+          aria-controls={contentId}
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={(event) =>
+            toggleExpansionWithoutScrollJump(event, () =>
+              setPersistedOpen((current) => !current)
+            )
+          }
+        >
           <ChevronRightIcon
             className={cn(
-              "ml-auto size-3.5 shrink-0 transition-transform",
+              "size-3.5 transition-transform",
               isOpen && "rotate-90"
             )}
           />
         </button>
-        {canManage ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                size="icon-xs"
-                variant="ghost"
-                className={cn(
-                  "mr-1 size-7 text-sidebar-foreground/60 hover:text-sidebar-foreground",
-                  isPinned && "text-sidebar-foreground"
-                )}
-                disabled={isPinPending}
-                aria-label={`${isPinned ? "Unpin" : "Pin"} ${section.title}`}
-                onClick={() => onTogglePinned(section.id)}
-              >
-                <PinIcon
-                  className={cn("size-3.5", isPinned && "fill-current")}
-                />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right" align="start" sideOffset={8}>
-              {isPinned ? "Unpin section" : "Pin section"}
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
       </div>
-      {isOpen ? (
-        <div className="space-y-1">
-          {directPages.map((page) => (
-            <SidebarPageLink
-              key={page.id}
-              node={page}
-              nodes={nodes}
-              activePath={activePath}
-            />
-          ))}
-          {nestedFolders.map((folder) => (
-            <SidebarNestedFolder
-              key={folder.id}
-              folder={folder}
-              nodes={nodes}
-              activePath={activePath}
-              canManage={canManage}
-            />
-          ))}
-          {canManage ? (
-            <WikiSidebarAddRow
-              parentId={section.id}
-              allowedTypes={["page", "folder"]}
-              dialogTitle="Add to Section"
-              dialogDescription="Create a page or group in this section."
-            />
-          ) : null}
-        </div>
-      ) : null}
+      <div id={contentId} hidden={!isOpen} className="space-y-1">
+        {directPages.map((page) => (
+          <SidebarPageLink
+            key={page.id}
+            node={page}
+            nodes={nodes}
+            activePath={activePath}
+          />
+        ))}
+        {nestedFolders.map((folder) => (
+          <SidebarNestedFolder
+            key={folder.id}
+            folder={folder}
+            nodes={nodes}
+            activePath={activePath}
+            canManage={canManage}
+          />
+        ))}
+      </div>
     </section>
-  )
-}
-
-function WikiSidebarAddRow({
-  parentId,
-  allowedTypes,
-  dialogTitle,
-  dialogDescription,
-}: {
-  parentId: string
-  allowedTypes: Array<"folder" | "page">
-  dialogTitle: string
-  dialogDescription: string
-}) {
-  return (
-    <WikiCreateWizardDialog
-      parentId={parentId}
-      defaultType="page"
-      allowedTypes={allowedTypes}
-      labels={{ page: "Page", folder: "Group" }}
-      dialogTitle={dialogTitle}
-      dialogDescription={dialogDescription}
-      triggerLabel="Add"
-      triggerVariant="ghost"
-      triggerClassName="mt-1 h-8 w-full justify-start gap-1.5 px-2 text-sm font-normal text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-    />
-  )
-}
-
-function RepositorySelectLabel({
-  repository,
-}: {
-  repository: (typeof WIKI_REPOSITORIES)[number]
-}) {
-  return (
-    <span className="flex min-w-0 items-center">
-      <span className="truncate">{repository.title}</span>
-    </span>
   )
 }
 
@@ -374,12 +362,7 @@ export function WikiRepositorySidebar({
   selectedRepositorySlug: string
   canManageWiki: boolean
 }) {
-  const router = useRouter()
   const { canEditWiki } = useWikiEditMode()
-  const [pendingSectionId, setPendingSectionId] = React.useState<string | null>(
-    null
-  )
-  const [isPinTransitionPending, startPinTransition] = React.useTransition()
   const canEditSidebar = canManageWiki && canEditWiki
   const visibleNodes = useVisibleWikiNodes(nodes)
   const selectedRepository =
@@ -401,69 +384,57 @@ export function WikiRepositorySidebar({
         : [],
     [repositoryNode, visibleNodes]
   )
-  const pinnedSectionId =
-    sections.find((section) => section.is_pinned)?.id ?? null
-  const togglePinnedSection = React.useCallback(
-    (sectionId: string) => {
-      const formData = new FormData()
-      formData.set("section_id", sectionId)
-      setPendingSectionId(sectionId)
-      startPinTransition(() => {
-        void (async () => {
-          const result = await toggleWikiSectionPinAction(formData)
-          setPendingSectionId(null)
-          if (result.ok) {
-            router.refresh()
-          }
-        })()
-      })
-    },
-    [router]
-  )
-  const sortedSections = React.useMemo(
-    () =>
-      [...sections].sort((left, right) => {
-        const leftPinned = pinnedSectionId === left.id
-        const rightPinned = pinnedSectionId === right.id
-
-        if (leftPinned !== rightPinned) {
-          return leftPinned ? -1 : 1
-        }
-
-        return compareWikiNodes(left, right)
-      }),
-    [pinnedSectionId, sections]
-  )
-
   return (
     <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:w-72">
-      <div className="shrink-0">
-        <Select
-          value={selectedRepository.slug}
-          onValueChange={(value) =>
-            router.push(`/wiki/${value as WikiRepositorySlug}`)
-          }
-        >
-          <SelectTrigger className="h-12 rounded-none border-x-0 border-t-0 border-sidebar-border bg-sidebar px-3">
-            <RepositorySelectLabel repository={selectedRepository} />
-          </SelectTrigger>
-          <SelectContent>
-            {WIKI_REPOSITORIES.map((repository) => (
-              <SelectItem
-                key={repository.slug}
-                value={repository.slug}
-                textValue={repository.title}
-              >
-                <RepositorySelectLabel repository={repository} />
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border px-3">
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {selectedRepository.title}
+        </h2>
+        {canEditSidebar ? (
+          <WikiCreateWizardDialog
+            parentId={repositoryNode?.id ?? null}
+            defaultType="folder"
+            allowedTypes={["folder"]}
+            labels={{ folder: "Section" }}
+            dialogTitle="Create Section"
+            dialogDescription={`Add a section to ${selectedRepository.title}.`}
+            repositorySlug={
+              repositoryNode ? undefined : selectedRepository.slug
+            }
+            triggerLabel=""
+            triggerAriaLabel="Create Section"
+            triggerTitle="Create Section"
+            iconOnly
+            triggerVariant="ghost"
+            triggerClassName="size-8 shrink-0 px-0"
+          />
+        ) : !canManageWiki ? (
+          <PermissionRequestGate
+            hasPermission={canManageWiki}
+            permissionCode="wiki.manage"
+            permissionName="Edit Wiki"
+            className="shrink-0"
+            popupClassName="right-0 left-auto"
+          >
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Create Section"
+              title="Create Section"
+            >
+              <PlusIcon />
+            </Button>
+          </PermissionRequestGate>
+        ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 pt-4">
-        {sortedSections.length ? (
-          sortedSections.map((section) => {
+      <div
+        data-wiki-sidebar-scroll
+        className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 pt-4"
+      >
+        {sections.length ? (
+          sections.map((section) => {
             const directPages = visibleNodes
               .filter(
                 (node) => node.parent_id === section.id && node.type === "page"
@@ -485,17 +456,12 @@ export function WikiRepositorySidebar({
                 nodes={visibleNodes}
                 activePath={activePath}
                 canManage={canEditSidebar}
-                isPinned={pinnedSectionId === section.id}
-                isPinPending={
-                  isPinTransitionPending && pendingSectionId === section.id
-                }
-                onTogglePinned={togglePinnedSection}
               />
             )
           })
         ) : (
           <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-            Add sections under {selectedRepository.title}.
+            No sections yet.
           </p>
         )}
       </div>
@@ -504,39 +470,6 @@ export function WikiRepositorySidebar({
           <WikiTagsAccordion />
         </div>
         <WikiEditModeToggle />
-        {canEditSidebar ? (
-          <WikiCreateWizardDialog
-            parentId={repositoryNode?.id ?? null}
-            defaultType="folder"
-            allowedTypes={["folder"]}
-            labels={{ folder: "Section" }}
-            dialogTitle="Create Section"
-            dialogDescription={`Add a section to ${selectedRepository.title}.`}
-            repositorySlug={
-              repositoryNode ? undefined : selectedRepository.slug
-            }
-            triggerLabel="Create Section"
-            triggerClassName="w-full justify-start gap-2"
-          />
-        ) : !canManageWiki ? (
-          <PermissionRequestGate
-            hasPermission={canManageWiki}
-            permissionCode="wiki.manage"
-            permissionName="Edit Wiki"
-            className="w-full"
-            popupClassName="right-0 left-auto bottom-full top-auto mb-0"
-          >
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="w-full justify-start gap-2"
-            >
-              <PlusIcon />
-              Create Section
-            </Button>
-          </PermissionRequestGate>
-        ) : null}
       </div>
     </aside>
   )

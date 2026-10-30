@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -8,40 +14,25 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar"
 import type { WikiNodeRow } from "@/lib/wiki"
 
-const router = vi.hoisted(() => ({
-  push: vi.fn(),
-  refresh: vi.fn(),
-}))
-
-const wikiActions = vi.hoisted(() => ({
-  toggleWikiSectionPinAction: vi.fn(async (formData: FormData) => {
-    void formData
-
-    return {
-      ok: true,
-      message: "Section pinned.",
-    }
-  }),
-}))
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => router,
-}))
-
-vi.mock("@/app/wiki/actions", () => wikiActions)
-
 vi.mock("@/components/wiki/wiki-management-controls", () => ({
   WikiCreateWizardDialog: ({
-    triggerLabel = "Add",
+    triggerLabel = "Create",
+    triggerAriaLabel,
+    iconOnly = false,
   }: {
     triggerLabel?: string
-  }) => <button type="button">{triggerLabel}</button>,
+    triggerAriaLabel?: string
+    iconOnly?: boolean
+  }) => (
+    <button type="button" aria-label={triggerAriaLabel ?? triggerLabel}>
+      {iconOnly ? "+" : triggerLabel}
+    </button>
+  ),
 }))
 
 const baseNode = {
   status: "published",
   sort_order: 0,
-  is_pinned: false,
   current_revision_id: null,
   created_by: null,
   updated_by: null,
@@ -94,6 +85,26 @@ const nodes = [
     sort_order: 1,
   }),
   node({
+    id: "operations-overview",
+    parent_id: "canopy-operations",
+    type: "page",
+    slug: "overview",
+    title: "Operations Overview",
+  }),
+  node({
+    id: "closing-group",
+    parent_id: "canopy-operations",
+    slug: "closing",
+    title: "Closing",
+  }),
+  node({
+    id: "closing-page",
+    parent_id: "closing-group",
+    type: "page",
+    slug: "final-review",
+    title: "Final Review",
+  }),
+  node({
     id: "learning-courses",
     parent_id: "learning-root",
     slug: "course-library",
@@ -112,32 +123,40 @@ const nodes = [
 const canManageWiki = true
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  window.localStorage.clear()
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    callback(0)
+    return 0
+  })
 })
 
 afterEach(() => {
   cleanup()
+  window.localStorage.clear()
+  vi.unstubAllGlobals()
 })
 
 function renderSidebar(
   selectedRepositorySlug: string,
-  sidebarNodes: WikiNodeRow[] = nodes
+  activePath = selectedRepositorySlug,
+  sidebarNodes: WikiNodeRow[] = nodes,
+  canManage = canManageWiki
 ) {
   return render(
     <TooltipProvider>
       <WikiRepositorySidebar
         nodes={sidebarNodes}
-        activePath={selectedRepositorySlug}
+        activePath={activePath}
         selectedRepositorySlug={selectedRepositorySlug}
-        canManageWiki={canManageWiki}
+        canManageWiki={canManage}
       />
     </TooltipProvider>
   )
 }
 
 function expectBefore(leftLabel: string, rightLabel: string) {
-  const left = screen.getByRole("button", { name: leftLabel })
-  const right = screen.getByRole("button", { name: rightLabel })
+  const left = screen.getByRole("link", { name: leftLabel })
+  const right = screen.getByRole("link", { name: rightLabel })
 
   expect(
     left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -145,77 +164,95 @@ function expectBefore(leftLabel: string, rightLabel: string) {
 }
 
 describe("WikiRepositorySidebar", () => {
-  it("sorts pinned sections from shared wiki configuration", () => {
-    const { rerender } = renderSidebar("canopy-wiki")
+  it("uses a static repository heading and contextual create controls", () => {
+    renderSidebar("canopy-wiki")
+
+    expect(screen.getByRole("heading", { name: "Canopy Wiki" })).toBeVisible()
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Create Section" })).toBeVisible()
+    expect(
+      screen.getByRole("button", {
+        name: "Add a page or group to Operations",
+      })
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Add a page to Closing" })
+    ).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Add" })).toBeNull()
+  })
+
+  it("keeps sections ordered and makes title navigation separate from expansion", async () => {
+    const user = userEvent.setup()
+    const view = renderSidebar("canopy-wiki")
 
     expectBefore("Hub", "Operations")
 
-    rerender(
-      <TooltipProvider>
-        <WikiRepositorySidebar
-          nodes={nodes.map((item) =>
-            item.id === "canopy-operations"
-              ? { ...item, is_pinned: true }
-              : item
-          )}
-          activePath="canopy-wiki"
-          selectedRepositorySlug="canopy-wiki"
-          canManageWiki={canManageWiki}
-        />
-      </TooltipProvider>
-    )
+    const sectionTitle = screen.getByRole("link", { name: "Operations" })
+    expect(sectionTitle).toHaveAttribute("href", "/wiki/canopy-wiki/operations")
 
-    expectBefore("Operations", "Hub")
-    expect(
-      screen.getByRole("button", { name: "Unpin Operations" })
-    ).toBeInTheDocument()
-
-    rerender(
-      <TooltipProvider>
-        <WikiRepositorySidebar
-          nodes={nodes.map((item) =>
-            item.id === "learning-onboarding"
-              ? { ...item, is_pinned: true }
-              : item
-          )}
-          activePath="learning-hub"
-          selectedRepositorySlug="learning-hub"
-          canManageWiki={canManageWiki}
-        />
-      </TooltipProvider>
-    )
-
-    expectBefore("Onboarding", "Course Library")
-  })
-
-  it("uses a server action to update the pinned section", async () => {
-    const user = userEvent.setup()
-    renderSidebar("canopy-wiki")
-
-    await user.click(screen.getByRole("button", { name: "Pin Operations" }))
-
-    await waitFor(() => {
-      expect(wikiActions.toggleWikiSectionPinAction).toHaveBeenCalledOnce()
+    const sectionChevron = screen.getByRole("button", {
+      name: "Collapse Operations",
     })
-    const formData = wikiActions.toggleWikiSectionPinAction.mock.calls[0]?.[0]
-    expect(formData?.get("section_id")).toBe("canopy-operations")
-    expect(router.refresh).toHaveBeenCalled()
-  })
+    expect(sectionChevron).toHaveAttribute("aria-expanded", "true")
+    await user.click(sectionChevron)
+    expect(
+      screen.getByRole("button", { name: "Expand Operations" })
+    ).toHaveAttribute("aria-expanded", "false")
 
-  it("hides pin controls outside edit mode", () => {
-    render(
+    view.rerender(
       <TooltipProvider>
         <WikiRepositorySidebar
           nodes={nodes}
-          activePath="canopy-wiki"
+          activePath="canopy-wiki/operations/closing/final-review"
           selectedRepositorySlug="canopy-wiki"
-          canManageWiki={false}
+          canManageWiki={canManageWiki}
         />
       </TooltipProvider>
     )
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Expand Operations" })
+      ).toHaveAttribute("aria-expanded", "false")
+    })
+    view.unmount()
+  })
+
+  it("expands groups from the chevron and preserves their page link", async () => {
+    const user = userEvent.setup()
+    renderSidebar("canopy-wiki")
+
+    const groupTitle = screen.getByRole("link", { name: "Closing" })
+    expect(groupTitle).toHaveAttribute(
+      "href",
+      "/wiki/canopy-wiki/operations/closing"
+    )
+
+    const groupChevron = screen.getByRole("button", { name: "Expand Closing" })
+    expect(groupChevron).toHaveAttribute("aria-expanded", "false")
+    await user.click(groupChevron)
+    expect(
+      screen.getByRole("button", { name: "Collapse Closing" })
+    ).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("link", { name: "Final Review" })).toHaveAttribute(
+      "href",
+      "/wiki/canopy-wiki/operations/closing/final-review"
+    )
+    expect(
+      window.localStorage.getItem("wiki-sidebar:group:closing-group")
+    ).toBe("open")
+    expect(within(groupTitle).getByText("Closing")).toBeVisible()
+  })
+
+  it("does not offer creation controls to a viewer", () => {
+    renderSidebar("canopy-wiki", "canopy-wiki", nodes, false)
 
     expect(
-      screen.queryByRole("button", { name: "Pin Operations" })
+      screen.queryByRole("button", {
+        name: "Add a page or group to Operations",
+      })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Add a page to Closing" })
     ).not.toBeInTheDocument()
   })
 })

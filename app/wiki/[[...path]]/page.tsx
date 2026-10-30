@@ -422,6 +422,7 @@ export default async function WikiPage({
     .sort(compareWikiNodes)
   const activePath = path.join("/")
   const selectedRepositorySlug = getSelectedRepositorySlug({ path, pageData })
+  const isNanoWiki = selectedRepositorySlug === "nano-wiki"
   const isRepositoryLanding =
     path.length === 1 && Boolean(getWikiRepositoryBySlug(path[0]))
   const publishedNodes = nodes.filter((node) =>
@@ -456,7 +457,6 @@ export default async function WikiPage({
         title: missingRepositoryPage.title,
         status: "published",
         sort_order: missingRepositoryPage.sortOrder,
-        is_pinned: false,
         tags: [],
         current_revision_id: null,
         created_by: null,
@@ -473,6 +473,12 @@ export default async function WikiPage({
     breadcrumbs: displayedBreadcrumbs,
     repositorySlug: missingRepositoryPage?.slug,
   })
+  const pageCreateConfig =
+    pageData?.node.type === "page"
+      ? getDirectoryCreateConfig({
+          breadcrumbs: pageData.breadcrumbs.slice(0, -1),
+        })
+      : null
   const displayedEmptyLabel = getDirectoryEmptyLabel(displayedBreadcrumbs)
   const sidebarActivePath = path.length
     ? `/wiki/${activePath}`
@@ -481,7 +487,7 @@ export default async function WikiPage({
   return (
     <SidebarProvider>
       <WikiEditModeProvider canManageWiki={canManageWiki}>
-        {isRepositoryLanding ? (
+        {isRepositoryLanding && !isNanoWiki ? (
           <WikiLastPageRedirect
             nodes={nodes}
             repositorySlug={selectedRepositorySlug}
@@ -489,7 +495,7 @@ export default async function WikiPage({
             canManageWiki={canManageWiki}
           />
         ) : null}
-        {pageData?.node.type === "page" ? (
+        {pageData?.node.type === "page" && !isNanoWiki ? (
           <WikiLastPageRecorder
             nodes={nodes}
             path={activePath}
@@ -534,170 +540,198 @@ export default async function WikiPage({
           </header>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-            <WikiRepositorySidebar
-              nodes={nodes}
-              activePath={activePath}
-              selectedRepositorySlug={selectedRepositorySlug}
-              canManageWiki={canManageWiki}
-            />
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
-              <div className="flex min-h-full w-full flex-col">
-                {isTagsDirectory ? (
-                  <WikiTagsDirectory
-                    entries={tagDirectoryEntries}
-                    initialSearch={highlightedTag}
-                  />
-                ) : displayedNode ? (
-                  <WikiVisibleNodeGate
-                    node={displayedNode}
-                    nodes={nodes}
-                    fallback={<HiddenDraftView title={displayedNode.title} />}
-                  >
-                    <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
-                      {displayedNode.type === "folder" ||
-                      missingRepositoryPage ? (
-                        <WikiViewModeTitleSpacing className="flex flex-col items-start gap-10">
-                          {canManageWiki ? (
-                            <WikiEditModeGate>
-                              <div className="flex w-full flex-wrap items-center gap-3">
-                                {pageData ? (
-                                  <WikiStatusSelect
-                                    nodeId={pageData.node.id}
-                                    status={pageData.node.status}
-                                  />
-                                ) : null}
-                                {pageData && displayedNode.type === "folder" ? (
-                                  <WikiCreateWizardDialog
-                                    parentId={pageData.node.id}
-                                    defaultType={
-                                      displayedCreateConfig.defaultType
-                                    }
-                                    allowedTypes={
-                                      displayedCreateConfig.allowedTypes
-                                    }
-                                    labels={displayedCreateConfig.labels}
-                                    dialogTitle={
-                                      displayedCreateConfig.dialogTitle
-                                    }
-                                    dialogDescription={
-                                      displayedCreateConfig.dialogDescription
-                                    }
-                                    triggerLabel={
-                                      displayedCreateConfig.dialogTitle
-                                    }
-                                  />
-                                ) : missingRepositoryPage ? (
-                                  <WikiCreateWizardDialog
-                                    parentId={null}
-                                    defaultType={
-                                      displayedCreateConfig.defaultType
-                                    }
-                                    allowedTypes={
-                                      displayedCreateConfig.allowedTypes
-                                    }
-                                    labels={displayedCreateConfig.labels}
-                                    dialogTitle={
-                                      displayedCreateConfig.dialogTitle
-                                    }
-                                    dialogDescription={
-                                      displayedCreateConfig.dialogDescription
-                                    }
-                                    repositorySlug={
-                                      displayedCreateConfig.repositorySlug
-                                    }
-                                    triggerLabel={
-                                      displayedCreateConfig.dialogTitle
-                                    }
-                                  />
-                                ) : null}
-                                {pageData ? (
-                                  <WikiNodeActionsMenu
-                                    nodes={nodes}
-                                    node={pageData.node}
-                                    hasChildren={displayedChildren.length > 0}
-                                    availableTags={wikiTags.map(
-                                      (tag) => tag.name
-                                    )}
-                                  />
-                                ) : null}
-                              </div>
-                            </WikiEditModeGate>
-                          ) : null}
-                          <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
-                            {displayedNode.title}
-                          </h1>
-                        </WikiViewModeTitleSpacing>
-                      ) : null}
-
-                      {displayedNode.type === "folder" ? (
-                        <DirectoryView
-                          items={displayedChildren}
-                          nodes={nodes}
-                          canManageWiki={canManageWiki}
-                          parentId={pageData?.node.id ?? null}
-                          emptyLabel={displayedEmptyLabel}
-                        />
-                      ) : pageData ? (
-                        <div className="flex min-h-0 flex-1 flex-col gap-6">
-                          {isHistoricalRevision ? (
-                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-                              This is an old version of this Wiki page. Use
-                              Restore to Primary to make it the current version.
-                            </div>
-                          ) : null}
-                          <WikiEditor
-                            key={displayedRevision?.id ?? pageData.node.id}
-                            node={pageData.node}
-                            revision={displayedRevision ?? null}
-                            availableTags={wikiTags.map((tag) => tag.name)}
-                            canManage={canManageWiki}
-                            isHistorical={isHistoricalRevision}
-                            lastUpdatedLabel={
-                              lastUpdatedAt
-                                ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
-                                : null
-                            }
-                            showStatusControl
-                            headerActions={
-                              canManageWiki ? (
-                                <WikiEditModeGate>
-                                  <WikiNodeActionsMenu
-                                    nodes={nodes}
-                                    node={pageData.node}
-                                    hasChildren={displayedChildren.length > 0}
-                                    availableTags={wikiTags.map(
-                                      (tag) => tag.name
-                                    )}
-                                  />
-                                </WikiEditModeGate>
-                              ) : null
-                            }
-                          />
-                        </div>
-                      ) : null}
-                    </section>
-                  </WikiVisibleNodeGate>
-                ) : (
-                  <section className="mx-auto flex w-full max-w-[864px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
-                    <div>
-                      <h1 className="text-4xl font-semibold dark:text-[#CFCFCF]">
-                        Welcome to the Wiki
-                      </h1>
-                    </div>
-
-                    <DirectoryView
-                      title="Documents"
-                      items={rootChildren}
-                      nodes={nodes}
-                      canManageWiki={canManageWiki}
-                      parentId={null}
-                      showCreateControl
-                      emptyLabel="No wikis yet."
+            {!isNanoWiki ? (
+              <WikiRepositorySidebar
+                nodes={nodes}
+                activePath={activePath}
+                selectedRepositorySlug={selectedRepositorySlug}
+                canManageWiki={canManageWiki}
+              />
+            ) : null}
+            {isNanoWiki ? (
+              <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-white p-6 dark:bg-[#1F1F1F]">
+                <p className="text-center text-2xl font-semibold text-muted-foreground">
+                  Coming soon
+                </p>
+              </main>
+            ) : (
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
+                <div className="flex min-h-full w-full flex-col">
+                  {isTagsDirectory ? (
+                    <WikiTagsDirectory
+                      entries={tagDirectoryEntries}
+                      initialSearch={highlightedTag}
                     />
-                  </section>
-                )}
+                  ) : displayedNode ? (
+                    <WikiVisibleNodeGate
+                      node={displayedNode}
+                      nodes={nodes}
+                      fallback={<HiddenDraftView title={displayedNode.title} />}
+                    >
+                      <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+                        {displayedNode.type === "folder" ||
+                        missingRepositoryPage ? (
+                          <WikiViewModeTitleSpacing className="w-full">
+                            <div className="flex w-full flex-wrap items-center gap-3">
+                              <h1 className="mr-auto text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
+                                {displayedNode.title}
+                              </h1>
+                              {canManageWiki ? (
+                                <WikiEditModeGate>
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    {pageData ? (
+                                      <WikiStatusSelect
+                                        nodeId={pageData.node.id}
+                                        status={pageData.node.status}
+                                      />
+                                    ) : null}
+                                    {pageData ? (
+                                      <WikiNodeActionsMenu
+                                        nodes={nodes}
+                                        node={pageData.node}
+                                        hasChildren={
+                                          displayedChildren.length > 0
+                                        }
+                                        availableTags={wikiTags.map(
+                                          (tag) => tag.name
+                                        )}
+                                      />
+                                    ) : null}
+                                  </div>
+                                  {pageData &&
+                                  displayedNode.type === "folder" &&
+                                  displayedBreadcrumbs.length > 1 ? (
+                                    <WikiCreateWizardDialog
+                                      parentId={pageData.node.id}
+                                      defaultType={
+                                        displayedCreateConfig.defaultType
+                                      }
+                                      allowedTypes={
+                                        displayedCreateConfig.allowedTypes
+                                      }
+                                      labels={displayedCreateConfig.labels}
+                                      dialogTitle={
+                                        displayedCreateConfig.dialogTitle
+                                      }
+                                      dialogDescription={
+                                        displayedCreateConfig.dialogDescription
+                                      }
+                                      triggerLabel={
+                                        displayedCreateConfig.dialogTitle
+                                      }
+                                      triggerAriaLabel={
+                                        displayedCreateConfig.dialogTitle
+                                      }
+                                      triggerTitle={
+                                        displayedCreateConfig.dialogTitle
+                                      }
+                                      triggerClassName="ml-auto"
+                                    />
+                                  ) : null}
+                                </WikiEditModeGate>
+                              ) : null}
+                            </div>
+                          </WikiViewModeTitleSpacing>
+                        ) : null}
+
+                        {displayedNode.type === "folder" ? (
+                          <DirectoryView
+                            items={displayedChildren}
+                            nodes={nodes}
+                            canManageWiki={canManageWiki}
+                            parentId={pageData?.node.id ?? null}
+                            emptyLabel={displayedEmptyLabel}
+                          />
+                        ) : pageData ? (
+                          <div className="flex min-w-0 flex-1 flex-col gap-6">
+                            {isHistoricalRevision ? (
+                              <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                                This is an old version of this Wiki page. Use
+                                Restore to Primary to make it the current
+                                version.
+                              </div>
+                            ) : null}
+                            <WikiEditor
+                              key={displayedRevision?.id ?? pageData.node.id}
+                              node={pageData.node}
+                              revision={displayedRevision ?? null}
+                              availableTags={wikiTags.map((tag) => tag.name)}
+                              canManage={canManageWiki}
+                              isHistorical={isHistoricalRevision}
+                              lastUpdatedLabel={
+                                lastUpdatedAt
+                                  ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
+                                  : null
+                              }
+                              showStatusControl
+                              headerActions={
+                                canManageWiki ? (
+                                  <WikiEditModeGate>
+                                    <WikiNodeActionsMenu
+                                      nodes={nodes}
+                                      node={pageData.node}
+                                      hasChildren={displayedChildren.length > 0}
+                                      availableTags={wikiTags.map(
+                                        (tag) => tag.name
+                                      )}
+                                    />
+                                  </WikiEditModeGate>
+                                ) : null
+                              }
+                              createAction={
+                                canManageWiki && pageCreateConfig ? (
+                                  <WikiEditModeGate>
+                                    <WikiCreateWizardDialog
+                                      parentId={pageData.node.parent_id}
+                                      defaultType={pageCreateConfig.defaultType}
+                                      allowedTypes={
+                                        pageCreateConfig.allowedTypes
+                                      }
+                                      labels={pageCreateConfig.labels}
+                                      dialogTitle={pageCreateConfig.dialogTitle}
+                                      dialogDescription={
+                                        pageCreateConfig.dialogDescription
+                                      }
+                                      triggerLabel={
+                                        pageCreateConfig.dialogTitle
+                                      }
+                                      triggerAriaLabel={
+                                        pageCreateConfig.dialogTitle
+                                      }
+                                      triggerTitle={
+                                        pageCreateConfig.dialogTitle
+                                      }
+                                    />
+                                  </WikiEditModeGate>
+                                ) : null
+                              }
+                            />
+                          </div>
+                        ) : null}
+                      </section>
+                    </WikiVisibleNodeGate>
+                  ) : (
+                    <section className="mx-auto flex w-full max-w-[864px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
+                      <div>
+                        <h1 className="text-4xl font-semibold dark:text-[#CFCFCF]">
+                          Welcome to the Wiki
+                        </h1>
+                      </div>
+
+                      <DirectoryView
+                        title="Documents"
+                        items={rootChildren}
+                        nodes={nodes}
+                        canManageWiki={canManageWiki}
+                        parentId={null}
+                        showCreateControl
+                        emptyLabel="No wikis yet."
+                      />
+                    </section>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </SidebarInset>
       </WikiEditModeProvider>

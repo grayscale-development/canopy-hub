@@ -44,7 +44,6 @@ export interface WikiNodeRow {
   title: string
   status: WikiNodeStatus
   sort_order: number
-  is_pinned: boolean
   tags?: string[]
   current_revision_id: string | null
   created_by: string | null
@@ -339,81 +338,6 @@ export function findDefaultWikiPagePath(
   return null
 }
 
-export function findFirstWikiPagePathInSection(
-  nodes: WikiNodeRow[],
-  sectionId: string,
-  isPageAllowed: (node: WikiNodeRow) => boolean = () => true
-) {
-  const section = nodes.find(
-    (node) => node.id === sectionId && node.type === "folder"
-  )
-
-  if (!section) {
-    return null
-  }
-
-  const directPage = nodes
-    .filter(
-      (node) =>
-        node.parent_id === section.id &&
-        node.type === "page" &&
-        isPageAllowed(node)
-    )
-    .sort(compareWikiNodes)[0]
-
-  if (directPage) {
-    return buildWikiPath(nodes, directPage)
-  }
-
-  const nestedFolders = nodes
-    .filter((node) => node.parent_id === section.id && node.type === "folder")
-    .sort(compareWikiNodes)
-
-  for (const folder of nestedFolders) {
-    const nestedPage = nodes
-      .filter(
-        (node) =>
-          node.parent_id === folder.id &&
-          node.type === "page" &&
-          isPageAllowed(node)
-      )
-      .sort(compareWikiNodes)[0]
-
-    if (nestedPage) {
-      return buildWikiPath(nodes, nestedPage)
-    }
-  }
-
-  return null
-}
-
-export function findPinnedWikiSectionPagePath(
-  nodes: WikiNodeRow[],
-  repositorySlug: string,
-  isPageAllowed: (node: WikiNodeRow) => boolean = () => true
-) {
-  const repository = nodes.find(
-    (node) => node.parent_id === null && node.slug === repositorySlug
-  )
-
-  if (!repository) {
-    return null
-  }
-
-  const pinnedSection = nodes
-    .filter(
-      (node) =>
-        node.parent_id === repository.id &&
-        node.type === "folder" &&
-        node.is_pinned
-    )
-    .sort(compareWikiNodes)[0]
-
-  return pinnedSection
-    ? findFirstWikiPagePathInSection(nodes, pinnedSection.id, isPageAllowed)
-    : null
-}
-
 export function isPublishedWikiBranch(nodes: WikiNodeRow[], node: WikiNodeRow) {
   const byId = new Map(nodes.map((item) => [item.id, item]))
   let current: WikiNodeRow | undefined = node
@@ -441,7 +365,7 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,is_pinned,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .neq("status", "archived")
     .order("sort_order", { ascending: true })

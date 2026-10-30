@@ -376,7 +376,6 @@ async function ensureSeedWikiNode(
     title: row.title,
     status: row.status,
     sort_order: row.sort_order,
-    is_pinned: false,
     current_revision_id: null,
     created_by: row.created_by,
     updated_by: row.updated_by,
