@@ -272,6 +272,87 @@ export function mapUnderwritingOrgRow(rawRow: RowRecord): TransformedRowResult {
   );
 }
 
+// Stable across resyncs. A hash of the whole row changes when any measure
+// changes and would insert a second copy of the same event.
+const DEPARTMENT_EVENT_KEY_SEPARATOR = "\u001f";
+
+export function departmentEventKey(parts: {
+  appId: string | null;
+  event: string | null;
+  employeeId: string | null;
+  eventDate: string | null;
+}): string {
+  return [parts.appId, parts.event, parts.employeeId, parts.eventDate]
+    .map((part) => part ?? "")
+    .join(DEPARTMENT_EVENT_KEY_SEPARATOR);
+}
+
+function eventDateFrom(rawRow: RowRecord): string | null {
+  if (rawRow.Date !== undefined && rawRow.Date !== null) {
+    return toDate(rawRow.Date);
+  }
+  return toDate(rawRow["Event Date"]);
+}
+
+export function mapProcessingEventRow(rawRow: RowRecord): TransformedRowResult {
+  const appId = getFirstText(rawRow, ["AppId", "App ID", "Loan Number"]);
+  const event = getFirstText(rawRow, ["Event"]);
+  const employeeId = getFirstText(rawRow, ["EmployeeId", "Employee ID", "User ID"]);
+  const eventDate = eventDateFrom(rawRow);
+  const row = withMeta(
+    {
+      app_id: appId,
+      organization_name: getFirstText(rawRow, ["Processing Organization", "Organization"]),
+      organization_id: getFirstText(rawRow, ["OrganizationId", "Organization ID", "Org ID"]),
+      loan_program_code: getFirstText(rawRow, ["Loan Program Code"]),
+      employee_id: employeeId,
+      employee_name: getFirstText(rawRow, ["Employee", "Employee Name"]),
+      event,
+      event_date: eventDate,
+      points: toNumber(rawRow.Points),
+      processing_net_workdays: toNumber(rawRow["Processing Net Workdays"]),
+      released_to_closer: toDate(rawRow["Released to Closer"]),
+      closing_deadline: toDate(rawRow["Closing Deadline"]),
+      docs_to_closing: toNumber(rawRow["Docs to Closing"]),
+      is_closing_funding_rush: toBoolean(rawRow["Is Closing/Funding Rush"]),
+      rush_percent_raw: toNumber(rawRow["Rush %"]),
+    },
+    rawRow,
+  );
+
+  return finalise(row, departmentEventKey({ appId, event, employeeId, eventDate }));
+}
+
+export function mapUnderwritingEventRow(rawRow: RowRecord): TransformedRowResult {
+  const appId = getFirstText(rawRow, ["AppId", "App ID", "Loan Number"]);
+  const event = getFirstText(rawRow, ["Event"]);
+  const employeeId = getFirstText(rawRow, ["EmployeeId", "Employee ID", "User ID"]);
+  const eventDate = eventDateFrom(rawRow);
+  const row = withMeta(
+    {
+      app_id: appId,
+      organization_name: getFirstText(rawRow, ["Underwriting Organization", "Organization"]),
+      organization_id: getFirstText(rawRow, ["OrganizationId", "Organization ID", "Org ID"]),
+      loan_program_code: getFirstText(rawRow, ["Loan Program Code"]),
+      employee_id: employeeId,
+      employee_name: getFirstText(rawRow, ["Employee", "Employee Name"]),
+      event,
+      event_date: eventDate,
+      points: toNumber(rawRow.Points),
+      submitted_for_initial_review: toDate(rawRow["Submitted for Initial Review"]),
+      initial_review_complete: toDate(rawRow["Initial Review Complete"]),
+      workdays_in_initial_review: toNumber(rawRow["Workdays in Initial Review"]),
+      qc_count: toNumber(rawRow["# of QCs"]),
+      avg_qc_score: toNumber(rawRow["Avg QC Score"]),
+      is_bad_loan: toBoolean(rawRow.IsBadLoan ?? rawRow["Is Bad Loan"]),
+      bad_loan_percent_raw: toNumber(rawRow["Bad Loan %"]),
+    },
+    rawRow,
+  );
+
+  return finalise(row, departmentEventKey({ appId, event, employeeId, eventDate }));
+}
+
 export function transformByTargetTable(
   targetTableName: TargetTableName,
   rows: RowRecord[],
@@ -297,6 +378,10 @@ export function transformByTargetTable(
       return rows.map(mapProcessingAssistantOrgRow);
     case "underwriting_orgs":
       return rows.map(mapUnderwritingOrgRow);
+    case "processing_events":
+      return rows.map(mapProcessingEventRow);
+    case "underwriting_events":
+      return rows.map(mapUnderwritingEventRow);
     default:
       return [];
   }
@@ -313,6 +398,8 @@ export function isSupportedTargetTable(value: string | null): value is TargetTab
     value === "specialist_points_old" ||
     value === "specialist_points_new" ||
     value === "processing_assistant_orgs" ||
-    value === "underwriting_orgs"
+    value === "underwriting_orgs" ||
+    value === "processing_events" ||
+    value === "underwriting_events"
   );
 }

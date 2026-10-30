@@ -19,7 +19,9 @@ export type TargetTableName =
   | "specialist_points_old"
   | "specialist_points_new"
   | "processing_assistant_orgs"
-  | "underwriting_orgs";
+  | "underwriting_orgs"
+  | "processing_events"
+  | "underwriting_events";
 
 export interface SourceConfigRow {
   id: string;
