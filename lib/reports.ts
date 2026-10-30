@@ -53,5 +53,19 @@ export function getFeaturedReports(date = new Date()): FeaturedReport[] {
         "Track file quality performance by branch, division, and expected touch targets.",
       href: "/reports/file-quality",
     },
+    {
+      id: "processing",
+      title: "Processing",
+      description:
+        "Review processor and processing-organization production from the last 12 months of events.",
+      href: "/reports/processing",
+    },
+    {
+      id: "underwriting",
+      title: "Underwriting",
+      description:
+        "Review underwriter and underwriting-organization production from the last 12 months of events.",
+      href: "/reports/underwriting",
+    },
   ]
 }

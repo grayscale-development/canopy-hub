@@ -1,5 +1,12 @@
 import "server-only"
 
+import {
+  DEPARTMENT_EVENT_PAGE_SIZE,
+  parseDepartmentDashboardPayload,
+  type DepartmentDashboard,
+  type DepartmentDashboardQuery,
+  type DepartmentId,
+} from "@/lib/department-dashboard"
 import { getLeaderboardPostedMonth } from "@/lib/leaderboard-month"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import type { CanopyProductionSeries } from "@/lib/hub-metrics"
@@ -2555,4 +2562,35 @@ export async function fetchCurrentMonthLeaderboardFiles({
     fundedDateEnd: postedMonth.endIso,
     limit: 500,
   })
+}
+
+export async function fetchDepartmentDashboard({
+  department,
+  query,
+  referenceDate = new Date(),
+}: {
+  department: DepartmentId
+  query: DepartmentDashboardQuery
+  referenceDate?: Date
+}): Promise<DepartmentDashboard> {
+  const supabase = await createSupabaseServerClient()
+  const { data, error } = await supabase
+    .schema("data")
+    .rpc("get_department_dashboard", {
+      p_department: department,
+      p_branch_id: query.branchId,
+      p_event_month: query.eventMonth,
+      p_event_week: query.eventWeek,
+      p_event: query.eventName,
+      p_org_id: query.orgId,
+      p_event_limit: DEPARTMENT_EVENT_PAGE_SIZE,
+      p_event_offset: (query.page - 1) * DEPARTMENT_EVENT_PAGE_SIZE,
+      p_reference_date: toIsoDate(referenceDate),
+    })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return parseDepartmentDashboardPayload(department, data)
 }
