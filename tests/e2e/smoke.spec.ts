@@ -46,8 +46,9 @@ test("Nano Wiki shows a coming soon state @wiki @smoke", async ({ page }) => {
   await expect(
     page.getByRole("main").getByText("Coming soon", { exact: true })
   ).toBeVisible()
+  const sidebar = page.locator('[data-sidebar="sidebar"]').first()
   await expect(
-    page.getByRole("link", { name: "Nano Wiki", exact: true })
+    sidebar.getByRole("link", { name: "Nano Wiki", exact: true })
   ).toBeVisible()
 })
 
