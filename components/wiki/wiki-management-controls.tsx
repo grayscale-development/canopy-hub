@@ -191,22 +191,28 @@ export function WikiCreateWizardDialog({
   parentId,
   defaultType = "page",
   triggerLabel = "Create",
+  triggerAriaLabel = "Create Wiki item",
+  triggerTitle = "Create Wiki item",
   repositorySlug,
   allowedTypes = ["page", "folder"],
   labels = { page: "Page", folder: "Group" },
   dialogTitle = "Create Wiki Item",
   dialogDescription = "Add a page or group in the current section.",
+  iconOnly = false,
   triggerVariant = "outline",
   triggerClassName,
 }: {
   parentId?: string | null
   defaultType?: "folder" | "page"
   triggerLabel?: string
+  triggerAriaLabel?: string
+  triggerTitle?: string
   repositorySlug?: string
   allowedTypes?: Array<"folder" | "page">
   labels?: Partial<Record<"folder" | "page", string>>
   dialogTitle?: string
   dialogDescription?: string
+  iconOnly?: boolean
   triggerVariant?: "default" | "outline" | "secondary" | "ghost"
   triggerClassName?: string
 }) {
@@ -252,14 +258,14 @@ export function WikiCreateWizardDialog({
       <DialogTrigger asChild>
         <Button
           type="button"
-          size="sm"
+          size={iconOnly ? "icon-sm" : "sm"}
           variant={triggerVariant}
           className={triggerClassName}
-          aria-label="Create Wiki item"
-          title="Create Wiki item"
+          aria-label={triggerAriaLabel}
+          title={triggerTitle}
         >
           <PlusIcon />
-          {triggerLabel}
+          {iconOnly ? null : triggerLabel}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -438,17 +444,6 @@ export function WikiNodeActionsMenu({
         <PencilIcon />
         Edit
       </Button>
-      <Button
-        type="button"
-        size="sm"
-        variant="destructive"
-        disabled={pending || cannotArchive}
-        className="ml-auto"
-        onClick={handleArchive}
-      >
-        <ArchiveIcon />
-        Archive
-      </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
@@ -570,8 +565,27 @@ export function WikiNodeActionsMenu({
               </DialogClose>
               <StatusMessage state={state} />
             </div>
-            <StatusMessage state={archiveState} />
           </form>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={pending || cannotArchive}
+                onClick={handleArchive}
+              >
+                <ArchiveIcon />
+                Archive
+              </Button>
+              {cannotArchive ? (
+                <p className="text-xs text-muted-foreground">
+                  Move or archive the items inside this section or group first.
+                </p>
+              ) : null}
+              <StatusMessage state={archiveState} />
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>

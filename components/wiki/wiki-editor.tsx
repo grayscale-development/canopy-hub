@@ -373,6 +373,7 @@ export function WikiEditor({
   lastUpdatedLabel,
   showStatusControl = false,
   headerActions,
+  createAction,
   availableTags = [],
 }: {
   node: WikiNodeRow
@@ -382,6 +383,7 @@ export function WikiEditor({
   lastUpdatedLabel?: string | null
   showStatusControl?: boolean
   headerActions?: React.ReactNode
+  createAction?: React.ReactNode
   availableTags?: string[]
 }) {
   const [mounted, setMounted] = React.useState(false)
@@ -403,6 +405,7 @@ export function WikiEditor({
       lastUpdatedLabel={lastUpdatedLabel}
       showStatusControl={showStatusControl}
       headerActions={headerActions}
+      createAction={createAction}
       availableTags={availableTags}
     />
   )
@@ -416,6 +419,7 @@ function WikiEditorMounted({
   lastUpdatedLabel,
   showStatusControl = false,
   headerActions,
+  createAction,
   availableTags,
 }: {
   node: WikiNodeRow
@@ -425,6 +429,7 @@ function WikiEditorMounted({
   lastUpdatedLabel?: string | null
   showStatusControl?: boolean
   headerActions?: React.ReactNode
+  createAction?: React.ReactNode
   availableTags: string[]
 }) {
   const router = useRouter()
@@ -467,8 +472,6 @@ function WikiEditorMounted({
     [originalPreviewMarkdown, rewrittenPreviewMarkdown]
   )
   const showEditorControls = canEditPage && !isHistorical && showStatusControl
-  const hasHeaderControls =
-    showEditorControls || (canEditPage && Boolean(headerActions))
   const rewriteProgressLabel =
     progressLabel ??
     (rewriteProgress < 25
@@ -1027,52 +1030,49 @@ function WikiEditorMounted({
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <WikiViewModeTitleSpacing className="mb-10 flex flex-col items-start gap-10">
-        {hasHeaderControls ? (
-          <div className="flex w-full flex-wrap items-center gap-3">
-            {showEditorControls ? (
-              <>
-                <WikiStatusSelect nodeId={node.id} status={node.status} />
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="default"
-                      disabled={formatPending}
-                      className={cn(
-                        "canopy-ai-button h-10 px-4 text-sm font-semibold"
-                      )}
-                    >
-                      {formatPending ? (
-                        <Loader2Icon className="animate-spin" />
-                      ) : (
-                        <SparklesIcon />
-                      )}
-                      AI Tools
-                      <ChevronDownIcon className="size-4 opacity-80" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-48">
-                    <DropdownMenuItem
-                      disabled={formatPending}
-                      onSelect={() => {
-                        setRewriteConfirmOpen(true)
-                      }}
-                    >
-                      <WandSparklesIcon />
-                      Rewrite Page
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </>
-            ) : null}
-            {canEditPage ? headerActions : null}
-          </div>
-        ) : null}
-        <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
-          {node.title}
-        </h1>
+    <div className="flex min-w-0 flex-1 flex-col">
+      <WikiViewModeTitleSpacing className="mb-8 w-full">
+        <div className="flex w-full flex-wrap items-center gap-3">
+          <h1 className="mr-auto text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
+            {node.title}
+          </h1>
+          {showEditorControls ? (
+            <>
+              <WikiStatusSelect nodeId={node.id} status={node.status} />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="default"
+                    disabled={formatPending}
+                    className="canopy-ai-button h-10 px-4 text-sm font-semibold"
+                  >
+                    {formatPending ? (
+                      <Loader2Icon className="animate-spin" />
+                    ) : (
+                      <SparklesIcon />
+                    )}
+                    AI Tools
+                    <ChevronDownIcon className="size-4 opacity-80" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  <DropdownMenuItem
+                    disabled={formatPending}
+                    onSelect={() => {
+                      setRewriteConfirmOpen(true)
+                    }}
+                  >
+                    <WandSparklesIcon />
+                    Rewrite Page
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          ) : null}
+          {canEditPage ? headerActions : null}
+          {canEditPage ? createAction : null}
+        </div>
       </WikiViewModeTitleSpacing>
       {formatError ? (
         <p className="mb-3 text-sm text-destructive">{formatError}</p>

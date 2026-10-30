@@ -97,7 +97,6 @@ const node: WikiNodeRow = {
   title: "Cancel a Loan",
   status: "draft",
   sort_order: 0,
-  is_pinned: false,
   current_revision_id: "revision-1",
   created_by: "user-1",
   updated_by: "user-1",
@@ -366,11 +365,18 @@ describe("WikiEditor AI rewrite", () => {
         canManage
         isHistorical
         showStatusControl
+        headerActions={<button type="button">Page actions</button>}
       />
     )
     expect(
       screen.queryByRole("button", { name: /ai/i })
     ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Draft" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Page actions" })
+    ).toBeInTheDocument()
   })
 
   it("opens a preview and cancel leaves editor blocks unchanged", async () => {

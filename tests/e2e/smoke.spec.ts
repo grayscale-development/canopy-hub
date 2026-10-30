@@ -39,6 +39,18 @@ test("local dev user can sign in and see the app shell @smoke", async ({
   ).toBeVisible()
 })
 
+test("Nano Wiki shows a coming soon state @wiki @smoke", async ({ page }) => {
+  await signInAsLocalDev(page)
+  await page.goto("/wiki/nano-wiki")
+
+  await expect(
+    page.getByRole("main").getByText("Coming soon", { exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: "Nano Wiki", exact: true })
+  ).toBeVisible()
+})
+
 test("Wiki repository page renders seeded content @wiki @smoke", async ({
   page,
 }) => {
@@ -63,27 +75,11 @@ test("Wiki repository landing reopens the last valid page @wiki @smoke", async (
   await page.goto("/wiki/canopy-wiki")
   await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/reports$/)
 
-  await page.getByRole("switch", { name: "Toggle wiki editor mode" }).click()
-  const unpinOperationsButton = page.getByRole("button", {
-    name: "Unpin Operations",
-  })
-  if (await unpinOperationsButton.isVisible()) {
-    await unpinOperationsButton.click()
-    await expect(
-      page.getByRole("button", { name: "Pin Operations" })
-    ).toBeVisible()
-  }
-  await page.getByRole("button", { name: "Pin Operations" }).click()
-  await expect(
-    page.getByRole("button", { name: "Unpin Operations" })
-  ).toBeVisible()
   await page.evaluate(() => {
     window.localStorage.removeItem("wiki:last-page:canopy-wiki")
   })
   await page.goto("/wiki/canopy-wiki")
-  await expect(page).toHaveURL(
-    /\/wiki\/canopy-wiki\/operations\/closing\/funding-checklist$/
-  )
+  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/home-dashboard$/)
 
   await page.evaluate(() => {
     window.localStorage.setItem(
@@ -92,11 +88,7 @@ test("Wiki repository landing reopens the last valid page @wiki @smoke", async (
     )
   })
   await page.goto("/wiki/canopy-wiki")
-  await expect(page).not.toHaveURL(/\/wiki\/canopy-wiki$/)
-  await page.getByRole("button", { name: "Unpin Operations" }).click()
-  await expect(
-    page.getByRole("button", { name: "Pin Operations" })
-  ).toBeVisible()
+  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/home-dashboard$/)
 })
 
 test("Ask Milo opens and streams a deterministic mocked answer @milo @smoke", async ({

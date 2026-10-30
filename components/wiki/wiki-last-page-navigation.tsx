@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation"
 
 import {
   buildWikiPath,
-  findPinnedWikiSectionPagePath,
   isPublishedWikiBranch,
   type WikiNodeRow,
 } from "@/lib/wiki"
@@ -107,17 +106,12 @@ export function WikiLastPageRedirect({
   React.useEffect(() => {
     const validPaths = getValidPagePaths(nodes, canManageWiki)
     const savedPath = readSavedPath(repositorySlug)
-    const pinnedPath = findPinnedWikiSectionPagePath(
-      nodes,
-      repositorySlug,
-      (node) => validPaths.has(buildWikiPath(nodes, node))
-    )
     const nextPath =
       savedPath &&
       savedPath.startsWith(`${repositorySlug}/`) &&
       validPaths.has(savedPath)
         ? savedPath
-        : (pinnedPath ?? fallbackPath)
+        : fallbackPath
 
     if (nextPath) {
       router.replace(`/wiki/${nextPath}`)
