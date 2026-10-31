@@ -61,7 +61,7 @@ Deno.test("department event keys stay stable when measures change", () => {
     appId: "A1",
     event: "Funded",
     employeeId: "E1",
-    eventDate: "2026-10-15",
+    eventAt: "2026-10-15T00:00:00.000Z",
   });
   const first = mapProcessingEventRow({
     AppId: "A1",
@@ -101,7 +101,47 @@ Deno.test("department event keys stay stable when measures change", () => {
   assertEquals(first.row.docs_to_closing, 2);
   assertEquals(first.row.is_closing_funding_rush, true);
   assertEquals(first.row.organization_id, "PA1");
+  assertEquals(first.row.event_at, "2026-10-15T00:00:00.000Z");
   assertEquals(first.row.event_date, "2026-10-15");
+});
+
+Deno.test("department event keys use the full Qlik timestamp", () => {
+  const morning = mapProcessingEventRow({
+    AppId: "A1",
+    Event: "Funded",
+    EmployeeId: "E1",
+    Date: { qText: "10/29/2026 11:48:56 AM", qNum: 100.25 },
+    Points: "1",
+  });
+  const later = mapProcessingEventRow({
+    AppId: "A1",
+    Event: "Funded",
+    EmployeeId: "E1",
+    Date: "10/29/2026 11:49:56 AM",
+    Points: "1",
+  });
+  const sameInstant = mapUnderwritingEventRow({
+    AppId: "A1",
+    Event: "Funded",
+    EmployeeId: "E1",
+    Date: "10/29/2026 11:48:56 AM",
+    Points: "9",
+  });
+
+  assertEquals(morning.row.event_at, "2026-10-29T11:48:56.000Z");
+  assertEquals(morning.row.event_date, "2026-10-29");
+  assertEquals(
+    morning.external_row_key,
+    departmentEventKey({
+      appId: "A1",
+      event: "Funded",
+      employeeId: "E1",
+      eventAt: "2026-10-29T11:48:56.000Z",
+    }),
+  );
+  assertEquals(morning.external_row_key === later.external_row_key, false);
+  assertEquals(sameInstant.external_row_key, morning.external_row_key);
+  assertEquals(sameInstant.row.event_date, "2026-10-29");
 });
 
 Deno.test("maps underwriting event rows from Qlik cells", () => {
@@ -128,9 +168,11 @@ Deno.test("maps underwriting event rows from Qlik cells", () => {
       appId: "U1",
       event: "Initial Review Complete",
       employeeId: "W1",
-      eventDate: "2026-10-01",
+      eventAt: "2026-10-01T00:00:00.000Z",
     }),
   );
+  assertEquals(result.row.event_at, "2026-10-01T00:00:00.000Z");
+  assertEquals(result.row.event_date, "2026-10-01");
   assertEquals(result.row.workdays_in_initial_review, 3);
   assertEquals(result.row.qc_count, 2);
   assertEquals(result.row.avg_qc_score, 4.5);
