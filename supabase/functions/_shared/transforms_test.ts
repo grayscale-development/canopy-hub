@@ -180,6 +180,51 @@ Deno.test("maps underwriting event rows from Qlik cells", () => {
   assertEquals(result.row.initial_review_complete, "2026-10-01");
   assertEquals(result.row.submitted_for_initial_review, "2026-09-28");
   assertEquals(result.row.organization_name, "UW Org");
+  assertEquals(result.row.organization_id, "UW1");
+});
+
+Deno.test("reads department organization ids from Qlik cells without changing the event key", () => {
+  const shared = {
+    AppId: "A1",
+    Event: "Funded",
+    EmployeeId: "E1",
+    Date: "10/29/2026 11:48:56 AM",
+    Points: "1",
+  };
+  const withoutOrg = mapProcessingEventRow(shared);
+  const processing = mapProcessingEventRow({
+    ...shared,
+    OrganizationId: { qText: "PA-OLD" },
+    ProcessingOrganizationId: { qText: "039", qNum: 39 },
+    "Processing Organization": "Org Thirty Nine",
+  });
+  const spacedTitle = mapProcessingEventRow({
+    ...shared,
+    "Processing Organization Id": { qText: "39", qNum: 39 },
+  });
+  const qNumOnly = mapProcessingEventRow({
+    ...shared,
+    ProcessingOrganizationId: { qText: " ", qNum: 41 },
+  });
+  const underwriting = mapUnderwritingEventRow({
+    ...shared,
+    UnderwritingOrganizationId: { qText: "", qNum: 12 },
+    "Underwriting Organization": "UW Twelve",
+  });
+  const underwritingText = mapUnderwritingEventRow({
+    ...shared,
+    UnderwritingOrganizationId: { qText: "12", qNum: 12 },
+  });
+
+  assertEquals(processing.external_row_key, withoutOrg.external_row_key);
+  assertEquals(spacedTitle.external_row_key, withoutOrg.external_row_key);
+  assertEquals(underwriting.external_row_key, withoutOrg.external_row_key);
+  assertEquals(processing.row.organization_id, "039");
+  assertEquals(spacedTitle.row.organization_id, "39");
+  assertEquals(qNumOnly.row.organization_id, "41");
+  assertEquals(underwriting.row.organization_id, "12");
+  assertEquals(underwritingText.row.organization_id, "12");
+  assertEquals(processing.row.organization_name, "Org Thirty Nine");
 });
 
 function specialistPointsRawRow(

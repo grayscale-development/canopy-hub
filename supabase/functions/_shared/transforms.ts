@@ -41,6 +41,60 @@ function getFirstText(rawRow: RowRecord, keys: string[]): string | null {
   return null;
 }
 
+function normalizedColumnKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+// Org ids arrive as Qlik cells. qText is the id, including a number stored as
+// text. A blank qText falls back to qNum. A present qText wins so "039" is not
+// rewritten from qNum 39.
+function qlikIdentifierText(value: unknown): string | null {
+  const text = toNullableText(value);
+  if (text) return text;
+  if (!value || typeof value !== "object") return null;
+
+  const cell = value as { qIsNull?: unknown; qNum?: unknown };
+  if (cell.qIsNull === true) return null;
+  if (typeof cell.qNum !== "number" || !Number.isFinite(cell.qNum)) return null;
+  if (Number.isInteger(cell.qNum) && Math.abs(cell.qNum) <= Number.MAX_SAFE_INTEGER) {
+    return cell.qNum.toFixed(0);
+  }
+  return String(cell.qNum);
+}
+
+// ProcessingOrganizationId / UnderwritingOrganizationId replaced OrganizationId.
+// Match either title, ignoring case and spacing. The id is not part of
+// external_row_key, so a later sync fills the same row.
+function getOrganizationId(rawRow: RowRecord, keys: string[]): string | null {
+  const byNormalized = new Map<string, string>();
+  for (const [key, value] of Object.entries(rawRow)) {
+    const normalized = normalizedColumnKey(key);
+    if (byNormalized.has(normalized)) continue;
+    const text = qlikIdentifierText(value);
+    if (text) byNormalized.set(normalized, text);
+  }
+
+  for (const key of keys) {
+    const text = byNormalized.get(normalizedColumnKey(key));
+    if (text) return text;
+  }
+  return null;
+}
+
+const PROCESSING_ORGANIZATION_ID_KEYS = [
+  "ProcessingOrganizationId",
+  "OrganizationId",
+  "Organization ID",
+  "Org ID",
+];
+
+const UNDERWRITING_ORGANIZATION_ID_KEYS = [
+  "UnderwritingOrganizationId",
+  "OrganizationId",
+  "Organization ID",
+  "Org ID",
+];
+
 function getFallbackText(rawRow: RowRecord, predicate: (normalizedKey: string) => boolean): string | null {
   for (const [key, value] of Object.entries(rawRow)) {
     const text = toNullableText(value);
@@ -389,7 +443,7 @@ export function mapProcessingEventRow(rawRow: RowRecord): TransformedRowResult {
     {
       app_id: appId,
       organization_name: getFirstText(rawRow, ["Processing Organization", "Organization"]),
-      organization_id: getFirstText(rawRow, ["OrganizationId", "Organization ID", "Org ID"]),
+      organization_id: getOrganizationId(rawRow, PROCESSING_ORGANIZATION_ID_KEYS),
       loan_program_code: getFirstText(rawRow, ["Loan Program Code"]),
       employee_id: employeeId,
       employee_name: getFirstText(rawRow, ["Employee", "Employee Name"]),
@@ -419,7 +473,7 @@ export function mapUnderwritingEventRow(rawRow: RowRecord): TransformedRowResult
     {
       app_id: appId,
       organization_name: getFirstText(rawRow, ["Underwriting Organization", "Organization"]),
-      organization_id: getFirstText(rawRow, ["OrganizationId", "Organization ID", "Org ID"]),
+      organization_id: getOrganizationId(rawRow, UNDERWRITING_ORGANIZATION_ID_KEYS),
       loan_program_code: getFirstText(rawRow, ["Loan Program Code"]),
       employee_id: employeeId,
       employee_name: getFirstText(rawRow, ["Employee", "Employee Name"]),
