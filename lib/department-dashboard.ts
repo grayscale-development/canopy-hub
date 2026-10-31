@@ -133,13 +133,13 @@ const PROCESSING_METRIC_COLUMNS: DepartmentMetricColumn[] = [
     key: "total_funded",
     label: "Total Funded",
     format: "count",
-    hint: "Count of Funded events.",
+    hint: "Count of Funded events with Processing Net Workdays.",
   },
   {
     key: "processing_events",
     label: "Processing Events",
     format: "count",
-    hint: "Count of event rows, including Funded.",
+    hint: "Count of Processed events with Points.",
   },
   { key: "points", label: "Points", format: "decimal", hint: "Sum of Points." },
   {
@@ -158,7 +158,7 @@ const PROCESSING_METRIC_COLUMNS: DepartmentMetricColumn[] = [
     key: "rush_ratio",
     label: "Rush %",
     format: "percent",
-    hint: "Rush funded events divided by funded events.",
+    hint: "Rush funded events divided by funded events. Funded requires Processing Net Workdays.",
   },
 ]
 

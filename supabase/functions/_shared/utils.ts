@@ -148,6 +148,160 @@ export function toTimestamp(value: unknown): string | null {
   return qlikNumToDate(n).toISOString();
 }
 
+export interface DepartmentEventInstant {
+  eventAt: string;
+  eventDate: string;
+}
+
+function padNumber(value: number, width: number): string {
+  return String(value).padStart(width, "0");
+}
+
+function millisecondsFromFraction(fraction: string | undefined): number {
+  if (!fraction) return 0;
+  return Number(fraction.padEnd(3, "0").slice(0, 3));
+}
+
+function hourFromClock(hour: number, ampm: string | undefined): number | null {
+  if (!ampm) return hour;
+  if (hour < 1 || hour > 12) return null;
+  const marker = ampm.toUpperCase();
+  if (marker === "AM") return hour === 12 ? 0 : hour;
+  if (marker === "PM") return hour === 12 ? 12 : hour + 12;
+  return null;
+}
+
+// Wall-clock text is stored as UTC. `new Date("10/29/2026 11:48:56 AM")`
+// follows the runtime timezone, so the same Qlik cell would hash to a
+// different key in Phoenix than it would in the UTC sync runtime, and an
+// evening time could move event_date to the next day.
+function formatUtcWallClock(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  millisecond: number,
+): DepartmentEventInstant | null {
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59 ||
+    second < 0 ||
+    second > 59 ||
+    millisecond < 0 ||
+    millisecond > 999
+  ) {
+    return null;
+  }
+
+  const eventDate = `${padNumber(year, 4)}-${padNumber(month, 2)}-${padNumber(day, 2)}`;
+  const eventAt = `${eventDate}T${padNumber(hour, 2)}:${padNumber(minute, 2)}:${padNumber(second, 2)}.${padNumber(millisecond, 3)}Z`;
+  const parsed = new Date(eventAt);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== eventAt) return null;
+  return { eventAt, eventDate };
+}
+
+function instantFromWallClock(text: string): DepartmentEventInstant | null {
+  const us = text.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(?:\s*([AaPp][Mm]))?)?$/,
+  );
+  if (us) {
+    const hour = us[4] === undefined ? 0 : hourFromClock(Number(us[4]), us[8]);
+    if (hour === null) return null;
+    return formatUtcWallClock(
+      Number(us[3]),
+      Number(us[1]),
+      Number(us[2]),
+      hour,
+      us[5] === undefined ? 0 : Number(us[5]),
+      us[6] === undefined ? 0 : Number(us[6]),
+      millisecondsFromFraction(us[7]),
+    );
+  }
+
+  const iso = text.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:?\d{2})?)?$/,
+  );
+  if (!iso) return null;
+  if (iso[8]) {
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) return null;
+    const eventAt = parsed.toISOString();
+    return { eventAt, eventDate: eventAt.slice(0, 10) };
+  }
+  return formatUtcWallClock(
+    Number(iso[1]),
+    Number(iso[2]),
+    Number(iso[3]),
+    iso[4] === undefined ? 0 : Number(iso[4]),
+    iso[5] === undefined ? 0 : Number(iso[5]),
+    iso[6] === undefined ? 0 : Number(iso[6]),
+    millisecondsFromFraction(iso[7]),
+  );
+}
+
+function clockFromQlikSerial(num: number): {
+  hour: number;
+  minute: number;
+  second: number;
+  millisecond: number;
+} | null {
+  const match = qlikNumToDate(num)
+    .toISOString()
+    .match(/T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z$/);
+  if (!match) return null;
+  return {
+    hour: Number(match[1]),
+    minute: Number(match[2]),
+    second: Number(match[3]),
+    millisecond: Number(match[4]),
+  };
+}
+
+// Department event identity. A Date cell that includes a time, such as
+// "10/29/2026 11:48:56 AM", wins over the Qlik serial. Date-only text keeps
+// that calendar date and, when the serial has a fractional day, the serial's
+// time of day. event_date is the calendar date of event_at.
+export function departmentEventTimestamp(value: unknown): DepartmentEventInstant | null {
+  const text = getCellText(value);
+  const fromText = text ? instantFromWallClock(text) : null;
+  const textHasTime = Boolean(text && /(?:T|[ ])\d{1,2}:\d{2}/.test(text));
+  if (fromText && textHasTime) return fromText;
+
+  const numeric = getCellNum(value);
+  if (fromText && numeric !== null && !Number.isInteger(numeric)) {
+    const clock = clockFromQlikSerial(numeric);
+    if (clock) {
+      const [year, month, day] = fromText.eventDate.split("-").map(Number);
+      const withSerialTime = formatUtcWallClock(
+        year ?? 0,
+        month ?? 0,
+        day ?? 0,
+        clock.hour,
+        clock.minute,
+        clock.second,
+        clock.millisecond,
+      );
+      if (withSerialTime) return withSerialTime;
+    }
+  }
+  if (fromText) return fromText;
+  if (numeric === null) return null;
+
+  const eventAt = qlikNumToDate(numeric).toISOString();
+  return {
+    eventAt,
+    eventDate: qlikNumToDate(Math.trunc(numeric)).toISOString().slice(0, 10),
+  };
+}
+
 export function toTextArray(value: unknown): string[] | null {
   if (Array.isArray(value)) {
     const out = value.map((v) => String(v).trim()).filter(Boolean);

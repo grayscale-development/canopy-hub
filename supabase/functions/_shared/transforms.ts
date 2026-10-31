@@ -1,5 +1,6 @@
 import type { RowRecord, TargetTableName, TransformedRowResult } from "./types.ts";
 import {
+  departmentEventTimestamp,
   stableHash,
   toBoolean,
   toDate,
@@ -363,25 +364,27 @@ export function departmentEventKey(parts: {
   appId: string | null;
   event: string | null;
   employeeId: string | null;
-  eventDate: string | null;
+  eventAt: string | null;
 }): string {
-  return [parts.appId, parts.event, parts.employeeId, parts.eventDate]
+  return [parts.appId, parts.event, parts.employeeId, parts.eventAt]
     .map((part) => part ?? "")
     .join(DEPARTMENT_EVENT_KEY_SEPARATOR);
 }
 
-function eventDateFrom(rawRow: RowRecord): string | null {
-  if (rawRow.Date !== undefined && rawRow.Date !== null) {
-    return toDate(rawRow.Date);
-  }
-  return toDate(rawRow["Event Date"]);
+function eventInstantFrom(rawRow: RowRecord): { eventAt: string | null; eventDate: string | null } {
+  const value = rawRow.Date !== undefined && rawRow.Date !== null ? rawRow.Date : rawRow["Event Date"];
+  const instant = departmentEventTimestamp(value);
+  return {
+    eventAt: instant?.eventAt ?? null,
+    eventDate: instant?.eventDate ?? null,
+  };
 }
 
 export function mapProcessingEventRow(rawRow: RowRecord): TransformedRowResult {
   const appId = getFirstText(rawRow, ["AppId", "App ID", "Loan Number"]);
   const event = getFirstText(rawRow, ["Event"]);
   const employeeId = getFirstText(rawRow, ["EmployeeId", "Employee ID", "User ID"]);
-  const eventDate = eventDateFrom(rawRow);
+  const { eventAt, eventDate } = eventInstantFrom(rawRow);
   const row = withMeta(
     {
       app_id: appId,
@@ -391,6 +394,7 @@ export function mapProcessingEventRow(rawRow: RowRecord): TransformedRowResult {
       employee_id: employeeId,
       employee_name: getFirstText(rawRow, ["Employee", "Employee Name"]),
       event,
+      event_at: eventAt,
       event_date: eventDate,
       points: toNumber(rawRow.Points),
       processing_net_workdays: toNumber(rawRow["Processing Net Workdays"]),
@@ -403,14 +407,14 @@ export function mapProcessingEventRow(rawRow: RowRecord): TransformedRowResult {
     rawRow,
   );
 
-  return finalise(row, departmentEventKey({ appId, event, employeeId, eventDate }));
+  return finalise(row, departmentEventKey({ appId, event, employeeId, eventAt }));
 }
 
 export function mapUnderwritingEventRow(rawRow: RowRecord): TransformedRowResult {
   const appId = getFirstText(rawRow, ["AppId", "App ID", "Loan Number"]);
   const event = getFirstText(rawRow, ["Event"]);
   const employeeId = getFirstText(rawRow, ["EmployeeId", "Employee ID", "User ID"]);
-  const eventDate = eventDateFrom(rawRow);
+  const { eventAt, eventDate } = eventInstantFrom(rawRow);
   const row = withMeta(
     {
       app_id: appId,
@@ -420,6 +424,7 @@ export function mapUnderwritingEventRow(rawRow: RowRecord): TransformedRowResult
       employee_id: employeeId,
       employee_name: getFirstText(rawRow, ["Employee", "Employee Name"]),
       event,
+      event_at: eventAt,
       event_date: eventDate,
       points: toNumber(rawRow.Points),
       submitted_for_initial_review: toDate(rawRow["Submitted for Initial Review"]),
@@ -433,7 +438,7 @@ export function mapUnderwritingEventRow(rawRow: RowRecord): TransformedRowResult
     rawRow,
   );
 
-  return finalise(row, departmentEventKey({ appId, event, employeeId, eventDate }));
+  return finalise(row, departmentEventKey({ appId, event, employeeId, eventAt }));
 }
 
 export function transformByTargetTable(

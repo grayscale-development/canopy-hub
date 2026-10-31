@@ -34,7 +34,7 @@ values
   (
     'processing_events',
     'qlik',
-    'Processing Last 12 Months events for the department dashboard.',
+    'Processing Last 12 Months events for the department dashboard. Natural key is AppId + Event + EmployeeId + the full Date timestamp.',
     jsonb_build_object(
       'app_id', '8cf1d499-2303-44e0-a3ae-3a029c951270',
       'sheet_id', 'mjkMka',
@@ -49,7 +49,7 @@ values
   (
     'underwriting_events',
     'qlik',
-    'Underwriting Last 12 Months events for the department dashboard.',
+    'Underwriting Last 12 Months events for the department dashboard. Natural key is AppId + Event + EmployeeId + the full Date timestamp.',
     jsonb_build_object(
       'app_id', '8cf1d499-2303-44e0-a3ae-3a029c951270',
       'sheet_id', '19dfa7e3-7cfb-4f4f-bc72-b590abb24514',
@@ -80,18 +80,36 @@ where source_key in ('processing_events', 'underwriting_events');
 
 `config.primary_key_strategy` is recorded for operators. The sync function does
 not read it. `supabase/functions/_shared/transforms.ts` sets
-`external_row_key` to `AppId + Event + EmployeeId + Date`, separated by the
-unit separator. The row hash still detects measure changes, so a resync updates
-the same key instead of inserting another copy.
+`external_row_key` to `AppId + Event + EmployeeId + the full Date timestamp`,
+separated by the unit separator. `event_at` stores that timestamp.
+`event_date` is the calendar date of `event_at`. The Qlik text
+`10/29/2026 11:48:56 AM` is stored as `2026-10-29T11:48:56.000Z`, so the
+calendar date does not move when the sync runtime is not UTC. The row hash
+still detects measure changes, so a resync updates the same key instead of
+inserting another copy.
 
-That key collapses two events that share the same app, event, employee, and
-date. The sync keeps the last copy in a batch. Confirm with Jimmy that this
-combination is unique before enabling the feeds.
+`supabase/migrations/202610300004_department_dashboard_metric_fixes.sql` adds
+`event_at` and replaces `data.get_department_dashboard`. It does not truncate
+either table. The first deploy used the calendar date only. Two events on the
+same day collapsed into one row, and those old keys do not match the timestamp
+key.
+Do not truncate production from the app deploy or from a migration. After the
+migration and the data-sync function are deployed, Zach approves this
+statement and it is run once, before a full resync of both feeds:
+
+```sql
+truncate raw.processing_events, raw.underwriting_events;
+```
+
+Then run one full sync of `processing_events` and `underwriting_events`. Until
+that truncate and resync, the tables still hold the old date-only keys.
 
 Rows Qlik later drops stay until retention deletes them. Retention keeps 14
-months by `event_date`. The dashboard itself shows 12 calendar months, from the
-first day of the current month minus 11 months through the last day of the
-current month.
+months by `event_date`. The dashboard window is the whole extract: the first
+day of the month 12 months before the reference month through the reference
+date. The reference date is today unless the caller passes another date. When
+the reference month is October 2026, October 2025 is included. The window ends
+on the reference date, not on the last day of that month.
 
 ## Joins
 
@@ -118,23 +136,40 @@ row.
 
 Event names are compared without case or surrounding spaces.
 
+The org filter chooses which organization rows appear, and which employees
+are listed. An employee is listed when they have at least one event in the
+selected org after the branch, month, week, and event filters. Each
+employee's metrics are still that person's totals across every organization,
+keyed by `employee_id`. Zach's Qlik row for Brooklynn Fertig is 356 funded
+and 403 events across 10 orgs, and an org view that includes her shows those
+all-org totals. Branch, month, week, and event filters still narrow those
+totals. Company Avg stays the unweighted average of the rows in that table,
+so an org view averages the all-org totals of the employees who worked in
+that org. Organization metrics stay inside the selected org.
+
 Processing:
 
-- Total Funded: count of events named Funded. This is events, not distinct AppIds.
-- Processing Events: count of event rows, including Funded and Processed.
-- Points: sum of Points on every row.
+- Total Funded: count of Funded events where Processing Net Workdays is not
+  null. This is events, not distinct AppIds. For Canopy Mortgage, LLC this
+  matches Qlik at 2370.
+- Processing Events: count of Processed events where Points is not null.
+  Funded events are not included. For Canopy Mortgage, LLC this matches Qlik
+  at 2627.
+- Points: sum of Points on every row. This does not match Qlik. See open items.
 - Processing Speed: average of Processing Net Workdays on every row where it is
   present. If both the Processed and Funded rows carry the same workdays, the
   loan is counted twice.
 - Docs to Deadline: average of Docs to Closing, with the same double-count risk.
-- Rush %: Funded events with Is Closing/Funding Rush true, divided by Funded
-  events. The stored Rush % column is not used.
+- Rush %: Funded events with Is Closing/Funding Rush true and Processing Net
+  Workdays not null, divided by Funded events with Processing Net Workdays
+  not null. That is the same funded set as Total Funded. The stored Rush %
+  column is not used.
 
 Underwriting:
 
 - Points: sum of Points on every event, including Pre-Approved and any other
   event that has no column of its own.
-- Total Funded: count of events named Funded.
+- Total Funded: count of events named Funded. See open items.
 - Initial Review Events: count of events named Initial Review Complete.
 - Avg Workdays in Initial Review: average of Workdays in Initial Review on
   Initial Review Complete rows.
@@ -152,9 +187,22 @@ Underwriting:
 
 Filters are Branch, Event Month, Event Week Of, Event, and Org. Week Of uses
 Postgres `date_trunc('week')`, which starts on Monday. Filter choices come from
-the 12-month window before those filters are applied. The event list is the
-newest 100 matching rows per page, capped at 200.
+the dashboard window before those filters are applied. The event list is the
+newest 100 matching rows per page, capped at 200. The org filter narrows the
+event list and the organization table. It chooses which employees are listed
+and does not narrow their metrics.
 
 A row whose employee or organization name is Company Avg, Company Average, or
 Company Averages is not ingested into the summaries. The summary objects
 themselves are not ingested.
+
+## Open items
+
+- Processing Points does not match Qlik. For Canopy Mortgage, LLC the extract
+  sums to 4670 and Qlik shows 4975.5. Brooklynn Fertig sums to 703 and Qlik
+  shows 807.5. No points formula was changed. Do not guess one until the
+  included rows are known.
+- Underwriting Total Funded is still the count of Funded events. For Canopy
+  Mortgage, LLC, Qlik shows 3078 and the extract has 3179 Funded rows. That
+  gap is unexplained. The Processing rule that requires Processing Net
+  Workdays was not applied here.
