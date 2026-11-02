@@ -4,6 +4,26 @@ import { createTranscriptionWithOpenAI } from "@/lib/ai/provider"
 
 const PDF_PAGE_MARKER = /^[-–—\s]*\d+\s+(?:of|\/)\s+\d+[-–—\s]*$/i
 
+export interface WikiExtractedDocxImage {
+  contentType: string
+  data: Buffer
+  source: string
+}
+
+export interface WikiExtractedDocx {
+  html: string
+  images: WikiExtractedDocxImage[]
+  text: string
+}
+
+export function isWikiDocxFile(file: Pick<File, "name" | "type">) {
+  return (
+    file.type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    file.name.toLowerCase().endsWith(".docx")
+  )
+}
+
 function normalizedBoundaryLine(value: string) {
   return value.replace(/\s+/g, " ").trim()
 }
@@ -78,17 +98,61 @@ export async function extractWikiDocumentText(file: File) {
     }
   }
 
-  if (
-    file.type ===
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-    lowerName.endsWith(".docx")
-  ) {
+  if (isWikiDocxFile(file)) {
     const mammoth = await import("mammoth")
     const result = await mammoth.extractRawText({ buffer })
     return result.value.trim()
   }
 
   return ""
+}
+
+/**
+ * DOCX needs its HTML as well as its text: raw text is useful for search and
+ * fidelity checks, while Mammoth's HTML retains the document's actual layout.
+ * Image sources are deliberately opaque placeholders so callers can replace
+ * them with their own durable asset URLs before rendering the blocks.
+ */
+export async function extractWikiDocxDocument(
+  file: File
+): Promise<WikiExtractedDocx> {
+  const buffer = Buffer.from(await file.arrayBuffer())
+  const mammoth = await import("mammoth")
+  const images: WikiExtractedDocxImage[] = []
+
+  const [htmlResult, textResult] = await Promise.all([
+    mammoth.convertToHtml(
+      { buffer },
+      {
+        styleMap: [
+          "p[style-name='Title'] => h1:fresh",
+          "p[style-name='Heading 1'] => h1:fresh",
+          "p[style-name='Heading 2'] => h2:fresh",
+          "p[style-name='Heading 3'] => h3:fresh",
+          "p[style-name='Heading 4'] => h3:fresh",
+          "p[style-name='Heading 5'] => h3:fresh",
+          "p[style-name='Heading 6'] => h3:fresh",
+        ],
+        convertImage: mammoth.images.imgElement(async (image) => {
+          const index = images.length + 1
+          const source = `wiki-import-image://${index}`
+          images.push({
+            contentType: image.contentType || "application/octet-stream",
+            data: await image.readAsBuffer(),
+            source,
+          })
+          return { src: source }
+        }),
+      }
+    ),
+    mammoth.extractRawText({ buffer }),
+  ])
+
+  return {
+    html: htmlResult.value,
+    images,
+    text: textResult.value.trim(),
+  }
 }
 
 export async function extractWikiVideoText(file: File) {

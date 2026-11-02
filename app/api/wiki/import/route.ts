@@ -23,11 +23,17 @@ import {
   WIKI_MAX_UPLOAD_SIZE_LABEL,
   type WikiNodeRow,
 } from "@/lib/wiki"
-import { extractWikiDocumentText } from "@/lib/wiki-extract"
+import {
+  extractWikiDocumentText,
+  extractWikiDocxDocument,
+  isWikiDocxFile,
+  type WikiExtractedDocx,
+} from "@/lib/wiki-extract"
 import {
   buildWikiImportPrompt,
   createUniqueWikiImportSlug,
   createWikiImportContentHash,
+  createWikiDocxImportDraft,
   createWikiImportDraft,
   isSupportedWikiImportFile,
   normalizeWikiImportText,
@@ -113,18 +119,23 @@ async function getImportAiOutput(text: string, fileName: string) {
 
 async function cleanUpImport({
   nodeId,
-  storagePath,
+  storagePaths,
 }: {
   nodeId?: string
-  storagePath?: string
+  storagePaths?: string[]
 }) {
   const admin = createSupabaseAdminClient()
   if (nodeId) {
     await admin.from("wiki_nodes").delete().eq("id", nodeId)
   }
-  if (storagePath) {
-    await admin.storage.from(WIKI_BUCKET).remove([storagePath])
+  if (storagePaths?.length) {
+    await admin.storage.from(WIKI_BUCKET).remove(storagePaths)
   }
+}
+
+function wikiImportImageExtension(contentType: string) {
+  const extension = contentType.toLowerCase().split("/")[1]?.split("+")[0]
+  return extension && /^[a-z0-9]+$/.test(extension) ? extension : "bin"
 }
 
 export async function POST(request: Request) {
@@ -199,10 +210,16 @@ export async function POST(request: Request) {
   }
 
   let extractedText = pastedText
+  let docxDocument: WikiExtractedDocx | null = null
   const fileName = file?.name || "Pasted text"
   if (file) {
     try {
-      extractedText = await extractWikiDocumentText(file)
+      if (isWikiDocxFile(file)) {
+        docxDocument = await extractWikiDocxDocument(file)
+        extractedText = docxDocument.text
+      } else {
+        extractedText = await extractWikiDocumentText(file)
+      }
     } catch (error) {
       console.error("Wiki import document extraction failed", {
         fileName: file.name,
@@ -283,24 +300,55 @@ export async function POST(request: Request) {
   }
 
   let aiOutput: WikiImportAiOutput | null = null
-  try {
-    aiOutput = await getImportAiOutput(normalizedText, fileName)
-  } catch (error) {
-    console.debug(
-      "Wiki import AI formatting failed; using extracted text",
-      error
-    )
+  if (!docxDocument) {
+    try {
+      aiOutput = await getImportAiOutput(normalizedText, fileName)
+    } catch (error) {
+      console.debug(
+        "Wiki import AI formatting failed; using extracted text",
+        error
+      )
+    }
   }
-  const draft = createWikiImportDraft({
-    text: normalizedText,
-    fileName,
-    aiOutput,
-  })
-  if (
-    fileName === "wiki-import-cid-text.pdf" &&
-    aiOutput &&
-    !draft.usedAi
-  ) {
+  const nodeId = crypto.randomUUID()
+  const revisionId = crypto.randomUUID()
+  const assetId = file ? crypto.randomUUID() : null
+  const storagePath =
+    file && assetId
+      ? `${nodeId}/${assetId}/${sanitizeWikiFileName(fileName)}`
+      : null
+  const importedImageAssets = (docxDocument?.images ?? []).map(
+    (image, index) => {
+      const id = crypto.randomUUID()
+      const fileName = `imported-image-${index + 1}.${wikiImportImageExtension(
+        image.contentType
+      )}`
+      return {
+        ...image,
+        id,
+        fileName,
+        storagePath: `${nodeId}/${id}/${fileName}`,
+      }
+    }
+  )
+  const draft = docxDocument
+    ? createWikiDocxImportDraft({
+        html: docxDocument.html,
+        text: normalizedText,
+        fileName,
+        imageUrls: new Map(
+          importedImageAssets.map((image) => [
+            image.source,
+            `/api/wiki/assets/${image.id}`,
+          ])
+        ),
+      })
+    : createWikiImportDraft({
+        text: normalizedText,
+        fileName,
+        aiOutput,
+      })
+  if (fileName === "wiki-import-cid-text.pdf" && aiOutput && !draft.usedAi) {
     console.warn(
       "Wiki import AI output failed fidelity or layout validation; using rule-based formatting",
       {
@@ -310,20 +358,25 @@ export async function POST(request: Request) {
       }
     )
   }
-  const nodeId = crypto.randomUUID()
-  const revisionId = crypto.randomUUID()
-  const assetId = file ? crypto.randomUUID() : null
-  const storagePath =
-    file && assetId
-      ? `${nodeId}/${assetId}/${sanitizeWikiFileName(fileName)}`
-      : null
 
   try {
+    const adminSupabase = createSupabaseAdminClient()
     if (file && storagePath) {
-      const upload = await createSupabaseAdminClient()
-        .storage.from(WIKI_BUCKET)
+      const upload = await adminSupabase.storage
+        .from(WIKI_BUCKET)
         .upload(storagePath, file, {
           contentType: file.type || "application/octet-stream",
+          upsert: false,
+        })
+      if (upload.error) {
+        throw new Error(upload.error.message)
+      }
+    }
+    for (const image of importedImageAssets) {
+      const upload = await adminSupabase.storage
+        .from(WIKI_BUCKET)
+        .upload(image.storagePath, image.data, {
+          contentType: image.contentType,
           upsert: false,
         })
       if (upload.error) {
@@ -410,6 +463,24 @@ export async function POST(request: Request) {
         throw new Error(assetError.message)
       }
     }
+    for (const image of importedImageAssets) {
+      const { error: assetError } = await supabase.from("wiki_assets").insert({
+        id: image.id,
+        node_id: nodeId,
+        storage_bucket: WIKI_BUCKET,
+        storage_path: image.storagePath,
+        file_name: image.fileName,
+        mime_type: image.contentType,
+        size_bytes: image.data.byteLength,
+        kind: "image",
+        extracted_text: null,
+        created_by: user.id,
+        updated_by: user.id,
+      })
+      if (assetError) {
+        throw new Error(assetError.message)
+      }
+    }
     await syncWikiPageTags({ supabase, nodeId, tags: draft.tags })
 
     const nodes = await fetchWikiNodes(supabase)
@@ -427,7 +498,10 @@ export async function POST(request: Request) {
   } catch (error) {
     await cleanUpImport({
       nodeId,
-      storagePath: storagePath ?? undefined,
+      storagePaths: [
+        ...(storagePath ? [storagePath] : []),
+        ...importedImageAssets.map((image) => image.storagePath),
+      ],
     }).catch((cleanupError) =>
       console.error("Wiki import cleanup failed", cleanupError)
     )

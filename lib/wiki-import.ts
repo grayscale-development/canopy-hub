@@ -1,6 +1,9 @@
 import "server-only"
 
 import crypto from "node:crypto"
+// jsdom is a server dependency without bundled declarations.
+// @ts-expect-error jsdom does not publish TypeScript declarations.
+import { JSDOM } from "jsdom"
 
 import {
   normalizeWikiTags,
@@ -24,6 +27,18 @@ export interface WikiImportDraft {
   plainText: string
   usedAi: boolean
 }
+
+type WikiImportBlock = Record<string, unknown>
+type WikiImportStyles = Partial<Record<"bold" | "italic" | "underline", true>>
+type WikiImportInline =
+  | string
+  | Array<{
+      type: "text" | "link"
+      text?: string
+      href?: string
+      content?: Array<{ type: "text"; text: string; styles: WikiImportStyles }>
+      styles?: WikiImportStyles
+    }>
 
 const PDF_PAGE_MARKER = /^[-–—\s]*\d+\s+(?:of|\/)\s+\d+[-–—\s]*$/i
 
@@ -232,6 +247,319 @@ function markdownTableBlock(header: string[], rows: string[][]) {
 function isShortMarkdownStatLine(value: string) {
   const trimmed = value.trim()
   return trimmed.length <= 180 && /^\*\*[^*\n]+\*\*(?:\s+.+)?$/.test(trimmed)
+}
+
+function hasInlineContent(content: WikiImportInline) {
+  return typeof content === "string"
+    ? Boolean(content.trim())
+    : content.length > 0
+}
+
+function safeWikiImportLink(value: string | null) {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return ["http:", "https:", "mailto:"].includes(url.protocol) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function docxInlineContent(node: Node): WikiImportInline {
+  const content: Array<{
+    type: "text" | "link"
+    text?: string
+    href?: string
+    content?: Array<{ type: "text"; text: string; styles: WikiImportStyles }>
+    styles?: WikiImportStyles
+  }> = []
+
+  const appendText = (text: string, styles: WikiImportStyles) => {
+    if (!text) return
+    const previous = content.at(-1)
+    if (
+      previous?.type === "text" &&
+      previous.text !== undefined &&
+      JSON.stringify(previous.styles ?? {}) === JSON.stringify(styles)
+    ) {
+      previous.text += text
+      return
+    }
+    content.push({ type: "text", text, styles })
+  }
+
+  const visit = (current: Node, styles: WikiImportStyles) => {
+    if (current.nodeType === current.TEXT_NODE) {
+      appendText(current.textContent ?? "", styles)
+      return
+    }
+    if (current.nodeType !== current.ELEMENT_NODE) return
+
+    const element = current as Element
+    const tag = element.tagName.toLowerCase()
+    if (tag === "img") return
+    if (tag === "ol" || tag === "ul") return
+    if (tag === "br") {
+      appendText("\n", styles)
+      return
+    }
+    const nextStyles = {
+      ...styles,
+      ...(tag === "strong" || tag === "b" ? { bold: true as const } : {}),
+      ...(tag === "em" || tag === "i" ? { italic: true as const } : {}),
+      ...(tag === "u" ? { underline: true as const } : {}),
+    }
+    if (tag === "a") {
+      const href = safeWikiImportLink(element.getAttribute("href"))
+      const linkContent: Array<{
+        type: "text"
+        text: string
+        styles: WikiImportStyles
+      }> = []
+      const collect = (child: Node, childStyles: WikiImportStyles) => {
+        if (child.nodeType === child.TEXT_NODE) {
+          const text = child.textContent ?? ""
+          if (text)
+            linkContent.push({ type: "text", text, styles: childStyles })
+          return
+        }
+        if (child.nodeType !== child.ELEMENT_NODE) return
+        const childElement = child as Element
+        const childTag = childElement.tagName.toLowerCase()
+        if (childTag === "br") {
+          linkContent.push({ type: "text", text: "\n", styles: childStyles })
+          return
+        }
+        for (const grandchild of child.childNodes) {
+          collect(grandchild, {
+            ...childStyles,
+            ...(childTag === "strong" || childTag === "b"
+              ? { bold: true as const }
+              : {}),
+            ...(childTag === "em" || childTag === "i"
+              ? { italic: true as const }
+              : {}),
+            ...(childTag === "u" ? { underline: true as const } : {}),
+          })
+        }
+      }
+      for (const child of current.childNodes) collect(child, nextStyles)
+      if (href && linkContent.length) {
+        content.push({ type: "link", href, content: linkContent })
+      } else {
+        for (const item of linkContent) appendText(item.text, item.styles)
+      }
+      return
+    }
+    for (const child of current.childNodes) visit(child, nextStyles)
+  }
+
+  for (const child of node.childNodes) visit(child, {})
+  if (
+    content.length === 1 &&
+    content[0].type === "text" &&
+    !Object.keys(content[0].styles ?? {}).length
+  ) {
+    return content[0].text ?? ""
+  }
+  return content.length ? content : ""
+}
+
+function docxImageBlock(element: Element, imageUrls: Map<string, string>) {
+  const source = element.getAttribute("src") ?? ""
+  const url = imageUrls.get(source)
+  if (!url) return null
+  const name = element.getAttribute("alt")?.trim() || "Imported image"
+  return {
+    type: "image",
+    props: { url, name, caption: "" },
+    children: [],
+  }
+}
+
+function isAllCapsTitleLike(value: string) {
+  const trimmed = value.trim().replace(/:$/, "")
+  const letters = trimmed.match(/\p{L}/gu) ?? []
+  return (
+    trimmed.length > 2 &&
+    trimmed.length <= 100 &&
+    trimmed.split(/\s+/).length <= 10 &&
+    letters.length >= 3 &&
+    letters.every((letter) => letter === letter.toLocaleUpperCase())
+  )
+}
+
+function docxListBlocks(
+  list: Element,
+  imageUrls: Map<string, string>
+): WikiImportBlock[] {
+  const type =
+    list.tagName.toLowerCase() === "ol" ? "numberedListItem" : "bulletListItem"
+  return [...list.children]
+    .filter((child) => child.tagName.toLowerCase() === "li")
+    .map((item) => {
+      const directContent = docxInlineContent(item)
+      const nestedLists = [...item.children].filter((child) =>
+        ["ol", "ul"].includes(child.tagName.toLowerCase())
+      )
+      const images = [...item.querySelectorAll(":scope > img")]
+        .map((image) => docxImageBlock(image, imageUrls))
+        .filter(Boolean) as WikiImportBlock[]
+      const children = [
+        ...nestedLists.flatMap((nestedList) =>
+          docxListBlocks(nestedList, imageUrls)
+        ),
+        ...images,
+      ]
+      return {
+        type,
+        content: hasInlineContent(directContent) ? directContent : "",
+        children,
+      }
+    })
+}
+
+function docxTableBlock(table: Element): WikiImportBlock {
+  const rows = [...table.querySelectorAll("tr")].map((row) => ({
+    cells: [...row.children]
+      .filter((cell) => ["th", "td"].includes(cell.tagName.toLowerCase()))
+      .map((cell) => docxInlineContent(cell)),
+  }))
+  const headerRows = table.querySelector("th") ? 1 : 0
+  return {
+    type: "table",
+    content: { type: "tableContent", headerRows, rows },
+    children: [],
+  }
+}
+
+/** Convert Mammoth's deterministic DOCX HTML into the app's BlockNote JSON. */
+export function docxHtmlToWikiImportBlocks({
+  html,
+  imageUrls = new Map<string, string>(),
+}: {
+  html: string
+  imageUrls?: Map<string, string>
+}) {
+  const document = new JSDOM(`<body>${html}</body>`).window.document
+  const blocks: WikiImportBlock[] = []
+  let sawTitle = false
+
+  for (const element of [...document.body.children]) {
+    const tag = element.tagName.toLowerCase()
+    const text = element.textContent?.trim() ?? ""
+    const heading = tag.match(/^h([1-6])$/)
+    const inferredHeading = tag === "p" && isAllCapsTitleLike(text)
+
+    if (heading || inferredHeading) {
+      const level = heading ? Math.min(Number(heading[1]), 3) : 2
+      if (!sawTitle && (level === 1 || inferredHeading)) {
+        sawTitle = true
+        continue
+      }
+      blocks.push({
+        type: "heading",
+        props: { level },
+        content: docxInlineContent(element),
+        children: [],
+      })
+      continue
+    }
+    if (tag === "ol" || tag === "ul") {
+      blocks.push(...docxListBlocks(element, imageUrls))
+      continue
+    }
+    if (tag === "table") {
+      blocks.push(docxTableBlock(element))
+      continue
+    }
+    if (tag === "img") {
+      const image = docxImageBlock(element, imageUrls)
+      if (image) blocks.push(image)
+      continue
+    }
+    if (tag !== "p") continue
+
+    const inline = docxInlineContent(element)
+    if (hasInlineContent(inline)) {
+      blocks.push({ type: "paragraph", content: inline, children: [] })
+    }
+    for (const image of [...element.querySelectorAll("img")]) {
+      const block = docxImageBlock(image, imageUrls)
+      if (block) blocks.push(block)
+    }
+  }
+
+  return blocks.length
+    ? blocks
+    : [{ type: "paragraph", content: "", children: [] }]
+}
+
+function wikiImportBlocksText(blocks: WikiImportBlock[]) {
+  const values: string[] = []
+  const readInline = (content: unknown): string => {
+    if (typeof content === "string") return content
+    if (!Array.isArray(content)) return ""
+    return content
+      .map((item) => {
+        if (!item || typeof item !== "object") return ""
+        const value = item as Record<string, unknown>
+        if (typeof value.text === "string") return value.text
+        return readInline(value.content)
+      })
+      .join("")
+  }
+  const visit = (block: WikiImportBlock) => {
+    values.push(readInline(block.content))
+    if (Array.isArray(block.children)) {
+      for (const child of block.children) {
+        if (child && typeof child === "object") visit(child as WikiImportBlock)
+      }
+    }
+  }
+  for (const block of blocks) visit(block)
+  return values.filter(Boolean).join("\n")
+}
+
+export function createWikiDocxImportDraft({
+  html,
+  text,
+  fileName,
+  imageUrls,
+}: {
+  html: string
+  text: string
+  fileName: string
+  imageUrls: Map<string, string>
+}): WikiImportDraft {
+  const blocks = docxHtmlToWikiImportBlocks({ html, imageUrls })
+  const document = new JSDOM(`<body>${html}</body>`).window.document
+  const firstHeading = [...document.body.children].find((element) => {
+    const tag = element.tagName.toLowerCase()
+    return tag === "h1" || isAllCapsTitleLike(element.textContent ?? "")
+  })
+  const title =
+    firstHeading?.textContent?.replace(/\s+/g, " ").trim() ||
+    titleFromWikiImportFileName(fileName)
+  const plainText = normalizeWikiImportText(text)
+  const blockText = wikiImportBlocksText(blocks)
+  const renderedText = `${title}\n${blockText}`
+
+  if (
+    !isFaithfulWikiImportOutput(plainText, renderedText) ||
+    !isFaithfulWikiImportOutput(renderedText, plainText)
+  ) {
+    throw new Error("DOCX conversion did not preserve all document text.")
+  }
+
+  return {
+    title,
+    tags: [],
+    markdown: "",
+    blocks,
+    plainText,
+    usedAi: false,
+  }
 }
 
 export function markdownToWikiImportBlocks(markdown: string) {

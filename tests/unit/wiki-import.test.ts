@@ -2,17 +2,104 @@ import { readFile } from "node:fs/promises"
 
 import { describe, expect, it } from "vitest"
 
-import { extractWikiDocumentText } from "@/lib/wiki-extract"
+import {
+  extractWikiDocxDocument,
+  extractWikiDocumentText,
+} from "@/lib/wiki-extract"
 import {
   createUniqueWikiImportSlug,
+  createWikiDocxImportDraft,
   createWikiImportContentHash,
   createWikiImportDraft,
+  docxHtmlToWikiImportBlocks,
   isFaithfulWikiImportOutput,
   markdownToWikiImportBlocks,
   normalizeWikiImportText,
 } from "@/lib/wiki-import"
 
 describe("Wiki import core", () => {
+  it("keeps the escrow DOCX's headings, nested lists, and four placed images", async () => {
+    const file = new File(
+      [await readFile("tests/fixtures/wiki-import-escrow.docx")],
+      "wiki-import-escrow.docx",
+      {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }
+    )
+    const extracted = await extractWikiDocxDocument(file)
+    const draft = createWikiDocxImportDraft({
+      html: extracted.html,
+      text: extracted.text,
+      fileName: file.name,
+      imageUrls: new Map(
+        extracted.images.map((image, index) => [
+          image.source,
+          `/api/wiki/assets/image-${index + 1}`,
+        ])
+      ),
+    })
+    const listDepth = (
+      blocks: Array<Record<string, unknown>>,
+      depth = 0
+    ): number =>
+      blocks.reduce((maximum, block) => {
+        const currentDepth =
+          block.type === "numberedListItem" || block.type === "bulletListItem"
+            ? depth + 1
+            : depth
+        const children = Array.isArray(block.children)
+          ? (block.children as Array<Record<string, unknown>>)
+          : []
+        return Math.max(
+          maximum,
+          currentDepth,
+          listDepth(children, currentDepth)
+        )
+      }, depth)
+
+    expect(draft.title).toBe("ESCROW HOLD BACK POLICY")
+    expect(draft.usedAi).toBe(false)
+    expect(draft.blocks).toContainEqual(
+      expect.objectContaining({
+        type: "heading",
+        content: "GENERAL GUIDELINES",
+      })
+    )
+    expect(listDepth(draft.blocks)).toBeGreaterThanOrEqual(2)
+    expect(draft.blocks.filter((block) => block.type === "image")).toHaveLength(
+      4
+    )
+  })
+
+  it("maps DOCX HTML inline formatting, links, and tables without AI", () => {
+    const blocks = docxHtmlToWikiImportBlocks({
+      html: `<h1>Policy</h1><h2>Steps</h2><p><strong>Bold</strong> <em>italic</em> <u>underlined</u> <a href="https://canopy.example">link</a></p><ul><li>Parent<ul><li>Child</li></ul></li></ul><table><tr><th>Label</th><th>Value</th></tr><tr><td>Rate</td><td><strong>10</strong></td></tr></table>`,
+    })
+
+    expect(blocks).toContainEqual(
+      expect.objectContaining({ type: "heading", content: "Steps" })
+    )
+    expect(blocks).toContainEqual(
+      expect.objectContaining({
+        type: "paragraph",
+        content: expect.arrayContaining([
+          expect.objectContaining({ text: "Bold", styles: { bold: true } }),
+          expect.objectContaining({ text: "italic", styles: { italic: true } }),
+          expect.objectContaining({
+            type: "link",
+            href: "https://canopy.example",
+          }),
+        ]),
+      })
+    )
+    expect(blocks).toContainEqual(
+      expect.objectContaining({
+        type: "table",
+        content: expect.objectContaining({ headerRows: 1 }),
+      })
+    )
+  })
+
   it("normalizes equivalent source text before hashing", () => {
     expect(normalizeWikiImportText("  One\r\n\r\n\r\nTwo  ")).toBe("One\n\nTwo")
     expect(createWikiImportContentHash("One\r\nTwo")).toBe(

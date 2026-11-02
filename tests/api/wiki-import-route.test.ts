@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   nodes: [] as Array<Record<string, unknown>>,
   insertedNodes: [] as Array<Record<string, unknown>>,
   insertedRevisions: [] as Array<Record<string, unknown>>,
+  insertedAssets: [] as Array<Record<string, unknown>>,
   aiResponse: {
     output_text: JSON.stringify({
       title: "Lock Review",
@@ -39,6 +40,9 @@ class Query {
     }
     if (this.table === "wiki_page_revisions") {
       state.insertedRevisions.push(value)
+    }
+    if (this.table === "wiki_assets") {
+      state.insertedAssets.push(value)
     }
     return this
   }
@@ -88,6 +92,8 @@ const ai = vi.hoisted(() => ({
 vi.mock("@/lib/ai/provider", () => ai)
 const extractor = vi.hoisted(() => ({
   extractWikiDocumentText: vi.fn(),
+  extractWikiDocxDocument: vi.fn(),
+  isWikiDocxFile: vi.fn(() => false),
 }))
 vi.mock("@/lib/wiki-extract", () => extractor)
 
@@ -117,6 +123,8 @@ describe("/api/wiki/import route", () => {
     state.nodes = []
     state.insertedNodes = []
     state.insertedRevisions = []
+    state.insertedAssets = []
+    extractor.isWikiDocxFile.mockReturnValue(false)
   })
 
   it("requires an authenticated Wiki manager", async () => {
@@ -153,6 +161,47 @@ describe("/api/wiki/import route", () => {
       change_note: "Imported pasted text",
       plain_text: "Review lock 123 before submitting.",
     })
+  })
+
+  it("keeps DOCX structure and stores embedded images as page assets without AI", async () => {
+    extractor.isWikiDocxFile.mockReturnValueOnce(true)
+    extractor.extractWikiDocxDocument.mockResolvedValueOnce({
+      text: "ESCROW HOLD BACK POLICY\nGENERAL GUIDELINES\nRead this first.",
+      html: `<p>ESCROW HOLD BACK POLICY</p><p>GENERAL GUIDELINES</p><p>Read this first.</p><p><img src="wiki-import-image://1" /></p>`,
+      images: [
+        {
+          source: "wiki-import-image://1",
+          contentType: "image/png",
+          data: Buffer.from("png"),
+        },
+      ],
+    })
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      fileImportRequest(
+        new File(["docx"], "escrow.docx", {
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        })
+      )
+    )
+
+    expect(response.status).toBe(200)
+    expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
+    expect(state.insertedNodes[0]).toMatchObject({
+      title: "ESCROW HOLD BACK POLICY",
+    })
+    expect(state.insertedAssets).toHaveLength(2)
+    expect(state.insertedAssets).toContainEqual(
+      expect.objectContaining({ kind: "image", mime_type: "image/png" })
+    )
+    expect(state.insertedRevisions[0]?.blocks).toContainEqual(
+      expect.objectContaining({
+        type: "image",
+        props: expect.objectContaining({
+          url: expect.stringMatching(/^\/api\/wiki\/assets\//),
+        }),
+      })
+    )
   })
 
   it("falls back to the extracted text when AI output loses source content", async () => {
