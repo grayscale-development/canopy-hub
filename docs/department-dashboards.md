@@ -81,7 +81,13 @@ where source_key in ('processing_events', 'underwriting_events');
 `config.primary_key_strategy` is recorded for operators. The sync function does
 not read it. `supabase/functions/_shared/transforms.ts` sets
 `external_row_key` to `AppId + Event + EmployeeId + the full Date timestamp`,
-separated by the unit separator. `event_at` stores that timestamp.
+separated by the unit separator. `organization_id` is not part of that key.
+Processing reads `ProcessingOrganizationId`, and underwriting reads
+`UnderwritingOrganizationId`. Jimmy's earlier objects used `OrganizationId`,
+so either title is accepted. The id is the Qlik cell `qText`, including a
+number stored as text. A blank `qText` falls back to `qNum`. A later sync
+updates the same key and fills `organization_id` on the existing row.
+`event_at` stores that timestamp.
 `event_date` is the calendar date of `event_at`. The Qlik text
 `10/29/2026 11:48:56 AM` is stored as `2026-10-29T11:48:56.000Z`, so the
 calendar date does not move when the sync runtime is not UTC. The row hash
@@ -115,9 +121,16 @@ on the reference date, not on the last day of that month.
 
 - `EmployeeId` joins `raw.employees.user_id`. Both are text. The directory name
   wins over the name on the event.
-- Processing `OrganizationId` joins `raw.processing_assistant_orgs.org_id`.
-  Underwriting `OrganizationId` joins `raw.underwriting_orgs.org_id`. Both org
-  ids are text. The org table name wins over the name on the event.
+- Processing `ProcessingOrganizationId` (or `OrganizationId`) joins
+  `raw.processing_assistant_orgs.org_id`. Underwriting
+  `UnderwritingOrganizationId` (or `OrganizationId`) joins
+  `raw.underwriting_orgs.org_id`. Both org ids are trimmed text. The org table
+  name wins over the name on the event. Organization rows and the org filter
+  group by that id. When the id is null, they group by `organization_name`,
+  so a missing id cannot collapse every organization into one row.
+  `202610300005_department_org_id_fallback.sql` replaces
+  `data.get_department_dashboard` for that fallback. It does not truncate,
+  drop columns, or enable the feeds.
 - Branch is the loan branch: `AppId` = `raw.production_data.loan_number`, then
   `branch_id` to `raw.branches`. This is not the employee's latest context
   branch from `data.employee_directory_rows`. If AppId is not the loan number,

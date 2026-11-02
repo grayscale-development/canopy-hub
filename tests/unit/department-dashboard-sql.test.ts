@@ -125,6 +125,7 @@ describe("department dashboard SQL", () => {
     for (const migration of [
       "supabase/migrations/202610300003_department_event_dashboards.sql",
       "supabase/migrations/202610300004_department_dashboard_metric_fixes.sql",
+      "supabase/migrations/202610300005_department_org_id_fallback.sql",
     ]) {
       await db.exec(fs.readFileSync(path.resolve(migration), "utf8"))
     }
@@ -449,6 +450,140 @@ describe("department dashboard SQL", () => {
       0.5
     )
     expect(dashboard.events.rows[0]?.employeeName).toBe("Uma Underwriter")
+  })
+
+  it("groups null organization ids by name and joins trimmed numeric ids", async () => {
+    await db.exec("begin")
+    try {
+      await db.exec(`
+        insert into raw.processing_assistant_orgs (external_row_key, org_id, org_name, last_synced_at) values
+          ('pa39', '39', 'Numeric Org', '2026-10-01'),
+          ('pa12', '12', 'Processing Twelve', '2026-10-01');
+        insert into raw.underwriting_orgs (external_row_key, org_id, org_name, last_synced_at) values
+          ('uw12', '12', 'UW Twelve', '2026-10-01');
+        insert into raw.processing_events (
+          external_row_key, app_id, organization_name, organization_id, employee_id, employee_name,
+          event, event_date, points, processing_net_workdays, docs_to_closing, is_closing_funding_rush,
+          raw_payload, source_record_hash
+        ) values
+          ('null-a', 'LN1', 'Null Org A', null, 'E1', 'Ada Raw', 'Funded', '2026-10-02', 1, 1, 1, false, '{}', 'h'),
+          ('null-b', 'LN2', 'Null Org B', null, 'E2', 'Bob Raw', 'Funded', '2026-10-03', 1, 1, 1, false, '{}', 'h'),
+          ('blank-id', 'LN4', 'Blank Id Org', '   ', 'E3', 'Cara Raw', 'Funded', '2026-10-04', 1, 1, 1, false, '{}', 'h'),
+          ('num-39', 'LN3', 'Raw Thirty Nine', ' 39 ', 'E3', 'Cara Raw', 'Processed', '2026-10-04', 5, 2, 1, false, '{}', 'h');
+        insert into raw.underwriting_events (
+          external_row_key, app_id, organization_name, organization_id, employee_id, employee_name,
+          event, event_date, points, is_bad_loan, raw_payload, source_record_hash
+        ) values
+          ('uw-12', 'U1', 'UW Raw Twelve', '12', 'W1', 'Uma Raw', 'Funded', '2026-10-11', 1, false, '{}', 'h'),
+          ('uw-null-a', 'U1', 'Null UW A', null, 'W1', 'Uma Raw', 'Funded', '2026-10-12', 1, false, '{}', 'h'),
+          ('uw-null-b', 'U2', 'Null UW B', null, 'W2', 'Ned Raw', 'Funded', '2026-10-12', 1, false, '{}', 'h');
+      `)
+
+      const processing = await loadDashboard("processing")
+      expect(processing.organizations.map((row) => row.label)).toEqual([
+        "Company Avg",
+        "Blank Id Org",
+        "Null Org A",
+        "Null Org B",
+        "Numeric Org",
+        "Org One",
+        "Org Two",
+      ])
+      expect(
+        processing.organizations.find((row) => row.label === "Numeric Org")?.id
+      ).toBe("39")
+      expect(
+        processing.organizations.find((row) => row.label === "Null Org A")?.id
+      ).toBe("Null Org A")
+      expect(
+        processing.organizations.find((row) => row.label === "Org One")?.id
+      ).toBe("PA1")
+      expectClose(
+        metric(processing.organizations, "Null Org A", "total_funded"),
+        1
+      )
+      expectClose(
+        metric(processing.organizations, "Null Org B", "total_funded"),
+        1
+      )
+      expectClose(
+        metric(processing.organizations, "Blank Id Org", "total_funded"),
+        1
+      )
+      expectClose(
+        metric(processing.organizations, "Numeric Org", "total_funded"),
+        0
+      )
+      expectClose(
+        metric(processing.organizations, "Numeric Org", "processing_events"),
+        1
+      )
+      expect(processing.filters.orgs).toEqual([
+        { id: "Blank Id Org", label: "Blank Id Org" },
+        { id: "Null Org A", label: "Null Org A" },
+        { id: "Null Org B", label: "Null Org B" },
+        { id: "39", label: "Numeric Org" },
+        { id: "PA1", label: "Org One" },
+        { id: "PA2", label: "Org Two" },
+      ])
+
+      const nullOrg = await loadDashboard("processing", { orgId: "Null Org A" })
+      expect(nullOrg.organizations.map((row) => row.label)).toEqual([
+        "Company Avg",
+        "Null Org A",
+      ])
+      expect(nullOrg.events.total).toBe(1)
+      expect(nullOrg.events.rows[0]).toMatchObject({
+        organizationId: null,
+        organizationName: "Null Org A",
+        appId: "LN1",
+      })
+
+      const numeric = await loadDashboard("processing", { orgId: "39" })
+      expect(numeric.organizations.map((row) => row.label)).toEqual([
+        "Company Avg",
+        "Numeric Org",
+      ])
+      expect(numeric.events.rows).toEqual([
+        expect.objectContaining({
+          organizationId: "39",
+          organizationName: "Numeric Org",
+          appId: "LN3",
+        }),
+      ])
+
+      const underwriting = await loadDashboard("underwriting")
+      expect(underwriting.organizations.map((row) => row.label)).toEqual([
+        "Company Avg",
+        "Null UW A",
+        "Null UW B",
+        "UW Org",
+        "UW Twelve",
+      ])
+      expect(
+        underwriting.organizations.find((row) => row.label === "UW Twelve")?.id
+      ).toBe("12")
+      expectClose(
+        metric(underwriting.organizations, "Null UW A", "total_funded"),
+        1
+      )
+      expectClose(
+        metric(underwriting.organizations, "Null UW B", "total_funded"),
+        1
+      )
+      expectClose(
+        metric(underwriting.organizations, "UW Twelve", "total_funded"),
+        1
+      )
+      expect(underwriting.filters.orgs).toEqual([
+        { id: "Null UW A", label: "Null UW A" },
+        { id: "Null UW B", label: "Null UW B" },
+        { id: "UW1", label: "UW Org" },
+        { id: "12", label: "UW Twelve" },
+      ])
+    } finally {
+      await db.exec("rollback")
+    }
   })
 
   it("rejects an unknown department", async () => {
