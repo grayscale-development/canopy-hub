@@ -11,7 +11,9 @@ import {
 
 function assertEquals(actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    throw new Error(
+      `Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 
@@ -33,7 +35,10 @@ Deno.test("maps production rows into normalized raw table columns", () => {
 });
 
 Deno.test("maps branch and employee rows", () => {
-  assertEquals(mapBranchRow({ "Branch ID": "B1", "Branch Name": "Main" }).row.branch_name, "Main");
+  assertEquals(
+    mapBranchRow({ "Branch ID": "B1", "Branch Name": "Main" }).row.branch_name,
+    "Main",
+  );
   assertEquals(
     mapEmployeeRow({
       "User ID": "U1",
@@ -49,9 +54,14 @@ Deno.test("dispatches transformByTargetTable for supported tables only", () => {
   assertEquals(isSupportedTargetTable("processing_events"), true);
   assertEquals(isSupportedTargetTable("underwriting_events"), true);
   assertEquals(isSupportedTargetTable("unknown"), false);
-  assertEquals(transformByTargetTable("branches", [{ "Branch ID": "B1" }]).length, 1);
   assertEquals(
-    transformByTargetTable("processing_events", [{ AppId: "A1", Event: "Funded", EmployeeId: "E1", Date: "2026-10-01" }]).length,
+    transformByTargetTable("branches", [{ "Branch ID": "B1" }]).length,
+    1,
+  );
+  assertEquals(
+    transformByTargetTable("processing_events", [
+      { AppId: "A1", Event: "Funded", EmployeeId: "E1", Date: "2026-10-01" },
+    ]).length,
     1,
   );
 });
@@ -61,7 +71,8 @@ Deno.test("department event keys stay stable when measures change", () => {
     appId: "A1",
     event: "Funded",
     employeeId: "E1",
-    eventAt: "2026-10-15T00:00:00.000Z",
+    eventDate: "2026-10-15",
+    eventMinuteSecond: "0000",
   });
   const first = mapProcessingEventRow({
     AppId: "A1",
@@ -105,43 +116,97 @@ Deno.test("department event keys stay stable when measures change", () => {
   assertEquals(first.row.event_date, "2026-10-15");
 });
 
-Deno.test("department event keys use the full Qlik timestamp", () => {
-  const morning = mapProcessingEventRow({
+Deno.test("department event keys use the Qlik calendar date, minute, and second", () => {
+  const result = mapProcessingEventRow({
     AppId: "A1",
     Event: "Funded",
     EmployeeId: "E1",
     Date: { qText: "10/29/2026 11:48:56 AM", qNum: 100.25 },
     Points: "1",
   });
-  const later = mapProcessingEventRow({
-    AppId: "A1",
-    Event: "Funded",
-    EmployeeId: "E1",
-    Date: "10/29/2026 11:49:56 AM",
-    Points: "1",
-  });
-  const sameInstant = mapUnderwritingEventRow({
-    AppId: "A1",
-    Event: "Funded",
-    EmployeeId: "E1",
-    Date: "10/29/2026 11:48:56 AM",
-    Points: "9",
-  });
 
-  assertEquals(morning.row.event_at, "2026-10-29T11:48:56.000Z");
-  assertEquals(morning.row.event_date, "2026-10-29");
+  assertEquals(result.row.event_at, "2026-10-29T11:48:56.000Z");
+  assertEquals(result.row.event_date, "2026-10-29");
   assertEquals(
-    morning.external_row_key,
+    result.external_row_key,
     departmentEventKey({
       appId: "A1",
       event: "Funded",
       employeeId: "E1",
-      eventAt: "2026-10-29T11:48:56.000Z",
+      eventDate: "2026-10-29",
+      eventMinuteSecond: "4856",
     }),
   );
-  assertEquals(morning.external_row_key === later.external_row_key, false);
-  assertEquals(sameInstant.external_row_key, morning.external_row_key);
-  assertEquals(sameInstant.row.event_date, "2026-10-29");
+});
+
+Deno.test("department event keys survive uniform plus or minus one-hour Qlik timestamp shifts", () => {
+  const keysFor = (dates: string[]) =>
+    transformByTargetTable(
+      "processing_events",
+      dates.map((Date, index) => ({
+        AppId: index === 2 ? "A2" : "A1",
+        Event: index === 2 ? "Processed" : "Funded",
+        EmployeeId: index === 2 ? "E2" : "E1",
+        Date,
+      })),
+    ).map((row) => row.external_row_key);
+
+  const baseline = keysFor([
+    "10/29/2026 09:12:34 AM",
+    "10/29/2026 11:56:07 AM",
+    "10/29/2026 02:01:45 PM",
+  ]);
+  const plusOneHour = keysFor([
+    "10/29/2026 10:12:34 AM",
+    "10/29/2026 12:56:07 PM",
+    "10/29/2026 03:01:45 PM",
+  ]);
+  const minusOneHour = keysFor([
+    "10/29/2026 08:12:34 AM",
+    "10/29/2026 10:56:07 AM",
+    "10/29/2026 01:01:45 PM",
+  ]);
+
+  assertEquals(plusOneHour, baseline);
+  assertEquals(minusOneHour, baseline);
+});
+
+Deno.test("department event keys distinguish minute and second across separate chunks", () => {
+  const firstChunk = transformByTargetTable("processing_events", [
+    {
+      AppId: "A1",
+      Event: "Funded",
+      EmployeeId: "E1",
+      Date: "10/29/2026 11:48:56 AM",
+    },
+  ]);
+  const secondChunk = transformByTargetTable("processing_events", [
+    {
+      AppId: "A1",
+      Event: "Funded",
+      EmployeeId: "E1",
+      Date: "10/29/2026 11:49:57 AM",
+    },
+  ]);
+
+  assertEquals(firstChunk[0]?.external_row_key === secondChunk[0]?.external_row_key, false);
+});
+
+Deno.test("department event rows missing identity components are skipped", () => {
+  const results = transformByTargetTable("processing_events", [
+    { Event: "Processed", EmployeeId: "E1", Date: "2026-10-29" },
+    { AppId: "A1", EmployeeId: "E1", Date: "2026-10-29" },
+    { AppId: "A1", Event: "Processed", Date: "2026-10-29" },
+    { AppId: "A1", Event: "Processed", EmployeeId: "E1" },
+  ]);
+
+  assertEquals(results.map((result) => result.external_row_key), [null, null, null, null]);
+  assertEquals(results.map((result) => result.skip_reason), [
+    "Missing department event identity component(s): AppId.",
+    "Missing department event identity component(s): Event.",
+    "Missing department event identity component(s): EmployeeId.",
+    "Missing department event identity component(s): Date, Date time.",
+  ]);
 });
 
 Deno.test("maps underwriting event rows from Qlik cells", () => {
@@ -168,7 +233,8 @@ Deno.test("maps underwriting event rows from Qlik cells", () => {
       appId: "U1",
       event: "Initial Review Complete",
       employeeId: "W1",
-      eventAt: "2026-10-01T00:00:00.000Z",
+      eventDate: "2026-10-01",
+      eventMinuteSecond: "0000",
     }),
   );
   assertEquals(result.row.event_at, "2026-10-01T00:00:00.000Z");
@@ -183,49 +249,52 @@ Deno.test("maps underwriting event rows from Qlik cells", () => {
   assertEquals(result.row.organization_id, "UW1");
 });
 
-Deno.test("reads department organization ids from Qlik cells without changing the event key", () => {
-  const shared = {
-    AppId: "A1",
-    Event: "Funded",
-    EmployeeId: "E1",
-    Date: "10/29/2026 11:48:56 AM",
-    Points: "1",
-  };
-  const withoutOrg = mapProcessingEventRow(shared);
-  const processing = mapProcessingEventRow({
-    ...shared,
-    OrganizationId: { qText: "PA-OLD" },
-    ProcessingOrganizationId: { qText: "039", qNum: 39 },
-    "Processing Organization": "Org Thirty Nine",
-  });
-  const spacedTitle = mapProcessingEventRow({
-    ...shared,
-    "Processing Organization Id": { qText: "39", qNum: 39 },
-  });
-  const qNumOnly = mapProcessingEventRow({
-    ...shared,
-    ProcessingOrganizationId: { qText: " ", qNum: 41 },
-  });
-  const underwriting = mapUnderwritingEventRow({
-    ...shared,
-    UnderwritingOrganizationId: { qText: "", qNum: 12 },
-    "Underwriting Organization": "UW Twelve",
-  });
-  const underwritingText = mapUnderwritingEventRow({
-    ...shared,
-    UnderwritingOrganizationId: { qText: "12", qNum: 12 },
-  });
+Deno.test(
+  "reads department organization ids from Qlik cells without changing the event key",
+  () => {
+    const shared = {
+      AppId: "A1",
+      Event: "Funded",
+      EmployeeId: "E1",
+      Date: "10/29/2026 11:48:56 AM",
+      Points: "1",
+    };
+    const withoutOrg = mapProcessingEventRow(shared);
+    const processing = mapProcessingEventRow({
+      ...shared,
+      OrganizationId: { qText: "PA-OLD" },
+      ProcessingOrganizationId: { qText: "039", qNum: 39 },
+      "Processing Organization": "Org Thirty Nine",
+    });
+    const spacedTitle = mapProcessingEventRow({
+      ...shared,
+      "Processing Organization Id": { qText: "39", qNum: 39 },
+    });
+    const qNumOnly = mapProcessingEventRow({
+      ...shared,
+      ProcessingOrganizationId: { qText: " ", qNum: 41 },
+    });
+    const underwriting = mapUnderwritingEventRow({
+      ...shared,
+      UnderwritingOrganizationId: { qText: "", qNum: 12 },
+      "Underwriting Organization": "UW Twelve",
+    });
+    const underwritingText = mapUnderwritingEventRow({
+      ...shared,
+      UnderwritingOrganizationId: { qText: "12", qNum: 12 },
+    });
 
-  assertEquals(processing.external_row_key, withoutOrg.external_row_key);
-  assertEquals(spacedTitle.external_row_key, withoutOrg.external_row_key);
-  assertEquals(underwriting.external_row_key, withoutOrg.external_row_key);
-  assertEquals(processing.row.organization_id, "039");
-  assertEquals(spacedTitle.row.organization_id, "39");
-  assertEquals(qNumOnly.row.organization_id, "41");
-  assertEquals(underwriting.row.organization_id, "12");
-  assertEquals(underwritingText.row.organization_id, "12");
-  assertEquals(processing.row.organization_name, "Org Thirty Nine");
-});
+    assertEquals(processing.external_row_key, withoutOrg.external_row_key);
+    assertEquals(spacedTitle.external_row_key, withoutOrg.external_row_key);
+    assertEquals(underwriting.external_row_key, withoutOrg.external_row_key);
+    assertEquals(processing.row.organization_id, "039");
+    assertEquals(spacedTitle.row.organization_id, "39");
+    assertEquals(qNumOnly.row.organization_id, "41");
+    assertEquals(underwriting.row.organization_id, "12");
+    assertEquals(underwritingText.row.organization_id, "12");
+    assertEquals(processing.row.organization_name, "Org Thirty Nine");
+  },
+);
 
 function specialistPointsRawRow(
   overrides: Record<string, unknown> = {},
@@ -260,71 +329,113 @@ function specialistPointsRawRow(
 }
 
 function keysFor(rows: Array<Record<string, unknown>>): string[] {
-  return transformByTargetTable("specialist_points_new", rows).map((row) => row.external_row_key);
+  return transformByTargetTable("specialist_points_new", rows).map(
+    (row) => row.external_row_key,
+  );
 }
 
-Deno.test("specialist points new keys stay stable when only Qlik cell metadata changes", () => {
-  const first = transformByTargetTable("specialist_points_new", [
-    {
-      ...specialistPointsRawRow({ "Reload Token": "2026-10-29T01:00:00Z" }, 4),
-    },
-  ]);
-  const second = transformByTargetTable("specialist_points_new", [
-    {
-      ...specialistPointsRawRow({ "Reload Token": "2026-10-30T01:00:00Z" }, 91),
-    },
-  ]);
+Deno.test(
+  "specialist points new keys stay stable when only Qlik cell metadata changes",
+  () => {
+    const first = transformByTargetTable("specialist_points_new", [
+      {
+        ...specialistPointsRawRow(
+          { "Reload Token": "2026-10-29T01:00:00Z" },
+          4,
+        ),
+      },
+    ]);
+    const second = transformByTargetTable("specialist_points_new", [
+      {
+        ...specialistPointsRawRow(
+          { "Reload Token": "2026-10-30T01:00:00Z" },
+          91,
+        ),
+      },
+    ]);
 
-  assertEquals(first[0]?.external_row_key, second[0]?.external_row_key);
-  assertEquals(/^[0-9a-f]{64}$/.test(first[0]?.external_row_key ?? ""), true);
-  if (first[0]?.source_record_hash === second[0]?.source_record_hash) {
-    throw new Error("source_record_hash should still change when the raw payload changes");
-  }
-});
+    assertEquals(first[0]?.external_row_key, second[0]?.external_row_key);
+    assertEquals(/^[0-9a-f]{64}$/.test(first[0]?.external_row_key ?? ""), true);
+    if (first[0]?.source_record_hash === second[0]?.source_record_hash) {
+      throw new Error(
+        "source_record_hash should still change when the raw payload changes",
+      );
+    }
+  },
+);
 
-Deno.test("specialist points new keys differ for different logical rows", () => {
-  const [submitted, cleared, otherRecord] = keysFor([
-    specialistPointsRawRow(),
-    specialistPointsRawRow({ Event: "Cleared" }),
-    specialistPointsRawRow({ RecordId: "rec-2" }),
-  ]);
+Deno.test(
+  "specialist points new keys differ for different logical rows",
+  () => {
+    const [submitted, cleared, otherRecord] = keysFor([
+      specialistPointsRawRow(),
+      specialistPointsRawRow({ Event: "Cleared" }),
+      specialistPointsRawRow({ RecordId: "rec-2" }),
+    ]);
 
-  if (submitted === cleared || submitted === otherRecord || cleared === otherRecord) {
-    throw new Error(`Expected distinct keys, got ${JSON.stringify([submitted, cleared, otherRecord])}`);
-  }
-});
+    if (
+      submitted === cleared ||
+      submitted === otherRecord ||
+      cleared === otherRecord
+    ) {
+      throw new Error(
+        `Expected distinct keys, got ${JSON.stringify([submitted, cleared, otherRecord])}`,
+      );
+    }
+  },
+);
 
-Deno.test("repeated specialist points identities get a stable occurrence rank", () => {
-  const low = specialistPointsRawRow({ Points: "1" });
-  const high = specialistPointsRawRow({ Points: "5" });
-  const forward = keysFor([low, high]);
-  const reversed = keysFor([high, low]);
+Deno.test(
+  "repeated specialist points identities get a stable occurrence rank",
+  () => {
+    const low = specialistPointsRawRow({ Points: "1" });
+    const high = specialistPointsRawRow({ Points: "5" });
+    const forward = keysFor([low, high]);
+    const reversed = keysFor([high, low]);
 
-  assertEquals(forward[0], reversed[1]);
-  assertEquals(forward[1], reversed[0]);
-  if (forward[0] === forward[1]) {
-    throw new Error("Distinct points rows in the same identity group collapsed to one key");
-  }
+    assertEquals(forward[0], reversed[1]);
+    assertEquals(forward[1], reversed[0]);
+    if (forward[0] === forward[1]) {
+      throw new Error(
+        "Distinct points rows in the same identity group collapsed to one key",
+      );
+    }
 
-  const samePointsEarlierMonth = specialistPointsRawRow({ Points: "2", Month: "2026-03-01" });
-  const samePointsLaterMonth = specialistPointsRawRow({ Points: "2", Month: "2026-04-01" });
-  const byMonth = keysFor([samePointsLaterMonth, samePointsEarlierMonth]);
-  const byMonthAgain = keysFor([samePointsEarlierMonth, samePointsLaterMonth]);
-  assertEquals(byMonth[0], byMonthAgain[1]);
-  assertEquals(byMonth[1], byMonthAgain[0]);
+    const samePointsEarlierMonth = specialistPointsRawRow({
+      Points: "2",
+      Month: "2026-03-01",
+    });
+    const samePointsLaterMonth = specialistPointsRawRow({
+      Points: "2",
+      Month: "2026-04-01",
+    });
+    const byMonth = keysFor([samePointsLaterMonth, samePointsEarlierMonth]);
+    const byMonthAgain = keysFor([samePointsEarlierMonth, samePointsLaterMonth]);
+    assertEquals(byMonth[0], byMonthAgain[1]);
+    assertEquals(byMonth[1], byMonthAgain[0]);
 
-  const identical = specialistPointsRawRow({ Points: "2", Month: "2026-04-01" });
-  const firstPass = keysFor([identical, identical]);
-  const secondPass = keysFor([identical, identical]);
-  assertEquals(firstPass, secondPass);
-  if (firstPass[0] === firstPass[1]) {
-    throw new Error("Identical rows in one batch must keep distinct occurrence keys");
-  }
-});
+    const identical = specialistPointsRawRow({
+      Points: "2",
+      Month: "2026-04-01",
+    });
+    const firstPass = keysFor([identical, identical]);
+    const secondPass = keysFor([identical, identical]);
+    assertEquals(firstPass, secondPass);
+    if (firstPass[0] === firstPass[1]) {
+      throw new Error(
+        "Identical rows in one batch must keep distinct occurrence keys",
+      );
+    }
+  },
+);
 
 Deno.test("specialist points old keys still follow the raw payload", () => {
-  const first = transformByTargetTable("specialist_points_old", [specialistPointsRawRow({}, 1)]);
-  const second = transformByTargetTable("specialist_points_old", [specialistPointsRawRow({}, 2)]);
+  const first = transformByTargetTable("specialist_points_old", [
+    specialistPointsRawRow({}, 1),
+  ]);
+  const second = transformByTargetTable("specialist_points_old", [
+    specialistPointsRawRow({}, 2),
+  ]);
 
   if (first[0]?.external_row_key === second[0]?.external_row_key) {
     throw new Error("specialist_points_old key changed behaviour");

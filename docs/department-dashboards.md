@@ -34,7 +34,7 @@ values
   (
     'processing_events',
     'qlik',
-    'Processing Last 12 Months events for the department dashboard. Natural key is AppId + Event + EmployeeId + the full Date timestamp.',
+    'Processing Last 12 Months events for the department dashboard. Stable key is AppId + Event + EmployeeId + Qlik Date calendar date + Qlik timestamp minute and second.',
     jsonb_build_object(
       'app_id', '8cf1d499-2303-44e0-a3ae-3a029c951270',
       'sheet_id', 'mjkMka',
@@ -49,7 +49,7 @@ values
   (
     'underwriting_events',
     'qlik',
-    'Underwriting Last 12 Months events for the department dashboard. Natural key is AppId + Event + EmployeeId + the full Date timestamp.',
+    'Underwriting Last 12 Months events for the department dashboard. Stable key is AppId + Event + EmployeeId + Qlik Date calendar date + Qlik timestamp minute and second.',
     jsonb_build_object(
       'app_id', '8cf1d499-2303-44e0-a3ae-3a029c951270',
       'sheet_id', '19dfa7e3-7cfb-4f4f-bc72-b590abb24514',
@@ -80,15 +80,30 @@ where source_key in ('processing_events', 'underwriting_events');
 
 `config.primary_key_strategy` is recorded for operators. The sync function does
 not read it. `supabase/functions/_shared/transforms.ts` sets
-`external_row_key` to `AppId + Event + EmployeeId + the full Date timestamp`,
-separated by the unit separator. `organization_id` is not part of that key.
+`external_row_key` to `AppId + Event + EmployeeId + event_date + mmss`,
+separated by the unit separator. `event_date` is the Qlik Date calendar date,
+and `mmss` is the minute and second from the Qlik timestamp; the timestamp
+hour is deliberately excluded. `event_at` remains the full timestamp for
+display and ordering. This is stateless and chunk-safe: a uniform whole-hour
+DST shift does not change a key, including when matching rows land in different
+1000-row self-chained fetches.
+
+Two events with the same AppId, Event, EmployeeId, date, and minute-and-second
+collide; this is considered negligible for these feeds. A uniform whole-hour
+shift can still change a key for an event within one hour after midnight,
+because its Qlik calendar date changes. This is a known rare limitation. Rows
+missing AppId, Event, EmployeeId, or a parseable Qlik Date/time are not written
+to either event table; they are logged as `skipped` in `raw.row_ingest_log` with
+the reason and raw payload.
+
+`organization_id` is not part of that key.
 Processing reads `ProcessingOrganizationId`, and underwriting reads
 `UnderwritingOrganizationId`. Jimmy's earlier objects used `OrganizationId`,
 so either title is accepted. The id is the Qlik cell `qText`, including a
 number stored as text. A blank `qText` falls back to `qNum`. A later sync
 updates the same key and fills `organization_id` on the existing row.
 `event_at` stores that timestamp.
-`event_date` is the calendar date of `event_at`. The Qlik text
+`event_date` is the calendar date from the Qlik Date text. The Qlik text
 `10/29/2026 11:48:56 AM` is stored as `2026-10-29T11:48:56.000Z`, so the
 calendar date does not move when the sync runtime is not UTC. The row hash
 still detects measure changes, so a resync updates the same key instead of
@@ -96,9 +111,9 @@ inserting another copy.
 
 `supabase/migrations/202610300004_department_dashboard_metric_fixes.sql` adds
 `event_at` and replaces `data.get_department_dashboard`. It does not truncate
-either table. The first deploy used the calendar date only. Two events on the
-same day collapsed into one row, and those old keys do not match the timestamp
-key.
+either table. The first deploy used the calendar date only; the next used the
+full timestamp; then the occurrence-rank format. The current minute-and-second
+keys differ from every older format.
 Do not truncate production from the app deploy or from a migration. After the
 migration and the data-sync function are deployed, Zach approves this
 statement and it is run once, before a full resync of both feeds:
@@ -107,8 +122,9 @@ statement and it is run once, before a full resync of both feeds:
 truncate raw.processing_events, raw.underwriting_events;
 ```
 
-Then run one full sync of `processing_events` and `underwriting_events`. Until
-that truncate and resync, the tables still hold the old date-only keys.
+Then run one full sync of `processing_events` and `underwriting_events`. This
+truncate and resync is required on deploy so the tables do not retain rows
+under the old key formats.
 
 Rows Qlik later drops stay until retention deletes them. Retention keeps 14
 months by `event_date`. The dashboard window is the whole extract: the first
@@ -168,7 +184,10 @@ Processing:
 - Processing Events: count of Processed events where Points is not null.
   Funded events are not included. For Canopy Mortgage, LLC this matches Qlik
   at 2627.
-- Points: sum of Points on every row. This does not match Qlik. See open items.
+- Points: sum of Points on Processed events only. This matches Jimmy's Qlik
+  expression `Sum(If(MonthStart(Date) >= MonthStart(Today(),-12) AND
+  Event='Processed', Points))` because the dashboard window already starts on
+  the first day of the month 12 months before the reference month.
 - Processing Speed: average of Processing Net Workdays on every row where it is
   present. If both the Processed and Funded rows carry the same workdays, the
   loan is counted twice.
@@ -210,11 +229,6 @@ Company Averages is not ingested into the summaries. The summary objects
 themselves are not ingested.
 
 ## Open items
-
-- Processing Points does not match Qlik. For Canopy Mortgage, LLC the extract
-  sums to 4670 and Qlik shows 4975.5. Brooklynn Fertig sums to 703 and Qlik
-  shows 807.5. No points formula was changed. Do not guess one until the
-  included rows are known.
 - Underwriting Total Funded is still the count of Funded events. For Canopy
   Mortgage, LLC, Qlik shows 3078 and the extract has 3179 Funded rows. That
   gap is unexplained. The Processing rule that requires Processing Net

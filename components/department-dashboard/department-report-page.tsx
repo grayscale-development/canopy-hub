@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+import { randomUUID } from "node:crypto"
 
 import { DepartmentDashboardView } from "@/components/department-dashboard/department-dashboard"
 import {
@@ -38,8 +39,14 @@ export async function DepartmentReportPage({
       query,
       referenceDate: new Date(),
     })
-  } catch {
-    loadError = "Data load failed."
+  } catch (error) {
+    const referenceId = randomUUID().slice(0, 8)
+    console.error("Department dashboard data load failed", {
+      referenceId,
+      department,
+      error,
+    })
+    loadError = `Data load failed. Reference: ${referenceId}.`
   }
 
   if (loadError || !dashboard) {

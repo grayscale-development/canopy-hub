@@ -7,7 +7,12 @@ export type PayloadType =
   | "error"
   | "metadata_summary";
 
-export type RowAction = "inserted" | "updated" | "unchanged" | "failed";
+export type RowAction =
+  | "inserted"
+  | "updated"
+  | "unchanged"
+  | "skipped"
+  | "failed";
 
 export type TargetTableName =
   | "production_data"
@@ -124,9 +129,10 @@ export interface RowRecord {
 }
 
 export interface TransformedRowResult {
-  external_row_key: string;
+  external_row_key: string | null;
   source_record_hash: string;
   row: Record<string, unknown>;
+  skip_reason?: string;
 }
 
 export interface SyncOutcomeCounters {

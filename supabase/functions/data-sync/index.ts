@@ -2,7 +2,12 @@ import { assertInternalBearer } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { getEnv } from "../_shared/env.ts";
 import { log } from "../_shared/logger.ts";
-import { buildMetadataSummary, buildRowRecords, deriveColumnsFromLayout, isHypercubeLayout } from "../_shared/metadata.ts";
+import {
+  buildMetadataSummary,
+  buildRowRecords,
+  deriveColumnsFromLayout,
+  isHypercubeLayout,
+} from "../_shared/metadata.ts";
 import { QixClient } from "../_shared/qix.ts";
 import { isSupportedTargetTable, transformByTargetTable } from "../_shared/transforms.ts";
 import type {
@@ -269,7 +274,10 @@ async function fetchSourceConfig(input: SyncRequestBody): Promise<SourceConfigRo
   return (data as SourceConfigRow | null) ?? null;
 }
 
-async function createRun(source: SourceConfigRow, requestMetadata: Record<string, unknown>): Promise<string> {
+async function createRun(
+  source: SourceConfigRow,
+  requestMetadata: Record<string, unknown>,
+): Promise<string> {
   const supabase = getRawClient();
   const { data, error } = await supabase
     .from("sync_runs")
@@ -386,6 +394,11 @@ function classifyRowActions(
   for (const item of transformedRows) {
     try {
       const key = item.external_row_key;
+      if (!key) {
+        counters.skippedCount += 1;
+        actions.push({ action: "skipped", item, errorMessage: item.skip_reason });
+        continue;
+      }
       const existingHash = existingHashes.get(key);
 
       if (!existingHash) {
@@ -412,12 +425,17 @@ function dedupeTransformedRows(
   transformedRows: TransformedRowResult[],
 ): TransformedRowResult[] {
   const dedupedByKey = new Map<string, TransformedRowResult>();
+  const skippedRows: TransformedRowResult[] = [];
 
   for (const row of transformedRows) {
+    if (!row.external_row_key) {
+      skippedRows.push(row);
+      continue;
+    }
     dedupedByKey.set(row.external_row_key, row);
   }
 
-  return [...dedupedByKey.values()];
+  return [...dedupedByKey.values(), ...skippedRows];
 }
 
 async function continueRun(input: {
@@ -481,12 +499,15 @@ Deno.serve(async (req) => {
   const hasSourceKey = !!body.sourceKey;
   const hasSourceConfigId = !!body.sourceConfigId;
   if ((hasSourceKey && hasSourceConfigId) || (!hasSourceKey && !hasSourceConfigId)) {
-    return jsonResponseWithCors({ error: "Provide exactly one of sourceKey or sourceConfigId" }, 400);
+    return jsonResponseWithCors(
+      { error: "Provide exactly one of sourceKey or sourceConfigId" },
+      400,
+    );
   }
 
   const chunkStartAt = parseNonNegativeInteger(body.startAt) ?? 0;
-  const chunkMaxRowsPerRun =
-    parseNonNegativeInteger(body.maxRowsPerRun) ?? env.QLIK_MAX_ROWS_PER_RUN;
+  const chunkMaxRowsPerRun = parseNonNegativeInteger(body.maxRowsPerRun) ??
+    env.QLIK_MAX_ROWS_PER_RUN;
 
   if (chunkMaxRowsPerRun <= 0) {
     return jsonResponseWithCors({ error: "maxRowsPerRun must be greater than 0" }, 400);
@@ -645,7 +666,7 @@ Deno.serve(async (req) => {
       );
       const existingHashes = await loadExistingHashes(
         targetTableName,
-        transformedRows.map((row) => row.external_row_key),
+        transformedRows.flatMap((row) => (row.external_row_key ? [row.external_row_key] : [])),
       );
 
       const { counters, actions, upsertRows } = classifyRowActions(transformedRows, existingHashes);
@@ -680,8 +701,7 @@ Deno.serve(async (req) => {
     const cumulativeUpdatedCount = previousCounters.updatedCount + updatedCount;
     const cumulativeSkippedCount = previousCounters.skippedCount + skippedCount;
 
-    const shouldContinue =
-      hasMore &&
+    const shouldContinue = hasMore &&
       !errorMessage &&
       typeof nextStartAt === "number" &&
       nextStartAt > chunkStartAt;
