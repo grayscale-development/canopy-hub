@@ -15,7 +15,7 @@ alter table raw.row_ingest_log
 
 alter table raw.row_ingest_log
   add constraint row_ingest_log_action_check
-  check (action in ('inserted', 'updated', 'unchanged', 'skipped', 'failed'));
+  check (action in ('inserted', 'updated', 'unchanged', 'skipped', 'failed')) not valid;
 
 do $migration$
 declare
