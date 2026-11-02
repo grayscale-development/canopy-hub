@@ -7,11 +7,16 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { archiveKnowledgeSource, indexWikiPage } from "@/lib/wiki-ai"
+import {
+  archiveKnowledgeSource,
+  indexWikiAsset,
+  indexWikiPage,
+} from "@/lib/wiki-ai"
 import { getWikiRepositoryBySlug } from "@/lib/wiki-repositories"
 import {
   blockNoteToPlainText,
   buildWikiPath,
+  fetchWikiAssetsForNode,
   fetchCurrentRevision,
   fetchWikiNodes,
   isPublishedWikiBranch,
@@ -131,13 +136,49 @@ async function syncWikiPageKnowledgeSource({
   const isVisibleToViewers = isPublishedWikiBranch(nodes, node)
   const revision = await fetchCurrentRevision(supabase, node)
   const path = buildWikiPath(nodes, node)
+  const indexClient = createSupabaseAdminClient()
+
+  if (node.status === "draft" && node.import_content_hash) {
+    await archiveKnowledgeSource({
+      supabase: indexClient,
+      sourceType: "wiki_page",
+      sourceId: node.id,
+    })
+    const assets = await fetchWikiAssetsForNode(supabase, node.id)
+    await Promise.all(
+      assets.map((asset) =>
+        archiveKnowledgeSource({
+          supabase: indexClient,
+          sourceType: "wiki_asset",
+          sourceId: asset.id,
+        })
+      )
+    )
+    return { nodes, path }
+  }
+
   await indexWikiPage({
-    supabase: createSupabaseAdminClient(),
+    supabase: indexClient,
     node,
     revision,
     path,
     isPublished: isVisibleToViewers,
   })
+
+  if (node.import_content_hash) {
+    const assets = await fetchWikiAssetsForNode(supabase, node.id)
+    await Promise.all(
+      assets.map((asset) =>
+        indexWikiAsset({
+          supabase: indexClient,
+          asset,
+          pageTitle: node.title,
+          pagePath: path,
+          isPagePublished: isVisibleToViewers,
+        })
+      )
+    )
+  }
 
   return { nodes, path }
 }
@@ -617,8 +658,16 @@ export async function restoreWikiRevisionAction(
       return { ok: false, message: error.message }
     }
 
+    const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
     revalidatePath("/wiki")
-    return { ok: true, message: "Revision restored." }
+    if (path) {
+      revalidatePath(`/wiki/${path}`)
+    }
+    return {
+      ok: true,
+      message: "Revision restored.",
+      path: path ? `/wiki/${path}` : undefined,
+    }
   } catch (error) {
     return {
       ok: false,

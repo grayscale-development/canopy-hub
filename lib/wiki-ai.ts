@@ -257,7 +257,11 @@ export async function indexWikiPage({
       tags: node.tags ?? [],
       revisionId: revision?.id ?? null,
     },
-    status: node.status !== "archived" ? "active" : "archived",
+    status:
+      node.status !== "archived" &&
+      !(node.status === "draft" && node.import_content_hash)
+        ? "active"
+        : "archived",
   })
 }
 

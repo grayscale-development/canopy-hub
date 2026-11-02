@@ -15,6 +15,7 @@ import {
   WikiCreateWizardDialog,
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
+import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
 import {
   WikiLastPageRecorder,
   WikiLastPageRedirect,
@@ -156,7 +157,10 @@ function DirectoryView({
           {title ? <h2 className="text-xl font-semibold">{title}</h2> : null}
           {canManageWiki && showCreateControl ? (
             <WikiEditModeGate>
-              <WikiCreateWizardDialog parentId={parentId} />
+              <div className="flex items-center gap-2">
+                <WikiCreateWizardDialog parentId={parentId} />
+                <WikiImportWizardDialog nodes={nodes} parentId={parentId} />
+              </div>
             </WikiEditModeGate>
           ) : null}
         </div>
@@ -601,32 +605,37 @@ export default async function WikiPage({
                                   {pageData &&
                                   displayedNode.type === "folder" &&
                                   displayedBreadcrumbs.length > 1 ? (
-                                    <WikiCreateWizardDialog
-                                      parentId={pageData.node.id}
-                                      defaultType={
-                                        displayedCreateConfig.defaultType
-                                      }
-                                      allowedTypes={
-                                        displayedCreateConfig.allowedTypes
-                                      }
-                                      labels={displayedCreateConfig.labels}
-                                      dialogTitle={
-                                        displayedCreateConfig.dialogTitle
-                                      }
-                                      dialogDescription={
-                                        displayedCreateConfig.dialogDescription
-                                      }
-                                      triggerLabel={
-                                        displayedCreateConfig.dialogTitle
-                                      }
-                                      triggerAriaLabel={
-                                        displayedCreateConfig.dialogTitle
-                                      }
-                                      triggerTitle={
-                                        displayedCreateConfig.dialogTitle
-                                      }
-                                      triggerClassName="ml-auto"
-                                    />
+                                    <div className="ml-auto flex items-center gap-2">
+                                      <WikiCreateWizardDialog
+                                        parentId={pageData.node.id}
+                                        defaultType={
+                                          displayedCreateConfig.defaultType
+                                        }
+                                        allowedTypes={
+                                          displayedCreateConfig.allowedTypes
+                                        }
+                                        labels={displayedCreateConfig.labels}
+                                        dialogTitle={
+                                          displayedCreateConfig.dialogTitle
+                                        }
+                                        dialogDescription={
+                                          displayedCreateConfig.dialogDescription
+                                        }
+                                        triggerLabel={
+                                          displayedCreateConfig.dialogTitle
+                                        }
+                                        triggerAriaLabel={
+                                          displayedCreateConfig.dialogTitle
+                                        }
+                                        triggerTitle={
+                                          displayedCreateConfig.dialogTitle
+                                        }
+                                      />
+                                      <WikiImportWizardDialog
+                                        nodes={nodes}
+                                        parentId={pageData.node.id}
+                                      />
+                                    </div>
                                   ) : null}
                                 </WikiEditModeGate>
                               ) : null}
@@ -681,27 +690,37 @@ export default async function WikiPage({
                               createAction={
                                 canManageWiki && pageCreateConfig ? (
                                   <WikiEditModeGate>
-                                    <WikiCreateWizardDialog
-                                      parentId={pageData.node.parent_id}
-                                      defaultType={pageCreateConfig.defaultType}
-                                      allowedTypes={
-                                        pageCreateConfig.allowedTypes
-                                      }
-                                      labels={pageCreateConfig.labels}
-                                      dialogTitle={pageCreateConfig.dialogTitle}
-                                      dialogDescription={
-                                        pageCreateConfig.dialogDescription
-                                      }
-                                      triggerLabel={
-                                        pageCreateConfig.dialogTitle
-                                      }
-                                      triggerAriaLabel={
-                                        pageCreateConfig.dialogTitle
-                                      }
-                                      triggerTitle={
-                                        pageCreateConfig.dialogTitle
-                                      }
-                                    />
+                                    <div className="flex items-center gap-2">
+                                      <WikiCreateWizardDialog
+                                        parentId={pageData.node.parent_id}
+                                        defaultType={
+                                          pageCreateConfig.defaultType
+                                        }
+                                        allowedTypes={
+                                          pageCreateConfig.allowedTypes
+                                        }
+                                        labels={pageCreateConfig.labels}
+                                        dialogTitle={
+                                          pageCreateConfig.dialogTitle
+                                        }
+                                        dialogDescription={
+                                          pageCreateConfig.dialogDescription
+                                        }
+                                        triggerLabel={
+                                          pageCreateConfig.dialogTitle
+                                        }
+                                        triggerAriaLabel={
+                                          pageCreateConfig.dialogTitle
+                                        }
+                                        triggerTitle={
+                                          pageCreateConfig.dialogTitle
+                                        }
+                                      />
+                                      <WikiImportWizardDialog
+                                        nodes={nodes}
+                                        parentId={pageData.node.parent_id}
+                                      />
+                                    </div>
                                   </WikiEditModeGate>
                                 ) : null
                               }
