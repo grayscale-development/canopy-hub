@@ -91,6 +91,10 @@ describe("department dashboard SQL", () => {
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       );
+      create table raw.row_ingest_log (
+        external_row_key text not null,
+        action text not null
+      );
       create table raw.employees (
         external_row_key text primary key,
         user_id text,
@@ -126,6 +130,7 @@ describe("department dashboard SQL", () => {
       "supabase/migrations/202610300003_department_event_dashboards.sql",
       "supabase/migrations/202610300004_department_dashboard_metric_fixes.sql",
       "supabase/migrations/202610300005_department_org_id_fallback.sql",
+      "supabase/migrations/202611020001_department_dashboard_processing_points_and_stable_keys.sql",
     ]) {
       await db.exec(fs.readFileSync(path.resolve(migration), "utf8"))
     }
@@ -200,7 +205,7 @@ describe("department dashboard SQL", () => {
     const described = await db.query<{ description: string }>(
       `select description from public.source_configs where source_key = 'processing_events'`
     )
-    expect(described.rows[0]?.description).toContain("full Date timestamp")
+    expect(described.rows[0]?.description).toContain("minute and second")
     const columns = await db.query<{ column_name: string }>(
       `select column_name
        from information_schema.columns
@@ -242,7 +247,7 @@ describe("department dashboard SQL", () => {
       metric(dashboard.employees, "Ada Processor", "processing_events"),
       2
     )
-    expectClose(metric(dashboard.employees, "Ada Processor", "points"), 10)
+    expectClose(metric(dashboard.employees, "Ada Processor", "points"), 5)
     expectClose(
       metric(dashboard.employees, "Ada Processor", "processing_speed"),
       5.75
@@ -257,7 +262,7 @@ describe("department dashboard SQL", () => {
       metric(dashboard.employees, "Eve Processor", "processing_events"),
       1
     )
-    expectClose(metric(dashboard.employees, "Eve Processor", "points"), 3)
+    expectClose(metric(dashboard.employees, "Eve Processor", "points"), 2)
 
     expectClose(
       metric(dashboard.employees, "Company Avg", "total_funded"),
@@ -267,7 +272,7 @@ describe("department dashboard SQL", () => {
       metric(dashboard.employees, "Company Avg", "processing_events"),
       1
     )
-    expectClose(metric(dashboard.employees, "Company Avg", "points"), 7)
+    expectClose(metric(dashboard.employees, "Company Avg", "points"), 2.75)
     expectClose(
       metric(dashboard.employees, "Company Avg", "processing_speed"),
       4.8125
@@ -283,7 +288,7 @@ describe("department dashboard SQL", () => {
       metric(dashboard.organizations, "Org One", "processing_events"),
       3
     )
-    expectClose(metric(dashboard.organizations, "Org One", "points"), 12)
+    expectClose(metric(dashboard.organizations, "Org One", "points"), 8)
     expectClose(
       metric(dashboard.organizations, "Org One", "processing_speed"),
       32 / 6
@@ -298,7 +303,7 @@ describe("department dashboard SQL", () => {
       metric(dashboard.organizations, "Company Avg", "total_funded"),
       2.5
     )
-    expectClose(metric(dashboard.organizations, "Company Avg", "points"), 14)
+    expectClose(metric(dashboard.organizations, "Company Avg", "points"), 5.5)
     expectClose(
       metric(dashboard.organizations, "Company Avg", "rush_ratio"),
       5 / 12
