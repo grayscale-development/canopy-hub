@@ -5,7 +5,7 @@ import { NextResponse } from "next/server"
 
 import {
   createAgentResponseWithOpenAI,
-  getFormatModel,
+  getWikiImportModel,
 } from "@/lib/ai/provider"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
@@ -86,16 +86,26 @@ async function getImportAiOutput(text: string, fileName: string) {
   try {
     const response = await createAgentResponseWithOpenAI(
       {
-        model: getFormatModel(),
+        model: getWikiImportModel(),
         input: buildWikiImportPrompt({ text, fileName }),
         max_output_tokens: 6_000,
-        reasoning: { effort: "minimal" },
+        reasoning: { effort: "low" },
         store: false,
         text: { format: importSchema(), verbosity: "low" },
       },
       { signal: controller.signal }
     )
-    return parseAiOutput(response)
+    const output = parseAiOutput(response)
+    // This fixture is deliberately used to diagnose PDF-layout fidelity. Keep
+    // this narrow, temporary debug trace so normal imports never log document
+    // text. It records the response before validation/fallback changes it.
+    if (fileName === "wiki-import-cid-text.pdf") {
+      console.debug("Wiki import raw model markdown", {
+        fileName,
+        markdown: output?.markdown,
+      })
+    }
+    return output
   } finally {
     clearTimeout(timeout)
   }
@@ -276,7 +286,7 @@ export async function POST(request: Request) {
   try {
     aiOutput = await getImportAiOutput(normalizedText, fileName)
   } catch (error) {
-    console.warn(
+    console.debug(
       "Wiki import AI formatting failed; using extracted text",
       error
     )
@@ -286,6 +296,20 @@ export async function POST(request: Request) {
     fileName,
     aiOutput,
   })
+  if (
+    fileName === "wiki-import-cid-text.pdf" &&
+    aiOutput &&
+    !draft.usedAi
+  ) {
+    console.warn(
+      "Wiki import AI output failed fidelity or layout validation; using rule-based formatting",
+      {
+        fileName,
+        rawMarkdown: aiOutput.markdown,
+        fallbackMarkdown: draft.markdown,
+      }
+    )
+  }
   const nodeId = crypto.randomUUID()
   const revisionId = crypto.randomUUID()
   const assetId = file ? crypto.randomUUID() : null

@@ -2,7 +2,10 @@ import { readFile } from "node:fs/promises"
 
 import { describe, expect, it } from "vitest"
 
-import { extractWikiDocumentText } from "@/lib/wiki-extract"
+import {
+  cleanWikiPdfPageText,
+  extractWikiDocumentText,
+} from "@/lib/wiki-extract"
 
 function writeUint16(buffer: Uint8Array, offset: number, value: number) {
   new DataView(buffer.buffer).setUint16(offset, value, true)
@@ -98,6 +101,15 @@ function createDocxFile() {
 }
 
 describe("extractWikiDocumentText", () => {
+  it("keeps page layout while removing repeated PDF furniture", () => {
+    expect(
+      cleanWikiPdfPageText([
+        { text: "Canopy Wiki\nFirst page\n-- 1 of 2 --" },
+        { text: "Canopy Wiki\nSecond page\n-- 2 of 2 --" },
+      ])
+    ).toBe("First page\n\nSecond page")
+  })
+
   it("extracts CID-encoded text from the real PDF fixture", async () => {
     const pdf = new File(
       [await readFile("tests/fixtures/wiki-import-cid-text.pdf")],

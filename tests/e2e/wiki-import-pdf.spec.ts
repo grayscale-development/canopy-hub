@@ -13,9 +13,17 @@ test("Wiki managers can import a text PDF into a draft @wiki", async ({
   await page.getByRole("button", { name: "Import" }).first().click()
   await page
     .locator('input[type="file"]')
-    .setInputFiles(path.join(process.cwd(), "tests/fixtures/wiki-import-cid-text.pdf"))
+    .setInputFiles(
+      path.join(process.cwd(), "tests/fixtures/wiki-import-cid-text.pdf")
+    )
   await page.getByRole("button", { name: "Create draft" }).click()
   await expect(page.getByText(/could not find readable text/i)).toHaveCount(0)
   await expect(page).toHaveURL(/\/wiki\/.+/, { timeout: 60_000 })
-  await expect(page.getByText(/Training Wiki/i).first()).toBeVisible({ timeout: 30_000 })
+  await expect(
+    page.getByRole("heading", { name: /Training Wiki/i })
+  ).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect(page.getByRole("table")).toHaveCount(2)
+  await expect(page.getByText("-- 1 of 2 --")).toHaveCount(0)
 })

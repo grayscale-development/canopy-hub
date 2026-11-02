@@ -83,7 +83,7 @@ vi.mock("@/lib/permissions", () => ({
 }))
 const ai = vi.hoisted(() => ({
   createAgentResponseWithOpenAI: vi.fn(async () => state.aiResponse),
-  getFormatModel: vi.fn(() => "fake-format"),
+  getWikiImportModel: vi.fn(() => "fake-wiki-import"),
 }))
 vi.mock("@/lib/ai/provider", () => ai)
 const extractor = vi.hoisted(() => ({
@@ -140,7 +140,7 @@ describe("/api/wiki/import route", () => {
       path: expect.stringMatching(/^\/wiki\//),
     })
     expect(ai.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "fake-format", store: false }),
+      expect.objectContaining({ model: "fake-wiki-import", store: false }),
       expect.any(Object)
     )
     expect(state.insertedNodes[0]).toMatchObject({
