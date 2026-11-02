@@ -193,8 +193,19 @@ export async function POST(request: Request) {
   if (file) {
     try {
       extractedText = await extractWikiDocumentText(file)
-    } catch {
-      extractedText = ""
+    } catch (error) {
+      console.error("Wiki import document extraction failed", {
+        fileName: file.name,
+        fileType: file.type,
+        error,
+      })
+      return NextResponse.json(
+        {
+          error:
+            "We could not extract text from that file. Try a different file or paste its text instead.",
+        },
+        { status: 400 }
+      )
     }
   }
   const normalizedText = normalizeWikiImportText(extractedText)

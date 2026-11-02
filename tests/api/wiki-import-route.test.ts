@@ -86,10 +86,23 @@ const ai = vi.hoisted(() => ({
   getFormatModel: vi.fn(() => "fake-format"),
 }))
 vi.mock("@/lib/ai/provider", () => ai)
+const extractor = vi.hoisted(() => ({
+  extractWikiDocumentText: vi.fn(),
+}))
+vi.mock("@/lib/wiki-extract", () => extractor)
 
 function importRequest(text = "Review lock 123 before submitting.") {
   const body = new FormData()
   body.set("text", text)
+  return new Request("http://localhost/api/wiki/import", {
+    method: "POST",
+    body,
+  })
+}
+
+function fileImportRequest(file: File) {
+  const body = new FormData()
+  body.set("file", file)
   return new Request("http://localhost/api/wiki/import", {
     method: "POST",
     body,
@@ -159,5 +172,51 @@ describe("/api/wiki/import route", () => {
     expect(state.insertedRevisions[0]?.blocks).toEqual([
       { type: "paragraph", content: "Review lock 123 before submitting." },
     ])
+  })
+
+  it("reports and logs document extraction errors instead of treating them as scanned PDFs", async () => {
+    const extractionError = new Error("PDF worker failed to load")
+    extractor.extractWikiDocumentText.mockRejectedValueOnce(extractionError)
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      fileImportRequest(
+        new File(["not really a PDF"], "import.pdf", {
+          type: "application/pdf",
+        })
+      )
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "We could not extract text from that file. Try a different file or paste its text instead.",
+    })
+    expect(consoleError).toHaveBeenCalledWith(
+      "Wiki import document extraction failed",
+      expect.objectContaining({
+        fileName: "import.pdf",
+        fileType: "application/pdf",
+        error: extractionError,
+      })
+    )
+  })
+
+  it("uses the scanned-PDF message only when extraction returns empty text", async () => {
+    extractor.extractWikiDocumentText.mockResolvedValueOnce(" \n ")
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      fileImportRequest(
+        new File(["empty"], "scanned.pdf", { type: "application/pdf" })
+      )
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "We could not find readable text in that file. If this is a scanned PDF, paste its text instead.",
+    })
   })
 })
