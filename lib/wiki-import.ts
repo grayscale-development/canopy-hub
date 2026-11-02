@@ -40,6 +40,170 @@ type WikiImportInline =
       styles?: WikiImportStyles
     }>
 
+const WIKI_IMPORT_SMALL_TITLE_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "as",
+  "at",
+  "by",
+  "for",
+  "from",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "vs",
+  "with",
+])
+
+// Keep this deliberately small: these are common mortgage abbreviations whose
+// capitalization is meaningful in page titles and section headings.
+const WIKI_IMPORT_MORTGAGE_ACRONYMS = new Set([
+  "APR",
+  "ARM",
+  "ATR",
+  "AUS",
+  "CD",
+  "CLTV",
+  "DTI",
+  "DU",
+  "FHA",
+  "FHAC",
+  "FICO",
+  "GFE",
+  "HELOC",
+  "HOA",
+  "HUD",
+  "LE",
+  "LO",
+  "LOA",
+  "LTV",
+  "MI",
+  "MIP",
+  "MLO",
+  "NMLS",
+  "PITI",
+  "PMI",
+  "QM",
+  "RESPA",
+  "TILA",
+  "TRID",
+  "URLA",
+  "USDA",
+  "UW",
+  "VA",
+  "VOA",
+  "VOE",
+  "VOR",
+  "W9",
+])
+
+function isAllCapsWikiImportText(value: string) {
+  const casedLetters = (value.match(/\p{L}/gu) ?? []).filter(
+    (letter) => letter.toLowerCase() !== letter.toUpperCase()
+  )
+  return (
+    casedLetters.length > 0 &&
+    casedLetters.every((letter) => letter === letter.toUpperCase())
+  )
+}
+
+function isWikiImportDateToken(value: string) {
+  return /^(?:M{1,4}|D{1,4}|Y{2,4})(?:\/(?:M{1,4}|D{1,4}|Y{2,4}))+$/.test(value)
+}
+
+function titleCaseWikiImportWord(value: string, wordIndex: number): string {
+  const upper = value.toUpperCase()
+  if (WIKI_IMPORT_MORTGAGE_ACRONYMS.has(upper)) return upper
+  if (isWikiImportDateToken(upper)) return upper
+
+  const apostrophe = value.match(/^(.+?)(['’])([\p{L}]+)$/u)
+  if (apostrophe && /^(?:S|D|M|LL|RE|VE)$/i.test(apostrophe[3])) {
+    return `${titleCaseWikiImportWord(apostrophe[1], wordIndex)}${apostrophe[2]}${apostrophe[3].toLowerCase()}`
+  }
+
+  if (value.includes("/")) {
+    const parts = value.split("/")
+    if (parts.every((part) => WIKI_IMPORT_MORTGAGE_ACRONYMS.has(part))) {
+      return upper
+    }
+    return parts
+      .map((part, index) => titleCaseWikiImportWord(part, wordIndex + index))
+      .join("/")
+  }
+
+  if (value.includes("-") || value.includes("–")) {
+    return value
+      .split(/([–-])/)
+      .map((part, index) =>
+        part === "-" || part === "–"
+          ? part
+          : titleCaseWikiImportWord(part, wordIndex + Math.floor(index / 2))
+      )
+      .join("")
+  }
+
+  const lower = value.toLowerCase()
+  if (wordIndex > 0 && WIKI_IMPORT_SMALL_TITLE_WORDS.has(lower)) {
+    return lower
+  }
+  return `${lower[0]?.toUpperCase() ?? ""}${lower.slice(1)}`
+}
+
+/**
+ * Fix presentation-only ALL-CAPS titles without changing deliberate mixed
+ * casing in source material.
+ */
+export function normalizeWikiImportTitleCase(value: string) {
+  if (!isAllCapsWikiImportText(value)) return value
+
+  let wordIndex = 0
+  return value.replace(/[\p{L}\p{N}]+(?:[/'’–-][\p{L}\p{N}]+)*/gu, (word) => {
+    const normalized = titleCaseWikiImportWord(word, wordIndex)
+    wordIndex += word.split(/[/'’–-]/).filter(Boolean).length
+    return normalized
+  })
+}
+
+function wikiImportInlineText(value: WikiImportInline): string {
+  if (typeof value === "string") return value
+  return value
+    .map((item) => item.text ?? wikiImportInlineText(item.content ?? []))
+    .join("")
+}
+
+function normalizeWikiImportHeadingContent(value: WikiImportInline) {
+  const source = wikiImportInlineText(value)
+  const normalized = normalizeWikiImportTitleCase(source)
+  if (normalized === source) return value
+  if (typeof value === "string") return normalized
+
+  let offset = 0
+  const replaceText = (text: string) => {
+    const replacement = normalized.slice(offset, offset + text.length)
+    offset += text.length
+    return replacement
+  }
+  return value.map((item) => {
+    if (item.text !== undefined) {
+      return { ...item, text: replaceText(item.text) }
+    }
+    if (item.content) {
+      return {
+        ...item,
+        content: item.content.map((child) => ({
+          ...child,
+          text: replaceText(child.text),
+        })),
+      }
+    }
+    return item
+  })
+}
+
 const PDF_PAGE_MARKER = /^[-–—\s]*\d+\s+(?:of|\/)\s+\d+[-–—\s]*$/i
 
 function normalizeImportLine(value: string) {
@@ -137,7 +301,9 @@ ${text}`
 }
 
 function comparableTokens(value: string) {
-  return value.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+  // Fidelity is about retaining content, not preserving display casing. This
+  // lets all-caps headings be title-cased without triggering the fallback.
+  return value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
 }
 
 /**
@@ -460,7 +626,7 @@ export function docxHtmlToWikiImportBlocks({
       blocks.push({
         type: "heading",
         props: { level },
-        content: docxInlineContent(element),
+        content: normalizeWikiImportHeadingContent(docxInlineContent(element)),
         children: [],
       })
       continue
@@ -538,9 +704,10 @@ export function createWikiDocxImportDraft({
     const tag = element.tagName.toLowerCase()
     return tag === "h1" || isAllCapsTitleLike(element.textContent ?? "")
   })
-  const title =
+  const title = normalizeWikiImportTitleCase(
     firstHeading?.textContent?.replace(/\s+/g, " ").trim() ||
-    titleFromWikiImportFileName(fileName)
+      titleFromWikiImportFileName(fileName)
+  )
   const plainText = normalizeWikiImportText(text)
   const blockText = wikiImportBlocksText(blocks)
   const renderedText = `${title}\n${blockText}`
@@ -607,7 +774,9 @@ export function markdownToWikiImportBlocks(markdown: string) {
       blocks.push({
         type: "heading",
         props: { level: Math.min(Math.max(2, heading[1].length), 3) },
-        content: markdownInlineContent(heading[2].trim()),
+        content: normalizeWikiImportHeadingContent(
+          markdownInlineContent(heading[2].trim()) as WikiImportInline
+        ),
       })
     } else if (bullet?.[1]) {
       flushParagraph()
@@ -990,8 +1159,9 @@ export function createWikiImportDraft({
     hasRequiredImportStructure(plainText, suggestedMarkdown)
   )
   const markdown = usedAi ? suggestedMarkdown : fallback.markdown
-  const title =
+  const title = normalizeWikiImportTitleCase(
     fallback.title || suggestedTitle || titleFromWikiImportFileName(fileName)
+  )
   const tags = normalizeWikiTags(
     Array.isArray(aiOutput?.tags)
       ? aiOutput.tags.filter((tag): tag is string => typeof tag === "string")

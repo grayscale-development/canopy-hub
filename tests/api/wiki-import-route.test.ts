@@ -188,8 +188,14 @@ describe("/api/wiki/import route", () => {
     expect(response.status).toBe(200)
     expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
     expect(state.insertedNodes[0]).toMatchObject({
-      title: "ESCROW HOLD BACK POLICY",
+      title: "Escrow Hold Back Policy",
     })
+    expect(state.insertedRevisions[0]?.blocks).toContainEqual(
+      expect.objectContaining({
+        type: "heading",
+        content: "General Guidelines",
+      })
+    )
     expect(state.insertedAssets).toHaveLength(2)
     expect(state.insertedAssets).toContainEqual(
       expect.objectContaining({ kind: "image", mime_type: "image/png" })

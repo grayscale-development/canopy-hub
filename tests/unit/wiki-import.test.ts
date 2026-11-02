@@ -15,6 +15,7 @@ import {
   isFaithfulWikiImportOutput,
   markdownToWikiImportBlocks,
   normalizeWikiImportText,
+  normalizeWikiImportTitleCase,
 } from "@/lib/wiki-import"
 
 describe("Wiki import core", () => {
@@ -57,18 +58,61 @@ describe("Wiki import core", () => {
         )
       }, depth)
 
-    expect(draft.title).toBe("ESCROW HOLD BACK POLICY")
+    expect(draft.title).toBe("Escrow Hold Back Policy")
     expect(draft.usedAi).toBe(false)
     expect(draft.blocks).toContainEqual(
       expect.objectContaining({
         type: "heading",
-        content: "GENERAL GUIDELINES",
+        content: "General Guidelines",
       })
     )
     expect(listDepth(draft.blocks)).toBeGreaterThanOrEqual(2)
     expect(draft.blocks.filter((block) => block.type === "image")).toHaveLength(
       4
     )
+  })
+
+  it("title-cases only all-caps import titles and headings", () => {
+    expect(
+      normalizeWikiImportTitleCase(
+        "FHA VA USDA UW FHAC HUD CD W9 MM/DD/YY DTI GUIDELINES FOR PROCESSING"
+      )
+    ).toBe(
+      "FHA VA USDA UW FHAC HUD CD W9 MM/DD/YY DTI Guidelines for Processing"
+    )
+    expect(normalizeWikiImportTitleCase("eSign AND FHA Guidance")).toBe(
+      "eSign AND FHA Guidance"
+    )
+    expect(
+      markdownToWikiImportBlocks("## **eSign** AND FHA Guidance")[0]
+    ).toMatchObject({
+      content: [
+        { type: "text", text: "eSign", styles: { bold: true } },
+        { type: "text", text: " AND FHA Guidance", styles: {} },
+      ],
+    })
+
+    for (const fileName of ["escrow-policy.pdf", "escrow-policy.txt"]) {
+      const draft = createWikiImportDraft({
+        text: "ESCROW HOLD BACK POLICY\nGENERAL GUIDELINES.\nReview FHA and VA requirements.",
+        fileName,
+        aiOutput: {
+          title: "Different title",
+          tags: [],
+          markdown:
+            "# ESCROW HOLD BACK POLICY\n\n## GENERAL GUIDELINES\n\nReview FHA and VA requirements.",
+        },
+      })
+
+      expect(draft.usedAi).toBe(true)
+      expect(draft.title).toBe("Escrow Hold Back Policy")
+      expect(draft.blocks).toContainEqual(
+        expect.objectContaining({
+          type: "heading",
+          content: "General Guidelines",
+        })
+      )
+    }
   })
 
   it("maps DOCX HTML inline formatting, links, and tables without AI", () => {
@@ -118,6 +162,13 @@ describe("Wiki import core", () => {
     expect(
       isFaithfulWikiImportOutput(source, "Review file before submitting.")
     ).toBe(false)
+    expect(
+      isFaithfulWikiImportOutput(
+        "ESCROW HOLD BACK POLICY",
+        "",
+        "Escrow Hold Back Policy"
+      )
+    ).toBe(true)
 
     const draft = createWikiImportDraft({
       text: source,
