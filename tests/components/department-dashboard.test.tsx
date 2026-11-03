@@ -125,6 +125,7 @@ describe("department dashboard view", () => {
 
     const tables = screen.getAllByRole("table")
     const employeeTable = tables[0]
+    const eventTable = tables[2]
     const rowHeaders = within(employeeTable).getAllByRole("rowheader")
     expect(rowHeaders[0]).toHaveTextContent("Company Avg")
     expect(rowHeaders[1]).toHaveTextContent("Ada Processor")
@@ -139,6 +140,20 @@ describe("department dashboard view", () => {
       screen.getByRole("combobox", { name: "Event Week Of" })
     ).toBeVisible()
     expect(screen.getByText("Last 12 Months")).toBeVisible()
+    expect(employeeTable.parentElement).toHaveClass(
+      "max-h-[min(32rem,70vh)]",
+      "overflow-auto"
+    )
+    expect(
+      within(employeeTable).getByRole("columnheader", { name: "Processor" })
+    ).toHaveClass("sticky", "left-0", "z-30", "bg-card")
+    expect(eventTable.parentElement).toHaveClass(
+      "max-h-[70vh]",
+      "overflow-auto"
+    )
+    expect(
+      within(eventTable).getByRole("columnheader", { name: "Date" })
+    ).toHaveClass("sticky", "left-0", "z-30", "bg-card")
   })
 
   it("shows the underwriting workday columns without an availability warning", () => {
@@ -151,10 +166,18 @@ describe("department dashboard view", () => {
     )
 
     expect(
+      screen.getAllByText("Avg Workdays in Initial Review on Funded Events")
+    ).toHaveLength(2)
+    expect(
       screen.getAllByText("Avg Workdays in Underwriting on Funded Events")
     ).toHaveLength(2)
     expect(
       screen.getAllByText("Avg Workdays in Conditions on Funded Events")
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByTitle(
+        "Average Workdays in Initial Review on Funded events."
+      )
     ).toHaveLength(2)
     expect(
       screen.getAllByTitle("Average Workdays in Underwriting on Funded events.")

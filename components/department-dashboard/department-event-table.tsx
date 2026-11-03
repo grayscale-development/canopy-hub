@@ -35,15 +35,17 @@ export function DepartmentEventTable({
           Events that match the filters above.
         </p>
       </div>
-      <div className="max-w-full overflow-x-auto">
+      <div className="max-h-[70vh] max-w-full overflow-auto">
         <table className="min-w-max text-sm">
-          <thead>
+          <thead className="sticky top-0 z-20 bg-card">
             <tr className="border-b">
-              {columns.map((column) => (
+              {columns.map((column, index) => (
                 <th
                   key={column.key}
                   scope="col"
-                  className="min-w-32 px-4 py-3 text-left font-medium whitespace-nowrap"
+                  className={`min-w-32 bg-card px-4 py-3 text-left font-medium whitespace-nowrap ${
+                    index === 0 ? "sticky left-0 z-30" : ""
+                  }`}
                 >
                   {column.label}
                 </th>
@@ -66,10 +68,12 @@ export function DepartmentEventTable({
                   key={`${row.appId ?? "app"}-${row.eventName ?? "event"}-${row.employeeId ?? "employee"}-${row.eventDate ?? "date"}-${index}`}
                   className="border-b last:border-0"
                 >
-                  {columns.map((column) => (
+                  {columns.map((column, columnIndex) => (
                     <td
                       key={column.key}
-                      className="min-w-32 px-4 py-3 whitespace-nowrap"
+                      className={`min-w-32 bg-card px-4 py-3 whitespace-nowrap ${
+                        columnIndex === 0 ? "sticky left-0 z-10" : ""
+                      }`}
                     >
                       {formatDepartmentEventValue(
                         row[column.key],
