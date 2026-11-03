@@ -102,6 +102,8 @@ function dashboard(
           submittedForInitialReview: null,
           initialReviewComplete: null,
           workdaysInInitialReview: null,
+          workdaysInUnderwriting: null,
+          workdaysInConditions: null,
           qcCount: null,
           avgQcScore: null,
           isBadLoan: null,
@@ -139,7 +141,7 @@ describe("department dashboard view", () => {
     expect(screen.getByText("Last 12 Months")).toBeVisible()
   })
 
-  it("shows the underwriting workday gap instead of a guessed number", () => {
+  it("shows the underwriting workday columns without an availability warning", () => {
     render(
       <DepartmentDashboardView
         config={DEPARTMENT_DASHBOARDS.underwriting}
@@ -148,11 +150,13 @@ describe("department dashboard view", () => {
       />
     )
 
+    expect(screen.getAllByText("Avg Workdays in Underwriting")).toHaveLength(2)
+    expect(screen.getAllByText("Avg Workdays in Conditions")).toHaveLength(2)
     expect(
-      screen.getByText(
+      screen.queryByText(
         /Avg Workdays in Underwriting and Avg Workdays in Conditions/
       )
-    ).toBeVisible()
+    ).not.toBeInTheDocument()
     expect(screen.getAllByText("—").length).toBeGreaterThan(0)
   })
 })

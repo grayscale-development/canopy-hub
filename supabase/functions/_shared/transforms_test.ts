@@ -217,6 +217,8 @@ Deno.test("maps underwriting event rows from Qlik cells", () => {
     Date: { qText: "2026-10-01" },
     Points: { qText: "1", qNum: 1 },
     "Workdays in Initial Review": { qNum: 3 },
+    "Workdays in Underwriting": { qNum: 4 },
+    "Workdays in Conditions": { qNum: 2 },
     "# of QCs": { qText: "2" },
     "Avg QC Score": { qText: "4.5" },
     IsBadLoan: { qText: "No" },
@@ -240,6 +242,8 @@ Deno.test("maps underwriting event rows from Qlik cells", () => {
   assertEquals(result.row.event_at, "2026-10-01T00:00:00.000Z");
   assertEquals(result.row.event_date, "2026-10-01");
   assertEquals(result.row.workdays_in_initial_review, 3);
+  assertEquals(result.row.workdays_in_underwriting, 4);
+  assertEquals(result.row.workdays_in_conditions, 2);
   assertEquals(result.row.qc_count, 2);
   assertEquals(result.row.avg_qc_score, 4.5);
   assertEquals(result.row.is_bad_loan, false);
@@ -247,6 +251,18 @@ Deno.test("maps underwriting event rows from Qlik cells", () => {
   assertEquals(result.row.submitted_for_initial_review, "2026-09-28");
   assertEquals(result.row.organization_name, "UW Org");
   assertEquals(result.row.organization_id, "UW1");
+});
+
+Deno.test("keeps missing underwriting workday columns null", () => {
+  const result = mapUnderwritingEventRow({
+    AppId: "U1",
+    Event: "Final Underwrite",
+    EmployeeId: "W1",
+    Date: "2026-10-01",
+  });
+
+  assertEquals(result.row.workdays_in_underwriting, null);
+  assertEquals(result.row.workdays_in_conditions, null);
 });
 
 Deno.test(

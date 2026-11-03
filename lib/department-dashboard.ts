@@ -16,7 +16,6 @@ export type DepartmentMetricColumn = {
   label: string
   format: MetricFormat
   hint?: string
-  unavailable?: boolean
 }
 
 export type DepartmentEventColumn = {
@@ -57,6 +56,8 @@ export type DepartmentEventRow = {
   submittedForInitialReview: string | null
   initialReviewComplete: string | null
   workdaysInInitialReview: number | null
+  workdaysInUnderwriting: number | null
+  workdaysInConditions: number | null
   qcCount: number | null
   avgQcScore: number | null
   isBadLoan: boolean | null
@@ -192,8 +193,7 @@ const UNDERWRITING_METRIC_COLUMNS: DepartmentMetricColumn[] = [
     key: "avg_workdays_underwriting",
     label: "Avg Workdays in Underwriting",
     format: "decimal",
-    unavailable: true,
-    hint: "The Last 12 Months extract has no underwriting workday column.",
+    hint: "Average Workdays in Underwriting on Final Underwrite events.",
   },
   {
     key: "condition_events",
@@ -205,8 +205,7 @@ const UNDERWRITING_METRIC_COLUMNS: DepartmentMetricColumn[] = [
     key: "avg_workdays_conditions",
     label: "Avg Workdays in Conditions",
     format: "decimal",
-    unavailable: true,
-    hint: "The Last 12 Months extract has no conditions workday column.",
+    hint: "Average Workdays in Conditions on events whose name contains “condition”.",
   },
   {
     key: "bad_loan_ratio",
@@ -261,6 +260,16 @@ const UNDERWRITING_EVENT_COLUMNS: DepartmentEventColumn[] = [
     label: "Workdays in Initial Review",
     format: "decimal",
   },
+  {
+    key: "workdaysInUnderwriting",
+    label: "Workdays in Underwriting",
+    format: "decimal",
+  },
+  {
+    key: "workdaysInConditions",
+    label: "Workdays in Conditions",
+    format: "decimal",
+  },
   { key: "qcCount", label: "# of QCs", format: "integer" },
   { key: "avgQcScore", label: "Avg QC Score", format: "decimal" },
   { key: "isBadLoan", label: "IsBadLoan", format: "boolean" },
@@ -294,8 +303,7 @@ export const DEPARTMENT_DASHBOARDS: Record<
     orgLabel: "Underwriting Organization",
     metricColumns: UNDERWRITING_METRIC_COLUMNS,
     eventColumns: UNDERWRITING_EVENT_COLUMNS,
-    unavailableNote:
-      "Avg Workdays in Underwriting and Avg Workdays in Conditions are not on the Last 12 Months event extract, so those columns stay blank.",
+    unavailableNote: null,
   },
 }
 
@@ -497,6 +505,8 @@ function asEventRow(value: unknown): DepartmentEventRow | null {
     submittedForInitialReview: asText(record.submitted_for_initial_review),
     initialReviewComplete: asText(record.initial_review_complete),
     workdaysInInitialReview: asNumber(record.workdays_in_initial_review),
+    workdaysInUnderwriting: asNumber(record.workdays_in_underwriting),
+    workdaysInConditions: asNumber(record.workdays_in_conditions),
     qcCount: asNumber(record.qc_count),
     avgQcScore: asNumber(record.avg_qc_score),
     isBadLoan: asBoolean(record.is_bad_loan),
