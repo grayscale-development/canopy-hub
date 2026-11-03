@@ -6,7 +6,9 @@ The internal MCP bearer token authenticates the transport only: `tools/call`
 also requires an authenticated user session. Model arguments cannot select a
 user or elevate permissions.
 
-Wiki draft pages and active assets remain in the index. Their index status means
+Wiki draft pages and active assets remain in the index. Imported Wiki drafts are
+the exception: they are intentionally held out until published, so an unfinished
+bulk import cannot surface in Milo. Their index status means
 index availability, not publication. Database RLS checks the live Wiki node and
 all ancestors, `beta.1`, and `wiki.manage`. Standard Wiki viewers see fully
 published branches; Wiki managers see drafts; archived branches remain excluded.

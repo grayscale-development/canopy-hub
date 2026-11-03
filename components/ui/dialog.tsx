@@ -67,7 +67,11 @@ function DialogContent({
         {children}
         {showCloseButton ? (
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button variant="ghost" size="icon-sm" className="absolute top-3 right-3">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="absolute top-2 right-1 cursor-pointer"
+            >
               <XIcon />
               <span className="sr-only">Close</span>
             </Button>
@@ -82,7 +86,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-1", className)}
+      className={cn("flex flex-col gap-1 pr-8 pb-2", className)}
       {...props}
     />
   )

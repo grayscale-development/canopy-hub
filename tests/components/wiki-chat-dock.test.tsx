@@ -1,200 +1,100 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import {
-  WikiChatDockProvider,
-  WikiChatDockTrigger,
-} from "@/components/wiki/wiki-chat-dock"
-import { MILO_CHAT_THREAD_STORAGE_KEY } from "@/components/wiki/wiki-chat"
+import { WikiChatModalProvider } from "@/components/wiki/wiki-chat-modal"
+import { WikiHeaderSearch } from "@/components/wiki/wiki-header-search"
 
-const supabaseState = vi.hoisted(() => {
-  const permissionQuery = {
-    select: vi.fn(),
-    eq: vi.fn(),
-    maybeSingle: vi.fn(async () => ({ data: { id: "beta-id" } })),
-  }
-  permissionQuery.select.mockImplementation(() => permissionQuery)
-  permissionQuery.eq.mockImplementation(() => permissionQuery)
-
-  let userPermissionFilters = 0
-  const userPermissionsQuery = {
-    select: vi.fn(),
-    eq: vi.fn(),
-  }
-  userPermissionsQuery.select.mockImplementation(() => userPermissionsQuery)
-  userPermissionsQuery.eq.mockImplementation(() => {
-    userPermissionFilters += 1
-    return userPermissionFilters % 2 === 0
-      ? Promise.resolve({ count: 1 })
-      : userPermissionsQuery
-  })
-
-  const supabase = {
-    auth: {
-      getUser: vi.fn(async () => ({ data: { user: { id: "test-user" } } })),
-      onAuthStateChange: vi.fn(() => ({
-        data: { subscription: { unsubscribe: vi.fn() } },
-      })),
+function streamedResponse(answer: string) {
+  const events = [
+    { type: "meta", threadId: "thread-1" },
+    { type: "token", token: answer },
+    {
+      type: "done",
+      threadId: "thread-1",
+      citations: [
+        {
+          title: "Loan policy",
+          url: "/wiki/loan-policy",
+          snippet: "The source page for this answer.",
+        },
+      ],
     },
-    from: vi.fn((table: string) =>
-      table === "permissions" ? permissionQuery : userPermissionsQuery
-    ),
-  }
+  ]
+  const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")
 
-  return { supabase }
-})
+  return {
+    ok: true,
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body))
+        controller.close()
+      },
+    }),
+  } as Response
+}
 
-vi.mock("@/lib/supabase/client", () => ({
-  createSupabaseBrowserClient: () => supabaseState.supabase,
-}))
-
-let deferThreadResponse = false
-let releaseThreadResponse: (() => void) | null = null
-
-const fetchMock = vi.fn(
-  async (input: RequestInfo | URL, _init?: RequestInit) => {
-    void _init
-    const url = String(input)
-    const threadId = new URL(url, "http://localhost").searchParams.get(
-      "threadId"
-    )
-    if (threadId && deferThreadResponse) {
-      await new Promise<void>((resolve) => {
-        releaseThreadResponse = resolve
+describe("WikiChatModalProvider", () => {
+  let resolveResponse: ((response: Response) => void) | null = null
+  const fetchMock = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve
       })
-    }
+  )
 
-    return {
-      ok: true,
-      json: async () =>
-        threadId
-          ? {
-              thread: {
-                id: threadId,
-                title: "Saved session",
-                updatedAt: "2026-10-16T12:00:00.000Z",
-              },
-              messages: [
-                {
-                  id: "saved-message",
-                  role: "assistant",
-                  content: "This saved conversation stays in history.",
-                  citations: [],
-                },
-              ],
-            }
-          : {
-              threads: [
-                {
-                  id: "saved-thread",
-                  title: "Saved session",
-                  updatedAt: "2026-10-16T12:00:00.000Z",
-                },
-              ],
-            },
-    } as Response
-  }
-)
-
-const originalScrollIntoView = Object.getOwnPropertyDescriptor(
-  Element.prototype,
-  "scrollIntoView"
-)
-
-beforeEach(() => {
-  window.localStorage.clear()
-  window.localStorage.setItem("milo-chat-open", "true")
-  window.localStorage.setItem(MILO_CHAT_THREAD_STORAGE_KEY, "saved-thread")
-  deferThreadResponse = false
-  releaseThreadResponse = null
-  fetchMock.mockClear()
-  vi.stubGlobal("fetch", fetchMock)
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-    callback(0)
-    return 0
-  })
-  Object.defineProperty(Element.prototype, "scrollIntoView", {
-    configurable: true,
-    value: vi.fn(),
-  })
-})
-
-afterEach(() => {
-  cleanup()
-  window.localStorage.clear()
-  if (originalScrollIntoView) {
-    Object.defineProperty(
-      Element.prototype,
-      "scrollIntoView",
-      originalScrollIntoView
-    )
-  } else {
-    Reflect.deleteProperty(Element.prototype, "scrollIntoView")
-  }
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
-
-describe("WikiChatDockProvider", () => {
-  it("opens a fresh chat after close while keeping the saved session in history", async () => {
-    const user = userEvent.setup()
-    render(
-      <WikiChatDockProvider>
-        <div>Wiki page</div>
-        <WikiChatDockTrigger />
-      </WikiChatDockProvider>
-    )
-
-    expect(
-      await screen.findByText("This saved conversation stays in history.")
-    ).toBeVisible()
-
-    await user.click(screen.getByRole("button", { name: "Close Milo chat" }))
-    expect(window.localStorage.getItem(MILO_CHAT_THREAD_STORAGE_KEY)).toBeNull()
-    await user.click(screen.getByRole("button", { name: /Ask Milo/ }))
-
-    expect(await screen.findByText(/Ask Milo about Wiki pages/)).toBeVisible()
-    expect(
-      screen.queryByText("This saved conversation stays in history.")
-    ).toBeNull()
-    expect(window.localStorage.getItem(MILO_CHAT_THREAD_STORAGE_KEY)).toBeNull()
-    expect(
-      fetchMock.mock.calls.every(([, init]) =>
-        [undefined, "GET"].includes((init as RequestInit | undefined)?.method)
-      )
-    ).toBe(true)
-    expect(fetchMock).toHaveBeenCalled()
-  })
-
-  it("does not restore a thread when closed while that thread is still loading", async () => {
-    const user = userEvent.setup()
-    deferThreadResponse = true
-    render(
-      <WikiChatDockProvider>
-        <div>Wiki page</div>
-        <WikiChatDockTrigger />
-      </WikiChatDockProvider>
-    )
-
-    expect(await screen.findByText("Loading session...")).toBeVisible()
-    await user.click(screen.getByRole("button", { name: "Close Milo chat" }))
-    expect(window.localStorage.getItem(MILO_CHAT_THREAD_STORAGE_KEY)).toBeNull()
-
-    deferThreadResponse = false
-    await act(async () => {
-      releaseThreadResponse?.()
-      await Promise.resolve()
-      await Promise.resolve()
+  beforeEach(() => {
+    fetchMock.mockClear()
+    resolveResponse = null
+    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("crypto", {
+      ...window.crypto,
+      randomUUID: () => "test-message-id",
     })
-    await user.click(screen.getByRole("button", { name: /Ask Milo/ }))
+  })
 
-    expect(await screen.findByText(/Ask Milo about Wiki pages/)).toBeVisible()
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it("opens Ask Milo from the header, streams an answer, and closes for a resource", async () => {
+    const user = userEvent.setup()
+    render(
+      <WikiChatModalProvider>
+        <WikiHeaderSearch />
+      </WikiChatModalProvider>
+    )
+
+    expect(screen.getByRole("textbox", { name: "Ask Milo" })).toHaveAttribute(
+      "placeholder",
+      "Ask Milo"
+    )
+    expect(screen.queryByRole("button", { name: "Ask Milo" })).toBeNull()
+
+    await user.type(screen.getByRole("textbox", { name: "Ask Milo" }), "Where is the loan policy?")
+    await user.keyboard("{Enter}")
+
+    expect(await screen.findByRole("dialog")).toBeVisible()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/wiki/chat",
+      expect.objectContaining({ method: "POST" })
+    ))
+    expect(screen.getByLabelText("Milo is thinking")).toBeVisible()
+
+    await act(async () => {
+      resolveResponse?.(streamedResponse("The loan policy is in the Wiki."))
+    })
+
     expect(
-      screen.queryByText("This saved conversation stays in history.")
-    ).toBeNull()
-    expect(window.localStorage.getItem(MILO_CHAT_THREAD_STORAGE_KEY)).toBeNull()
+      await screen.findByText("The loan policy is in the Wiki.")
+    ).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Resources" })).toBeVisible()
+
+    await user.click(screen.getByRole("link", { name: /Loan policy/ }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   })
 })

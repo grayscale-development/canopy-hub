@@ -108,10 +108,16 @@ test("Ask Milo opens and streams a deterministic mocked answer @milo @smoke", as
   await mockMiloChatApi(page)
   await signInAsLocalDev(page)
 
-  await page.getByRole("button", { name: "Ask Milo" }).click()
-  await page.getByPlaceholder("Ask Milo anything").fill("Where is the Wiki?")
-  await page.keyboard.press("Enter")
-
-  await expect(page.getByText("/wiki/canopy-wiki")).toBeVisible()
-  await expect(page.getByText("Wiki").last()).toBeVisible()
+  const searchInput = page
+    .locator("header")
+    .getByRole("textbox", { name: "Ask Milo" })
+  const dialog = page.getByRole("dialog", { name: "Ask Milo" })
+  // The header search only responds to Enter once the page has hydrated, so
+  // retry until the modal opens.
+  await expect(async () => {
+    await searchInput.fill("Where is the Wiki?")
+    await searchInput.press("Enter")
+    await expect(dialog).toBeVisible({ timeout: 2000 })
+  }).toPass({ timeout: 20000 })
+  await expect(dialog.getByText("/wiki/canopy-wiki")).toBeVisible()
 })

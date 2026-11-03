@@ -39,6 +39,17 @@ export function getFormatModel() {
   return process.env.OPENAI_FORMAT_MODEL?.trim() || "gpt-5-nano"
 }
 
+/**
+ * Imports need to preserve a document's layout, which is a materially harder
+ * task than the short-format operations that use `OPENAI_FORMAT_MODEL`.
+ * Prefer an import-specific override and otherwise use the configured chat
+ * model so deployments can opt into a stronger formatter without changing
+ * other features.
+ */
+export function getWikiImportModel() {
+  return process.env.OPENAI_WIKI_IMPORT_MODEL?.trim() || getChatModel()
+}
+
 export function getTranscriptionModel() {
   return process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "gpt-4o-transcribe"
 }

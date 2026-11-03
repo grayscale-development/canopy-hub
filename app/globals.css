@@ -127,6 +127,33 @@
   ::selection {
     @apply bg-primary/20 text-foreground;
   }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([data-disabled]),
+  [role="option"]:not([data-disabled]),
+  [role="switch"]:not(:disabled),
+  [role="checkbox"]:not(:disabled),
+  [role="radio"]:not(:disabled),
+  [role="combobox"]:not(:disabled),
+  summary,
+  label[for],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  a[href] {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  [role="menuitem"][data-disabled],
+  [role="option"][data-disabled],
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
   select:not([multiple]) {
     -webkit-appearance: none;
     -moz-appearance: none;
@@ -296,6 +323,12 @@
   width: 100%;
 }
 
+/* Keep wide imported spreadsheets complete and reachable on narrow screens. */
+.wiki-blocknote-surface [data-content-type="table"] .tableWrapper {
+  max-width: 100%;
+  overflow-x: auto !important;
+}
+
 .wiki-blocknote-surface
   .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
   max-width: none !important;
@@ -340,4 +373,29 @@
   .points-specialists-scroll-viewport {
     scrollbar-gutter: stable;
   }
+}
+
+.slim-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.slim-scrollbar:hover,
+.slim-scrollbar:focus-within {
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent) transparent;
+}
+.slim-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+.slim-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.slim-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.slim-scrollbar:hover::-webkit-scrollbar-thumb,
+.slim-scrollbar:focus-within::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
 }

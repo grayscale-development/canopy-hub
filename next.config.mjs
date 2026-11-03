@@ -14,6 +14,10 @@ const nextConfig = {
     // overhead does not trigger a framework-level 413 first.
     proxyClientMaxBodySize: "260mb",
   },
+  // pdf-parse resolves its Node worker at runtime. Bundling it makes Turbopack
+  // resolve the browser entry instead, which cannot load that worker on the
+  // server.
+  serverExternalPackages: ["pdf-parse"],
   turbopack: {
     root: __dirname,
   },

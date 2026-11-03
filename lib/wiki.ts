@@ -45,6 +45,7 @@ export interface WikiNodeRow {
   status: WikiNodeStatus
   sort_order: number
   tags?: string[]
+  import_content_hash?: string | null
   current_revision_id: string | null
   created_by: string | null
   updated_by: string | null
@@ -365,7 +366,7 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .neq("status", "archived")
     .order("sort_order", { ascending: true })

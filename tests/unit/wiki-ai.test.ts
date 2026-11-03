@@ -490,4 +490,41 @@ describe("wiki AI orchestration", () => {
       ])
     )
   })
+
+  it("keeps imported drafts out of the index until they are published", async () => {
+    const { indexWikiPage } = await import("@/lib/wiki-ai")
+    const sources: Array<Record<string, unknown>> = []
+    const chain = {
+      select: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+      upsert: vi.fn((row) => {
+        sources.push(row)
+        return chain
+      }),
+      single: vi.fn(async () => ({
+        data: { id: "indexed-source" },
+        error: null,
+      })),
+      delete: vi.fn(() => chain),
+      insert: vi.fn(async () => ({ error: null })),
+      then: (resolve: (value: unknown) => void) => resolve({ error: null }),
+    }
+    const supabase = { from: vi.fn(() => chain) }
+
+    await indexWikiPage({
+      supabase: supabase as never,
+      node: {
+        id: "imported-draft",
+        title: "Imported SOP",
+        status: "draft",
+        import_content_hash: "hash",
+      } as never,
+      revision: { id: "revision", plain_text: "Draft procedure" } as never,
+      path: "imported-draft",
+      isPublished: false,
+    })
+
+    expect(sources[0]?.status).toBe("archived")
+  })
 })

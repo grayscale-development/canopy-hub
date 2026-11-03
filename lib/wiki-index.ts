@@ -1,6 +1,10 @@
 import "server-only"
 
-import { indexWikiAsset, indexWikiPage } from "@/lib/wiki-ai"
+import {
+  archiveKnowledgeSource,
+  indexWikiAsset,
+  indexWikiPage,
+} from "@/lib/wiki-ai"
 import {
   buildWikiPath,
   fetchCurrentRevision,
@@ -14,7 +18,7 @@ async function fetchWikiNodesForIndex(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .order("sort_order", { ascending: true })
     .order("title", { ascending: true })
@@ -43,7 +47,11 @@ export async function indexWikiKnowledge(supabase: SupabaseWikiClient) {
       path,
       isPublished: isPagePublished,
     })
-    indexedCount += node.status !== "archived" ? 1 : 0
+    indexedCount +=
+      node.status !== "archived" &&
+      !(node.status === "draft" && node.import_content_hash)
+        ? 1
+        : 0
   }
 
   if (!pageNodes.length) {
@@ -68,6 +76,15 @@ export async function indexWikiKnowledge(supabase: SupabaseWikiClient) {
   for (const asset of (assets ?? []) as WikiAssetRow[]) {
     const pageNode = pagesById.get(asset.node_id)
     if (!pageNode) {
+      continue
+    }
+
+    if (pageNode.status === "draft" && pageNode.import_content_hash) {
+      await archiveKnowledgeSource({
+        supabase,
+        sourceType: "wiki_asset",
+        sourceId: asset.id,
+      })
       continue
     }
 

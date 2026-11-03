@@ -4,7 +4,10 @@ import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { WikiNodeActionsMenu } from "@/components/wiki/wiki-management-controls"
+import {
+  WikiEditableTitle,
+  WikiNodeActionsMenu,
+} from "@/components/wiki/wiki-management-controls"
 import type { WikiNodeRow } from "@/lib/wiki"
 
 const router = vi.hoisted(() => ({
@@ -48,11 +51,18 @@ describe("WikiNodeActionsMenu", () => {
   it("keeps Archive inside Edit and preserves the empty-folder guard", async () => {
     const user = userEvent.setup()
     render(
-      <WikiNodeActionsMenu nodes={[emptyGroup]} node={emptyGroup} hasChildren />
+      <>
+        <WikiEditableTitle nodeId={emptyGroup.id}>Group</WikiEditableTitle>
+        <WikiNodeActionsMenu
+          nodes={[emptyGroup]}
+          node={emptyGroup}
+          hasChildren
+        />
+      </>
     )
 
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull()
-    await user.click(screen.getByRole("button", { name: "Edit" }))
+    await user.click(screen.getByRole("button", { name: "Group" }))
 
     const dialog = await screen.findByRole("dialog")
     const archiveButton = within(dialog).getByRole("button", {

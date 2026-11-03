@@ -6,7 +6,6 @@ import {
   ArchiveIcon,
   FilePlusIcon,
   FolderPlusIcon,
-  PencilIcon,
   PlusIcon,
 } from "lucide-react"
 
@@ -28,6 +27,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
+import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
 import type { WikiNodeRow } from "@/lib/wiki"
 
 function parentOptions(nodes: WikiNodeRow[], currentNodeId?: string) {
@@ -104,7 +105,7 @@ export function WikiCreateDialog({
           <DialogTitle>
             {type === "folder" ? "Create Group" : "Create Page"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             Add a Wiki item under the selected parent.
           </DialogDescription>
         </DialogHeader>
@@ -271,7 +272,9 @@ export function WikiCreateWizardDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
-          <DialogDescription>{dialogDescription}</DialogDescription>
+          <DialogDescription className="sr-only">
+            {dialogDescription}
+          </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="grid gap-4">
           {allowedTypes.length > 1 ? (
@@ -331,6 +334,48 @@ export function WikiCreateWizardDialog({
   )
 }
 
+export const WIKI_EDIT_NODE_EVENT = "wiki:edit-node"
+
+export function WikiEditableTitle({
+  nodeId,
+  className,
+  children,
+}: {
+  nodeId: string
+  className?: string
+  children: React.ReactNode
+}) {
+  const { canEditWiki } = useWikiEditMode()
+
+  if (!canEditWiki) {
+    return <h1 className={className}>{children}</h1>
+  }
+
+  function requestEdit() {
+    window.dispatchEvent(
+      new CustomEvent(WIKI_EDIT_NODE_EVENT, { detail: { id: nodeId } })
+    )
+  }
+
+  return (
+    <h1
+      className={`${className ?? ""} cursor-pointer rounded-md decoration-dotted underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:outline-none`}
+      role="button"
+      tabIndex={0}
+      title="Click to edit title, tags, or location"
+      onClick={requestEdit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          requestEdit()
+        }
+      }}
+    >
+      {children}
+    </h1>
+  )
+}
+
 export function WikiNodeActionsMenu({
   nodes,
   node,
@@ -349,47 +394,26 @@ export function WikiNodeActionsMenu({
   const [archiveState, setArchiveState] =
     React.useState<WikiActionResult | null>(null)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
-  const [tagQuery, setTagQuery] = React.useState("")
+  const tagInputRef = React.useRef<HTMLInputElement>(null)
   const options = parentOptions(nodes, node.id)
   const cannotArchive = node.type === "folder" && hasChildren
-  const matchingTags = availableTags
-    .filter(
-      (tag) =>
-        tag.toLocaleLowerCase().includes(tagQuery.trim().toLocaleLowerCase()) &&
-        !selectedTags.some(
-          (selectedTag) =>
-            selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
-        )
-    )
-    .slice(0, 8)
 
-  function openEditDialog() {
+  const openEditDialog = React.useCallback(() => {
     setSelectedTags(node.tags ?? [])
-    setTagQuery("")
     setOpen(true)
-  }
+  }, [node.tags])
 
-  function addTag(value: string) {
-    const requestedTag = value.trim().replace(/\s+/g, " ")
-    const tag =
-      availableTags.find(
-        (availableTag) =>
-          availableTag.toLocaleLowerCase() === requestedTag.toLocaleLowerCase()
-      ) ?? requestedTag
-
-    if (
-      !tag ||
-      selectedTags.some(
-        (selectedTag) =>
-          selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
-      )
-    ) {
-      return
+  React.useEffect(() => {
+    function handleEditRequest(event: Event) {
+      if ((event as CustomEvent<{ id?: string }>).detail?.id === node.id) {
+        openEditDialog()
+      }
     }
 
-    setSelectedTags((currentTags) => [...currentTags, tag])
-    setTagQuery("")
-  }
+    window.addEventListener(WIKI_EDIT_NODE_EVENT, handleEditRequest)
+    return () =>
+      window.removeEventListener(WIKI_EDIT_NODE_EVENT, handleEditRequest)
+  }, [node.id, openEditDialog])
 
   function handleSubmit(formData: FormData) {
     setState(null)
@@ -435,20 +459,18 @@ export function WikiNodeActionsMenu({
 
   return (
     <>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        onClick={openEditDialog}
-      >
-        <PencilIcon />
-        Edit
-      </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent
+          onOpenAutoFocus={(event) => {
+            if (node.type === "page") {
+              event.preventDefault()
+              tagInputRef.current?.focus()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Edit Wiki Item</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               Rename or move this Wiki item.
               {cannotArchive
                 ? " Sections and groups must be empty before they can be archived."
@@ -469,72 +491,14 @@ export function WikiNodeActionsMenu({
               />
             </div>
             {node.type === "page" ? (
-              <div className="grid gap-2">
-                <label className="text-sm font-medium" htmlFor="wiki-edit-tags">
-                  Tags
-                </label>
-                <input
-                  type="hidden"
-                  name="tags"
-                  value={selectedTags.join(", ")}
-                />
-                {selectedTags.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedTags.map((tag) => (
-                      <Button
-                        key={tag}
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() =>
-                          setSelectedTags((currentTags) =>
-                            currentTags.filter(
-                              (currentTag) => currentTag !== tag
-                            )
-                          )
-                        }
-                      >
-                        {tag} ×
-                      </Button>
-                    ))}
-                  </div>
-                ) : null}
-                <Input
-                  id="wiki-edit-tags"
-                  value={tagQuery}
-                  onChange={(event) => setTagQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && tagQuery.trim()) {
-                      event.preventDefault()
-                      addTag(tagQuery)
-                    }
-                  }}
-                  placeholder="Search or create a tag"
-                />
-                {tagQuery.trim() ? (
-                  <div className="max-h-44 overflow-y-auto rounded-md border p-1">
-                    {matchingTags.map((tag) => (
-                      <Button
-                        key={tag}
-                        type="button"
-                        variant="ghost"
-                        className="w-full justify-start"
-                        onClick={() => addTag(tag)}
-                      >
-                        {tag}
-                      </Button>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="w-full justify-start"
-                      onClick={() => addTag(tagQuery)}
-                    >
-                      Add “{tagQuery.trim()}”
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
+              <WikiTagPicker
+                availableTags={availableTags}
+                selectedTags={selectedTags}
+                onSelectedTagsChange={setSelectedTags}
+                open={open}
+                inputRef={tagInputRef}
+                inputId="wiki-edit-tags"
+              />
             ) : null}
             <div className="grid gap-2">
               <label className="text-sm font-medium" htmlFor="wiki-edit-parent">
