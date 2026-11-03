@@ -35,15 +35,15 @@ export function DepartmentEventTable({
           Events that match the filters above.
         </p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="max-w-full overflow-x-auto">
+        <table className="min-w-max text-sm">
           <thead>
             <tr className="border-b">
               {columns.map((column) => (
                 <th
                   key={column.key}
                   scope="col"
-                  className="px-3 py-2 text-left font-medium whitespace-nowrap"
+                  className="min-w-32 px-4 py-3 text-left font-medium whitespace-nowrap"
                 >
                   {column.label}
                 </th>
@@ -69,7 +69,7 @@ export function DepartmentEventTable({
                   {columns.map((column) => (
                     <td
                       key={column.key}
-                      className="px-3 py-2.5 whitespace-nowrap"
+                      className="min-w-32 px-4 py-3 whitespace-nowrap"
                     >
                       {formatDepartmentEventValue(
                         row[column.key],

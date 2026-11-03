@@ -191,9 +191,9 @@ const UNDERWRITING_METRIC_COLUMNS: DepartmentMetricColumn[] = [
   },
   {
     key: "avg_workdays_underwriting",
-    label: "Avg Workdays in Underwriting",
+    label: "Avg Workdays in Underwriting on Funded Events",
     format: "decimal",
-    hint: "Average Workdays in Underwriting on Final Underwrite events.",
+    hint: "Average Workdays in Underwriting on Funded events.",
   },
   {
     key: "condition_events",
@@ -203,9 +203,9 @@ const UNDERWRITING_METRIC_COLUMNS: DepartmentMetricColumn[] = [
   },
   {
     key: "avg_workdays_conditions",
-    label: "Avg Workdays in Conditions",
+    label: "Avg Workdays in Conditions on Funded Events",
     format: "decimal",
-    hint: "Average Workdays in Conditions on events whose name contains “condition”.",
+    hint: "Average Workdays in Conditions on Funded events.",
   },
   {
     key: "bad_loan_ratio",

@@ -123,46 +123,30 @@ async function seedQaRows() {
   }))
 
   const events: QaRow[] = [
-    ["a-final-2", "a", "alice", "Final Underwrite", activeDate, 2, null],
-    ["a-final-6", "a", "alice", "Final Underwrite", activeDate, 6, null],
-    ["a-final-null", "a", "alice", "Final Underwrite", activeDate, null, null],
+    ["a-final", "a", "alice", "Final Underwrite", activeDate, null, null],
     [
-      "a-condition-3",
+      "a-condition",
       "a",
       "alice",
       "QA UW Conditions Submitted",
       activeDate,
       null,
-      3,
-    ],
-    [
-      "a-condition-9",
-      "a",
-      "alice",
-      "QA UW CONDITION Cleared",
-      activeDate,
-      null,
-      9,
-    ],
-    [
-      "a-condition-null",
-      "a",
-      "alice",
-      "QA UW Condition Null",
-      activeDate,
-      null,
       null,
     ],
-    ["b-final-20", "b", "bob", "Final Underwrite", priorMonthDate, 20, null],
+    ["a-funded-2", "a", "alice", "Funded", activeDate, 2, 3],
+    ["a-funded-6", "a", "alice", "Funded", activeDate, 6, 9],
+    ["a-funded-null", "a", "alice", "Funded", activeDate, null, null],
+    ["b-final", "b", "bob", "Final Underwrite", priorMonthDate, null, null],
     [
-      "b-condition-30",
+      "b-condition",
       "b",
       "bob",
       "QA UW Conditions Submitted",
       priorMonthDate,
       null,
-      30,
+      null,
     ],
+    ["b-funded-20", "b", "bob", "Funded", priorMonthDate, 20, 30],
     [
       "blank-final",
       "blank",
@@ -181,6 +165,7 @@ async function seedQaRows() {
       null,
       null,
     ],
+    ["blank-funded", "blank", "blank", "Funded", activeDate, null, null],
   ].map(([id, org, employee, event, eventDate, underwriting, conditions]) => ({
     external_row_key: `${MARKER}-${id}`,
     app_id: `${MARKER}-loan-${id}`,
@@ -318,30 +303,34 @@ test.describe("Underwriting workday metrics", () => {
     await expect(metricCell(underwriters, "QA UW Bob", 7)).toHaveText("30.00")
 
     await underwriters
-      .getByRole("button", { name: "Avg Workdays in Underwriting" })
+      .getByRole("button", {
+        name: "Avg Workdays in Underwriting on Funded Events",
+      })
       .click()
     await expect(underwriters.getByRole("row").nth(2)).toContainText(
       "QA UW Bob"
     )
 
-    const finalRow = eventTable.getByRole("row", {
-      name: new RegExp(`${MARKER}-loan-a-final-2`),
+    const fundedRow = eventTable.getByRole("row", {
+      name: new RegExp(`${MARKER}-loan-a-funded-2`),
     })
-    await expect(finalRow.locator("td").nth(underwritingColumn)).toHaveText(
+    await expect(fundedRow.locator("td").nth(underwritingColumn)).toHaveText(
       "2.00"
     )
-    await expect(finalRow.locator("td").nth(conditionsColumn)).toHaveText("—")
+    await expect(fundedRow.locator("td").nth(conditionsColumn)).toHaveText(
+      "3.00"
+    )
     const conditionRow = eventTable.getByRole("row", {
-      name: new RegExp(`${MARKER}-loan-a-condition-3`),
+      name: new RegExp(`${MARKER}-loan-a-condition`),
     })
     await expect(conditionRow.locator("td").nth(underwritingColumn)).toHaveText(
       "—"
     )
     await expect(conditionRow.locator("td").nth(conditionsColumn)).toHaveText(
-      "3.00"
+      "—"
     )
     const nullRow = eventTable.getByRole("row", {
-      name: new RegExp(`${MARKER}-loan-a-final-null`),
+      name: new RegExp(`${MARKER}-loan-a-funded-null`),
     })
     await expect(nullRow.locator("td").nth(underwritingColumn)).toHaveText("—")
 
@@ -360,7 +349,7 @@ test.describe("Underwriting workday metrics", () => {
       `/reports/underwriting?event=${encodeURIComponent("QA UW Conditions Submitted")}`
     )
     await expect(metricCell(underwriters, "Company Avg", 5)).toHaveText("—")
-    await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("16.50")
+    await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("—")
     await page.goto(
       `/reports/underwriting?org=${encodeURIComponent(`${MARKER}-org-a`)}`
     )
