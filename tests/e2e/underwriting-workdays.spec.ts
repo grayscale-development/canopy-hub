@@ -31,6 +31,14 @@ function mondayOf(date: Date) {
   return monday
 }
 
+function withRaw<T extends Record<string, unknown>>(rows: T[]) {
+  return rows.map((row) => ({
+    raw_payload: { qa_marker: MARKER },
+    source_record_hash: MARKER,
+    ...row,
+  }))
+}
+
 async function assertNoError(result: { error: { message: string } | null }) {
   expect(result.error?.message).toBeUndefined()
 }
@@ -217,16 +225,22 @@ async function seedQaRows() {
 
   await deleteQaRows()
   await assertNoError(
-    await admin.schema("raw").from("employees").insert(employees)
+    await admin.schema("raw").from("employees").insert(withRaw(employees))
   )
   await assertNoError(
-    await admin.schema("raw").from("underwriting_orgs").insert(organizations)
+    await admin
+      .schema("raw")
+      .from("underwriting_orgs")
+      .insert(withRaw(organizations))
   )
   await assertNoError(
-    await admin.schema("raw").from("branches").insert(branches)
+    await admin.schema("raw").from("branches").insert(withRaw(branches))
   )
   await assertNoError(
-    await admin.schema("raw").from("production_data").insert(production)
+    await admin
+      .schema("raw")
+      .from("production_data")
+      .insert(withRaw(production))
   )
   await assertNoError(
     await admin
@@ -285,12 +299,8 @@ test.describe("Underwriting workday metrics", () => {
       page.getByRole("heading", { name: "Underwriting" })
     ).toBeVisible()
 
-    const underwriters = page
-      .getByRole("heading", { name: "Underwriters" })
-      .locator("xpath=..")
-    const eventTable = page
-      .getByRole("heading", { name: "Last 12 Months" })
-      .locator("xpath=..")
+    const underwriters = page.getByRole("table").first()
+    const eventTable = page.getByRole("table").last()
     const headerIndex = async (name: string) =>
       (await eventTable.getByRole("columnheader").allTextContents()).findIndex(
         (text) => text.trim() === name
@@ -310,7 +320,7 @@ test.describe("Underwriting workday metrics", () => {
     await underwriters
       .getByRole("button", { name: "Avg Workdays in Underwriting" })
       .click()
-    await expect(underwriters.getByRole("row").nth(1)).toContainText(
+    await expect(underwriters.getByRole("row").nth(2)).toContainText(
       "QA UW Bob"
     )
 
@@ -365,10 +375,10 @@ test.describe("Underwriting workday metrics", () => {
     await page.goto(
       `/reports/underwriting?event=${encodeURIComponent("QA UW Pagination Filler")}`
     )
-    await expect(eventTable.getByText("1-100 of 101")).toBeVisible()
-    await eventTable.getByRole("link", { name: "2", exact: true }).click()
+    await expect(page.getByText("1-100 of 101")).toBeVisible()
+    await page.getByRole("link", { name: "2", exact: true }).click()
     await expect(page).toHaveURL(/page=2/)
-    await expect(eventTable.getByText("101-101 of 101")).toBeVisible()
+    await expect(page.getByText("101-101 of 101")).toBeVisible()
     await expect(
       eventTable.getByRole("row").nth(1).locator("td").nth(underwritingColumn)
     ).toHaveText("—")
