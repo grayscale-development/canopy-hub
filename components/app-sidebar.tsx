@@ -3,10 +3,7 @@ import Image from "next/image"
 import Link from "next/link"
 import {
   Building2Icon,
-  BookOpenIcon,
   ChartNoAxesCombinedIcon,
-  CpuIcon,
-  GraduationCapIcon,
   HomeIcon,
   LifeBuoyIcon,
   ListTreeIcon,
@@ -16,7 +13,7 @@ import {
 } from "lucide-react"
 import { redirect } from "next/navigation"
 
-import { NewslettersSidebarLauncher } from "@/components/newsletters/newsletters-sidebar-launcher"
+import { AppSidebarLibraryNav } from "@/components/app-sidebar-library-nav"
 import { NavUser } from "@/components/nav-user"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import {
@@ -75,24 +72,6 @@ const directoryNav = [
   },
 ]
 
-const libraryNav = [
-  {
-    title: "Canopy Wiki",
-    url: "/wiki/canopy-wiki",
-    icon: BookOpenIcon,
-  },
-  {
-    title: "Learning Hub",
-    url: "/wiki/learning-hub",
-    icon: GraduationCapIcon,
-  },
-  {
-    title: "Nano Wiki",
-    url: "/wiki/nano-wiki",
-    icon: CpuIcon,
-  },
-]
-
 const adminNav = [
   {
     title: "Settings",
@@ -100,10 +79,6 @@ const adminNav = [
     icon: Settings2Icon,
   },
 ]
-
-function isNavItemActive(activePath: string | undefined, url: string) {
-  return activePath === url || Boolean(activePath?.startsWith(`${url}/`))
-}
 
 export async function AppSidebar({
   activePath,
@@ -244,35 +219,7 @@ export async function AppSidebar({
           <SidebarGroupLabel>Library</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {canAccessBeta1
-                ? libraryNav.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isNavItemActive(activePath, item.url)}
-                        tooltip={item.title}
-                      >
-                        <Link href={item.url}>
-                          <item.icon />
-                          <span className="group-data-[collapsible=icon]:hidden">
-                            {item.title}
-                          </span>
-                          {item.title === "Nano Wiki" ? (
-                            <span
-                              aria-hidden="true"
-                              className="ml-auto text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden"
-                            >
-                              Coming soon
-                            </span>
-                          ) : null}
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))
-                : null}
-              <NewslettersSidebarLauncher
-                isActive={activePath === "/newsletters"}
-              />
+              <AppSidebarLibraryNav canAccessBeta1={canAccessBeta1} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
