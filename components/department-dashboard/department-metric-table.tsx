@@ -81,7 +81,7 @@ export function DepartmentMetricTable({
       >
         <th
           scope="row"
-          className="px-3 py-2.5 text-left font-medium break-words"
+          className="min-w-44 px-4 py-3 text-left font-medium whitespace-nowrap"
         >
           {linked ? (
             <Link
@@ -97,7 +97,7 @@ export function DepartmentMetricTable({
         {columns.map((column) => (
           <td
             key={column.key}
-            className="px-3 py-2.5 text-right font-mono whitespace-nowrap tabular-nums"
+            className="min-w-36 px-4 py-3 text-right font-mono whitespace-nowrap tabular-nums"
           >
             {formatDepartmentMetric(row.metrics[column.key], column.format)}
           </td>
@@ -112,13 +112,16 @@ export function DepartmentMetricTable({
         <h2 className="text-lg font-semibold">{title}</h2>
       </div>
       <div className="max-h-[32rem] overflow-auto">
-        <table className="w-full text-sm">
+        <table className="min-w-max text-sm">
           <thead className="sticky top-0 bg-card">
             <tr className="border-b">
-              <th scope="col" className="px-3 py-2 text-left font-medium">
+              <th
+                scope="col"
+                className="min-w-44 px-4 py-3 text-left font-medium whitespace-nowrap"
+              >
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1"
+                  className="inline-flex cursor-pointer items-center gap-1"
                   onClick={() => toggleSort("label")}
                 >
                   {nameLabel}
@@ -135,12 +138,12 @@ export function DepartmentMetricTable({
                 <th
                   key={column.key}
                   scope="col"
-                  className="px-3 py-2 text-right font-medium"
+                  className="min-w-36 px-4 py-3 text-right font-medium whitespace-nowrap"
                   title={column.hint}
                 >
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1"
+                    className="inline-flex cursor-pointer items-center gap-1"
                     onClick={() => toggleSort(column.key)}
                   >
                     {column.label}

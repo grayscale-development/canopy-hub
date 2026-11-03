@@ -207,15 +207,14 @@ Underwriting:
   Initial Review Complete rows.
 - Final Underwriting Events: count of events named Final Underwrite. Final
   Underwriting is not counted.
-- Avg Workdays in Underwriting: average of Workdays in Underwriting on Final
-  Underwrite rows. This assigns the measure to Final Underwrite because the
-  event-level Qlik rows carrying it were not otherwise specified.
+- Avg Workdays in Underwriting on Funded Events: average of Workdays in
+  Underwriting on Funded rows. Historic or otherwise missing values remain
+  null and are excluded from the average.
 - Condition Events: count of events whose name contains "condition". The exact
   Qlik name was not provided.
-- Avg Workdays in Conditions: average of Workdays in Conditions on events whose
-  name contains "condition", using the same case-insensitive rule as Condition
-  Events. This assigns the measure to those rows because the event-level Qlik
-  rows carrying it were not otherwise specified.
+- Avg Workdays in Conditions on Funded Events: average of Workdays in
+  Conditions on Funded rows. Historic or otherwise missing values remain null
+  and are excluded from the average; this does not change Condition Events.
 - Bad Loan %: Funded events with IsBadLoan true, divided by Funded events. This
   is a guess. It is not distinct loans, and the stored Bad Loan % column is not
   used.

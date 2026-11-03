@@ -150,11 +150,21 @@ describe("department dashboard view", () => {
       />
     )
 
-    expect(screen.getAllByText("Avg Workdays in Underwriting")).toHaveLength(2)
-    expect(screen.getAllByText("Avg Workdays in Conditions")).toHaveLength(2)
+    expect(
+      screen.getAllByText("Avg Workdays in Underwriting on Funded Events")
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByText("Avg Workdays in Conditions on Funded Events")
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByTitle("Average Workdays in Underwriting on Funded events.")
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByTitle("Average Workdays in Conditions on Funded events.")
+    ).toHaveLength(2)
     expect(
       screen.queryByText(
-        /Avg Workdays in Underwriting and Avg Workdays in Conditions/
+        /Avg Workdays in Underwriting on Funded Events and Avg Workdays in Conditions on Funded Events/
       )
     ).not.toBeInTheDocument()
     expect(screen.getAllByText("—").length).toBeGreaterThan(0)
