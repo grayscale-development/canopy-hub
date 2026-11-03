@@ -16,6 +16,30 @@ export interface WikiExtractedDocx {
   text: string
 }
 
+export interface WikiPdfLinePart {
+  text: string
+  x: number
+  width: number
+}
+
+export interface WikiPdfLine {
+  text: string
+  parts: WikiPdfLinePart[]
+  fontSize: number
+}
+
+export interface WikiExtractedPdfImage {
+  contentType: string
+  data: Buffer
+  source: string
+}
+
+export interface WikiExtractedPdf {
+  images: WikiExtractedPdfImage[]
+  pages: WikiPdfLine[][]
+  text: string
+}
+
 export function isWikiDocxFile(file: Pick<File, "name" | "type">) {
   return (
     file.type ===
@@ -73,6 +97,135 @@ export function cleanWikiPdfPageText(pages: Array<{ text: string }>) {
     .join("\n\n")
 }
 
+function pdfLineText(parts: WikiPdfLinePart[]) {
+  return parts
+    .map((part) => part.text)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+/**
+ * Preserve the coordinates that PDF text extraction otherwise throws away.
+ * Those coordinates are enough to recognize real headings, bullets, and
+ * spreadsheet-style rows without asking a model to reconstruct the layout.
+ */
+export async function extractWikiPdfDocument(
+  file: File
+): Promise<WikiExtractedPdf> {
+  const { PDFParse } = await import("pdf-parse")
+  const parser = new PDFParse({ data: Buffer.from(await file.arrayBuffer()) })
+  const images: WikiExtractedPdfImage[] = []
+
+  try {
+    const textResult = await parser.getText()
+    const document = (
+      parser as unknown as {
+        doc?: {
+          numPages: number
+          getPage(pageNumber: number): Promise<{
+            getTextContent(): Promise<{
+              items: Array<{
+                str?: string
+                transform?: number[]
+                width?: number
+              }>
+            }>
+          }>
+        }
+      }
+    ).doc
+    const pages: WikiPdfLine[][] = []
+
+    for (
+      let pageNumber = 1;
+      pageNumber <= (document?.numPages ?? 0);
+      pageNumber += 1
+    ) {
+      const page = await document!.getPage(pageNumber)
+      const content = await page.getTextContent()
+      const rows: Array<{
+        y: number
+        parts: Array<WikiPdfLinePart & { fontSize: number }>
+      }> = []
+
+      for (const item of content.items) {
+        const text = item.str ?? ""
+        const transform = item.transform
+        if (!text || !transform) continue
+        const y = transform[5] ?? 0
+        const fontSize = Math.max(
+          Math.abs(transform[0] ?? 0),
+          Math.abs(transform[3] ?? 0)
+        )
+        const row = rows.find((candidate) => Math.abs(candidate.y - y) <= 3)
+        const part = {
+          text,
+          x: transform[4] ?? 0,
+          width: item.width ?? 0,
+          fontSize,
+        }
+        if (row) {
+          row.parts.push(part)
+        } else {
+          rows.push({ y, parts: [part] })
+        }
+      }
+
+      pages.push(
+        rows
+          .sort((left, right) => right.y - left.y)
+          .map((row) => {
+            const parts = row.parts.sort((left, right) => left.x - right.x)
+            return {
+              text: pdfLineText(parts),
+              parts: parts.map(({ text, x, width }) => ({ text, x, width })),
+              fontSize: Math.max(...parts.map((part) => part.fontSize)),
+            }
+          })
+          .filter((line) => line.text)
+      )
+    }
+
+    // Image extraction is opportunistic: some PDFs have no compatible image
+    // objects, which must never make an otherwise readable import fail.
+    try {
+      const result = await parser.getImage({
+        imageBuffer: true,
+        imageThreshold: 32,
+      })
+      for (const page of result.pages) {
+        for (const image of page.images) {
+          if (!image.data?.length) continue
+          const source = `wiki-import-pdf-image://${images.length + 1}`
+          images.push({
+            contentType: "image/png",
+            data: Buffer.from(image.data),
+            source,
+          })
+        }
+      }
+    } catch (error) {
+      // PDF image APIs vary by producer and runtime; text import remains safe.
+      console.warn(
+        "Wiki import PDF image extraction failed; continuing without images",
+        {
+          error,
+          fileName: file.name,
+        }
+      )
+    }
+
+    return {
+      images,
+      pages,
+      text: cleanWikiPdfPageText(textResult.pages).trim(),
+    }
+  } finally {
+    await parser.destroy()
+  }
+}
+
 export async function extractWikiDocumentText(file: File) {
   const lowerName = file.name.toLowerCase()
 
@@ -88,14 +241,7 @@ export async function extractWikiDocumentText(file: File) {
   const buffer = Buffer.from(await file.arrayBuffer())
 
   if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) {
-    const { PDFParse } = await import("pdf-parse")
-    const parser = new PDFParse({ data: buffer })
-    try {
-      const result = await parser.getText()
-      return cleanWikiPdfPageText(result.pages).trim()
-    } finally {
-      await parser.destroy()
-    }
+    return (await extractWikiPdfDocument(file)).text
   }
 
   if (isWikiDocxFile(file)) {

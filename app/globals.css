@@ -296,6 +296,12 @@
   width: 100%;
 }
 
+/* Keep wide imported spreadsheets complete and reachable on narrow screens. */
+.wiki-blocknote-surface [data-content-type="table"] .tableWrapper {
+  max-width: 100%;
+  overflow-x: auto !important;
+}
+
 .wiki-blocknote-surface
   .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
   max-width: none !important;

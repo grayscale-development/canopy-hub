@@ -5,7 +5,12 @@ import { describe, expect, it } from "vitest"
 import {
   cleanWikiPdfPageText,
   extractWikiDocumentText,
+  extractWikiPdfDocument,
 } from "@/lib/wiki-extract"
+import {
+  createWikiImportDraft,
+  structureWikiPdfImportFallback,
+} from "@/lib/wiki-import"
 
 function writeUint16(buffer: Uint8Array, offset: number, value: number) {
   new DataView(buffer.buffer).setUint16(offset, value, true)
@@ -110,16 +115,198 @@ describe("extractWikiDocumentText", () => {
     ).toBe("First page\n\nSecond page")
   })
 
-  it("extracts CID-encoded text from the real PDF fixture", async () => {
+  it("keeps the CID PDF structured when the AI response is unusable", async () => {
+    const fileName = "wiki-import-cid-text.pdf"
     const pdf = new File(
       [await readFile("tests/fixtures/wiki-import-cid-text.pdf")],
-      "wiki-import-cid-text.pdf",
+      fileName,
       { type: "application/pdf" }
     )
 
-    await expect(extractWikiDocumentText(pdf)).resolves.toContain(
-      "Training Wiki"
+    const extracted = await extractWikiPdfDocument(pdf)
+    expect(extracted.text).toContain("Training Wiki")
+    const draft = createWikiImportDraft({
+      text: extracted.text,
+      fileName,
+      pdfPages: extracted.pages,
+      aiOutput: {
+        title: "Canopy Hub Migration Counts",
+        tags: [],
+        markdown: "# Canopy Hub Migration Counts\n\nPlain text only.",
+      },
+    })
+
+    expect(draft.usedAi).toBe(false)
+    expect(draft.title).toBe("Training Wiki → Canopy Hub: what needs to move")
+    const h2Headings = draft.blocks.filter(
+      (block) =>
+        block.type === "heading" &&
+        (block.props as { level?: number } | undefined)?.level === 2
     )
+    expect(h2Headings.length).toBeGreaterThanOrEqual(3)
+    expect(draft.blocks.filter((block) => block.type === "table")).toHaveLength(2)
+    expect(JSON.stringify(draft.blocks)).toContain('"bold":true')
+    expect(draft.markdown).not.toContain("-- 1 of 2 --")
+  })
+
+  it("imports the password-reset PDF with its table and image", async () => {
+    const fileName = "it-password-reset-doc.pdf"
+    const extracted = await extractWikiPdfDocument(
+      new File(
+        [await readFile(`tests/fixtures/wiki-samples/${fileName}`)],
+        fileName,
+        { type: "application/pdf" }
+      )
+    )
+    const createDraft = () =>
+      createWikiImportDraft({
+        text: extracted.text,
+        fileName,
+        pdfPages: extracted.pages,
+        imageUrls: extracted.images.map(
+          (_, index) => `/api/wiki/assets/imported-image-${index + 1}`
+        ),
+      })
+
+    expect(createDraft).not.toThrow()
+    const draft = createDraft()
+    expect(draft.blocks).toContainEqual(
+      expect.objectContaining({
+        type: "heading",
+        props: { level: 2 },
+        content: "Steps",
+      })
+    )
+    expect(draft.blocks).toContainEqual(
+      expect.objectContaining({
+        type: "table",
+        content: expect.objectContaining({
+          rows: expect.arrayContaining([
+            expect.objectContaining({ cells: expect.any(Array) }),
+          ]),
+        }),
+      })
+    )
+    const table = draft.blocks.find((block) => block.type === "table")
+    expect(
+      (table?.content as { rows: Array<{ cells: unknown[] }> }).rows[0].cells
+    ).toHaveLength(3)
+    expect(draft.blocks).toContainEqual(
+      expect.objectContaining({ type: "image" })
+    )
+  })
+
+  it("keeps short PDF labels out of headings and bolds labels before lists", () => {
+    const fallback = structureWikiPdfImportFallback({
+      text: "Password reset\nSteps:\n• Reset your password\nQuestions?\nAsk IT.",
+      pages: [
+        [
+          {
+            text: "Password reset",
+            parts: [{ text: "Password reset", x: 0, width: 80 }],
+            fontSize: 18,
+          },
+          {
+            text: "Steps:",
+            parts: [{ text: "Steps:", x: 0, width: 30 }],
+            fontSize: 14,
+          },
+          {
+            text: "• Reset your password",
+            parts: [{ text: "• Reset your password", x: 0, width: 90 }],
+            fontSize: 10,
+          },
+          {
+            text: "Questions?",
+            parts: [{ text: "Questions?", x: 0, width: 50 }],
+            fontSize: 14,
+          },
+          {
+            text: "Ask IT.",
+            parts: [{ text: "Ask IT.", x: 0, width: 35 }],
+            fontSize: 10,
+          },
+        ],
+      ],
+    })
+
+    expect(fallback.markdown).toContain("**Steps:**")
+    expect(fallback.markdown).not.toContain("## Steps")
+    expect(fallback.markdown).not.toContain("## Questions?")
+  })
+
+  it.each([
+    ["chenoa-deck.pdf", "Chenoa Fund Overview", 2, 0],
+    ["rate-sheet.pdf", "Rate Sheet", 0, 6],
+    ["it-password-reset-doc.pdf", "IT Support: Password Reset Guide", 3, 3],
+  ])(
+    "uses PDF layout for %s",
+    async (fileName, expectedTitle, headingCount, tableColumns) => {
+      const extracted = await extractWikiPdfDocument(
+        new File(
+          [await readFile(`tests/fixtures/wiki-samples/${fileName}`)],
+          fileName,
+          { type: "application/pdf" }
+        )
+      )
+      const draft = createWikiImportDraft({
+        text: extracted.text,
+        fileName,
+        pdfPages: extracted.pages,
+      })
+      const tables = draft.blocks.filter((block) => block.type === "table")
+
+      expect(draft.title).toBe(expectedTitle)
+      expect(draft.title.length).toBeLessThanOrEqual(80)
+      expect(
+        draft.blocks.filter((block) => block.type === "heading")
+      ).toHaveLength(headingCount)
+      if (tableColumns) {
+        expect(tables).toHaveLength(1)
+        const rows = tables[0].content as { rows: Array<{ cells: unknown[] }> }
+        expect(rows.rows[0].cells).toHaveLength(tableColumns)
+      }
+      if (fileName === "it-password-reset-doc.pdf") {
+        expect(
+          draft.blocks.filter((block) => block.type === "bulletListItem")
+        ).toHaveLength(2)
+        expect(extracted.images).toHaveLength(1)
+      }
+      if (fileName === "rate-sheet.pdf") {
+        expect(tables[0]).toMatchObject({
+          content: {
+            rows: expect.arrayContaining([
+              {
+                cells: [
+                  "Product",
+                  "Rate",
+                  "Points",
+                  "Min FICO",
+                  "Max LTV",
+                  "Notes",
+                ],
+              },
+            ]),
+          },
+        })
+      }
+    }
+  )
+
+  it("keeps the title slide as a title and subtitle, then makes each content slide a section", async () => {
+    const file = new File(
+      [await readFile("tests/fixtures/wiki-samples/chenoa-deck.pdf")],
+      "chenoa-deck.pdf",
+      { type: "application/pdf" }
+    )
+    const extracted = await extractWikiPdfDocument(file)
+    const fallback = structureWikiPdfImportFallback({
+      text: extracted.text,
+      pages: extracted.pages,
+    })
+    expect(fallback.markdown).toContain("Processor Training")
+    expect(fallback.markdown).toContain("## Eligibility")
+    expect(fallback.markdown).toContain("## Down payment assistance")
   })
 
   it("extracts DOCX, plain text, and Markdown files", async () => {

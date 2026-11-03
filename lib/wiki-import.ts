@@ -5,6 +5,8 @@ import crypto from "node:crypto"
 // @ts-expect-error jsdom does not publish TypeScript declarations.
 import { JSDOM } from "jsdom"
 
+import type { WikiPdfLine } from "@/lib/wiki-extract"
+
 import {
   normalizeWikiTags,
   sanitizeWikiFileName,
@@ -168,11 +170,39 @@ export function normalizeWikiImportTitleCase(value: string) {
   })
 }
 
-function wikiImportInlineText(value: WikiImportInline): string {
+function wikiImportInlineText(
+  value: unknown,
+  seen = new Set<object>()
+): string {
   if (typeof value === "string") return value
-  return value
-    .map((item) => item.text ?? wikiImportInlineText(item.content ?? []))
-    .join("")
+  if (Array.isArray(value)) {
+    return value.map((item) => wikiImportInlineText(item, seen)).join("")
+  }
+  if (!value || typeof value !== "object" || seen.has(value)) return ""
+
+  seen.add(value)
+  try {
+    const content = value as {
+      cells?: unknown
+      content?: unknown
+      rows?: unknown
+      text?: unknown
+    }
+    if (typeof content.text === "string") return content.text
+    if (Array.isArray(content.rows)) {
+      return content.rows
+        .map((row) => wikiImportInlineText(row, seen))
+        .join("\n")
+    }
+    if (Array.isArray(content.cells)) {
+      return content.cells
+        .map((cell) => wikiImportInlineText(cell, seen))
+        .join("\t")
+    }
+    return wikiImportInlineText(content.content, seen)
+  } finally {
+    seen.delete(value)
+  }
 }
 
 function normalizeWikiImportHeadingContent(value: WikiImportInline) {
@@ -257,22 +287,26 @@ export function titleFromWikiImportFileName(fileName: string) {
     .replace(/\s+/g, " ")
     .trim()
 
-  return source || "Imported page"
+  return source
+    ? normalizeWikiImportTitleCase(source.toUpperCase())
+    : "Imported Page"
 }
 
 export function buildWikiImportPrompt({
   text,
   fileName,
+  structureHints = "",
 }: {
   text: string
   fileName: string
+  structureHints?: string
 }) {
   return `Prepare an imported document for Canopy Wiki. Return JSON only.
 
 The import must be faithful: preserve every fact, instruction, number, name, URL, warning, and list item from the source. Do not add facts, infer missing details, summarize, or omit content. You may only clean broken line wraps, repeated whitespace, PDF page markers/headers/footers, and obvious pasted-document artifacts.
 
 Return polished Markdown that a non-technical person could publish as-is:
-- Start markdown with exactly one # H1 document title. It will become the Wiki page title and will be removed from the editor body, so never repeat that title later in the Markdown.
+- Start markdown with exactly one # H1 document title. It will become the Wiki page title and will be removed from the editor body, so never repeat that title later in the Markdown. The title must be a concise, standalone document name (80 characters or fewer), never a run-on of body text.
 - Use ## major sections and ### only when useful.
 - Preserve source tables as pipe tables, including a header row and every row/cell. Tabs and aligned columns in the source are table signals, not spaces to flatten.
 - Use bullets for non-sequential collections and numbered lists only for actual steps.
@@ -295,6 +329,8 @@ figures (for example, **~918** items to move).
 Suggest a short, specific title and up to 5 existing-style tags. Tags are optional. If you are uncertain, return an empty tag list.
 
 Source filename: ${fileName}
+
+${structureHints ? `Detected PDF layout hints (follow these only to format the same source words; do not add or remove words):\n${structureHints}\n` : ""}
 
 Source text:
 ${text}`
@@ -603,9 +639,11 @@ function docxTableBlock(table: Element): WikiImportBlock {
 export function docxHtmlToWikiImportBlocks({
   html,
   imageUrls = new Map<string, string>(),
+  title = "",
 }: {
   html: string
   imageUrls?: Map<string, string>
+  title?: string
 }) {
   const document = new JSDOM(`<body>${html}</body>`).window.document
   const blocks: WikiImportBlock[] = []
@@ -617,8 +655,13 @@ export function docxHtmlToWikiImportBlocks({
     const heading = tag.match(/^h([1-6])$/)
     const inferredHeading = tag === "p" && isAllCapsTitleLike(text)
 
+    if (!sawTitle && title && normalizeImportLine(text) === title) {
+      sawTitle = true
+      continue
+    }
+
     if (heading || inferredHeading) {
-      const level = heading ? Math.min(Number(heading[1]), 3) : 2
+      const level = heading ? Math.min(Math.max(2, Number(heading[1])), 3) : 2
       if (!sawTitle && (level === 1 || inferredHeading)) {
         sawTitle = true
         continue
@@ -676,7 +719,19 @@ function wikiImportBlocksText(blocks: WikiImportBlock[]) {
       .join("")
   }
   const visit = (block: WikiImportBlock) => {
-    values.push(readInline(block.content))
+    if (
+      block.type === "table" &&
+      block.content &&
+      typeof block.content === "object"
+    ) {
+      const rows = (block.content as { rows?: Array<{ cells?: unknown[] }> })
+        .rows
+      for (const row of rows ?? []) {
+        values.push((row.cells ?? []).map(readInline).join("\n"))
+      }
+    } else {
+      values.push(readInline(block.content))
+    }
     if (Array.isArray(block.children)) {
       for (const child of block.children) {
         if (child && typeof child === "object") visit(child as WikiImportBlock)
@@ -698,25 +753,38 @@ export function createWikiDocxImportDraft({
   fileName: string
   imageUrls: Map<string, string>
 }): WikiImportDraft {
-  const blocks = docxHtmlToWikiImportBlocks({ html, imageUrls })
   const document = new JSDOM(`<body>${html}</body>`).window.document
-  const firstHeading = [...document.body.children].find((element) => {
+  const titleElement = [...document.body.children].find((element) => {
     const tag = element.tagName.toLowerCase()
-    return tag === "h1" || isAllCapsTitleLike(element.textContent ?? "")
+    const value = normalizeImportLine(element.textContent ?? "")
+    return (
+      Boolean(value) &&
+      (tag === "h1" || tag === "p" || isAllCapsTitleLike(value))
+    )
   })
   const title = normalizeWikiImportTitleCase(
-    firstHeading?.textContent?.replace(/\s+/g, " ").trim() ||
+    titleElement?.textContent?.replace(/\s+/g, " ").trim() ||
       titleFromWikiImportFileName(fileName)
   )
+  const blocks = docxHtmlToWikiImportBlocks({ html, imageUrls, title })
   const plainText = normalizeWikiImportText(text)
   const blockText = wikiImportBlocksText(blocks)
   const renderedText = `${title}\n${blockText}`
 
-  if (
-    !isFaithfulWikiImportOutput(plainText, renderedText) ||
-    !isFaithfulWikiImportOutput(renderedText, plainText)
-  ) {
-    throw new Error("DOCX conversion did not preserve all document text.")
+  // The source must be representable by the structured conversion. The
+  // reverse check used to reject valid documents whenever a title was removed
+  // from the body or table cells were not included in the comparison. If a
+  // future Mammoth quirk does drop something, retain the original text as a
+  // clean paragraph import instead of surfacing a user-visible failure.
+  if (!isFaithfulWikiImportOutput(plainText, renderedText)) {
+    return {
+      title,
+      tags: [],
+      markdown: plainText,
+      blocks: markdownToWikiImportBlocks(plainText),
+      plainText,
+      usedAi: false,
+    }
   }
 
   return {
@@ -814,30 +882,44 @@ function cleanMarkdownText(value: string) {
     .trim()
 }
 
+function isWikiImportTitleLike(value: string) {
+  const normalized = normalizeImportLine(value)
+  return (
+    normalized.length >= 3 &&
+    normalized.length <= 80 &&
+    normalized.split(/\s+/).length <= 12 &&
+    !/[.!?]$/.test(normalized) &&
+    !/^[-*+•◦▪]|^\d+[.)]\s/.test(normalized) &&
+    !normalized.includes("\t") &&
+    !/\b(?:rate|points|min fico|max ltv|notes)\b.*\b(?:rate|points|min fico|max ltv|notes)\b/i.test(
+      normalized
+    )
+  )
+}
+
+function capWikiImportTitle(value: string, fileName: string) {
+  const normalized = normalizeImportLine(value)
+  if (normalized && normalized.length <= 80) return normalized
+  return titleFromWikiImportFileName(fileName).slice(0, 80)
+}
+
 function inferWikiImportTitle(text: string) {
   const lines = text.split("\n").filter((line) => line.trim())
-  if (lines.length < 3) return ""
-
-  const titleLines: string[] = []
-  for (const line of lines.slice(0, 3)) {
-    if (line.includes("\t")) break
-    const normalized = normalizeImportLine(line)
-    if (!normalized || /[.!?]$/.test(normalized)) break
+  let title = normalizeImportLine(lines[0] ?? "")
+  // A lower-case continuation is usually a wrapped title, unlike the next
+  // capitalized line in a slide deck or ordinary document body.
+  for (const line of lines.slice(1, 3)) {
+    const continuation = normalizeImportLine(line)
     if (
-      titleLines.length &&
-      /[·|]\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(
-        normalized
-      )
+      !continuation ||
+      !/^[a-z]/.test(continuation) ||
+      title.length + continuation.length + 1 > 80
     ) {
       break
     }
-    titleLines.push(normalized)
-    if (/[.!?]$/.test(normalized)) break
+    title += ` ${continuation}`
   }
-  const title = titleLines.join(" ")
-  return titleLines.length >= 1 && title.length >= 8 && title.length <= 180
-    ? title
-    : ""
+  return isWikiImportTitleLike(title) ? title : ""
 }
 
 function removeLeadingTitle(text: string, title: string) {
@@ -927,15 +1009,15 @@ export function structureWikiImportFallback(text: string) {
   }
   const isSectionHeading = (line: string, next: string) => {
     const normalized = normalizeImportLine(line)
+    const isKnownSection =
+      /^(also in the mix|biggest chunks|what was left out|notes)/i.test(
+        normalized
+      )
     return (
       normalized.length > 0 &&
       normalized.length <= 90 &&
       !normalized.includes("\t") &&
-      (/[:?]$/.test(normalized) ||
-        next.includes("\t") ||
-        /^(also in the mix|biggest chunks|what was left out|notes)/i.test(
-          normalized
-        ))
+      (isKnownSection || next.includes("\t"))
     )
   }
 
@@ -1009,6 +1091,17 @@ export function structureWikiImportFallback(text: string) {
       const content = wrapped.text.replace(/^(links, not items|notes):\s*/i, "")
       output.push(`- **${note[1]}:** ${content}`)
       index = wrapped.nextIndex
+      continue
+    }
+    if (
+      line.length <= 60 &&
+      /[:?]$/.test(line) &&
+      /^(?:[-*+•◦▪]|\d+[.)])\s*/u.test(next)
+    ) {
+      pushBlank()
+      output.push(`**${line}**`)
+      output.push("")
+      index += 1
       continue
     }
     if (isSectionHeading(line, next)) {
@@ -1121,14 +1214,208 @@ function hasRequiredImportStructure(source: string, markdown: string) {
   return true
 }
 
+function pdfTableCells(line: WikiPdfLine) {
+  const cells: string[] = []
+  let cell = ""
+  let previous: WikiPdfLine["parts"][number] | null = null
+  for (const part of line.parts) {
+    if (!part.text.trim()) {
+      if (cell.trim()) {
+        cells.push(normalizeImportLine(cell))
+        cell = ""
+      } else {
+        cell += part.text
+      }
+      previous = part
+      continue
+    }
+    const hasColumnGap =
+      previous && previous.text.trim() && part.x - previous.x >= 35
+    if (hasColumnGap && cell.trim()) {
+      cells.push(normalizeImportLine(cell))
+      cell = ""
+    }
+    cell += part.text
+    previous = part
+  }
+  if (cell.trim()) cells.push(normalizeImportLine(cell))
+  return cells
+}
+
+function pdfLineToMarkdown(line: WikiPdfLine) {
+  return line.text
+    .replace(/^(?:[•◦▪]|,)[\s\u00a0]*/u, "- ")
+    .replace(/^-[\s\u00a0]+/, "- ")
+}
+
+function pdfTableMarkdown(lines: WikiPdfLine[]) {
+  const rows = lines.map((line) =>
+    pdfTableCells(line).map((cell) => cell.replace(/\|/g, "\\|"))
+  )
+  const width = rows[0]?.length ?? 0
+  if (width < 2 || rows.some((row) => row.length !== width)) return ""
+  return [
+    `| ${rows[0].join(" | ")} |`,
+    `| ${rows[0].map(() => "---").join(" | ")} |`,
+    ...rows.slice(1).map((row) => `| ${row.join(" | ")} |`),
+  ].join("\n")
+}
+
+function pdfTitleLineCount(page: WikiPdfLine[], title: string) {
+  const titleTokens = comparableTokens(title)
+  const seen: string[] = []
+  for (const [index, line] of page.entries()) {
+    seen.push(...comparableTokens(line.text))
+    if (seen.join(" ") === titleTokens.join(" ")) return index + 1
+    if (seen.length >= titleTokens.length) break
+  }
+  return 0
+}
+
+/** Create a lossless Markdown fallback from PDF text coordinates. */
+export function structureWikiPdfImportFallback({
+  text,
+  pages,
+}: {
+  text: string
+  pages: WikiPdfLine[][]
+}) {
+  const firstLine = pages[0]?.[0]?.text ?? ""
+  const title =
+    inferWikiImportTitle(text) ||
+    (isWikiImportTitleLike(firstLine) ? firstLine : "")
+  const titleLineCount = pdfTitleLineCount(pages[0] ?? [], title)
+  const output: string[] = []
+
+  for (const [pageIndex, page] of pages.entries()) {
+    const bodyFontSize = Math.min(
+      ...page.map((line) => line.fontSize).filter((size) => size > 0)
+    )
+    let index = pageIndex === 0 ? titleLineCount : 0
+    while (index < page.length) {
+      const line = page[index]
+      const cells = pdfTableCells(line)
+      if (cells.length >= 3) {
+        const tableLines: WikiPdfLine[] = [line]
+        let next = index + 1
+        while (
+          next < page.length &&
+          pdfTableCells(page[next]).length === cells.length
+        ) {
+          tableLines.push(page[next])
+          next += 1
+        }
+        const table = tableLines.length >= 2 ? pdfTableMarkdown(tableLines) : ""
+        if (table) {
+          output.push(table, "")
+          index = next
+          continue
+        }
+      }
+
+      const normalized = pdfLineToMarkdown(line)
+      const isShortLabel = normalized.length <= 60 && /[:?]$/.test(normalized)
+      const nextLine = page[index + 1]
+      const nextHasTable = Boolean(
+        nextLine && pdfTableCells(nextLine).length >= 3
+      )
+      const nextIsList = Boolean(
+        nextLine && /^(?:[-*+•◦▪]|\d+[.)])\s*/u.test(nextLine.text)
+      )
+      const isHeading =
+        line.fontSize >= bodyFontSize + 1.5 &&
+        !/^(?:[•◦▪]|,|\d+[.)])\s*/u.test(line.text) &&
+        normalized.length <= 100 &&
+        (!isShortLabel || nextHasTable)
+      output.push(
+        isHeading
+          ? `## ${normalized}`
+          : nextIsList && isShortLabel
+            ? `**${normalized}**`
+            : normalized,
+        ""
+      )
+      index += 1
+    }
+  }
+
+  const markdown = output
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+  const source = normalizeWikiImportText(text)
+  if (isFaithfulWikiImportOutput(source, markdown, title)) {
+    return { title, markdown }
+  }
+
+  // Coordinates are useful when they unambiguously describe the layout. Some
+  // producers split an otherwise ordinary row into separate positioned runs;
+  // in that case the text-only formatter is the more faithful deterministic
+  // representation and preserves tabs, wrapped headings, and emphasis.
+  const textFallback = structureWikiImportFallback(source)
+  if (
+    isFaithfulWikiImportOutput(
+      source,
+      textFallback.markdown,
+      textFallback.title
+    )
+  ) {
+    return textFallback
+  }
+
+  return { title: "", markdown: source }
+}
+
+export function buildWikiPdfStructureHints(pages: WikiPdfLine[][]) {
+  const hints: string[] = []
+  for (const [pageIndex, page] of pages.entries()) {
+    const bodyFontSize = Math.min(
+      ...page.map((line) => line.fontSize).filter((size) => size > 0)
+    )
+    const headings = page
+      .filter((line) => line.fontSize >= bodyFontSize + 1.5)
+      .map((line) => line.text)
+    const hasTable = page.some((line) => pdfTableCells(line).length >= 3)
+    if (headings.length || hasTable) {
+      hints.push(
+        `Page ${pageIndex + 1}: ${headings.length ? `headings: ${headings.join("; ")}` : ""}${headings.length && hasTable ? "; " : ""}${hasTable ? "aligned table rows" : ""}`
+      )
+    }
+  }
+  return hints.join("\n")
+}
+
+function addPdfImageBlocks(
+  blocks: Array<Record<string, unknown>>,
+  imageUrls: string[]
+) {
+  if (!imageUrls.length) return blocks
+  const images = imageUrls.map((url, index) => ({
+    type: "image",
+    props: { url, name: `Imported image ${index + 1}`, caption: "" },
+    children: [],
+  }))
+  const captionIndex = blocks.findIndex((block) =>
+    /^(?:screenshot|figure|image):/i.test(
+      wikiImportInlineText(block.content as WikiImportInline)
+    )
+  )
+  const index = captionIndex < 0 ? blocks.length : captionIndex
+  return [...blocks.slice(0, index), ...images, ...blocks.slice(index)]
+}
+
 export function createWikiImportDraft({
   text,
   fileName,
   aiOutput,
+  pdfPages,
+  imageUrls = [],
 }: {
   text: string
   fileName: string
   aiOutput?: WikiImportAiOutput | null
+  pdfPages?: WikiPdfLine[][]
+  imageUrls?: string[]
 }): WikiImportDraft {
   const plainText = normalizeWikiImportText(text)
   const suggested =
@@ -1137,7 +1424,12 @@ export function createWikiImportDraft({
       : ""
   const { title: markdownTitle, markdown: suggestedMarkdown } =
     splitMarkdownTitle(suggested)
-  const structuredFallback = structureWikiImportFallback(plainText)
+  const structuredFallback = pdfPages?.length
+    ? structureWikiPdfImportFallback({
+        text: plainText,
+        pages: pdfPages,
+      })
+    : structureWikiImportFallback(plainText)
   // The deterministic formatter should be lossless too. Keep cleaned source
   // text rather than risk publishing a partial document if a new PDF layout
   // defeats one of its structural heuristics.
@@ -1158,9 +1450,15 @@ export function createWikiImportDraft({
     isFaithfulWikiImportOutput(plainText, suggestedMarkdown, suggestedTitle) &&
     hasRequiredImportStructure(plainText, suggestedMarkdown)
   )
-  const markdown = usedAi ? suggestedMarkdown : fallback.markdown
+  // Positioned PDF extraction is already a faithful structural conversion;
+  // retain it rather than letting a model flatten known headings or columns.
+  const markdown =
+    usedAi && !pdfPages?.length ? suggestedMarkdown : fallback.markdown
   const title = normalizeWikiImportTitleCase(
-    fallback.title || suggestedTitle || titleFromWikiImportFileName(fileName)
+    capWikiImportTitle(
+      fallback.title || suggestedTitle || titleFromWikiImportFileName(fileName),
+      fileName
+    )
   )
   const tags = normalizeWikiTags(
     Array.isArray(aiOutput?.tags)
@@ -1168,13 +1466,32 @@ export function createWikiImportDraft({
       : []
   ).slice(0, 5)
 
-  return {
-    title,
-    tags,
-    markdown,
-    blocks: markdownToWikiImportBlocks(markdown),
-    plainText,
-    usedAi,
+  const blocks = markdownToWikiImportBlocks(markdown)
+  try {
+    return {
+      title,
+      tags,
+      markdown,
+      blocks: addPdfImageBlocks(blocks, imageUrls),
+      plainText,
+      usedAi: usedAi && !pdfPages?.length,
+    }
+  } catch (error) {
+    console.warn(
+      "Wiki import PDF image placement failed; continuing without images",
+      {
+        error,
+        fileName,
+      }
+    )
+    return {
+      title,
+      tags,
+      markdown,
+      blocks,
+      plainText,
+      usedAi: usedAi && !pdfPages?.length,
+    }
   }
 }
 

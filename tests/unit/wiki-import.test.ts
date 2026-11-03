@@ -72,6 +72,60 @@ describe("Wiki import core", () => {
     )
   })
 
+  it.each([
+    ["it-password-reset.docx", "IT Support: Password Reset Guide", 3, 3],
+    ["lender-resources.docx", "Wholesale Lender Resources", 0, 0],
+    ["post-closing-checklist.docx", "Post Closing Checklist", 2, 0],
+  ])(
+    "imports %s without a DOCX fidelity failure",
+    async (fileName, expectedTitle, headingCount, tableColumns) => {
+      const file = new File(
+        [await readFile(`tests/fixtures/wiki-samples/${fileName}`)],
+        fileName,
+        {
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
+      )
+      const extracted = await extractWikiDocxDocument(file)
+      const draft = createWikiDocxImportDraft({
+        html: extracted.html,
+        text: extracted.text,
+        fileName,
+        imageUrls: new Map(),
+      })
+
+      expect(draft.title).toBe(expectedTitle)
+      expect(
+        draft.blocks.filter((block) => block.type === "heading")
+      ).toHaveLength(headingCount)
+      if (tableColumns) {
+        expect(draft.blocks).toContainEqual(
+          expect.objectContaining({
+            type: "table",
+            content: expect.objectContaining({
+              rows: expect.arrayContaining([
+                expect.objectContaining({
+                  cells: expect.arrayContaining(["Team", "Email", "Hours"]),
+                }),
+              ]),
+            }),
+          })
+        )
+      }
+    }
+  )
+
+  it("keeps all DOCX table cells in the structural fidelity comparison", () => {
+    expect(
+      createWikiDocxImportDraft({
+        html: "<p>Resources</p><table><tr><td>Team</td><td>Email</td></tr><tr><td>Help Desk</td><td>help@example.com</td></tr></table>",
+        text: "Resources\n\nTeam\n\nEmail\n\nHelp Desk\n\nhelp@example.com",
+        fileName: "resources.docx",
+        imageUrls: new Map(),
+      }).blocks
+    ).toContainEqual(expect.objectContaining({ type: "table" }))
+  })
+
   it("title-cases only all-caps import titles and headings", () => {
     expect(
       normalizeWikiImportTitleCase(
@@ -113,6 +167,19 @@ describe("Wiki import core", () => {
         })
       )
     }
+  })
+
+  it("uses a single short first line as the text-file title", async () => {
+    const source = await readFile(
+      "tests/fixtures/wiki-samples/quick-tips.txt",
+      "utf8"
+    )
+    const draft = createWikiImportDraft({
+      text: source,
+      fileName: "quick-tips.txt",
+    })
+    expect(draft.title).toBe("Escrow Holdback Quick Tips")
+    expect(draft.title.length).toBeLessThanOrEqual(80)
   })
 
   it("maps DOCX HTML inline formatting, links, and tables without AI", () => {

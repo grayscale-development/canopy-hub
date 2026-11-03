@@ -26,11 +26,14 @@ import {
 import {
   extractWikiDocumentText,
   extractWikiDocxDocument,
+  extractWikiPdfDocument,
   isWikiDocxFile,
   type WikiExtractedDocx,
+  type WikiExtractedPdf,
 } from "@/lib/wiki-extract"
 import {
   buildWikiImportPrompt,
+  buildWikiPdfStructureHints,
   createUniqueWikiImportSlug,
   createWikiImportContentHash,
   createWikiDocxImportDraft,
@@ -78,7 +81,7 @@ function importSchema() {
       additionalProperties: false,
       required: ["title", "tags", "markdown"],
       properties: {
-        title: { type: "string" },
+        title: { type: "string", maxLength: 80 },
         tags: { type: "array", items: { type: "string" }, maxItems: 5 },
         markdown: { type: "string" },
       },
@@ -86,14 +89,18 @@ function importSchema() {
   }
 }
 
-async function getImportAiOutput(text: string, fileName: string) {
+async function getImportAiOutput(
+  text: string,
+  fileName: string,
+  structureHints = ""
+) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
   try {
     const response = await createAgentResponseWithOpenAI(
       {
         model: getWikiImportModel(),
-        input: buildWikiImportPrompt({ text, fileName }),
+        input: buildWikiImportPrompt({ text, fileName, structureHints }),
         max_output_tokens: 6_000,
         reasoning: { effort: "low" },
         store: false,
@@ -211,12 +218,19 @@ export async function POST(request: Request) {
 
   let extractedText = pastedText
   let docxDocument: WikiExtractedDocx | null = null
+  let pdfDocument: WikiExtractedPdf | null = null
   const fileName = file?.name || "Pasted text"
   if (file) {
     try {
       if (isWikiDocxFile(file)) {
         docxDocument = await extractWikiDocxDocument(file)
         extractedText = docxDocument.text
+      } else if (
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf")
+      ) {
+        pdfDocument = await extractWikiPdfDocument(file)
+        extractedText = pdfDocument.text
       } else {
         extractedText = await extractWikiDocumentText(file)
       }
@@ -302,7 +316,11 @@ export async function POST(request: Request) {
   let aiOutput: WikiImportAiOutput | null = null
   if (!docxDocument) {
     try {
-      aiOutput = await getImportAiOutput(normalizedText, fileName)
+      aiOutput = await getImportAiOutput(
+        normalizedText,
+        fileName,
+        pdfDocument ? buildWikiPdfStructureHints(pdfDocument.pages) : ""
+      )
     } catch (error) {
       console.debug(
         "Wiki import AI formatting failed; using extracted text",
@@ -317,20 +335,19 @@ export async function POST(request: Request) {
     file && assetId
       ? `${nodeId}/${assetId}/${sanitizeWikiFileName(fileName)}`
       : null
-  const importedImageAssets = (docxDocument?.images ?? []).map(
-    (image, index) => {
-      const id = crypto.randomUUID()
-      const fileName = `imported-image-${index + 1}.${wikiImportImageExtension(
-        image.contentType
-      )}`
-      return {
-        ...image,
-        id,
-        fileName,
-        storagePath: `${nodeId}/${id}/${fileName}`,
-      }
+  const importedSourceImages = docxDocument?.images ?? pdfDocument?.images ?? []
+  const importedImageAssets = importedSourceImages.map((image, index) => {
+    const id = crypto.randomUUID()
+    const fileName = `imported-image-${index + 1}.${wikiImportImageExtension(
+      image.contentType
+    )}`
+    return {
+      ...image,
+      id,
+      fileName,
+      storagePath: `${nodeId}/${id}/${fileName}`,
     }
-  )
+  })
   const draft = docxDocument
     ? createWikiDocxImportDraft({
         html: docxDocument.html,
@@ -347,6 +364,10 @@ export async function POST(request: Request) {
         text: normalizedText,
         fileName,
         aiOutput,
+        pdfPages: pdfDocument?.pages,
+        imageUrls: importedImageAssets.map(
+          (image) => `/api/wiki/assets/${image.id}`
+        ),
       })
   if (fileName === "wiki-import-cid-text.pdf" && aiOutput && !draft.usedAi) {
     console.warn(

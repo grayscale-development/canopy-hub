@@ -17,13 +17,16 @@ test("Wiki managers can import a text PDF into a draft @wiki", async ({
       path.join(process.cwd(), "tests/fixtures/wiki-import-cid-text.pdf")
     )
   await page.getByRole("button", { name: "Create draft" }).click()
+  const copyButton = page.getByRole("button", { name: "Create a copy" })
+  const duplicateShown = await copyButton
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (duplicateShown) await copyButton.click()
   await expect(page.getByText(/could not find readable text/i)).toHaveCount(0)
   await expect(page).toHaveURL(/\/wiki\/.+/, { timeout: 60_000 })
-  await expect(
-    page.getByRole("heading", { name: /Training Wiki/i })
-  ).toBeVisible({
-    timeout: 30_000,
-  })
+  await expect(page.locator("h1").first()).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator("h1").first()).toContainText("Training Wiki")
   await expect(page.getByRole("table")).toHaveCount(2)
   await expect(page.getByText("-- 1 of 2 --")).toHaveCount(0)
 })
