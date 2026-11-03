@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { FileUpIcon, UploadIcon } from "lucide-react"
+import { FileUpIcon, Loader2Icon, UploadIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -14,11 +14,27 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import type { WikiNodeRow } from "@/lib/wiki"
+import { getWikiAssetKind, type WikiNodeRow } from "@/lib/wiki"
+import {
+  archiveWikiAsset,
+  postWikiAssetAction,
+  prepareDirectWikiUpload,
+  uploadWikiFileToStorage,
+} from "@/lib/wiki-upload-client"
 
 interface DuplicateImport {
   title: string
   path: string
+}
+
+type VideoImportProgress = "uploading" | "transcribing" | null
+
+interface ImportResponse {
+  error?: string
+  duplicate?: boolean
+  existing?: DuplicateImport
+  nodeId?: string
+  path?: string
 }
 
 export function WikiImportWizardDialog({
@@ -35,6 +51,8 @@ export function WikiImportWizardDialog({
   const [selectedParentId, setSelectedParentId] = React.useState(parentId ?? "")
   const [isDragging, setIsDragging] = React.useState(false)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [videoImportProgress, setVideoImportProgress] =
+    React.useState<VideoImportProgress>(null)
   const [error, setError] = React.useState("")
   const [duplicate, setDuplicate] = React.useState<DuplicateImport | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -54,6 +72,7 @@ export function WikiImportWizardDialog({
     setError("")
     setDuplicate(null)
     setIsSubmitting(false)
+    setVideoImportProgress(null)
   }
 
   function chooseFile(nextFile: File | null) {
@@ -68,38 +87,100 @@ export function WikiImportWizardDialog({
   async function submit(allowDuplicate = false) {
     setError("")
     setDuplicate(null)
-    const formData = new FormData()
-    if (file) {
-      formData.set("file", file)
-    } else {
-      formData.set("text", text)
-    }
-    formData.set("parent_id", selectedParentId)
-    if (allowDuplicate) {
-      formData.set("allow_duplicate", "1")
-    }
-
     setIsSubmitting(true)
     try {
+      const isVideo = file && getWikiAssetKind(file) === "video"
+      const formData = new FormData()
+      if (isVideo && file) {
+        formData.set("video_import", "start")
+        formData.set("video_file_name", file.name)
+        formData.set("video_file_size", String(file.size))
+        formData.set("video_file_type", file.type)
+      } else if (file) {
+        formData.set("file", file)
+      } else {
+        formData.set("text", text)
+      }
+      formData.set("parent_id", selectedParentId)
+      if (allowDuplicate) {
+        formData.set("allow_duplicate", "1")
+      }
+
       const response = await fetch("/api/wiki/import", {
         method: "POST",
         body: formData,
       })
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string
-        duplicate?: boolean
-        existing?: DuplicateImport
-        path?: string
-      } | null
+      const payload = (await response
+        .json()
+        .catch(() => null)) as ImportResponse | null
       if (response.status === 409 && payload?.duplicate && payload.existing) {
         setDuplicate(payload.existing)
         return
       }
-      if (!response.ok || !payload?.path) {
+      if (!response.ok) {
         setError(
           payload?.error ??
             "We could not import that content. Please try again."
         )
+        return
+      }
+      if (isVideo && file) {
+        if (!payload?.nodeId) {
+          setError(
+            "We could not prepare that video for import. Please try again."
+          )
+          return
+        }
+
+        let assetId: string | null = null
+        try {
+          setVideoImportProgress("uploading")
+          const upload = await prepareDirectWikiUpload({
+            file,
+            nodeId: payload.nodeId,
+          })
+          assetId = upload.asset.id
+          await uploadWikiFileToStorage({ file, upload })
+          setVideoImportProgress("transcribing")
+          await postWikiAssetAction(assetId, "transcribe")
+          await postWikiAssetAction(assetId, "index")
+
+          const completeFormData = new FormData()
+          completeFormData.set("video_import", "complete")
+          completeFormData.set("node_id", payload.nodeId)
+          completeFormData.set("asset_id", assetId)
+          const completeResponse = await fetch("/api/wiki/import", {
+            method: "POST",
+            body: completeFormData,
+          })
+          const completePayload = (await completeResponse
+            .json()
+            .catch(() => null)) as ImportResponse | null
+          if (!completeResponse.ok || !completePayload?.path) {
+            throw new Error(
+              completePayload?.error ??
+                "We could not create the video draft. Please try again."
+            )
+          }
+          setOpen(false)
+          reset()
+          router.push(completePayload.path)
+          router.refresh()
+          return
+        } catch (error) {
+          if (assetId) {
+            await archiveWikiAsset(assetId)
+          }
+          setError(
+            error instanceof Error
+              ? error.message
+              : "We could not import that video. Please try again."
+          )
+          return
+        }
+      }
+      if (!payload?.path) {
+        setError("We could not create the draft. Please try again.")
         return
       }
       setOpen(false)
@@ -112,6 +193,7 @@ export function WikiImportWizardDialog({
       )
     } finally {
       setIsSubmitting(false)
+      setVideoImportProgress(null)
     }
   }
 
@@ -134,9 +216,9 @@ export function WikiImportWizardDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Import into Wiki</DialogTitle>
-          <DialogDescription>
-            Drop in a PDF, DOCX, TXT, or Markdown file, or paste text. We’ll
-            create a draft for you to review before publishing.
+          <DialogDescription className="sr-only">
+            Drop in a PDF, DOCX, TXT, Markdown, or video file, or paste text.
+            We’ll create a draft for you to review before publishing.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
@@ -163,13 +245,13 @@ export function WikiImportWizardDialog({
               {file ? file.name : "Drop a file here or choose a file"}
             </span>
             <span className="text-xs text-muted-foreground">
-              PDF, DOCX, TXT, or Markdown
+              PDF, DOCX, TXT, Markdown, MP4, MOV, or WebM
             </span>
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+            accept=".pdf,.docx,.txt,.md,.mp4,.mov,.webm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,video/mp4,video/quicktime,video/webm"
             className="sr-only"
             onChange={(event) =>
               chooseFile(event.target.files?.item(0) ?? null)
@@ -246,7 +328,16 @@ export function WikiImportWizardDialog({
             disabled={isSubmitting || (!file && !text.trim())}
             onClick={() => void submit()}
           >
-            {isSubmitting ? "Creating your draft…" : "Create draft"}
+            {videoImportProgress ? (
+              <Loader2Icon className="animate-spin" aria-hidden="true" />
+            ) : null}
+            {videoImportProgress === "uploading"
+              ? "Uploading video…"
+              : videoImportProgress === "transcribing"
+                ? "Transcribing video…"
+                : isSubmitting
+                  ? "Creating your draft…"
+                  : "Create draft"}
           </Button>
         </DialogFooter>
       </DialogContent>

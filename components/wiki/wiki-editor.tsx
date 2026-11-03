@@ -1,5 +1,6 @@
 "use client"
 
+import { WikiEditableTitle } from "@/components/wiki/wiki-management-controls"
 import * as React from "react"
 import type { Block } from "@blocknote/core"
 import { filterSuggestionItems } from "@blocknote/core/extensions"
@@ -9,18 +10,7 @@ import {
   useCreateBlockNote,
 } from "@blocknote/react"
 import { BlockNoteView } from "@blocknote/shadcn"
-import {
-  ChevronDownIcon,
-  Columns2Icon,
-  FileTextIcon,
-  FileVideoIcon,
-  TriangleAlertIcon,
-  Loader2Icon,
-  SaveIcon,
-  SparklesIcon,
-  TagsIcon,
-  WandSparklesIcon,
-} from "lucide-react"
+import { SaveIcon, TagsIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useTheme } from "next-themes"
@@ -32,7 +22,6 @@ import {
   type WikiActionResult,
 } from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -42,34 +31,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   useWikiEditMode,
   WikiViewModeTitleSpacing,
 } from "@/components/wiki/wiki-edit-mode"
-import { useWikiChatDock } from "@/components/wiki/wiki-chat-dock"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
-import { createSupabaseBrowserClient } from "@/lib/supabase/client"
+import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
+import { type WikiNodeRow, type WikiRevisionRow } from "@/lib/wiki"
 import {
-  getWikiAssetKind,
-  WIKI_BUCKET,
-  WIKI_MAX_UPLOAD_SIZE_BYTES,
-  WIKI_MAX_UPLOAD_SIZE_LABEL,
-  type WikiNodeRow,
-  type WikiRevisionRow,
-} from "@/lib/wiki"
-import {
-  type WikiFormatCalloutTone,
-  type WikiFormatItem,
-  type WikiFormatMediaPatch,
-  type WikiFormatOutputItem,
-  WIKI_FORMAT_VERSION,
-} from "@/lib/wiki-format"
-import { cn } from "@/lib/utils"
+  postWikiAssetAction,
+  prepareDirectWikiUpload,
+  uploadWikiFileToStorage,
+} from "@/lib/wiki-upload-client"
 
 const EMPTY_CONTENT = [
   {
@@ -77,166 +49,10 @@ const EMPTY_CONTENT = [
     content: "",
   },
 ]
-const FORMAT_TIMEOUT_MS = 30_000
-const FORMAT_TEXT_CHUNK_TARGET = 2_400
-const SPACER_CONTENT = [{ type: "text", text: " ", styles: {} }]
-const CALLOUT_BACKGROUND_BY_TONE: Record<WikiFormatCalloutTone, string> = {
-  red: "red",
-  yellow: "yellow",
-  gray: "gray",
-  blue: "blue",
-  green: "green",
-}
-const RICH_BLOCK_TYPES = new Set([
-  "audio",
-  "divider",
-  "file",
-  "image",
-  "table",
-  "video",
-])
-
-type RewriteReviewMode = "page" | "diff"
-
-type DiffRow = {
-  oldLine: string | null
-  newLine: string | null
-  kind: "same" | "removed" | "added" | "changed"
-}
-
-type WikiUploadPayload = {
-  ok?: boolean
-  url?: string
-  path?: string
-  token?: string
-  extractedText?: string
-  asset?: {
-    id?: string
-    kind?: string
-  }
-  error?: string
-}
-
-type SuccessfulWikiUploadPayload = WikiUploadPayload & {
-  url: string
-}
-
-type DirectWikiUploadPayload = SuccessfulWikiUploadPayload & {
-  path: string
-  token: string
-  asset: {
-    id: string
-    kind?: string
-  }
-}
-
-type VideoInstructionChoiceRequest = {
-  fileName: string
-  resolve: (shouldRewrite: boolean) => void
-}
-
-type FormatDocumentOptions = {
-  videoTranscript?: string
-  useExistingProgress?: boolean
-}
-
 function normalizeInitialBlocks(value: unknown) {
   return Array.isArray(value) && value.length
     ? (value as Block[])
     : EMPTY_CONTENT
-}
-
-function isVideoFile(file: File) {
-  return getWikiAssetKind(file) === "video"
-}
-
-function isRichBlock(block: Block) {
-  return RICH_BLOCK_TYPES.has(String(block.type))
-}
-
-function getBlockProps(block: Block) {
-  return block && typeof block === "object" && "props" in block
-    ? ((block as { props?: Record<string, unknown> }).props ?? {})
-    : {}
-}
-
-function getPropString(block: Block, key: string) {
-  const value = getBlockProps(block)[key]
-  return typeof value === "string" ? value.trim() : ""
-}
-
-function getFormatItemType(block: Block): WikiFormatItem["type"] {
-  const blockType = String(block.type)
-  if (blockType === "table") {
-    return "table"
-  }
-  if (blockType === "divider") {
-    return "divider"
-  }
-  return "media"
-}
-
-function splitMarkdownForFormatting(markdown: string) {
-  if (markdown.length <= FORMAT_TEXT_CHUNK_TARGET) {
-    return [markdown]
-  }
-
-  const chunks: string[] = []
-  let current = ""
-  for (const paragraph of markdown.split(/\n{2,}/)) {
-    const next = current ? `${current}\n\n${paragraph}` : paragraph
-    if (next.length > FORMAT_TEXT_CHUNK_TARGET && current) {
-      chunks.push(current)
-      current = paragraph
-    } else {
-      current = next
-    }
-  }
-
-  if (current) {
-    chunks.push(current)
-  }
-
-  return chunks.length ? chunks : [markdown]
-}
-
-function cloneBlockWithMediaPatch(block: Block, patch?: WikiFormatMediaPatch) {
-  if (!patch) {
-    return block
-  }
-
-  const blockType = String(block.type)
-  if (!["audio", "file", "image", "video"].includes(blockType)) {
-    return block
-  }
-
-  const props = { ...getBlockProps(block) }
-  if (patch.caption !== undefined) {
-    props.caption = patch.caption
-  }
-  if (patch.showPreview !== undefined) {
-    props.showPreview = patch.showPreview
-  }
-
-  return {
-    ...(block as Record<string, unknown>),
-    props,
-  } as Block
-}
-
-function cloneBlockWithCalloutTone(block: Block, tone: WikiFormatCalloutTone) {
-  return {
-    ...(block as Record<string, unknown>),
-    props: {
-      ...getBlockProps(block),
-      backgroundColor: CALLOUT_BACKGROUND_BY_TONE[tone],
-    },
-  } as Block
-}
-
-function splitDiffLines(value: string) {
-  const normalized = value.replace(/\r\n?/g, "\n").trim()
-  return normalized ? normalized.split("\n") : []
 }
 
 function getTagDirectoryHref(tag: string) {
@@ -245,124 +61,6 @@ function getTagDirectoryHref(tag: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
   return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
-}
-
-function buildDiffRows(oldMarkdown: string, newMarkdown: string): DiffRow[] {
-  const oldLines = splitDiffLines(oldMarkdown)
-  const newLines = splitDiffLines(newMarkdown)
-  const lengths = Array.from({ length: oldLines.length + 1 }, () =>
-    Array<number>(newLines.length + 1).fill(0)
-  )
-
-  for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex -= 1) {
-    for (let newIndex = newLines.length - 1; newIndex >= 0; newIndex -= 1) {
-      lengths[oldIndex][newIndex] =
-        oldLines[oldIndex] === newLines[newIndex]
-          ? lengths[oldIndex + 1][newIndex + 1] + 1
-          : Math.max(
-              lengths[oldIndex + 1][newIndex],
-              lengths[oldIndex][newIndex + 1]
-            )
-    }
-  }
-
-  const rows: DiffRow[] = []
-  let oldIndex = 0
-  let newIndex = 0
-
-  while (oldIndex < oldLines.length || newIndex < newLines.length) {
-    if (
-      oldIndex < oldLines.length &&
-      newIndex < newLines.length &&
-      oldLines[oldIndex] === newLines[newIndex]
-    ) {
-      rows.push({
-        oldLine: oldLines[oldIndex],
-        newLine: newLines[newIndex],
-        kind: "same",
-      })
-      oldIndex += 1
-      newIndex += 1
-      continue
-    }
-
-    const removed: string[] = []
-    const added: string[] = []
-    while (
-      oldIndex < oldLines.length &&
-      (newIndex >= newLines.length ||
-        lengths[oldIndex + 1][newIndex] >= lengths[oldIndex][newIndex + 1]) &&
-      oldLines[oldIndex] !== newLines[newIndex]
-    ) {
-      removed.push(oldLines[oldIndex])
-      oldIndex += 1
-    }
-    while (
-      newIndex < newLines.length &&
-      (oldIndex >= oldLines.length ||
-        lengths[oldIndex][newIndex + 1] > lengths[oldIndex + 1][newIndex]) &&
-      oldLines[oldIndex] !== newLines[newIndex]
-    ) {
-      added.push(newLines[newIndex])
-      newIndex += 1
-    }
-
-    const rowCount = Math.max(removed.length, added.length)
-    for (let index = 0; index < rowCount; index += 1) {
-      const oldLine = removed[index] ?? null
-      const newLine = added[index] ?? null
-      rows.push({
-        oldLine,
-        newLine,
-        kind: oldLine && newLine ? "changed" : oldLine ? "removed" : "added",
-      })
-    }
-  }
-
-  return rows
-}
-
-function DiffCell({
-  value,
-  tone,
-}: {
-  value: string | null
-  tone: "red" | "green" | "neutral"
-}) {
-  return (
-    <div
-      className={cn(
-        "min-h-7 border-b px-3 py-1.5 font-mono text-xs leading-5 whitespace-pre-wrap",
-        tone === "red"
-          ? "bg-red-50 text-red-950 dark:bg-red-950/30 dark:text-red-100"
-          : null,
-        tone === "green"
-          ? "bg-emerald-50 text-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-100"
-          : null,
-        tone === "neutral" ? "text-muted-foreground/90" : null
-      )}
-    >
-      {value || " "}
-    </div>
-  )
-}
-
-function ReadOnlyBlockNotePreview({ blocks }: { blocks: Block[] }) {
-  const previewEditor = useCreateBlockNote({
-    initialContent: normalizeInitialBlocks(blocks),
-    resolveFileUrl: async (url) => url,
-  })
-
-  return (
-    <div className="wiki-blocknote-surface wiki-blocknote-modal-preview mx-auto w-full max-w-[864px] min-w-0 bg-white p-0">
-      <BlockNoteView
-        editor={previewEditor}
-        theme="light"
-        editable={false}
-        className="w-full min-w-0"
-      />
-    </div>
-  )
 }
 
 export function WikiEditor({
@@ -434,7 +132,6 @@ function WikiEditorMounted({
 }) {
   const router = useRouter()
   const { resolvedTheme } = useTheme()
-  const { isOpen: isChatOpen } = useWikiChatDock()
   const { canEditWiki } = useWikiEditMode()
   const canEditPage = canManage && canEditWiki
   const [pending, startTransition] = React.useTransition()
@@ -443,264 +140,38 @@ function WikiEditorMounted({
   const [blocks, setBlocks] = React.useState<unknown>(
     normalizeInitialBlocks(revision?.blocks)
   )
-  const [formatPending, setFormatPending] = React.useState(false)
-  const [progressAutofill, setProgressAutofill] = React.useState(false)
-  const [progressTitle, setProgressTitle] = React.useState("Rewriting Page")
-  const [progressDescription, setProgressDescription] = React.useState(
-    "AI is rewriting the current Wiki page without saving changes. You can review the changed page and diff before accepting it."
-  )
-  const [progressLabel, setProgressLabel] = React.useState<string | null>(null)
-  const [rewriteProgress, setRewriteProgress] = React.useState(0)
-  const [formatError, setFormatError] = React.useState<string | null>(null)
-  const [formattedBlocks, setFormattedBlocks] = React.useState<Block[] | null>(
-    null
-  )
-  const [originalPreviewMarkdown, setOriginalPreviewMarkdown] =
-    React.useState("")
-  const [rewrittenPreviewMarkdown, setRewrittenPreviewMarkdown] =
-    React.useState("")
-  const [reviewMode, setReviewMode] = React.useState<RewriteReviewMode>("page")
-  const [rewriteConfirmOpen, setRewriteConfirmOpen] = React.useState(false)
-  const [videoInstructionChoice, setVideoInstructionChoice] =
-    React.useState<VideoInstructionChoiceRequest | null>(null)
-  const [previewOpen, setPreviewOpen] = React.useState(false)
   const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
-  const [tagQuery, setTagQuery] = React.useState("")
-  const diffRows = React.useMemo(
-    () => buildDiffRows(originalPreviewMarkdown, rewrittenPreviewMarkdown),
-    [originalPreviewMarkdown, rewrittenPreviewMarkdown]
-  )
+  const tagInputRef = React.useRef<HTMLInputElement>(null)
   const showEditorControls = canEditPage && !isHistorical && showStatusControl
-  const rewriteProgressLabel =
-    progressLabel ??
-    (rewriteProgress < 25
-      ? "Preparing page content..."
-      : rewriteProgress < 70
-        ? "Rewriting with AI..."
-        : rewriteProgress < 90
-          ? "Building the review preview..."
-          : "Almost ready...")
 
-  React.useEffect(() => {
-    if (!formatPending || !progressAutofill) {
-      return
-    }
-
-    const startedAt = Date.now()
-    const intervalId = window.setInterval(() => {
-      const elapsed = Date.now() - startedAt
-      const estimatedProgress = Math.min(
-        94,
-        8 + Math.round((elapsed / FORMAT_TIMEOUT_MS) * 86)
-      )
-      setRewriteProgress((current) => Math.max(current, estimatedProgress))
-    }, 500)
-
-    return () => window.clearInterval(intervalId)
-  }, [formatPending, progressAutofill])
-
-  function requestVideoInstructionChoice(file: File) {
-    return new Promise<boolean>((resolve) => {
-      setVideoInstructionChoice({
-        fileName: file.name,
-        resolve,
-      })
+  async function uploadWikiFile(file: File) {
+    const uploadPayload = await prepareDirectWikiUpload({
+      file,
+      nodeId: node.id,
     })
-  }
-
-  function resolveVideoInstructionChoice(shouldRewrite: boolean) {
-    const request = videoInstructionChoice
-    if (!request) {
-      return
-    }
-
-    setVideoInstructionChoice(null)
-    request.resolve(shouldRewrite)
-  }
-
-  async function prepareDirectWikiUpload(
-    file: File
-  ): Promise<DirectWikiUploadPayload> {
-    const response = await fetch("/api/wiki/upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        directUpload: true,
-        nodeId: node.id,
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-      }),
-    })
-    const payload = (await response
-      .json()
-      .catch(() => null)) as WikiUploadPayload | null
-
-    if (
-      !response.ok ||
-      !payload?.url ||
-      !payload.path ||
-      !payload.token ||
-      !payload.asset?.id
-    ) {
-      throw new Error(payload?.error ?? "Upload failed.")
-    }
-
-    return payload as DirectWikiUploadPayload
-  }
-
-  async function archiveWikiAsset(assetId: string) {
-    await fetch(`/api/wiki/assets/${assetId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "archived" }),
-    }).catch(() => null)
-  }
-
-  async function postWikiAssetAction(
-    assetId: string,
-    action: "extract" | "transcribe" | "index"
-  ) {
-    const response = await fetch(`/api/wiki/assets/${assetId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    })
-    const payload = (await response
-      .json()
-      .catch(() => null)) as WikiUploadPayload | null
-
-    if (!response.ok || !payload?.ok) {
-      throw new Error(payload?.error ?? "Asset processing failed.")
-    }
-
-    return payload
-  }
-
-  async function uploadWikiFile(
-    file: File
-  ): Promise<SuccessfulWikiUploadPayload> {
-    if (file.size > WIKI_MAX_UPLOAD_SIZE_BYTES) {
-      throw new Error(`Files must be ${WIKI_MAX_UPLOAD_SIZE_LABEL} or smaller.`)
-    }
-
-    const uploadPayload = await prepareDirectWikiUpload(file)
-    const assetId = uploadPayload.asset.id
-    const supabase = createSupabaseBrowserClient()
-    const { error: storageUploadError } = await supabase.storage
-      .from(WIKI_BUCKET)
-      .uploadToSignedUrl(uploadPayload.path, uploadPayload.token, file, {
-        contentType: file.type || "application/octet-stream",
-      })
-
-    if (storageUploadError) {
-      await archiveWikiAsset(assetId)
-      throw new Error(storageUploadError.message)
-    }
+    await uploadWikiFileToStorage({ file, upload: uploadPayload })
 
     if (uploadPayload.asset.kind === "document") {
-      await postWikiAssetAction(assetId, "extract").catch((error) => {
-        console.error("Wiki document extraction failed", error)
-      })
-    }
-
-    await postWikiAssetAction(assetId, "index")
-    return uploadPayload
-  }
-
-  async function processVideoUpload(file: File) {
-    if (file.size > WIKI_MAX_UPLOAD_SIZE_BYTES) {
-      throw new Error(
-        `Videos must be ${WIKI_MAX_UPLOAD_SIZE_LABEL} or smaller.`
-      )
-    }
-
-    const shouldRewrite = await requestVideoInstructionChoice(file)
-
-    setProgressAutofill(false)
-    setFormatPending(true)
-    setFormatError(null)
-    setProgressTitle("Processing Video")
-    setProgressDescription(
-      shouldRewrite
-        ? "The video is being uploaded, transcribed, indexed for Milo, and then used to prepare a reviewable AI rewrite."
-        : "The video is being uploaded, transcribed, and indexed for Milo."
-    )
-    setProgressLabel("Uploading video...")
-    setRewriteProgress(8)
-
-    try {
-      const uploadPayload = await prepareDirectWikiUpload(file)
-      const assetId = uploadPayload.asset?.id
-      if (!assetId) {
-        throw new Error("Uploaded video asset was not returned.")
-      }
-
-      const supabase = createSupabaseBrowserClient()
-      const { error: storageUploadError } = await supabase.storage
-        .from(WIKI_BUCKET)
-        .uploadToSignedUrl(uploadPayload.path, uploadPayload.token, file, {
-          contentType: file.type || "application/octet-stream",
-        })
-
-      if (storageUploadError) {
-        await archiveWikiAsset(assetId)
-        throw new Error(storageUploadError.message)
-      }
-
-      setProgressLabel("Transcribing video with OpenAI...")
-      setRewriteProgress(35)
-      const transcriptionPayload = await postWikiAssetAction(
-        assetId,
-        "transcribe"
-      )
-      const transcript = transcriptionPayload.extractedText?.trim() ?? ""
-
-      setProgressLabel("Indexing video for Milo...")
-      setRewriteProgress(68)
-      await postWikiAssetAction(assetId, "index")
-
-      if (shouldRewrite) {
-        if (!transcript) {
-          throw new Error("Video transcription did not return any text.")
+      await postWikiAssetAction(uploadPayload.asset.id, "extract").catch(
+        (error) => {
+          console.error("Wiki document extraction failed", error)
         }
-
-        setProgressLabel("Adding video to the page...")
-        setRewriteProgress(82)
-        window.setTimeout(() => {
-          void formatDocument({
-            videoTranscript: transcript,
-            useExistingProgress: true,
-          })
-        }, 0)
-      } else {
-        setProgressLabel("Video uploaded, transcribed, and indexed.")
-        setRewriteProgress(100)
-        window.setTimeout(() => {
-          setFormatPending(false)
-          setProgressLabel(null)
-        }, 600)
-        toast.success("Video uploaded and indexed for Milo")
-      }
-
-      return uploadPayload.url
-    } catch (error) {
-      setFormatPending(false)
-      setProgressAutofill(false)
-      setProgressLabel(null)
-      throw error
+      )
     }
+    if (uploadPayload.asset.kind === "video") {
+      await postWikiAssetAction(uploadPayload.asset.id, "transcribe")
+      toast.success("Video uploaded and indexed for Milo")
+    }
+
+    await postWikiAssetAction(uploadPayload.asset.id, "index")
+    return uploadPayload
   }
 
   const editor = useCreateBlockNote({
     initialContent: normalizeInitialBlocks(revision?.blocks),
     uploadFile: canManage
       ? async (file) => {
-          if (isVideoFile(file)) {
-            return processVideoUpload(file)
-          }
-
           const payload = await uploadWikiFile(file)
           router.refresh()
           return payload.url
@@ -740,41 +211,8 @@ function WikiEditorMounted({
 
   const openTagDialog = React.useCallback(() => {
     setSelectedTags(node.tags ?? [])
-    setTagQuery("")
     setTagDialogOpen(true)
   }, [node.tags])
-
-  function addTag(value: string) {
-    const requestedTag = value.trim().replace(/\s+/g, " ")
-    const tag =
-      availableTags.find(
-        (availableTag) =>
-          availableTag.toLocaleLowerCase() === requestedTag.toLocaleLowerCase()
-      ) ?? requestedTag
-    if (
-      !tag ||
-      selectedTags.some(
-        (selectedTag) =>
-          selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
-      )
-    ) {
-      return
-    }
-
-    setSelectedTags((currentTags) => [...currentTags, tag])
-    setTagQuery("")
-  }
-
-  const matchingTags = availableTags
-    .filter(
-      (tag) =>
-        tag.toLocaleLowerCase().includes(tagQuery.trim().toLocaleLowerCase()) &&
-        !selectedTags.some(
-          (selectedTag) =>
-            selectedTag.toLocaleLowerCase() === tag.toLocaleLowerCase()
-        )
-    )
-    .slice(0, 8)
 
   const getSlashMenuItems = React.useCallback(
     async (query: string) =>
@@ -795,288 +233,23 @@ function WikiEditorMounted({
     [editor, openTagDialog]
   )
 
-  async function formatDocument(options: FormatDocumentOptions = {}) {
-    const isVideoInstructionRewrite = Boolean(options.videoTranscript)
-    if (!options.useExistingProgress) {
-      setFormatPending(true)
-      setRewriteProgress(8)
-    } else {
-      setRewriteProgress((current) => Math.max(current, 84))
-    }
-    setProgressAutofill(true)
-    setProgressTitle(
-      isVideoInstructionRewrite
-        ? "Creating Instructional Page"
-        : "Rewriting Page"
-    )
-    setProgressDescription(
-      isVideoInstructionRewrite
-        ? "AI is using the video transcription and current page contents to prepare a reviewable instructional rewrite."
-        : "AI is rewriting the current Wiki page without saving changes. You can review the changed page and diff before accepting it."
-    )
-    setProgressLabel(null)
-    setFormatError(null)
-    setFormattedBlocks(null)
-    setOriginalPreviewMarkdown("")
-    setRewrittenPreviewMarkdown("")
-    setReviewMode("page")
-
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => {
-      controller.abort()
-    }, FORMAT_TIMEOUT_MS)
-
-    try {
-      const items: WikiFormatItem[] = []
-      const richBlocksById = new Map<string, Block>()
-      let currentBlocks: Block[] = []
-      const originalMarkdown = (
-        await editor.blocksToMarkdownLossy(editor.document)
-      ).trim()
-      setRewriteProgress((current) => Math.max(current, 18))
-
-      async function flushTextGroup() {
-        if (!currentBlocks.length) {
-          return
-        }
-
-        const textBlocks = currentBlocks
-        currentBlocks = []
-        const markdown = (await editor.blocksToMarkdownLossy(textBlocks)).trim()
-        if (markdown) {
-          for (const chunk of splitMarkdownForFormatting(markdown)) {
-            items.push({
-              type: "text",
-              id: `text-${items.length + 1}`,
-              markdown: chunk,
-            })
-          }
-        } else {
-          items.push({
-            type: "empty",
-            id: `empty-${items.length + 1}`,
-          })
-        }
-      }
-
-      for (const block of editor.document) {
-        if (isRichBlock(block)) {
-          await flushTextGroup()
-          const itemType = getFormatItemType(block)
-          const id = `${itemType}-${items.length + 1}`
-          richBlocksById.set(id, block)
-          items.push({
-            type: itemType,
-            id,
-            blockType: String(block.type),
-            name: getPropString(block, "name") || undefined,
-            caption: getPropString(block, "caption") || undefined,
-            markdown:
-              String(block.type) === "table"
-                ? (await editor.blocksToMarkdownLossy([block])).trim() ||
-                  undefined
-                : undefined,
-          })
-        } else {
-          currentBlocks.push(block)
-        }
-      }
-      await flushTextGroup()
-      setRewriteProgress((current) => Math.max(current, 32))
-
-      if (
-        !options.videoTranscript &&
-        !items.some((item) => item.type === "text")
-      ) {
-        throw new Error("There is no editable text for AI to rewrite.")
-      }
-
-      const response = await fetch("/api/wiki/format", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          formatVersion: WIKI_FORMAT_VERSION,
-          nodeId: node.id,
-          title: node.title,
-          items,
-          mode: options.videoTranscript ? "video_instruction" : undefined,
-          videoTranscript: options.videoTranscript,
-        }),
-      })
-      const payload = (await response.json().catch(() => null)) as {
-        items?: unknown
-        summary?: unknown
-        stats?: unknown
-        error?: unknown
-      } | null
-
-      if (!response.ok || !Array.isArray(payload?.items)) {
-        throw new Error(
-          typeof payload?.error === "string"
-            ? payload.error
-            : "Unable to rewrite document."
-        )
-      }
-      setRewriteProgress((current) => Math.max(current, 70))
-
-      const outputItems = payload.items.filter(
-        (item): item is WikiFormatOutputItem => {
-          if (
-            item === null ||
-            typeof item !== "object" ||
-            Array.isArray(item)
-          ) {
-            return false
-          }
-
-          const record = item as Record<string, unknown>
-          return (
-            record.type === "markdown" ||
-            record.type === "callout" ||
-            record.type === "ref" ||
-            record.type === "divider" ||
-            record.type === "spacer"
-          )
-        }
-      )
-      const nextBlocks: Block[] = []
-
-      for (const item of outputItems) {
-        if (item.type === "ref") {
-          const block = richBlocksById.get(item.id)
-          if (!block) {
-            throw new Error("AI returned an unknown protected document block.")
-          }
-          nextBlocks.push(cloneBlockWithMediaPatch(block, item.mediaPatch))
-          continue
-        }
-
-        if (item.type === "divider") {
-          nextBlocks.push({ type: "divider" } as Block)
-          continue
-        }
-
-        if (item.type === "spacer") {
-          nextBlocks.push({
-            type: "paragraph",
-            content: SPACER_CONTENT,
-          } as unknown as Block)
-          continue
-        }
-
-        if (item.type === "callout") {
-          const parsedBlocks = await editor.tryParseMarkdownToBlocks(
-            item.markdown
-          )
-          if (parsedBlocks.length) {
-            nextBlocks.push(
-              ...(parsedBlocks as Block[]).map((block) =>
-                cloneBlockWithCalloutTone(block, item.tone)
-              )
-            )
-          }
-          continue
-        }
-
-        const parsedBlocks = await editor.tryParseMarkdownToBlocks(
-          item.markdown
-        )
-        if (parsedBlocks.length) {
-          nextBlocks.push(...(parsedBlocks as Block[]))
-        }
-      }
-
-      if (!nextBlocks.length) {
-        throw new Error("AI returned empty rewritten content.")
-      }
-      setRewriteProgress((current) => Math.max(current, 88))
-
-      const rewrittenMarkdown = (
-        await editor.blocksToMarkdownLossy(nextBlocks)
-      ).trim()
-      setFormattedBlocks(nextBlocks as Block[])
-      setOriginalPreviewMarkdown(originalMarkdown)
-      setRewrittenPreviewMarkdown(rewrittenMarkdown)
-      setRewriteProgress(100)
-      setPreviewOpen(true)
-    } catch (error) {
-      const message =
-        error instanceof Error && error.name === "AbortError"
-          ? "AI rewrite timed out after 30 seconds. No changes were applied."
-          : error instanceof Error
-            ? error.message
-            : "Unable to rewrite document."
-      setFormatError(message)
-      toast.error(message)
-    } finally {
-      window.clearTimeout(timeout)
-      setProgressAutofill(false)
-      setProgressLabel(null)
-      setFormatPending(false)
-    }
-  }
-
-  function applyFormatting() {
-    if (!formattedBlocks?.length) {
-      return
-    }
-
-    editor.replaceBlocks(editor.document, formattedBlocks)
-    setBlocks(formattedBlocks)
-    setIsDirty(true)
-    setPreviewOpen(false)
-    toast.success("AI rewrite applied")
-  }
-
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <WikiViewModeTitleSpacing className="mb-8 w-full">
         <div className="flex w-full flex-wrap items-center gap-3">
-          <h1 className="mr-auto text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
+          <WikiEditableTitle
+            nodeId={node.id}
+            className="mr-auto text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]"
+          >
             {node.title}
-          </h1>
+          </WikiEditableTitle>
           {showEditorControls ? (
-            <>
-              <WikiStatusSelect nodeId={node.id} status={node.status} />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="default"
-                    disabled={formatPending}
-                    className="canopy-ai-button h-10 px-4 text-sm font-semibold"
-                  >
-                    {formatPending ? (
-                      <Loader2Icon className="animate-spin" />
-                    ) : (
-                      <SparklesIcon />
-                    )}
-                    AI Tools
-                    <ChevronDownIcon className="size-4 opacity-80" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  <DropdownMenuItem
-                    disabled={formatPending}
-                    onSelect={() => {
-                      setRewriteConfirmOpen(true)
-                    }}
-                  >
-                    <WandSparklesIcon />
-                    Rewrite Page
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
+            <WikiStatusSelect nodeId={node.id} status={node.status} />
           ) : null}
           {canEditPage ? headerActions : null}
           {canEditPage ? createAction : null}
         </div>
       </WikiViewModeTitleSpacing>
-      {formatError ? (
-        <p className="mb-3 text-sm text-destructive">{formatError}</p>
-      ) : null}
       <div className="wiki-blocknote-surface min-w-0 p-0">
         <BlockNoteView
           editor={editor}
@@ -1125,10 +298,7 @@ function WikiEditorMounted({
       {canEditPage && !isHistorical && isDirty ? (
         <Button
           type="button"
-          className={cn(
-            "fixed right-6 bottom-6 z-40 h-12 bg-emerald-600 px-6 text-base text-white shadow-xl hover:bg-emerald-700",
-            isChatOpen ? "lg:right-[calc(28rem+1.5rem)]" : null
-          )}
+          className="fixed right-6 bottom-6 z-40 h-12 bg-emerald-600 px-6 text-base text-white shadow-xl hover:bg-emerald-700"
           disabled={pending}
           onClick={save}
         >
@@ -1140,312 +310,33 @@ function WikiEditorMounted({
         <p className="mt-2 text-sm text-destructive">{state.message}</p>
       ) : null}
       <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
-        <DialogContent>
+        <DialogContent
+          onOpenAutoFocus={(event) => {
+            event.preventDefault()
+            tagInputRef.current?.focus()
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Page tags</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               Search existing tags or create a new one for this page.
             </DialogDescription>
           </DialogHeader>
           <form action={saveTags} className="grid gap-4">
-            <div className="grid gap-2">
-              <label className="text-sm font-medium" htmlFor="wiki-page-tags">
-                Tags
-              </label>
-              <input
-                type="hidden"
-                name="tags"
-                value={selectedTags.join(", ")}
-              />
-              {selectedTags.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {selectedTags.map((tag) => (
-                    <Button
-                      key={tag}
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() =>
-                        setSelectedTags((currentTags) =>
-                          currentTags.filter((currentTag) => currentTag !== tag)
-                        )
-                      }
-                    >
-                      {tag} ×
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
-              <Input
-                id="wiki-page-tags"
-                value={tagQuery}
-                onChange={(event) => setTagQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && tagQuery.trim()) {
-                    event.preventDefault()
-                    addTag(tagQuery)
-                  }
-                }}
-                placeholder="Search or create a tag"
-                autoFocus
-              />
-              {tagQuery.trim() ? (
-                <div className="max-h-44 overflow-y-auto rounded-md border p-1">
-                  {matchingTags.map((tag) => (
-                    <Button
-                      key={tag}
-                      type="button"
-                      variant="ghost"
-                      className="w-full justify-start"
-                      onClick={() => addTag(tag)}
-                    >
-                      {tag}
-                    </Button>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full justify-start"
-                    onClick={() => addTag(tagQuery)}
-                  >
-                    Add “{tagQuery.trim()}”
-                  </Button>
-                </div>
-              ) : null}
-            </div>
+            <WikiTagPicker
+              availableTags={availableTags}
+              selectedTags={selectedTags}
+              onSelectedTagsChange={setSelectedTags}
+              open={tagDialogOpen}
+              inputRef={tagInputRef}
+              inputId="wiki-page-tags"
+            />
             <DialogFooter>
               <Button type="submit" disabled={pending}>
                 {pending ? "Saving..." : "Save tags"}
               </Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={rewriteConfirmOpen}
-        onOpenChange={(nextOpen) => {
-          if (!formatPending) {
-            setRewriteConfirmOpen(nextOpen)
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
-              <TriangleAlertIcon className="size-5" />
-              Warning
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              Confirm AI rewrite warning.
-            </DialogDescription>
-          </DialogHeader>
-          <p className="mx-auto max-w-md py-6 text-center text-sm leading-6 text-foreground">
-            AI rewrite is still in testing and may change this page, so by
-            confirming you acknowledge that you will review the changes before
-            accepting them.
-          </p>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={formatPending}
-              onClick={() => setRewriteConfirmOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={formatPending}
-              className="bg-amber-600 text-white hover:bg-amber-700"
-              onClick={() => {
-                setRewriteConfirmOpen(false)
-                void formatDocument()
-              }}
-            >
-              Confirm Rewrite
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={Boolean(videoInstructionChoice)}>
-        <DialogContent showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileVideoIcon className="size-5 text-primary" />
-              Create Page From Video?
-            </DialogTitle>
-            <DialogDescription>
-              The video will be uploaded, transcribed with OpenAI, and indexed
-              for Milo either way.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2 text-sm leading-6">
-            <p>
-              Would you like AI to write an instructional page based on{" "}
-              <span className="font-medium">
-                {videoInstructionChoice?.fileName}
-              </span>
-              ?
-            </p>
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
-              If you select yes, AI will use both the video transcription and
-              the current contents of this page to rewrite the page.
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => resolveVideoInstructionChoice(false)}
-            >
-              No
-            </Button>
-            <Button
-              type="button"
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={() => resolveVideoInstructionChoice(true)}
-            >
-              Yes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={formatPending}>
-        <DialogContent showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>{progressTitle}</DialogTitle>
-            <DialogDescription>{progressDescription}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 rounded-md border bg-muted/40 p-3 text-sm">
-            <div className="flex items-center gap-3">
-              <Loader2Icon className="size-4 animate-spin" />
-              <span>{rewriteProgressLabel}</span>
-              <span className="ml-auto text-muted-foreground tabular-nums">
-                {rewriteProgress}%
-              </span>
-            </div>
-            <div
-              className="h-2 overflow-hidden rounded-full bg-muted"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={rewriteProgress}
-              aria-label="AI rewrite progress"
-            >
-              <div
-                className="h-full rounded-full bg-[linear-gradient(135deg,#174968_0%,#2872a8_52%,#4395ce_100%)] transition-[width] duration-500 ease-out"
-                style={{ width: `${rewriteProgress}%` }}
-              />
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-h-[92vh] w-[min(96vw,90rem)] max-w-none grid-rows-[auto_minmax(0,1fr)_auto]">
-          <DialogHeader className="gap-3 pr-10">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <DialogTitle>Review AI Rewrite</DialogTitle>
-              </div>
-              <div
-                className="inline-flex rounded-lg border bg-background p-1"
-                aria-label="Review mode"
-              >
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={reviewMode === "page" ? "secondary" : "ghost"}
-                  aria-pressed={reviewMode === "page"}
-                  onClick={() => setReviewMode("page")}
-                >
-                  <FileTextIcon />
-                  Page
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={reviewMode === "diff" ? "secondary" : "ghost"}
-                  aria-pressed={reviewMode === "diff"}
-                  onClick={() => setReviewMode("diff")}
-                >
-                  <Columns2Icon />
-                  Diff
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
-          <div className="min-h-0 overflow-hidden rounded-md border bg-white">
-            {reviewMode === "page" ? (
-              <div className="max-h-[62vh] overflow-auto bg-white p-3">
-                {formattedBlocks?.length ? (
-                  <ReadOnlyBlockNotePreview
-                    key={rewrittenPreviewMarkdown}
-                    blocks={formattedBlocks}
-                  />
-                ) : (
-                  <p className="p-4 text-sm text-muted-foreground">
-                    No preview content available.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="max-h-[62vh] overflow-auto">
-                <div className="grid min-w-[48rem] grid-cols-2 border-b bg-background text-xs font-medium text-muted-foreground">
-                  <div className="border-r px-3 py-2">Previous Version</div>
-                  <div className="px-3 py-2">AI Rewrite</div>
-                </div>
-                {diffRows.length ? (
-                  <div className="grid min-w-[48rem] grid-cols-2">
-                    {diffRows.map((row, index) => (
-                      <React.Fragment
-                        key={`${index}-${row.kind}-${row.oldLine}-${row.newLine}`}
-                      >
-                        <div className="border-r">
-                          <DiffCell
-                            value={row.oldLine}
-                            tone={
-                              row.kind === "removed" || row.kind === "changed"
-                                ? "red"
-                                : "neutral"
-                            }
-                          />
-                        </div>
-                        <DiffCell
-                          value={row.newLine}
-                          tone={
-                            row.kind === "added" || row.kind === "changed"
-                              ? "green"
-                              : "neutral"
-                          }
-                        />
-                      </React.Fragment>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="p-4 text-sm text-muted-foreground">
-                    No textual differences to show.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setPreviewOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={!formattedBlocks?.length}
-              onClick={applyFormatting}
-              className="bg-emerald-600 text-white hover:bg-emerald-700"
-            >
-              Accept Rewrite
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -9,6 +9,7 @@ import { WikiEditor } from "@/components/wiki/wiki-editor"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import {
   WikiCreateWizardDialog,
+  WikiEditableTitle,
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
 import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
@@ -445,9 +446,12 @@ export default async function WikiPage({
                   {displayedNode.type === "folder" || missingRepositoryPage ? (
                     <WikiViewModeTitleSpacing className="w-full">
                       <div className="flex w-full flex-wrap items-center gap-3">
-                        <h1 className="mr-auto text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
+                        <WikiEditableTitle
+                          nodeId={displayedNode.id}
+                          className="mr-auto text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]"
+                        >
                           {displayedNode.title}
-                        </h1>
+                        </WikiEditableTitle>
                         {canManageWiki ? (
                           <WikiEditModeGate>
                             <div className="flex shrink-0 items-center gap-2">
@@ -554,21 +558,6 @@ export default async function WikiPage({
                           canManageWiki && pageCreateConfig ? (
                             <WikiEditModeGate>
                               <div className="flex items-center gap-2">
-                                <WikiCreateWizardDialog
-                                  parentId={pageData.node.parent_id}
-                                  defaultType={pageCreateConfig.defaultType}
-                                  allowedTypes={pageCreateConfig.allowedTypes}
-                                  labels={pageCreateConfig.labels}
-                                  dialogTitle={pageCreateConfig.dialogTitle}
-                                  dialogDescription={
-                                    pageCreateConfig.dialogDescription
-                                  }
-                                  triggerLabel={pageCreateConfig.dialogTitle}
-                                  triggerAriaLabel={
-                                    pageCreateConfig.dialogTitle
-                                  }
-                                  triggerTitle={pageCreateConfig.dialogTitle}
-                                />
                                 <WikiImportWizardDialog
                                   nodes={nodes}
                                   parentId={pageData.node.parent_id}

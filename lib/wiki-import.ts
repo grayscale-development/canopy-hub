@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom"
 import type { WikiPdfLine } from "@/lib/wiki-extract"
 
 import {
+  getWikiAssetKind,
   normalizeWikiTags,
   sanitizeWikiFileName,
   slugifyWikiTitle,
@@ -271,6 +272,7 @@ export function createWikiImportContentHash(value: string) {
 export function isSupportedWikiImportFile(file: File) {
   const name = file.name.toLowerCase()
   return (
+    isWikiImportVideoFile(file) ||
     file.type === "application/pdf" ||
     file.type ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
@@ -280,9 +282,13 @@ export function isSupportedWikiImportFile(file: File) {
   )
 }
 
+export function isWikiImportVideoFile(file: File) {
+  return getWikiAssetKind(file) === "video"
+}
+
 export function titleFromWikiImportFileName(fileName: string) {
   const source = sanitizeWikiFileName(fileName)
-    .replace(/\.(pdf|docx|txt|md)$/i, "")
+    .replace(/\.(pdf|docx|txt|md|mp4|mov|webm)$/i, "")
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -1492,6 +1498,50 @@ export function createWikiImportDraft({
       plainText,
       usedAi: usedAi && !pdfPages?.length,
     }
+  }
+}
+
+export function createWikiVideoImportDraft({
+  assetId,
+  fileName,
+  transcript,
+}: {
+  assetId: string
+  fileName: string
+  transcript: string
+}): WikiImportDraft {
+  const transcriptDraft = createWikiImportDraft({
+    text: transcript,
+    fileName,
+    aiOutput: null,
+  })
+
+  return {
+    title: titleFromWikiImportFileName(fileName),
+    tags: [],
+    markdown: transcriptDraft.markdown,
+    blocks: [
+      {
+        id: `imported-video-${assetId}`,
+        type: "video",
+        props: {
+          url: `/api/wiki/assets/${assetId}`,
+          name: fileName,
+          caption: "",
+          showPreview: true,
+        },
+        children: [],
+      },
+      {
+        type: "heading",
+        props: { level: 2 },
+        content: "Transcript",
+        children: [],
+      },
+      ...transcriptDraft.blocks,
+    ],
+    plainText: transcriptDraft.plainText,
+    usedAi: false,
   }
 }
 

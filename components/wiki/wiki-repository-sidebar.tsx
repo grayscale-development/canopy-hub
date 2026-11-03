@@ -112,6 +112,36 @@ function toggleExpansionWithoutScrollJump(
   })
 }
 
+const SIDEBAR_TOOLTIP_DELAY_MS = 700
+
+function TruncatedTitle({ title }: { title: string }) {
+  const textRef = React.useRef<HTMLSpanElement>(null)
+  const [open, setOpen] = React.useState(false)
+
+  return (
+    <Tooltip
+      delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        const element = textRef.current
+        const isCutOff = Boolean(
+          element && element.scrollWidth > element.clientWidth
+        )
+        setOpen(nextOpen && isCutOff)
+      }}
+    >
+      <TooltipTrigger asChild>
+        <span ref={textRef} className="truncate">
+          {title}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right" align="start" sideOffset={8}>
+        {title}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 function SidebarPageLink({
   node,
   nodes,
@@ -125,27 +155,22 @@ function SidebarPageLink({
   const isActive = path === activePath
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Link
-          href={`/wiki/${path}`}
-          className={cn(
-            "flex min-h-8 w-full items-center rounded-md px-2 py-1 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-            isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
-          )}
-        >
-          <span className="truncate">{node.title}</span>
-          {node.status === "draft" ? (
-            <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              Draft
-            </span>
-          ) : null}
-        </Link>
-      </TooltipTrigger>
-      <TooltipContent side="right" align="start" sideOffset={8}>
-        {node.title}
-      </TooltipContent>
-    </Tooltip>
+    <Link
+      href={`/wiki/${path}`}
+      className={cn(
+        "flex min-h-8 w-full items-center rounded-md px-2 py-1 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
+      )}
+    >
+      <TruncatedTitle title={node.title} />
+      {node.status === "draft" ? (
+        <span
+          role="img"
+          aria-label="Draft"
+          className="ml-auto size-2 shrink-0 rounded-full bg-muted-foreground/50"
+        />
+      ) : null}
+    </Link>
   )
 }
 
@@ -185,7 +210,7 @@ function SidebarNestedFolder({
           aria-current={isActive ? "page" : undefined}
           className="flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
-          <span className="truncate">{folder.title}</span>
+          <TruncatedTitle title={folder.title} />
         </Link>
         {canManage ? (
           <WikiCreateWizardDialog
@@ -226,7 +251,7 @@ function SidebarNestedFolder({
       <div
         id={contentId}
         hidden={!isOpen}
-        className="mt-1 ml-2 border-l border-sidebar-border pl-3"
+        className="mt-1 pl-3"
       >
         {children.map((child) => (
           <SidebarPageLink
@@ -278,7 +303,7 @@ function SidebarSection({
           aria-current={isActive ? "page" : undefined}
           className="flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
-          <span className="truncate">{section.title}</span>
+          <TruncatedTitle title={section.title} />
         </Link>
         {canManage ? (
           <WikiCreateWizardDialog
@@ -316,7 +341,11 @@ function SidebarSection({
           />
         </button>
       </div>
-      <div id={contentId} hidden={!isOpen} className="space-y-1">
+      <div
+        id={contentId}
+        hidden={!isOpen}
+        className="space-y-1 pl-3"
+      >
         {directPages.map((page) => (
           <SidebarPageLink
             key={page.id}

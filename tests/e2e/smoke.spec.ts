@@ -108,10 +108,13 @@ test("Ask Milo opens and streams a deterministic mocked answer @milo @smoke", as
   await mockMiloChatApi(page)
   await signInAsLocalDev(page)
 
-  await page.getByRole("button", { name: "Ask Milo" }).click()
-  await page.getByPlaceholder("Ask Milo anything").fill("Where is the Wiki?")
+  await page
+    .locator("header")
+    .getByRole("textbox", { name: "Ask Milo" })
+    .fill("Where is the Wiki?")
   await page.keyboard.press("Enter")
 
-  await expect(page.getByText("/wiki/canopy-wiki")).toBeVisible()
-  await expect(page.getByText("Wiki").last()).toBeVisible()
+  const dialog = page.getByRole("dialog", { name: "Ask Milo" })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText("/wiki/canopy-wiki")).toBeVisible()
 })

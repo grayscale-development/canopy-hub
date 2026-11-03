@@ -7,6 +7,8 @@ const state = vi.hoisted(() => ({
   insertedNodes: [] as Array<Record<string, unknown>>,
   insertedRevisions: [] as Array<Record<string, unknown>>,
   insertedAssets: [] as Array<Record<string, unknown>>,
+  videoAsset: null as Record<string, unknown> | null,
+  videoNode: null as Record<string, unknown> | null,
   aiResponse: {
     output_text: JSON.stringify({
       title: "Lock Review",
@@ -52,7 +54,15 @@ class Query {
   delete() {
     return this
   }
-  maybeSingle = async () => ({ data: null, error: null })
+  maybeSingle = async () => ({
+    data:
+      this.table === "wiki_assets"
+        ? state.videoAsset
+        : this.table === "wiki_nodes"
+          ? state.videoNode
+          : null,
+    error: null,
+  })
   single = async () => ({ data: null, error: null })
   then(
     resolve: (value: {
@@ -93,6 +103,7 @@ vi.mock("@/lib/ai/provider", () => ai)
 const extractor = vi.hoisted(() => ({
   extractWikiDocumentText: vi.fn(),
   extractWikiDocxDocument: vi.fn(),
+  extractWikiPdfDocument: vi.fn(),
   isWikiDocxFile: vi.fn(() => false),
 }))
 vi.mock("@/lib/wiki-extract", () => extractor)
@@ -115,6 +126,17 @@ function fileImportRequest(file: File) {
   })
 }
 
+function videoImportRequest(values: Record<string, string>) {
+  const body = new FormData()
+  for (const [key, value] of Object.entries(values)) {
+    body.set(key, value)
+  }
+  return new Request("http://localhost/api/wiki/import", {
+    method: "POST",
+    body,
+  })
+}
+
 describe("/api/wiki/import route", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -124,7 +146,10 @@ describe("/api/wiki/import route", () => {
     state.insertedNodes = []
     state.insertedRevisions = []
     state.insertedAssets = []
+    state.videoAsset = null
+    state.videoNode = null
     extractor.isWikiDocxFile.mockReturnValue(false)
+    extractor.extractWikiPdfDocument.mockReset()
   })
 
   it("requires an authenticated Wiki manager", async () => {
@@ -231,7 +256,7 @@ describe("/api/wiki/import route", () => {
 
   it("reports and logs document extraction errors instead of treating them as scanned PDFs", async () => {
     const extractionError = new Error("PDF worker failed to load")
-    extractor.extractWikiDocumentText.mockRejectedValueOnce(extractionError)
+    extractor.extractWikiPdfDocument.mockRejectedValueOnce(extractionError)
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
 
     const { POST } = await import("@/app/api/wiki/import/route")
@@ -259,7 +284,11 @@ describe("/api/wiki/import route", () => {
   })
 
   it("uses the scanned-PDF message only when extraction returns empty text", async () => {
-    extractor.extractWikiDocumentText.mockResolvedValueOnce(" \n ")
+    extractor.extractWikiPdfDocument.mockResolvedValueOnce({
+      text: " \n ",
+      pages: [],
+      images: [],
+    })
 
     const { POST } = await import("@/app/api/wiki/import/route")
     const response = await POST(
@@ -273,5 +302,74 @@ describe("/api/wiki/import route", () => {
       error:
         "We could not find readable text in that file. If this is a scanned PDF, paste its text instead.",
     })
+  })
+
+  it("stages a video draft for direct upload with the same duplicate hash flow", async () => {
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      videoImportRequest({
+        video_import: "start",
+        video_file_name: "loan-review.mp4",
+        video_file_size: "42",
+        video_file_type: "video/mp4",
+      })
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload).toMatchObject({ ok: true, nodeId: expect.any(String) })
+    expect(extractor.extractWikiDocumentText).not.toHaveBeenCalled()
+    expect(state.insertedNodes[0]).toMatchObject({
+      title: "Loan Review",
+      type: "page",
+      status: "draft",
+      import_content_hash: expect.any(String),
+    })
+  })
+
+  it("turns a transcribed video asset into an embedded draft page", async () => {
+    const nodeId = "video-node"
+    state.nodes = [
+      {
+        id: nodeId,
+        parent_id: null,
+        slug: "loan-review",
+        title: "Loan Review",
+        status: "draft",
+        type: "page",
+      },
+    ]
+    state.videoNode = { id: nodeId, type: "page", status: "draft" }
+    state.videoAsset = {
+      id: "video-asset",
+      node_id: nodeId,
+      file_name: "loan-review.mp4",
+      kind: "video",
+      status: "active",
+      extracted_text: "Review the loan before submitting.",
+      created_by: "wiki-manager",
+    }
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      videoImportRequest({
+        video_import: "complete",
+        node_id: nodeId,
+        asset_id: "video-asset",
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(state.insertedRevisions[0]).toMatchObject({
+      node_id: nodeId,
+      change_note: "Imported video loan-review.mp4",
+      plain_text: "Review the loan before submitting.",
+    })
+    expect(state.insertedRevisions[0]?.blocks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "video" }),
+        expect.objectContaining({ content: "Transcript" }),
+      ])
+    )
   })
 })

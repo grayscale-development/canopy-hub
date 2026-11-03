@@ -38,8 +38,11 @@ import {
   createWikiImportContentHash,
   createWikiDocxImportDraft,
   createWikiImportDraft,
+  createWikiVideoImportDraft,
   isSupportedWikiImportFile,
+  isWikiImportVideoFile,
   normalizeWikiImportText,
+  titleFromWikiImportFileName,
   WIKI_IMPORT_MAX_TEXT_LENGTH,
   type WikiImportAiOutput,
 } from "@/lib/wiki-import"
@@ -145,6 +148,109 @@ function wikiImportImageExtension(contentType: string) {
   return extension && /^[a-z0-9]+$/.test(extension) ? extension : "bin"
 }
 
+async function completeWikiVideoImport({
+  assetId,
+  nodeId,
+  supabase,
+  userId,
+}: {
+  assetId: string
+  nodeId: string
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  userId: string
+}) {
+  if (!assetId || !nodeId) {
+    return NextResponse.json(
+      { error: "Video import details are required." },
+      { status: 400 }
+    )
+  }
+
+  const { data: asset, error: assetError } = await supabase
+    .from("wiki_assets")
+    .select("id,node_id,file_name,kind,status,extracted_text,created_by")
+    .eq("id", assetId)
+    .eq("node_id", nodeId)
+    .eq("created_by", userId)
+    .maybeSingle()
+  if (assetError) {
+    return NextResponse.json({ error: assetError.message }, { status: 400 })
+  }
+  if (!asset || asset.kind !== "video" || asset.status !== "active") {
+    return NextResponse.json(
+      { error: "Video asset not found." },
+      { status: 404 }
+    )
+  }
+
+  const { data: node, error: nodeError } = await supabase
+    .from("wiki_nodes")
+    .select("id,parent_id,type,status,created_by")
+    .eq("id", nodeId)
+    .eq("type", "page")
+    .eq("status", "draft")
+    .eq("created_by", userId)
+    .maybeSingle()
+  if (nodeError) {
+    return NextResponse.json({ error: nodeError.message }, { status: 400 })
+  }
+  if (!node) {
+    return NextResponse.json(
+      { error: "Video draft not found." },
+      { status: 404 }
+    )
+  }
+
+  const transcript = normalizeWikiImportText(asset.extracted_text ?? "")
+  if (!transcript) {
+    return NextResponse.json(
+      { error: "We could not create a transcript for that video." },
+      { status: 400 }
+    )
+  }
+
+  const draft = createWikiVideoImportDraft({
+    assetId,
+    fileName: asset.file_name,
+    transcript,
+  })
+  const revisionId = crypto.randomUUID()
+  const { error: revisionError } = await supabase
+    .from("wiki_page_revisions")
+    .insert({
+      id: revisionId,
+      node_id: nodeId,
+      blocks: draft.blocks,
+      plain_text: draft.plainText,
+      change_note: `Imported video ${asset.file_name}`,
+      created_by: userId,
+    })
+  if (revisionError) {
+    return NextResponse.json({ error: revisionError.message }, { status: 400 })
+  }
+
+  const { error: updateError } = await supabase
+    .from("wiki_nodes")
+    .update({
+      title: draft.title,
+      current_revision_id: revisionId,
+      updated_by: userId,
+    })
+    .eq("id", nodeId)
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 400 })
+  }
+
+  const nodes = await fetchWikiNodes(supabase)
+  const completedNode = nodes.find((item) => item.id === nodeId)
+  const path = completedNode ? buildWikiPath(nodes, completedNode) : ""
+  revalidatePath("/wiki")
+  if (path) {
+    revalidatePath(`/wiki/${path}`)
+  }
+  return NextResponse.json({ ok: true, path: `/wiki/${path}` })
+}
+
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -190,6 +296,53 @@ export async function POST(request: Request) {
       ? parentIdValue.trim()
       : null
   const allowDuplicate = formData.get("allow_duplicate") === "1"
+  const videoImport = formData.get("video_import")
+
+  if (videoImport === "complete") {
+    return completeWikiVideoImport({
+      assetId:
+        typeof formData.get("asset_id") === "string"
+          ? (formData.get("asset_id") as string).trim()
+          : "",
+      nodeId:
+        typeof formData.get("node_id") === "string"
+          ? (formData.get("node_id") as string).trim()
+          : "",
+      supabase,
+      userId: user.id,
+    })
+  }
+
+  const isVideoImportStart = videoImport === "start"
+  const videoFileName =
+    typeof formData.get("video_file_name") === "string"
+      ? (formData.get("video_file_name") as string).trim()
+      : ""
+  const videoFileSize = Number(formData.get("video_file_size"))
+  const videoFileType =
+    typeof formData.get("video_file_type") === "string"
+      ? (formData.get("video_file_type") as string)
+      : ""
+
+  if (isVideoImportStart) {
+    const videoFile = new File(["x"], videoFileName, { type: videoFileType })
+    if (!videoFileName || !isWikiImportVideoFile(videoFile)) {
+      return NextResponse.json(
+        { error: "Import supports MP4, MOV, and WebM video files." },
+        { status: 400 }
+      )
+    }
+    if (
+      !Number.isFinite(videoFileSize) ||
+      videoFileSize <= 0 ||
+      videoFileSize > WIKI_MAX_UPLOAD_SIZE_BYTES
+    ) {
+      return NextResponse.json(
+        { error: `Videos must be ${WIKI_MAX_UPLOAD_SIZE_LABEL} or smaller.` },
+        { status: 400 }
+      )
+    }
+  }
 
   if (file && pastedText.trim()) {
     return NextResponse.json(
@@ -197,7 +350,7 @@ export async function POST(request: Request) {
       { status: 400 }
     )
   }
-  if (!file && !pastedText.trim()) {
+  if (!isVideoImportStart && !file && !pastedText.trim()) {
     return NextResponse.json(
       { error: "Drop in a file or paste the text you want to import." },
       { status: 400 }
@@ -211,7 +364,7 @@ export async function POST(request: Request) {
   }
   if (file && !isSupportedWikiImportFile(file)) {
     return NextResponse.json(
-      { error: "Import supports PDF, DOCX, TXT, and Markdown files." },
+      { error: "Import supports PDF, DOCX, TXT, Markdown, and video files." },
       { status: 400 }
     )
   }
@@ -220,53 +373,56 @@ export async function POST(request: Request) {
   let docxDocument: WikiExtractedDocx | null = null
   let pdfDocument: WikiExtractedPdf | null = null
   const fileName = file?.name || "Pasted text"
-  if (file) {
-    try {
-      if (isWikiDocxFile(file)) {
-        docxDocument = await extractWikiDocxDocument(file)
-        extractedText = docxDocument.text
-      } else if (
-        file.type === "application/pdf" ||
-        file.name.toLowerCase().endsWith(".pdf")
-      ) {
-        pdfDocument = await extractWikiPdfDocument(file)
-        extractedText = pdfDocument.text
-      } else {
-        extractedText = await extractWikiDocumentText(file)
+  let normalizedText = ""
+  if (!isVideoImportStart) {
+    if (file) {
+      try {
+        if (isWikiDocxFile(file)) {
+          docxDocument = await extractWikiDocxDocument(file)
+          extractedText = docxDocument.text
+        } else if (
+          file.type === "application/pdf" ||
+          file.name.toLowerCase().endsWith(".pdf")
+        ) {
+          pdfDocument = await extractWikiPdfDocument(file)
+          extractedText = pdfDocument.text
+        } else {
+          extractedText = await extractWikiDocumentText(file)
+        }
+      } catch (error) {
+        console.error("Wiki import document extraction failed", {
+          fileName: file.name,
+          fileType: file.type,
+          error,
+        })
+        return NextResponse.json(
+          {
+            error:
+              "We could not extract text from that file. Try a different file or paste its text instead.",
+          },
+          { status: 400 }
+        )
       }
-    } catch (error) {
-      console.error("Wiki import document extraction failed", {
-        fileName: file.name,
-        fileType: file.type,
-        error,
-      })
+    }
+    normalizedText = normalizeWikiImportText(extractedText)
+    if (!normalizedText) {
       return NextResponse.json(
         {
           error:
-            "We could not extract text from that file. Try a different file or paste its text instead.",
+            "We could not find readable text in that file. If this is a scanned PDF, paste its text instead.",
         },
         { status: 400 }
       )
     }
-  }
-  const normalizedText = normalizeWikiImportText(extractedText)
-  if (!normalizedText) {
-    return NextResponse.json(
-      {
-        error:
-          "We could not find readable text in that file. If this is a scanned PDF, paste its text instead.",
-      },
-      { status: 400 }
-    )
-  }
-  if (normalizedText.length > WIKI_IMPORT_MAX_TEXT_LENGTH) {
-    return NextResponse.json(
-      {
-        error:
-          "The extracted text is too large to import. Split it into smaller documents.",
-      },
-      { status: 400 }
-    )
+    if (normalizedText.length > WIKI_IMPORT_MAX_TEXT_LENGTH) {
+      return NextResponse.json(
+        {
+          error:
+            "The extracted text is too large to import. Split it into smaller documents.",
+        },
+        { status: 400 }
+      )
+    }
   }
 
   if (parentId) {
@@ -284,6 +440,72 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+  }
+
+  if (isVideoImportStart) {
+    const contentHash = createWikiImportContentHash(
+      `video:${sanitizeWikiFileName(videoFileName).toLocaleLowerCase()}:${videoFileSize}`
+    )
+    const duplicateQuery = supabase
+      .from("wiki_nodes")
+      .select("id,parent_id,slug,title,status")
+      .eq("import_content_hash", contentHash)
+      .neq("status", "archived")
+    const { data: duplicates, error: duplicateError } = await (parentId
+      ? duplicateQuery.eq("parent_id", parentId)
+      : duplicateQuery.is("parent_id", null))
+    if (duplicateError) {
+      return NextResponse.json(
+        { error: duplicateError.message },
+        { status: 400 }
+      )
+    }
+    if (duplicates?.[0] && !allowDuplicate) {
+      const nodes = await fetchWikiNodes(supabase)
+      const existing = duplicates[0] as WikiNodeRow
+      return NextResponse.json(
+        {
+          duplicate: true,
+          existing: {
+            title: existing.title,
+            path: `/wiki/${buildWikiPath(nodes, existing)}`,
+          },
+        },
+        { status: 409 }
+      )
+    }
+
+    const { data: siblings, error: siblingError } = await (parentId
+      ? supabase.from("wiki_nodes").select("slug").eq("parent_id", parentId)
+      : supabase.from("wiki_nodes").select("slug").is("parent_id", null))
+    if (siblingError) {
+      return NextResponse.json({ error: siblingError.message }, { status: 400 })
+    }
+    const nodeId = crypto.randomUUID()
+    const title = titleFromWikiImportFileName(videoFileName)
+    const { error: nodeError } = await supabase.from("wiki_nodes").insert({
+      id: nodeId,
+      parent_id: parentId,
+      type: "page",
+      title,
+      slug: createUniqueWikiImportSlug(
+        title,
+        (siblings ?? []).map((sibling) => sibling.slug)
+      ),
+      status: "draft",
+      tags: [],
+      import_content_hash: contentHash,
+      created_by: user.id,
+      updated_by: user.id,
+    })
+    if (nodeError) {
+      return NextResponse.json({ error: nodeError.message }, { status: 400 })
+    }
+
+    const nodes = await fetchWikiNodes(supabase)
+    const node = nodes.find((item) => item.id === nodeId)
+    const path = node ? buildWikiPath(nodes, node) : ""
+    return NextResponse.json({ ok: true, nodeId, path: `/wiki/${path}` })
   }
 
   const contentHash = createWikiImportContentHash(normalizedText)

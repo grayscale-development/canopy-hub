@@ -24,7 +24,12 @@ test("Wiki managers can import every representative document sample @wiki", asyn
     const editorSwitch = page.getByRole("switch", {
       name: "Toggle wiki editor mode",
     })
-    if ((await editorSwitch.getAttribute("aria-checked")) !== "true") {
+    // Editor mode persists between loads and restores after hydration, so
+    // only toggle it when the Import button has not appeared on its own.
+    const importButton = page.getByRole("button", { name: "Import" }).first()
+    try {
+      await importButton.waitFor({ timeout: 4000 })
+    } catch {
       await editorSwitch.click()
     }
     await page.getByRole("button", { name: "Import" }).first().click()
