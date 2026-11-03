@@ -641,6 +641,8 @@ export function mapUnderwritingEventRow(rawRow: RowRecord): TransformedRowResult
       workdays_in_initial_review: toNumber(
         rawRow["Workdays in Initial Review"],
       ),
+      workdays_in_underwriting: toNumber(rawRow["Workdays in Underwriting"]),
+      workdays_in_conditions: toNumber(rawRow["Workdays in Conditions"]),
       qc_count: toNumber(rawRow["# of QCs"]),
       avg_qc_score: toNumber(rawRow["Avg QC Score"]),
       is_bad_loan: toBoolean(rawRow.IsBadLoan ?? rawRow["Is Bad Loan"]),

@@ -131,6 +131,8 @@ describe("department dashboard SQL", () => {
       "supabase/migrations/202610300004_department_dashboard_metric_fixes.sql",
       "supabase/migrations/202610300005_department_org_id_fallback.sql",
       "supabase/migrations/202611020001_department_dashboard_processing_points_and_stable_keys.sql",
+      "supabase/migrations/202611020002_department_dashboard_employee_filter_perf.sql",
+      "supabase/migrations/202611030001_underwriting_workdays.sql",
     ]) {
       await db.exec(fs.readFileSync(path.resolve(migration), "utf8"))
     }
@@ -179,14 +181,15 @@ describe("department dashboard SQL", () => {
         ('eve-after', 'LN7', 'PA One Raw', 'PA1', 'E4', 'Eve Raw', 'Funded', '2026-10-31', 80, 8, 8, true, '{}', 'h');
       insert into raw.underwriting_events (
         external_row_key, app_id, organization_name, organization_id, employee_id, employee_name,
-        event, event_date, points, workdays_in_initial_review, is_bad_loan, raw_payload, source_record_hash
+        event, event_date, points, workdays_in_initial_review, workdays_in_underwriting,
+        workdays_in_conditions, is_bad_loan, raw_payload, source_record_hash
       ) values
-        ('w-ir', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Initial Review Complete', '2026-10-01', 1, 3, false, '{}', 'h'),
-        ('w-fu', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Final Underwrite', '2026-10-05', 2, null, false, '{}', 'h'),
-        ('w-fd', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Funded', '2026-10-10', 1, null, true, '{}', 'h'),
-        ('w-cd', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Conditions Submitted', '2026-10-08', 0.5, null, false, '{}', 'h'),
-        ('n-fd', 'U2', 'UW Raw', 'UW1', 'W2', 'Ned Raw', 'Funded', '2026-09-15', 4, null, false, '{}', 'h'),
-        ('n-ir', 'U2', 'UW Raw', 'UW1', 'W2', 'Ned Raw', 'Initial Review Complete', '2026-09-01', 0, 5, false, '{}', 'h');
+        ('w-ir', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Initial Review Complete', '2026-10-01', 1, 3, null, null, false, '{}', 'h'),
+        ('w-fu', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Final Underwrite', '2026-10-05', 2, null, 6, null, false, '{}', 'h'),
+        ('w-fd', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Funded', '2026-10-10', 1, null, null, null, true, '{}', 'h'),
+        ('w-cd', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Conditions Submitted', '2026-10-08', 0.5, null, null, 2, false, '{}', 'h'),
+        ('n-fd', 'U2', 'UW Raw', 'UW1', 'W2', 'Ned Raw', 'Funded', '2026-09-15', 4, null, null, null, false, '{}', 'h'),
+        ('n-ir', 'U2', 'UW Raw', 'UW1', 'W2', 'Ned Raw', 'Initial Review Complete', '2026-09-01', 0, 5, null, null, false, '{}', 'h');
     `)
   }, 60_000)
 
@@ -393,7 +396,7 @@ describe("department dashboard SQL", () => {
     expectClose(metric(orgTwo.organizations, "Org Two", "total_funded"), 2)
   })
 
-  it("computes underwriting metrics and leaves missing workday averages blank", async () => {
+  it("computes underwriting workday metrics and leaves missing values blank", async () => {
     const dashboard = await loadDashboard("underwriting")
 
     expect(dashboard.employees.map((row) => row.label)).toEqual([
@@ -426,19 +429,27 @@ describe("department dashboard SQL", () => {
       ),
       1
     )
-    expect(
+    expectClose(
       metric(
         dashboard.employees,
         "Uma Underwriter",
         "avg_workdays_underwriting"
-      )
-    ).toBeNull()
+      ),
+      6
+    )
     expectClose(
       metric(dashboard.employees, "Uma Underwriter", "condition_events"),
       1
     )
+    expectClose(
+      metric(dashboard.employees, "Uma Underwriter", "avg_workdays_conditions"),
+      2
+    )
     expect(
-      metric(dashboard.employees, "Uma Underwriter", "avg_workdays_conditions")
+      metric(dashboard.employees, "Ned Underwriter", "avg_workdays_underwriting")
+    ).toBeNull()
+    expect(
+      metric(dashboard.employees, "Ned Underwriter", "avg_workdays_conditions")
     ).toBeNull()
     expectClose(
       metric(dashboard.employees, "Uma Underwriter", "bad_loan_ratio"),
@@ -455,6 +466,19 @@ describe("department dashboard SQL", () => {
       0.5
     )
     expect(dashboard.events.rows[0]?.employeeName).toBe("Uma Underwriter")
+    expect(
+      dashboard.events.rows.find((row) => row.eventName === "Final Underwrite")
+        ?.workdaysInUnderwriting
+    ).toBe(6)
+    expect(
+      dashboard.events.rows.find(
+        (row) => row.eventName === "Conditions Submitted"
+      )?.workdaysInConditions
+    ).toBe(2)
+    expect(
+      dashboard.events.rows.find((row) => row.eventName === "Funded")
+        ?.workdaysInUnderwriting
+    ).toBeNull()
   })
 
   it("groups null organization ids by name and joins trimmed numeric ids", async () => {
