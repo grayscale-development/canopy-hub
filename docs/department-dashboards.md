@@ -203,8 +203,10 @@ Underwriting:
   event that has no column of its own.
 - Total Funded: count of events named Funded. See open items.
 - Initial Review Events: count of events named Initial Review Complete.
-- Avg Workdays in Initial Review: average of Workdays in Initial Review on
-  Initial Review Complete rows.
+- Avg Workdays in Initial Review on Funded Events: average of Workdays in
+  Initial Review on Funded rows. Historic or otherwise missing values remain
+  null and are excluded from the average; this does not change Initial Review
+  Events.
 - Final Underwriting Events: count of events named Final Underwrite. Final
   Underwriting is not counted.
 - Avg Workdays in Underwriting on Funded Events: average of Workdays in

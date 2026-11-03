@@ -134,6 +134,7 @@ describe("department dashboard SQL", () => {
       "supabase/migrations/202611020002_department_dashboard_employee_filter_perf.sql",
       "supabase/migrations/202611030001_underwriting_workdays.sql",
       "supabase/migrations/202611030003_underwriting_workdays_on_funded.sql",
+      "supabase/migrations/202611030004_underwriting_initial_review_workdays_on_funded.sql",
     ]) {
       await db.exec(fs.readFileSync(path.resolve(migration), "utf8"))
     }
@@ -185,12 +186,12 @@ describe("department dashboard SQL", () => {
         event, event_date, points, workdays_in_initial_review, workdays_in_underwriting,
         workdays_in_conditions, is_bad_loan, raw_payload, source_record_hash
       ) values
-        ('w-ir', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Initial Review Complete', '2026-10-01', 1, 3, null, null, false, '{}', 'h'),
+        ('w-ir', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Initial Review Complete', '2026-10-01', 1, null, null, null, false, '{}', 'h'),
         ('w-fu', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Final Underwrite', '2026-10-05', 2, null, null, null, false, '{}', 'h'),
-        ('w-fd', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Funded', '2026-10-10', 1, null, 6, 2, true, '{}', 'h'),
+        ('w-fd', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Funded', '2026-10-10', 1, 3, 6, 2, true, '{}', 'h'),
         ('w-cd', 'U1', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Conditions Submitted', '2026-10-08', 0.5, null, null, null, false, '{}', 'h'),
         ('n-fd', 'U2', 'UW Raw', 'UW1', 'W2', 'Ned Raw', 'Funded', '2026-09-15', 4, null, null, null, false, '{}', 'h'),
-        ('n-ir', 'U2', 'UW Raw', 'UW1', 'W2', 'Ned Raw', 'Initial Review Complete', '2026-09-01', 0, 5, null, null, false, '{}', 'h');
+        ('n-ir', 'U2', 'UW Raw', 'UW1', 'W2', 'Ned Raw', 'Initial Review Complete', '2026-09-01', 0, null, null, null, false, '{}', 'h');
     `)
   }, 60_000)
 

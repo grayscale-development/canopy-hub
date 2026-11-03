@@ -179,9 +179,9 @@ const UNDERWRITING_METRIC_COLUMNS: DepartmentMetricColumn[] = [
   },
   {
     key: "avg_workdays_initial_review",
-    label: "Avg Workdays in Initial Review",
+    label: "Avg Workdays in Initial Review on Funded Events",
     format: "decimal",
-    hint: "Average Workdays in Initial Review on Initial Review Complete events.",
+    hint: "Average Workdays in Initial Review on Funded events.",
   },
   {
     key: "final_underwriting_events",

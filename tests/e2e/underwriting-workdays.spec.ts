@@ -133,9 +133,9 @@ async function seedQaRows() {
       null,
       null,
     ],
-    ["a-funded-2", "a", "alice", "Funded", activeDate, 2, 3],
-    ["a-funded-6", "a", "alice", "Funded", activeDate, 6, 9],
-    ["a-funded-null", "a", "alice", "Funded", activeDate, null, null],
+    ["a-funded-2", "a", "alice", "Funded", activeDate, 4, 2, 3],
+    ["a-funded-6", "a", "alice", "Funded", activeDate, 8, 6, 9],
+    ["a-funded-null", "a", "alice", "Funded", activeDate, null, null, null],
     ["b-final", "b", "bob", "Final Underwrite", priorMonthDate, null, null],
     [
       "b-condition",
@@ -146,7 +146,7 @@ async function seedQaRows() {
       null,
       null,
     ],
-    ["b-funded-20", "b", "bob", "Funded", priorMonthDate, 20, 30],
+    ["b-funded-20", "b", "bob", "Funded", priorMonthDate, 16, 20, 30],
     [
       "blank-final",
       "blank",
@@ -165,22 +165,34 @@ async function seedQaRows() {
       null,
       null,
     ],
-    ["blank-funded", "blank", "blank", "Funded", activeDate, null, null],
-  ].map(([id, org, employee, event, eventDate, underwriting, conditions]) => ({
-    external_row_key: `${MARKER}-${id}`,
-    app_id: `${MARKER}-loan-${id}`,
-    organization_id: `${MARKER}-org-${org}`,
-    organization_name: `QA UW Org ${String(org).toUpperCase()}`,
-    employee_id: `${MARKER}-${employee}`,
-    employee_name: `QA UW ${String(employee)}`,
-    event,
-    event_date: eventDate,
-    points: 1,
-    workdays_in_underwriting: underwriting,
-    workdays_in_conditions: conditions,
-    raw_payload: { qa_marker: MARKER },
-    source_record_hash: MARKER,
-  }))
+    ["blank-funded", "blank", "blank", "Funded", activeDate, null, null, null],
+  ].map(
+    ([
+      id,
+      org,
+      employee,
+      event,
+      eventDate,
+      initialReview,
+      underwriting,
+      conditions,
+    ]) => ({
+      external_row_key: `${MARKER}-${id}`,
+      app_id: `${MARKER}-loan-${id}`,
+      organization_id: `${MARKER}-org-${org}`,
+      organization_name: `QA UW Org ${String(org).toUpperCase()}`,
+      employee_id: `${MARKER}-${employee}`,
+      employee_name: `QA UW ${String(employee)}`,
+      event,
+      event_date: eventDate,
+      points: 1,
+      workdays_in_initial_review: initialReview,
+      workdays_in_underwriting: underwriting,
+      workdays_in_conditions: conditions,
+      raw_payload: { qa_marker: MARKER },
+      source_record_hash: MARKER,
+    })
+  )
   const fillerEvents = Array.from({ length: 101 }, (_, index) => ({
     external_row_key: `${MARKER}-filler-${index}`,
     app_id: `${MARKER}-loan-filler-${index}`,
@@ -292,15 +304,29 @@ test.describe("Underwriting workday metrics", () => {
       )
     const underwritingColumn = await headerIndex("Workdays in Underwriting")
     const conditionsColumn = await headerIndex("Workdays in Conditions")
+    const initialReviewColumn = await headerIndex("Workdays in Initial Review")
 
+    expect(initialReviewColumn).toBeGreaterThanOrEqual(0)
     expect(underwritingColumn).toBeGreaterThanOrEqual(0)
     expect(conditionsColumn).toBeGreaterThanOrEqual(0)
+    await expect(metricCell(underwriters, "Company Avg", 3)).toHaveText("11.00")
     await expect(metricCell(underwriters, "Company Avg", 5)).toHaveText("12.00")
     await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("18.00")
+    await expect(metricCell(underwriters, "QA UW Alice", 3)).toHaveText("6.00")
     await expect(metricCell(underwriters, "QA UW Alice", 5)).toHaveText("4.00")
     await expect(metricCell(underwriters, "QA UW Alice", 7)).toHaveText("6.00")
+    await expect(metricCell(underwriters, "QA UW Bob", 3)).toHaveText("16.00")
     await expect(metricCell(underwriters, "QA UW Bob", 5)).toHaveText("20.00")
     await expect(metricCell(underwriters, "QA UW Bob", 7)).toHaveText("30.00")
+
+    await underwriters
+      .getByRole("button", {
+        name: "Avg Workdays in Initial Review on Funded Events",
+      })
+      .click()
+    await expect(underwriters.getByRole("row").nth(2)).toContainText(
+      "QA UW Bob"
+    )
 
     await underwriters
       .getByRole("button", {
@@ -314,6 +340,9 @@ test.describe("Underwriting workday metrics", () => {
     const fundedRow = eventTable.getByRole("row", {
       name: new RegExp(`${MARKER}-loan-a-funded-2`),
     })
+    await expect(fundedRow.locator("td").nth(initialReviewColumn)).toHaveText(
+      "4.00"
+    )
     await expect(fundedRow.locator("td").nth(underwritingColumn)).toHaveText(
       "2.00"
     )
@@ -323,6 +352,9 @@ test.describe("Underwriting workday metrics", () => {
     const conditionRow = eventTable.getByRole("row", {
       name: new RegExp(`${MARKER}-loan-a-condition`),
     })
+    await expect(
+      conditionRow.locator("td").nth(initialReviewColumn)
+    ).toHaveText("—")
     await expect(conditionRow.locator("td").nth(underwritingColumn)).toHaveText(
       "—"
     )
@@ -332,32 +364,39 @@ test.describe("Underwriting workday metrics", () => {
     const nullRow = eventTable.getByRole("row", {
       name: new RegExp(`${MARKER}-loan-a-funded-null`),
     })
+    await expect(nullRow.locator("td").nth(initialReviewColumn)).toHaveText("—")
     await expect(nullRow.locator("td").nth(underwritingColumn)).toHaveText("—")
 
     await page.getByLabel("Branch").selectOption({ label: "QA UW Branch A" })
     await expect(page).toHaveURL(/branch=/)
+    await expect(metricCell(underwriters, "Company Avg", 3)).toHaveText("6.00")
     await expect(metricCell(underwriters, "Company Avg", 5)).toHaveText("4.00")
     await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("6.00")
 
     await page.goto(`/reports/underwriting?month=${activeMonth}`)
+    await expect(metricCell(underwriters, "Company Avg", 3)).toHaveText("6.00")
     await expect(metricCell(underwriters, "Company Avg", 5)).toHaveText("4.00")
     await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("6.00")
     await page.goto(`/reports/underwriting?week=${activeWeek}`)
+    await expect(metricCell(underwriters, "Company Avg", 3)).toHaveText("6.00")
     await expect(metricCell(underwriters, "Company Avg", 5)).toHaveText("4.00")
     await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("6.00")
     await page.goto(
       `/reports/underwriting?event=${encodeURIComponent("QA UW Conditions Submitted")}`
     )
+    await expect(metricCell(underwriters, "Company Avg", 3)).toHaveText("—")
     await expect(metricCell(underwriters, "Company Avg", 5)).toHaveText("—")
     await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("—")
     await page.goto(
       `/reports/underwriting?org=${encodeURIComponent(`${MARKER}-org-a`)}`
     )
+    await expect(metricCell(underwriters, "Company Avg", 3)).toHaveText("6.00")
     await expect(metricCell(underwriters, "Company Avg", 5)).toHaveText("4.00")
     await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("6.00")
     await page.goto(
       `/reports/underwriting?branch=${encodeURIComponent(`${MARKER}-branch-blank`)}`
     )
+    await expect(metricCell(underwriters, "Company Avg", 3)).toHaveText("—")
     await expect(metricCell(underwriters, "Company Avg", 5)).toHaveText("—")
     await expect(metricCell(underwriters, "Company Avg", 7)).toHaveText("—")
 

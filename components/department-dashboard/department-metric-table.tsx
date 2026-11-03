@@ -81,7 +81,7 @@ export function DepartmentMetricTable({
       >
         <th
           scope="row"
-          className="min-w-44 px-4 py-3 text-left font-medium whitespace-nowrap"
+          className="sticky left-0 z-10 min-w-44 bg-card px-4 py-3 text-left font-medium whitespace-nowrap"
         >
           {linked ? (
             <Link
@@ -111,13 +111,13 @@ export function DepartmentMetricTable({
       <div className="border-b px-4 py-3">
         <h2 className="text-lg font-semibold">{title}</h2>
       </div>
-      <div className="max-h-[32rem] overflow-auto">
+      <div className="max-h-[min(32rem,70vh)] overflow-auto">
         <table className="min-w-max text-sm">
-          <thead className="sticky top-0 bg-card">
+          <thead className="sticky top-0 z-20 bg-card">
             <tr className="border-b">
               <th
                 scope="col"
-                className="min-w-44 px-4 py-3 text-left font-medium whitespace-nowrap"
+                className="sticky left-0 z-30 min-w-44 bg-card px-4 py-3 text-left font-medium whitespace-nowrap"
               >
                 <button
                   type="button"
