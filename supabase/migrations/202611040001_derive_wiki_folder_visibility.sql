@@ -5,23 +5,37 @@ returns boolean
 language sql stable security definer
 set search_path = ''
 as $$
-  with recursive descendants as (
-    select id, parent_id, type, status, array[id] as visited
+  with recursive ancestors as (
+    select id, parent_id, status, array[id] as visited
     from public.wiki_nodes
     where id = target_id
+
+    union all
+
+    select parent.id, parent.parent_id, parent.status, ancestors.visited || parent.id
+    from public.wiki_nodes parent
+    join ancestors on parent.id = ancestors.parent_id
+    where not parent.id = any(ancestors.visited)
+  ),
+  descendants as (
+    select id, parent_id, type, status, array[id] as visited
+    from public.wiki_nodes
+    where id = target_id and status <> 'archived'
 
     union all
 
     select child.id, child.parent_id, child.type, child.status, descendants.visited || child.id
     from public.wiki_nodes child
     join descendants on child.parent_id = descendants.id
-    where not child.id = any(descendants.visited)
+    where child.status <> 'archived'
+      and not child.id = any(descendants.visited)
   )
-  select exists (
-    select 1
-    from descendants
-    where type = 'page' and status = 'published'
-  );
+  select not exists (select 1 from ancestors where status = 'archived')
+    and exists (
+      select 1
+      from descendants
+      where type = 'page' and status = 'published'
+    );
 $$;
 
 revoke all on function public.wiki_node_is_visible_to_viewer(uuid) from public;
