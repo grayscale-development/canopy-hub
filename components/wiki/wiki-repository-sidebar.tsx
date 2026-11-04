@@ -258,7 +258,7 @@ function SidebarNestedFolder({
       <div
         id={contentId}
         hidden={!isOpen}
-        className="mt-1 pl-3"
+        className="mt-1"
       >
         {children.map((child) => (
           <SidebarPageLink
