@@ -428,15 +428,15 @@ export async function POST(request: Request) {
   if (parentId) {
     const { data: parent, error: parentError } = await supabase
       .from("wiki_nodes")
-      .select("id,type,status")
+      .select("id,type")
       .eq("id", parentId)
       .maybeSingle()
     if (parentError) {
       return NextResponse.json({ error: parentError.message }, { status: 400 })
     }
-    if (!parent || parent.type !== "folder" || parent.status === "archived") {
+    if (!parent || parent.type !== "folder") {
       return NextResponse.json(
-        { error: "Choose an active Wiki section or group." },
+        { error: "Choose a Wiki section or group." },
         { status: 400 }
       )
     }

@@ -194,7 +194,10 @@ export async function createWikiNodeAction(
     const repository = getWikiRepositoryBySlug(
       getString(formData, "repository_slug")
     )
-    const status = parseNodeStatus(getString(formData, "status"), type)
+    const status =
+      type === "page"
+        ? parseNodeStatus(getString(formData, "status"), type)
+        : "published"
     const tags =
       type === "page" ? normalizeWikiTags(getString(formData, "tags")) : []
 
@@ -608,6 +611,20 @@ export async function updateWikiNodeStatusAction(
 
     if (!nodeId) {
       return { ok: false, message: "Page ID is required." }
+    }
+
+    const { data: node, error: nodeError } = await supabase
+      .from("wiki_nodes")
+      .select("type")
+      .eq("id", nodeId)
+      .maybeSingle()
+
+    if (nodeError) {
+      return { ok: false, message: nodeError.message }
+    }
+
+    if (!node || node.type !== "page") {
+      return { ok: false, message: "Wiki page not found." }
     }
 
     const { error } = await supabase

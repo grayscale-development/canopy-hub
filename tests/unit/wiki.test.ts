@@ -9,6 +9,7 @@ import {
   compareWikiNodes,
   estimateTokenCount,
   findDefaultWikiPagePath,
+  findFirstPublishedWikiPagePath,
   formatBytes,
   getWikiAssetKind,
   isPublishedWikiBranch,
@@ -139,7 +140,7 @@ describe("wiki helpers", () => {
     )
   })
 
-  it("only treats a node as viewer-visible when its full branch is published", () => {
+  it("derives folder visibility from published descendant pages", () => {
     const root = node({
       id: "root",
       type: "folder",
@@ -166,8 +167,44 @@ describe("wiki helpers", () => {
     ).toBe(true)
     expect(
       isPublishedWikiBranch([root, draftParent, publishedChild], publishedChild)
+    ).toBe(true)
+    expect(isPublishedWikiBranch([publishedChild], publishedChild)).toBe(true)
+    expect(
+      isPublishedWikiBranch(
+        [root, draftParent, { ...publishedChild, status: "draft" }],
+        draftParent
+      )
     ).toBe(false)
-    expect(isPublishedWikiBranch([publishedChild], publishedChild)).toBe(false)
+  })
+
+  it("finds the first published page beneath a folder at any depth", () => {
+    const root = node({ id: "root", type: "folder", slug: "root" })
+    const section = node({
+      id: "section",
+      parent_id: root.id,
+      type: "folder",
+      slug: "section",
+      status: "draft",
+    })
+    const group = node({
+      id: "group",
+      parent_id: section.id,
+      type: "folder",
+      slug: "group",
+    })
+    const page = node({
+      id: "page",
+      parent_id: group.id,
+      slug: "page",
+      status: "published",
+    })
+
+    expect(
+      findFirstPublishedWikiPagePath([root, section, group, page], section)
+    ).toBe("root/section/group/page")
+    expect(
+      findFirstPublishedWikiPagePath([root, section, group], section)
+    ).toBeNull()
   })
 
   it("finds the first direct page across wiki sections as the default page", () => {

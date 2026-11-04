@@ -159,23 +159,25 @@ export function WikiCreateDialog({
               ))}
             </select>
           </div>
-          <div className="grid gap-2">
-            <label
-              className="text-sm font-medium"
-              htmlFor={`wiki-${type}-status`}
-            >
-              Status
-            </label>
-            <select
-              id={`wiki-${type}-status`}
-              name="status"
-              defaultValue={type === "folder" ? "published" : "draft"}
-              className="h-11 rounded-lg border bg-background px-3 text-sm"
-            >
-              <option value="draft">Draft</option>
-              <option value="published">Published</option>
-            </select>
-          </div>
+          {type === "page" ? (
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium"
+                htmlFor={`wiki-${type}-status`}
+              >
+                Status
+              </label>
+              <select
+                id={`wiki-${type}-status`}
+                name="status"
+                defaultValue="draft"
+                className="h-11 rounded-lg border bg-background px-3 text-sm"
+              >
+                <option value="draft">Draft</option>
+                <option value="published">Published</option>
+              </select>
+            </div>
+          ) : null}
           <div className="flex items-center gap-3">
             <Button type="submit" disabled={pending}>
               {pending ? "Creating..." : "Create"}
@@ -243,7 +245,11 @@ export function WikiCreateWizardDialog({
     setState(null)
     formData.set("type", type)
     formData.set("parent_id", parentId ?? "")
-    formData.set("status", type === "folder" ? "published" : "draft")
+    if (type === "page") {
+      formData.set("status", "draft")
+    } else {
+      formData.delete("status")
+    }
     if (repositorySlug) {
       formData.set("repository_slug", repositorySlug)
     }
@@ -262,10 +268,7 @@ export function WikiCreateWizardDialog({
   }
 
   return (
-    <Dialog
-      open={isOpen}
-      onOpenChange={handleOpenChange}
-    >
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       {showTrigger ? (
         <DialogTrigger asChild>
           <Button
@@ -470,6 +473,7 @@ export function WikiNodeActionsMenu({
     <>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
+          aria-describedby={undefined}
           onOpenAutoFocus={(event) => {
             if (node.type === "page") {
               event.preventDefault()
@@ -479,12 +483,6 @@ export function WikiNodeActionsMenu({
         >
           <DialogHeader>
             <DialogTitle>Edit Wiki Item</DialogTitle>
-            <DialogDescription className="sr-only">
-              Rename or move this Wiki item.
-              {cannotArchive
-                ? " Sections and groups must be empty before they can be archived."
-                : ""}
-            </DialogDescription>
           </DialogHeader>
           <form action={handleSubmit} className="grid gap-4">
             <input type="hidden" name="id" value={node.id} />

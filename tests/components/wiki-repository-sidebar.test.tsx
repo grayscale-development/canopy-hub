@@ -15,6 +15,7 @@ import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar
 import type { WikiNodeRow } from "@/lib/wiki"
 
 vi.mock("@/components/wiki/wiki-management-controls", () => ({
+  WIKI_EDIT_NODE_EVENT: "wiki:edit-node",
   WikiCreateWizardDialog: ({
     triggerLabel = "Create",
     triggerAriaLabel,
@@ -28,6 +29,7 @@ vi.mock("@/components/wiki/wiki-management-controls", () => ({
       {iconOnly ? "+" : triggerLabel}
     </button>
   ),
+  WikiNodeActionsMenu: () => null,
 }))
 
 vi.mock("@/components/wiki/wiki-import-wizard", () => ({
@@ -159,8 +161,10 @@ function renderSidebar(
 }
 
 function expectBefore(leftLabel: string, rightLabel: string) {
-  const left = screen.getByRole("link", { name: leftLabel })
-  const right = screen.getByRole("link", { name: rightLabel })
+  const left = screen.getByRole("button", { name: `Collapse ${leftLabel}` })
+  const right = screen.getByRole("button", {
+    name: `Collapse ${rightLabel}`,
+  })
 
   expect(
     left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -185,17 +189,16 @@ describe("WikiRepositorySidebar", () => {
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull()
   })
 
-  it("keeps sections ordered and makes title navigation separate from expansion", async () => {
+  it("keeps sections ordered and toggles them from the title or chevron", async () => {
     const user = userEvent.setup()
     const view = renderSidebar("canopy-wiki")
 
     expectBefore("Hub", "Operations")
 
-    const sectionTitle = screen.getByRole("link", { name: "Operations" })
-    expect(sectionTitle).toHaveAttribute("href", "/wiki/canopy-wiki/operations")
+    expect(screen.queryByRole("link", { name: "Operations" })).toBeNull()
 
     const sectionChevron = screen.getByRole("button", {
-      name: "Collapse Operations",
+      name: "Toggle Operations",
     })
     expect(sectionChevron).toHaveAttribute("aria-expanded", "true")
     await user.click(sectionChevron)
@@ -221,19 +224,15 @@ describe("WikiRepositorySidebar", () => {
     view.unmount()
   })
 
-  it("expands groups from the chevron and preserves their page link", async () => {
+  it("expands groups from the title without navigating to a folder page", async () => {
     const user = userEvent.setup()
     renderSidebar("canopy-wiki")
 
-    const groupTitle = screen.getByRole("link", { name: "Closing" })
-    expect(groupTitle).toHaveAttribute(
-      "href",
-      "/wiki/canopy-wiki/operations/closing"
-    )
+    expect(screen.queryByRole("link", { name: "Closing" })).toBeNull()
 
-    const groupChevron = screen.getByRole("button", { name: "Expand Closing" })
-    expect(groupChevron).toHaveAttribute("aria-expanded", "false")
-    await user.click(groupChevron)
+    const groupTitle = screen.getByRole("button", { name: "Expand Closing" })
+    expect(groupTitle).toHaveAttribute("aria-expanded", "false")
+    await user.click(groupTitle)
     expect(
       screen.getByRole("button", { name: "Collapse Closing" })
     ).toHaveAttribute("aria-expanded", "true")
@@ -245,6 +244,27 @@ describe("WikiRepositorySidebar", () => {
       window.localStorage.getItem("wiki-sidebar:group:closing-group")
     ).toBe("open")
     expect(within(groupTitle).getByText("Closing")).toBeVisible()
+  })
+
+  it("shows manager-only edit controls for sections and groups", async () => {
+    const user = userEvent.setup()
+    const onEdit = vi.fn()
+    window.addEventListener("wiki:edit-node", onEdit)
+    renderSidebar("canopy-wiki")
+
+    expect(screen.getByRole("button", { name: "Edit Operations" })).toHaveClass(
+      "size-8"
+    )
+    expect(screen.getByRole("button", { name: "Edit Closing" })).toHaveClass(
+      "cursor-pointer"
+    )
+
+    await user.click(screen.getByRole("button", { name: "Edit Operations" }))
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    expect(onEdit.mock.calls[0]?.[0]).toMatchObject({
+      detail: { id: "canopy-operations" },
+    })
+    window.removeEventListener("wiki:edit-node", onEdit)
   })
 
   it("does not offer creation controls to a viewer", () => {

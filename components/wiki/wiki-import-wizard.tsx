@@ -65,7 +65,7 @@ export function WikiImportWizardDialog({
   const destinations = React.useMemo(
     () =>
       nodes
-        .filter((node) => node.type === "folder" && node.status !== "archived")
+        .filter((node) => node.type === "folder")
         .sort((left, right) => left.title.localeCompare(right.title)),
     [nodes]
   )
@@ -213,10 +213,7 @@ export function WikiImportWizardDialog({
   }
 
   return (
-    <Dialog
-      open={isOpen}
-      onOpenChange={handleOpenChange}
-    >
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       {showTrigger ? (
         <DialogTrigger asChild>
           <Button type="button" size="sm" variant="default">

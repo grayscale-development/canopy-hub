@@ -29,6 +29,9 @@ class Query {
   neq() {
     return this
   }
+  or() {
+    return this
+  }
   is() {
     return this
   }

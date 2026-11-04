@@ -339,27 +339,71 @@ export function findDefaultWikiPagePath(
   return null
 }
 
-export function isPublishedWikiBranch(nodes: WikiNodeRow[], node: WikiNodeRow) {
-  const byId = new Map(nodes.map((item) => [item.id, item]))
-  let current: WikiNodeRow | undefined = node
+export function findFirstPublishedWikiPagePath(
+  nodes: WikiNodeRow[],
+  folder: WikiNodeRow
+): string | null {
+  const childrenByParentId = new Map<string, WikiNodeRow[]>()
 
-  while (current) {
-    if (current.status !== "published") {
-      return false
-    }
-    if (!current.parent_id) {
-      current = undefined
+  for (const node of nodes) {
+    if (!node.parent_id) {
       continue
     }
 
-    const parent = byId.get(current.parent_id)
-    if (!parent) {
-      return false
-    }
-    current = parent
+    const children = childrenByParentId.get(node.parent_id) ?? []
+    children.push(node)
+    childrenByParentId.set(node.parent_id, children)
   }
 
-  return true
+  function findInFolder(
+    currentFolder: WikiNodeRow,
+    visited: Set<string>
+  ): string | null {
+    if (visited.has(currentFolder.id)) {
+      return null
+    }
+    visited.add(currentFolder.id)
+
+    const children = (childrenByParentId.get(currentFolder.id) ?? []).sort(
+      compareWikiNodes
+    )
+    const directPage = children.find(
+      (child) => child.type === "page" && child.status === "published"
+    )
+    if (directPage) {
+      return buildWikiPath(nodes, directPage)
+    }
+
+    for (const child of children) {
+      if (child.type !== "folder") {
+        continue
+      }
+
+      const path = findInFolder(child, visited)
+      if (path) {
+        return path
+      }
+    }
+
+    return null
+  }
+
+  return findInFolder(folder, new Set())
+}
+
+export function isPublishedWikiBranch(nodes: WikiNodeRow[], node: WikiNodeRow) {
+  if (node.type === "page") {
+    return node.status === "published"
+  }
+
+  return nodes.some(
+    (candidate) =>
+      candidate.type === "page" &&
+      candidate.status === "published" &&
+      buildWikiBreadcrumbs(nodes, candidate).some(
+        (ancestor) => ancestor.id === node.id
+      )
+  )
 }
 
 export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
@@ -368,7 +412,7 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
     .select(
       "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
-    .neq("status", "archived")
+    .or("type.eq.folder,status.neq.archived")
     .order("sort_order", { ascending: true })
     .order("title", { ascending: true })
 
