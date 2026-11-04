@@ -165,7 +165,7 @@ function SidebarPageLink({
     <Link
       href={`/wiki/${path}`}
       className={cn(
-        "flex min-h-8 w-full items-center rounded-md py-1 pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        "flex min-h-8 w-full items-center rounded-md pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
       )}
     >
