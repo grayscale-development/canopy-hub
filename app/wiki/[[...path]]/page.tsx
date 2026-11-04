@@ -160,7 +160,6 @@ function getDirectoryCreateConfig({
       defaultType: "folder" as const,
       labels: { folder: "Section" },
       dialogTitle: "Create Section",
-      dialogDescription: "Add a section to this wiki.",
       repositorySlug,
     }
   }
@@ -171,7 +170,6 @@ function getDirectoryCreateConfig({
       defaultType: "page" as const,
       labels: { page: "Page", folder: "Group" },
       dialogTitle: "Add to Section",
-      dialogDescription: "Create a page or group in this section.",
       repositorySlug: undefined,
     }
   }
@@ -181,7 +179,6 @@ function getDirectoryCreateConfig({
     defaultType: "page" as const,
     labels: { page: "Page" },
     dialogTitle: "Add Page",
-    dialogDescription: "Add a page to this group.",
     repositorySlug: undefined,
   }
 }
@@ -487,9 +484,6 @@ export default async function WikiPage({
                                   labels={displayedCreateConfig.labels}
                                   dialogTitle={
                                     displayedCreateConfig.dialogTitle
-                                  }
-                                  dialogDescription={
-                                    displayedCreateConfig.dialogDescription
                                   }
                                   triggerLabel={
                                     displayedCreateConfig.dialogTitle

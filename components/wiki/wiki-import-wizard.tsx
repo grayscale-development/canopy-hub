@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -40,12 +39,18 @@ interface ImportResponse {
 export function WikiImportWizardDialog({
   nodes,
   parentId = null,
+  open,
+  onOpenChange,
+  showTrigger = true,
 }: {
   nodes: WikiNodeRow[]
   parentId?: string | null
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  showTrigger?: boolean
 }) {
   const router = useRouter()
-  const [open, setOpen] = React.useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const [file, setFile] = React.useState<File | null>(null)
   const [text, setText] = React.useState("")
   const [selectedParentId, setSelectedParentId] = React.useState(parentId ?? "")
@@ -73,6 +78,18 @@ export function WikiImportWizardDialog({
     setDuplicate(null)
     setIsSubmitting(false)
     setVideoImportProgress(null)
+  }
+
+  const isOpen = open ?? uncontrolledOpen
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (open === undefined) {
+      setUncontrolledOpen(nextOpen)
+    }
+    onOpenChange?.(nextOpen)
+    if (!nextOpen) {
+      reset()
+    }
   }
 
   function chooseFile(nextFile: File | null) {
@@ -162,8 +179,7 @@ export function WikiImportWizardDialog({
                 "We could not create the video draft. Please try again."
             )
           }
-          setOpen(false)
-          reset()
+          handleOpenChange(false)
           router.push(completePayload.path)
           router.refresh()
           return
@@ -183,8 +199,7 @@ export function WikiImportWizardDialog({
         setError("We could not create the draft. Please try again.")
         return
       }
-      setOpen(false)
-      reset()
+      handleOpenChange(false)
       router.push(payload.path)
       router.refresh()
     } catch {
@@ -199,33 +214,26 @@ export function WikiImportWizardDialog({
 
   return (
     <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-        if (!nextOpen) {
-          reset()
-        }
-      }}
+      open={isOpen}
+      onOpenChange={handleOpenChange}
     >
-      <DialogTrigger asChild>
-        <Button type="button" size="sm" variant="default">
-          <UploadIcon />
-          Import
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      {showTrigger ? (
+        <DialogTrigger asChild>
+          <Button type="button" size="sm" variant="default">
+            <UploadIcon />
+            Import
+          </Button>
+        </DialogTrigger>
+      ) : null}
+      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Import into Wiki</DialogTitle>
-          <DialogDescription className="sr-only">
-            Drop in a PDF, DOCX, TXT, Markdown, or video file, or paste text.
-            We’ll create a draft for you to review before publishing.
-          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
           <button
             type="button"
-            className={`flex min-h-28 flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-sm transition-colors ${
-              isDragging ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+            className={`flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-background p-4 text-sm transition-colors ${
+              isDragging ? "border-primary" : "hover:border-primary/50"
             }`}
             onClick={() => fileInputRef.current?.click()}
             onDragEnter={(event) => {

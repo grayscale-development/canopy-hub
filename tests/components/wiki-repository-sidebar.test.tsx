@@ -30,6 +30,10 @@ vi.mock("@/components/wiki/wiki-management-controls", () => ({
   ),
 }))
 
+vi.mock("@/components/wiki/wiki-import-wizard", () => ({
+  WikiImportWizardDialog: () => null,
+}))
+
 const baseNode = {
   status: "published",
   sort_order: 0,
@@ -172,7 +176,7 @@ describe("WikiRepositorySidebar", () => {
     expect(screen.getByRole("button", { name: "Create Section" })).toBeVisible()
     expect(
       screen.getByRole("button", {
-        name: "Add a page or group to Operations",
+        name: "Add to Operations",
       })
     ).toBeVisible()
     expect(
@@ -248,7 +252,7 @@ describe("WikiRepositorySidebar", () => {
 
     expect(
       screen.queryByRole("button", {
-        name: "Add a page or group to Operations",
+        name: "Add to Operations",
       })
     ).not.toBeInTheDocument()
     expect(

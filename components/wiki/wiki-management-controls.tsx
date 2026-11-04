@@ -198,10 +198,12 @@ export function WikiCreateWizardDialog({
   allowedTypes = ["page", "folder"],
   labels = { page: "Page", folder: "Group" },
   dialogTitle = "Create Wiki Item",
-  dialogDescription = "Add a page or group in the current section.",
   iconOnly = false,
   triggerVariant = "outline",
   triggerClassName,
+  open,
+  onOpenChange,
+  showTrigger = true,
 }: {
   parentId?: string | null
   defaultType?: "folder" | "page"
@@ -212,16 +214,30 @@ export function WikiCreateWizardDialog({
   allowedTypes?: Array<"folder" | "page">
   labels?: Partial<Record<"folder" | "page", string>>
   dialogTitle?: string
-  dialogDescription?: string
   iconOnly?: boolean
   triggerVariant?: "default" | "outline" | "secondary" | "ghost"
   triggerClassName?: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  showTrigger?: boolean
 }) {
   const router = useRouter()
-  const [open, setOpen] = React.useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const [type, setType] = React.useState<"folder" | "page">(defaultType)
   const [pending, startTransition] = React.useTransition()
   const [state, setState] = React.useState<WikiActionResult | null>(null)
+  const isOpen = open ?? uncontrolledOpen
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (open === undefined) {
+      setUncontrolledOpen(nextOpen)
+    }
+    onOpenChange?.(nextOpen)
+    if (!nextOpen) {
+      setState(null)
+      setType(defaultType)
+    }
+  }
 
   function handleSubmit(formData: FormData) {
     setState(null)
@@ -236,7 +252,7 @@ export function WikiCreateWizardDialog({
       const result = await createWikiNodeAction(formData)
       setState(result)
       if (result.ok) {
-        setOpen(false)
+        handleOpenChange(false)
         router.refresh()
         if (result.path) {
           router.push(result.path)
@@ -247,34 +263,27 @@ export function WikiCreateWizardDialog({
 
   return (
     <Dialog
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-        if (!nextOpen) {
-          setState(null)
-          setType(defaultType)
-        }
-      }}
+      open={isOpen}
+      onOpenChange={handleOpenChange}
     >
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          size={iconOnly ? "icon-sm" : "sm"}
-          variant={triggerVariant}
-          className={triggerClassName}
-          aria-label={triggerAriaLabel}
-          title={triggerTitle}
-        >
-          <PlusIcon />
-          {iconOnly ? null : triggerLabel}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      {showTrigger ? (
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            size={iconOnly ? "icon-sm" : "sm"}
+            variant={triggerVariant}
+            className={triggerClassName}
+            aria-label={triggerAriaLabel}
+            title={triggerTitle}
+          >
+            <PlusIcon />
+            {iconOnly ? null : triggerLabel}
+          </Button>
+        </DialogTrigger>
+      ) : null}
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
-          <DialogDescription className="sr-only">
-            {dialogDescription}
-          </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="grid gap-4">
           {allowedTypes.length > 1 ? (

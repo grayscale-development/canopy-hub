@@ -7,11 +7,18 @@ import { ChevronRightIcon, PlusIcon, TagsIcon } from "lucide-react"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { WikiCreateWizardDialog } from "@/components/wiki/wiki-management-controls"
+import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
 import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 import {
   getDefaultWikiRepository,
@@ -158,10 +165,11 @@ function SidebarPageLink({
     <Link
       href={`/wiki/${path}`}
       className={cn(
-        "flex min-h-8 w-full items-center rounded-md px-2 py-1 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        "flex min-h-8 w-full items-center rounded-md py-1 pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
       )}
     >
+      <span aria-hidden="true" className="size-8 shrink-0" />
       <TruncatedTitle title={node.title} />
       {node.status === "draft" ? (
         <span
@@ -205,35 +213,12 @@ function SidebarNestedFolder({
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
       >
-        <Link
-          href={`/wiki/${folderPath}`}
-          aria-current={isActive ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <TruncatedTitle title={folder.title} />
-        </Link>
-        {canManage ? (
-          <WikiCreateWizardDialog
-            parentId={folder.id}
-            defaultType="page"
-            allowedTypes={["page"]}
-            labels={{ page: "Page" }}
-            dialogTitle="Add Page"
-            dialogDescription="Add a page to this group."
-            triggerLabel=""
-            triggerAriaLabel={`Add a page to ${folder.title}`}
-            triggerTitle={`Add a page to ${folder.title}`}
-            iconOnly
-            triggerVariant="ghost"
-            triggerClassName="size-8 shrink-0 px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
-          />
-        ) : null}
         <button
           type="button"
           aria-label={`${isOpen ? "Collapse" : "Expand"} ${folder.title}`}
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setPersistedOpen((current) => !current)
@@ -247,6 +232,28 @@ function SidebarNestedFolder({
             )}
           />
         </button>
+        <Link
+          href={`/wiki/${folderPath}`}
+          aria-current={isActive ? "page" : undefined}
+          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <TruncatedTitle title={folder.title} />
+        </Link>
+        {canManage ? (
+          <WikiCreateWizardDialog
+            parentId={folder.id}
+            defaultType="page"
+            allowedTypes={["page"]}
+            labels={{ page: "Page" }}
+            dialogTitle="Add Page"
+            triggerLabel=""
+            triggerAriaLabel={`Add a page to ${folder.title}`}
+            triggerTitle={`Add a page to ${folder.title}`}
+            iconOnly
+            triggerVariant="ghost"
+            triggerClassName="size-8 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+          />
+        ) : null}
       </div>
       <div
         id={contentId}
@@ -263,6 +270,75 @@ function SidebarNestedFolder({
         ))}
       </div>
     </div>
+  )
+}
+
+function SidebarSectionAddMenu({
+  section,
+  nodes,
+}: {
+  section: WikiNodeRow
+  nodes: WikiNodeRow[]
+}) {
+  const [dialog, setDialog] = React.useState<"page" | "folder" | "import" | null>(
+    null
+  )
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="size-8 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+            aria-label={`Add to ${section.title}`}
+            title={`Add to ${section.title}`}
+          >
+            <PlusIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-32">
+          <DropdownMenuItem onSelect={() => setDialog("page")}>
+            Page
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDialog("folder")}>
+            Group
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDialog("import")}>
+            Import
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <WikiCreateWizardDialog
+        parentId={section.id}
+        defaultType="page"
+        allowedTypes={["page"]}
+        labels={{ page: "Page" }}
+        dialogTitle="Add Page"
+        open={dialog === "page"}
+        onOpenChange={(open) => setDialog(open ? "page" : null)}
+        showTrigger={false}
+      />
+      <WikiCreateWizardDialog
+        parentId={section.id}
+        defaultType="folder"
+        allowedTypes={["folder"]}
+        labels={{ folder: "Group" }}
+        dialogTitle="Add Group"
+        open={dialog === "folder"}
+        onOpenChange={(open) => setDialog(open ? "folder" : null)}
+        showTrigger={false}
+      />
+      <WikiImportWizardDialog
+        nodes={nodes}
+        parentId={section.id}
+        open={dialog === "import"}
+        onOpenChange={(open) => setDialog(open ? "import" : null)}
+        showTrigger={false}
+      />
+    </>
   )
 }
 
@@ -298,35 +374,12 @@ function SidebarSection({
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
       >
-        <Link
-          href={`/wiki/${sectionPath}`}
-          aria-current={isActive ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <TruncatedTitle title={section.title} />
-        </Link>
-        {canManage ? (
-          <WikiCreateWizardDialog
-            parentId={section.id}
-            defaultType="page"
-            allowedTypes={["page", "folder"]}
-            labels={{ page: "Page", folder: "Group" }}
-            dialogTitle="Add to Section"
-            dialogDescription="Create a page or group in this section."
-            triggerLabel=""
-            triggerAriaLabel={`Add a page or group to ${section.title}`}
-            triggerTitle={`Add a page or group to ${section.title}`}
-            iconOnly
-            triggerVariant="ghost"
-            triggerClassName="size-8 shrink-0 px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
-          />
-        ) : null}
         <button
           type="button"
           aria-label={`${isOpen ? "Collapse" : "Expand"} ${section.title}`}
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setPersistedOpen((current) => !current)
@@ -340,6 +393,16 @@ function SidebarSection({
             )}
           />
         </button>
+        <Link
+          href={`/wiki/${sectionPath}`}
+          aria-current={isActive ? "page" : undefined}
+          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <TruncatedTitle title={section.title} />
+        </Link>
+        {canManage ? (
+          <SidebarSectionAddMenu section={section} nodes={nodes} />
+        ) : null}
       </div>
       <div
         id={contentId}
@@ -426,7 +489,6 @@ export function WikiRepositorySidebar({
             allowedTypes={["folder"]}
             labels={{ folder: "Section" }}
             dialogTitle="Create Section"
-            dialogDescription={`Add a section to ${selectedRepository.title}.`}
             repositorySlug={
               repositoryNode ? undefined : selectedRepository.slug
             }
@@ -435,7 +497,7 @@ export function WikiRepositorySidebar({
             triggerTitle="Create Section"
             iconOnly
             triggerVariant="ghost"
-            triggerClassName="size-8 shrink-0 px-0"
+            triggerClassName="size-8 shrink-0 cursor-pointer px-0"
           />
         ) : !canManageWiki ? (
           <PermissionRequestGate
