@@ -294,6 +294,18 @@ dbDescribe("Milo user permission enforcement", () => {
     expect(
       (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
         .sources
+    ).toHaveLength(2)
+    expect(
+      (
+        await admin
+          .from("wiki_nodes")
+          .update({ status: "archived" })
+          .eq("id", parentId)
+      ).error
+    ).toBeNull()
+    expect(
+      (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
+        .sources
     ).toEqual([])
     expect(
       (
@@ -304,18 +316,6 @@ dbDescribe("Milo user permission enforcement", () => {
         )
       ).ok
     ).toBe(false)
-    expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, manager))
-        .sources
-    ).toHaveLength(2)
-    expect(
-      (
-        await admin
-          .from("wiki_nodes")
-          .update({ status: "archived" })
-          .eq("id", parentId)
-      ).error
-    ).toBeNull()
     expect(
       (await callMiloMcpTool("knowledge_search", { query: token }, manager))
         .sources
