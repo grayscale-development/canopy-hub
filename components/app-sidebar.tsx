@@ -8,14 +8,13 @@ import {
   LifeBuoyIcon,
   ListTreeIcon,
   MessageSquarePlusIcon,
-  Settings2Icon,
   UsersRoundIcon,
 } from "lucide-react"
 import { redirect } from "next/navigation"
 
 import { AppSidebarLibraryNav } from "@/components/app-sidebar-library-nav"
 import { NavUser } from "@/components/nav-user"
-import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
+import { SettingsNavButton } from "@/components/settings-nav-button"
 import {
   Sidebar,
   SidebarContent,
@@ -69,14 +68,6 @@ const directoryNav = [
     title: "Branches",
     url: "/branches",
     icon: Building2Icon,
-  },
-]
-
-const adminNav = [
-  {
-    title: "Settings",
-    url: "/settings",
-    icon: Settings2Icon,
   },
 ]
 
@@ -226,39 +217,12 @@ export async function AppSidebar({
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-          {adminNav.map((item) => (
-            <SidebarMenuItem key={item.title}>
-              {canViewSettings ? (
-                <SidebarMenuButton
-                  asChild
-                  isActive={activePath === item.url}
-                  tooltip={item.title}
-                >
-                  <Link href={item.url}>
-                    <item.icon />
-                    <span className="group-data-[collapsible=icon]:hidden">
-                      {item.title}
-                    </span>
-                  </Link>
-                </SidebarMenuButton>
-              ) : (
-                <PermissionRequestGate
-                  hasPermission={canViewSettings}
-                  permissionCode={SETTINGS_ACCESS_PERMISSION}
-                  permissionName="Access Settings"
-                  className="w-full"
-                  popupClassName="bottom-full top-auto mb-0"
-                >
-                  <SidebarMenuButton tooltip={item.title}>
-                    <item.icon />
-                    <span className="group-data-[collapsible=icon]:hidden">
-                      {item.title}
-                    </span>
-                  </SidebarMenuButton>
-                </PermissionRequestGate>
-              )}
-            </SidebarMenuItem>
-          ))}
+          <SidebarMenuItem>
+            <SettingsNavButton
+              canViewSettings={canViewSettings}
+              isActive={activePath === "/settings"}
+            />
+          </SidebarMenuItem>
         </SidebarMenu>
         <SidebarMenu>
           <SidebarMenuItem>
