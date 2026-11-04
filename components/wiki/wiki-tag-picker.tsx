@@ -184,9 +184,9 @@ export function WikiTagPicker({
                       <>Create “{row.value}”</>
                     ) : (
                       <>
-                        <WikiTagPill className="max-w-[calc(100%-2rem)] truncate">
+                        <span className="min-w-0 flex-1 truncate">
                           {row.value}
-                        </WikiTagPill>
+                        </span>
                         {selected ? (
                           <CheckIcon
                             className="ml-auto size-4 shrink-0"

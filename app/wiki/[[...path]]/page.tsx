@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation"
+import { redirect } from "next/navigation"
 
 import {
   WikiEditModeGate,
@@ -98,12 +98,27 @@ function DirectoryView({
         <div className="flex flex-wrap items-center justify-between gap-3">
           {title ? <h2 className="text-xl font-semibold">{title}</h2> : null}
           {canManageWiki && showCreateControl ? (
-            <WikiEditModeGate>
+            items.length ? (
+              <WikiEditModeGate>
+                <div className="flex items-center gap-2">
+                  <WikiCreateWizardDialog parentId={parentId} nodes={nodes} />
+                  <WikiImportWizardDialog nodes={nodes} parentId={parentId} />
+                </div>
+              </WikiEditModeGate>
+            ) : (
               <div className="flex items-center gap-2">
-                <WikiCreateWizardDialog parentId={parentId} nodes={nodes} />
-                <WikiImportWizardDialog nodes={nodes} parentId={parentId} />
+                <WikiCreateWizardDialog
+                  parentId={parentId}
+                  nodes={nodes}
+                  defaultType="folder"
+                  allowedTypes={["folder"]}
+                  triggerLabel="Add Section"
+                  triggerAriaLabel="Add Section"
+                  triggerTitle="Add Section"
+                  labels={{ folder: "Section" }}
+                />
               </div>
-            </WikiEditModeGate>
+            )
           ) : null}
         </div>
       ) : null}
@@ -246,7 +261,7 @@ export default async function WikiPage({
   const isTagsDirectory = path.length === 1 && path[0] === "tags"
 
   if (path.length && !pageData && !missingRepositoryPage && !isTagsDirectory) {
-    notFound()
+    redirect("/wiki")
   }
 
   let lastUpdatedBy = "Unknown"
@@ -314,10 +329,17 @@ export default async function WikiPage({
 
   if (missingRepositoryPage || pageData?.node.type === "folder") {
     if (!pageData) {
+      if (path.length) {
+        redirect("/wiki")
+      }
+    }
+    if (pageData?.node.type === "folder") {
+      const firstPagePath = findFirstPublishedWikiPagePath(nodes, pageData.node)
+      if (firstPagePath) {
+        redirect(`/wiki/${firstPagePath}`)
+      }
       redirect("/wiki")
     }
-    const firstPagePath = findFirstPublishedWikiPagePath(nodes, pageData.node)
-    redirect(firstPagePath ? `/wiki/${firstPagePath}` : "/wiki")
   }
 
   return (
@@ -376,24 +398,7 @@ export default async function WikiPage({
                             </WikiEditModeGate>
                           ) : null
                         }
-                        createAction={
-                          canManageWiki ? (
-                            <WikiEditModeGate>
-                              <div className="flex items-center gap-2">
-                                <WikiImportWizardDialog
-                                  nodes={nodes}
-                                  parentId={pageData.node.parent_id}
-                                  triggerLabel="AI Update"
-                                  triggerAriaLabel="AI Update"
-                                  triggerTitle="AI Update"
-                                  triggerVariant="ghost"
-                                  triggerClassName="h-auto cursor-pointer gap-1 rounded-none p-0 text-sm hover:bg-transparent dark:hover:bg-transparent"
-                                  targetPageId={pageData.node.id}
-                                />
-                              </div>
-                            </WikiEditModeGate>
-                          ) : null
-                        }
+                        // AI Update is hidden until it is better tested.
                       />
                     </div>
                   ) : null}

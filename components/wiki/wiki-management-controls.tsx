@@ -4,10 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   ArchiveIcon,
-  ChevronRightIcon,
-  FileTextIcon,
   FilePlusIcon,
-  FolderIcon,
   FolderPlusIcon,
   PlusIcon,
 } from "lucide-react"
@@ -33,23 +30,16 @@ import {
 import { Input } from "@/components/ui/input"
 import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
 import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
+import {
+  wikiFolderPath,
+  WikiMovePicker,
+} from "@/components/wiki/wiki-move-picker"
 import type { WikiNodeRow } from "@/lib/wiki"
 
 function parentOptions(nodes: WikiNodeRow[], currentNodeId?: string) {
   return nodes
     .filter((node) => node.type === "folder" && node.id !== currentNodeId)
     .sort((left, right) => left.title.localeCompare(right.title))
-}
-
-function wikiNodePath(nodes: WikiNodeRow[], nodeId: string) {
-  const byId = new Map(nodes.map((node) => [node.id, node]))
-  const path: WikiNodeRow[] = []
-  let current = byId.get(nodeId)
-  while (current) {
-    path.unshift(current)
-    current = current.parent_id ? byId.get(current.parent_id) : undefined
-  }
-  return path
 }
 
 function StatusMessage({ state }: { state: WikiActionResult | null }) {
@@ -453,7 +443,6 @@ export function WikiNodeActionsMenu({
   const [selectedTargetId, setSelectedTargetId] = React.useState<string | null>(
     node.parent_id
   )
-  const [openFolderIds, setOpenFolderIds] = React.useState<string[]>([])
   const [mergeConfirmOpen, setMergeConfirmOpen] = React.useState(false)
   const [mergePending, setMergePending] = React.useState(false)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
@@ -461,16 +450,10 @@ export function WikiNodeActionsMenu({
   const cannotArchive = node.type === "folder" && hasChildren
   const selectedTarget = nodes.find((item) => item.id === selectedTargetId)
   const selectedPath = selectedTarget
-    ? wikiNodePath(nodes, selectedTarget.id)
+    ? wikiFolderPath(nodes, selectedTarget.id)
         .map((item) => item.title)
         .join(" / ")
     : ""
-  const moveColumns = [null, ...openFolderIds].map((parentId) =>
-    nodes
-      .filter((item) => item.parent_id === parentId)
-      .filter((item) => item.id !== node.id)
-      .sort((left, right) => left.title.localeCompare(right.title))
-  )
 
   const openEditDialog = React.useCallback(() => {
     setSelectedTags(node.tags ?? [])
@@ -533,23 +516,8 @@ export function WikiNodeActionsMenu({
 
   function openMoveDialog() {
     setSelectedTargetId(node.parent_id)
-    setOpenFolderIds(
-      wikiNodePath(nodes, node.parent_id ?? "").map((item) => item.id)
-    )
     setMoveState(null)
     setMoveOpen(true)
-  }
-
-  function chooseMoveTarget(target: WikiNodeRow, columnIndex: number) {
-    setSelectedTargetId(target.id)
-    if (target.type === "folder") {
-      setOpenFolderIds((current) => [
-        ...current.slice(0, columnIndex),
-        target.id,
-      ])
-    } else {
-      setOpenFolderIds((current) => current.slice(0, columnIndex))
-    }
   }
 
   function handleMove() {
@@ -644,20 +612,22 @@ export function WikiNodeActionsMenu({
                 inputId="wiki-edit-tags"
               />
             ) : null}
-            <div className="flex items-center gap-3">
-              <Button type="submit" disabled={pending}>
-                {pending ? "Saving..." : "Save"}
-              </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">
-                  Cancel
-                </Button>
-              </DialogClose>
+            <StatusMessage state={state} />
+            <DialogFooter className="justify-between border-t pt-4">
               <Button type="button" variant="outline" onClick={openMoveDialog}>
                 Move
               </Button>
-              <StatusMessage state={state} />
-            </div>
+              <div className="flex items-center gap-2">
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">
+                    Cancel
+                  </Button>
+                </DialogClose>
+                <Button type="submit" disabled={pending}>
+                  {pending ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </DialogFooter>
           </form>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
@@ -682,7 +652,10 @@ export function WikiNodeActionsMenu({
         </DialogContent>
       </Dialog>
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
-        <DialogContent className="sm:max-w-3xl" aria-describedby={undefined}>
+        <DialogContent
+          className="sm:max-w-[960px]"
+          aria-describedby={undefined}
+        >
           <DialogHeader>
             <DialogTitle>Move {node.title}</DialogTitle>
           </DialogHeader>
@@ -694,59 +667,16 @@ export function WikiNodeActionsMenu({
                   ? "Destination: Hub"
                   : "Choose a section or group."}
             </p>
-            <div className="flex min-h-56 overflow-x-auto rounded-lg border bg-muted/20">
-              {node.type === "folder" ? (
-                <button
-                  type="button"
-                  className={`w-32 shrink-0 border-r px-3 text-left text-sm hover:bg-accent ${selectedTargetId === null ? "bg-accent" : ""}`}
-                  onClick={() => {
-                    setSelectedTargetId(null)
-                    setOpenFolderIds([])
-                  }}
-                >
-                  Hub
-                </button>
-              ) : null}
-              {moveColumns.map((column, columnIndex) => (
-                <div
-                  key={openFolderIds[columnIndex - 1] ?? "root"}
-                  className="w-52 shrink-0 border-r last:border-r-0"
-                >
-                  {column.map((item) => {
-                    const disabled =
-                      item.id === node.id ||
-                      wikiNodePath(nodes, item.id).some(
-                        (ancestor) => ancestor.id === node.id
-                      )
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        disabled={disabled}
-                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 ${selectedTargetId === item.id ? "bg-accent" : ""}`}
-                        onClick={() => chooseMoveTarget(item, columnIndex)}
-                      >
-                        {item.type === "folder" ? (
-                          <FolderIcon className="size-4 shrink-0" />
-                        ) : (
-                          <FileTextIcon className="size-4 shrink-0" />
-                        )}
-                        <span className="min-w-0 flex-1 truncate">
-                          {item.title}
-                        </span>
-                        {item.type === "folder" ? (
-                          <ChevronRightIcon className="size-4 shrink-0" />
-                        ) : null}
-                      </button>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
+            <WikiMovePicker
+              nodes={nodes}
+              selectedTargetId={selectedTargetId}
+              onSelectedTargetChange={setSelectedTargetId}
+              excludedNodeId={node.id}
+            />
             <StatusMessage state={moveState} />
           </div>
           <DialogFooter>
-            {node.type === "page" && selectedTarget?.type === "page" ? (
+            {false && node.type === "page" && selectedTarget?.type === "page" ? (
               <Button
                 type="button"
                 variant="secondary"

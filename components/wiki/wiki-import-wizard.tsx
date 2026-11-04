@@ -13,6 +13,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Switch } from "@/components/ui/switch"
+import {
+  wikiFolderPath,
+  WikiMovePicker,
+} from "@/components/wiki/wiki-move-picker"
 import { getWikiAssetKind, type WikiNodeRow } from "@/lib/wiki"
 import {
   archiveWikiAsset,
@@ -76,19 +81,19 @@ export function WikiImportWizardDialog({
     React.useState<VideoImportProgress>(null)
   const [error, setError] = React.useState("")
   const [duplicate, setDuplicate] = React.useState<DuplicateImport | null>(null)
+  const [destinationPickerOpen, setDestinationPickerOpen] =
+    React.useState(false)
+  const [selectedParentId, setSelectedParentId] = React.useState<string | null>(
+    parentId
+  )
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   const destinationPath = React.useMemo(() => {
-    if (!parentId) return "Wiki root"
-    const byId = new Map(nodes.map((node) => [node.id, node]))
-    const path: string[] = []
-    let current = byId.get(parentId)
-    while (current) {
-      path.unshift(current.title)
-      current = current.parent_id ? byId.get(current.parent_id) : undefined
-    }
-    return ["Hub", ...path].join(" / ")
-  }, [nodes, parentId])
+    const path = wikiFolderPath(nodes, selectedParentId).map(
+      (node) => node.title
+    )
+    return path.length ? ["Hub", ...path].join(" / ") : "Wiki root"
+  }, [nodes, selectedParentId])
 
   function reset() {
     setFile(null)
@@ -96,6 +101,8 @@ export function WikiImportWizardDialog({
     setUpdateMode("update")
     setError("")
     setDuplicate(null)
+    setDestinationPickerOpen(false)
+    setSelectedParentId(parentId)
     setIsSubmitting(false)
     setVideoImportProgress(null)
   }
@@ -142,7 +149,7 @@ export function WikiImportWizardDialog({
         formData.set("target_page_id", targetPageId)
         formData.set("mode", updateMode)
       } else {
-        formData.set("parent_id", parentId ?? "")
+        formData.set("parent_id", selectedParentId ?? "")
       }
       if (allowDuplicate) {
         formData.set("allow_duplicate", "1")
@@ -322,28 +329,37 @@ export function WikiImportWizardDialog({
             />
           </div>
           {isUpdatingPage ? (
-            <div className="grid grid-cols-2 gap-2" aria-label="AI update mode">
-              <Button
-                type="button"
-                variant={updateMode === "update" ? "default" : "outline"}
-                aria-pressed={updateMode === "update"}
-                onClick={() => setUpdateMode("update")}
-              >
-                Update
-              </Button>
-              <Button
-                type="button"
-                variant={updateMode === "replace" ? "default" : "outline"}
-                aria-pressed={updateMode === "replace"}
-                onClick={() => setUpdateMode("replace")}
-              >
-                Replace
-              </Button>
+            <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+              <div className="grid gap-0.5">
+                <label
+                  className="cursor-pointer text-sm font-medium"
+                  htmlFor="wiki-replace-existing-content"
+                >
+                  Replace existing content
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  {updateMode === "replace"
+                    ? "Replace the current page content."
+                    : "Update the current page content."}
+                </p>
+              </div>
+              <Switch
+                id="wiki-replace-existing-content"
+                checked={updateMode === "replace"}
+                onCheckedChange={(checked) =>
+                  setUpdateMode(checked ? "replace" : "update")
+                }
+                aria-label="Replace existing content"
+              />
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <button
+              type="button"
+              className="cursor-pointer text-left text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              onClick={() => setDestinationPickerOpen(true)}
+            >
               This page will be added to {destinationPath}.
-            </p>
+            </button>
           )}
           {duplicate ? (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
@@ -394,6 +410,45 @@ export function WikiImportWizardDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <Dialog
+        open={destinationPickerOpen}
+        onOpenChange={setDestinationPickerOpen}
+      >
+        <DialogContent
+          className="sm:max-w-[960px]"
+          aria-describedby={undefined}
+        >
+          <DialogHeader>
+            <DialogTitle>Choose destination</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">
+              Choose the folder where this page will be created.
+            </p>
+            <WikiMovePicker
+              nodes={nodes}
+              selectedTargetId={selectedParentId}
+              onSelectedTargetChange={setSelectedParentId}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDestinationPickerOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!selectedParentId}
+              onClick={() => setDestinationPickerOpen(false)}
+            >
+              Choose destination
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }

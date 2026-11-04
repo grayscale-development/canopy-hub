@@ -31,6 +31,10 @@ describe("WikiTagPicker", () => {
     expect(
       options.getAllByRole("button").map((button) => button.textContent)
     ).toEqual(["Income", "Assets", "Credit"])
+    expect(options.getAllByRole("button")[0]).toHaveClass("w-full", "text-left")
+    expect(options.queryByText("Income")?.closest("span")).not.toHaveClass(
+      "rounded-full"
+    )
     expect(
       screen.getByRole("textbox", { name: "Search or create a tag" })
         .parentElement

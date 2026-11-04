@@ -101,16 +101,16 @@ describe("WikiImportWizardDialog", () => {
 
     expect(screen.getByRole("heading", { name: "AI Update" })).toBeVisible()
     expect(screen.queryByLabelText("Add to")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Update" })).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    )
+    const replaceSwitch = screen.getByRole("switch", {
+      name: "Replace existing content",
+    })
+    expect(replaceSwitch).toHaveAttribute("data-state", "unchecked")
 
     await user.type(
       screen.getByRole("textbox", { name: "Or paste text" }),
       "Apply this guidance"
     )
-    await user.click(screen.getByRole("button", { name: "Replace" }))
+    await user.click(replaceSwitch)
     await user.click(screen.getByRole("button", { name: "Replace page" }))
 
     await waitFor(() => {
@@ -122,7 +122,7 @@ describe("WikiImportWizardDialog", () => {
     expect(body.get("parent_id")).toBeNull()
   })
 
-  it("creates in the trigger parent without exposing a destination selector", async () => {
+  it("creates in the selected destination folder", async () => {
     const user = userEvent.setup()
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
@@ -155,10 +155,16 @@ describe("WikiImportWizardDialog", () => {
       />
     )
     await user.click(screen.getByRole("button", { name: "AI Create" }))
-    expect(screen.queryByLabelText("Add to")).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", {
+        name: "This page will be added to Hub / Reports.",
+      })
+    )
     expect(
-      screen.getByText("This page will be added to Hub / Reports.")
+      screen.getByRole("heading", { name: "Choose destination" })
     ).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Reports" }))
+    await user.click(screen.getByRole("button", { name: "Choose destination" }))
     await user.type(
       screen.getByRole("textbox", { name: "Or paste text" }),
       "New report"

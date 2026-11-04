@@ -41,6 +41,14 @@ const emptyGroup = {
   tags: [],
 } satisfies WikiNodeRow
 
+const wikiSection = {
+  ...emptyGroup,
+  id: "wiki-section",
+  parent_id: null,
+  slug: "canopy-wiki",
+  title: "Canopy Wiki",
+} satisfies WikiNodeRow
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -74,5 +82,32 @@ describe("WikiNodeActionsMenu", () => {
         "Move or archive the items inside this section or group first."
       )
     ).toBeVisible()
+  })
+
+  it("starts the move picker with real top-level folders, not a synthetic Hub entry", async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <WikiEditableTitle nodeId={emptyGroup.id}>Group</WikiEditableTitle>
+        <WikiNodeActionsMenu
+          nodes={[wikiSection, emptyGroup]}
+          node={emptyGroup}
+        />
+      </>
+    )
+
+    await user.click(screen.getByRole("button", { name: "Group" }))
+    const editDialog = await screen.findByRole("dialog", {
+      name: "Edit Wiki Item",
+    })
+    await user.click(within(editDialog).getByRole("button", { name: "Move" }))
+
+    const moveDialog = await screen.findByRole("dialog", {
+      name: "Move Operations",
+    })
+    expect(
+      within(moveDialog).getByRole("button", { name: "Canopy Wiki" })
+    ).toBeVisible()
+    expect(within(moveDialog).queryByRole("button", { name: "Hub" })).toBeNull()
   })
 })
