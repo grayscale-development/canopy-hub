@@ -121,16 +121,17 @@ language sql stable security definer
 set search_path = ''
 as $$
   with recursive ancestors as (
-    select id, parent_id, array[id] as visited
+    select id, parent_id, status, array[id] as visited
     from public.wiki_nodes where id::text = target_id
     union all
-    select n.id, n.parent_id, a.visited || n.id
+    select n.id, n.parent_id, n.status, a.visited || n.id
     from public.wiki_nodes n join ancestors a on n.id = a.parent_id
     where not n.id = any(a.visited)
   )
   select auth.uid() is not null
     and public.user_has_permission_code(auth.uid(), 'beta.1')
     and exists (select 1 from ancestors where parent_id is null)
+    and not exists (select 1 from ancestors where status = 'archived')
     and (
       public.user_has_permission_code(auth.uid(), 'wiki.manage')
       or public.wiki_node_is_visible_to_viewer(target_id::uuid)
