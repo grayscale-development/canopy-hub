@@ -100,7 +100,7 @@ function DirectoryView({
           {canManageWiki && showCreateControl ? (
             <WikiEditModeGate>
               <div className="flex items-center gap-2">
-                <WikiCreateWizardDialog parentId={parentId} />
+                <WikiCreateWizardDialog parentId={parentId} nodes={nodes} />
                 <WikiImportWizardDialog nodes={nodes} parentId={parentId} />
               </div>
             </WikiEditModeGate>
@@ -383,6 +383,12 @@ export default async function WikiPage({
                                 <WikiImportWizardDialog
                                   nodes={nodes}
                                   parentId={pageData.node.parent_id}
+                                  triggerLabel="AI Update"
+                                  triggerAriaLabel="AI Update"
+                                  triggerTitle="AI Update"
+                                  triggerVariant="ghost"
+                                  triggerClassName="h-auto cursor-pointer gap-1 rounded-none p-0 text-sm hover:bg-transparent dark:hover:bg-transparent"
+                                  targetPageId={pageData.node.id}
                                 />
                               </div>
                             </WikiEditModeGate>

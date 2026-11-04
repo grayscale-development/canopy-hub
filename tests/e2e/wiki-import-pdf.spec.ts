@@ -4,13 +4,13 @@ import { expect, test } from "@playwright/test"
 
 import { signInAsLocalDev } from "./helpers"
 
-test("Wiki managers can import a text PDF into a draft @wiki", async ({
+test("Wiki managers can use AI Create with a text PDF @wiki", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
   await page.goto("/wiki/canopy-wiki/hub/reports")
   await page.getByRole("switch", { name: "Toggle wiki editor mode" }).click()
-  await page.getByRole("button", { name: "Import" }).first().click()
+  await page.getByRole("button", { name: "AI Update" }).click()
   await page
     .locator('input[type="file"]')
     .setInputFiles(

@@ -2,7 +2,15 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ChevronRightIcon, PencilIcon, PlusIcon, TagsIcon } from "lucide-react"
+import {
+  ChevronRightIcon,
+  FileTextIcon,
+  FolderIcon,
+  PencilIcon,
+  PlusIcon,
+  SparklesIcon,
+  TagsIcon,
+} from "lucide-react"
 
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
@@ -283,19 +291,7 @@ function SidebarNestedFolder({
           <SidebarFolderEditButton folder={folder} nodes={nodes} />
         ) : null}
         {canManage ? (
-          <WikiCreateWizardDialog
-            parentId={folder.id}
-            defaultType="page"
-            allowedTypes={["page"]}
-            labels={{ page: "Page" }}
-            dialogTitle="Add Page"
-            triggerLabel=""
-            triggerAriaLabel={`Add a page to ${folder.title}`}
-            triggerTitle={`Add a page to ${folder.title}`}
-            iconOnly
-            triggerVariant="ghost"
-            triggerClassName="size-8 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
-          />
+          <SidebarNestedFolderAddMenu folder={folder} nodes={nodes} />
         ) : null}
       </div>
       <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
@@ -322,6 +318,63 @@ function SidebarNestedFolder({
   )
 }
 
+function SidebarNestedFolderAddMenu({
+  folder,
+  nodes,
+}: {
+  folder: WikiNodeRow
+  nodes: WikiNodeRow[]
+}) {
+  const [dialog, setDialog] = React.useState<"page" | "ai-create" | null>(null)
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="size-8 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+            aria-label={`Add to ${folder.title}`}
+            title={`Add to ${folder.title}`}
+          >
+            <PlusIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-32">
+          <DropdownMenuItem onSelect={() => setDialog("page")}>
+            <FileTextIcon className="size-4" />
+            Page
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDialog("ai-create")}>
+            <SparklesIcon className="size-4" />
+            AI Create
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <WikiCreateWizardDialog
+        nodes={nodes}
+        parentId={folder.id}
+        defaultType="page"
+        allowedTypes={["page"]}
+        labels={{ page: "Page" }}
+        dialogTitle="Add Page"
+        open={dialog === "page"}
+        onOpenChange={(open) => setDialog(open ? "page" : null)}
+        showTrigger={false}
+      />
+      <WikiImportWizardDialog
+        nodes={nodes}
+        parentId={folder.id}
+        open={dialog === "ai-create"}
+        onOpenChange={(open) => setDialog(open ? "ai-create" : null)}
+        showTrigger={false}
+      />
+    </>
+  )
+}
+
 function SidebarSectionAddMenu({
   section,
   nodes,
@@ -330,7 +383,7 @@ function SidebarSectionAddMenu({
   nodes: WikiNodeRow[]
 }) {
   const [dialog, setDialog] = React.useState<
-    "page" | "folder" | "import" | null
+    "page" | "folder" | "ai-create" | null
   >(null)
 
   return (
@@ -350,17 +403,21 @@ function SidebarSectionAddMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-32">
           <DropdownMenuItem onSelect={() => setDialog("page")}>
+            <FileTextIcon className="size-4" />
             Page
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setDialog("folder")}>
+            <FolderIcon className="size-4" />
             Group
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setDialog("import")}>
-            Import
+          <DropdownMenuItem onSelect={() => setDialog("ai-create")}>
+            <SparklesIcon className="size-4" />
+            AI Create
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <WikiCreateWizardDialog
+        nodes={nodes}
         parentId={section.id}
         defaultType="page"
         allowedTypes={["page"]}
@@ -371,6 +428,7 @@ function SidebarSectionAddMenu({
         showTrigger={false}
       />
       <WikiCreateWizardDialog
+        nodes={nodes}
         parentId={section.id}
         defaultType="folder"
         allowedTypes={["folder"]}
@@ -383,8 +441,8 @@ function SidebarSectionAddMenu({
       <WikiImportWizardDialog
         nodes={nodes}
         parentId={section.id}
-        open={dialog === "import"}
-        onOpenChange={(open) => setDialog(open ? "import" : null)}
+        open={dialog === "ai-create"}
+        onOpenChange={(open) => setDialog(open ? "ai-create" : null)}
         showTrigger={false}
       />
     </>
@@ -539,6 +597,7 @@ export function WikiRepositorySidebar({
         </h2>
         {canEditSidebar ? (
           <WikiCreateWizardDialog
+            nodes={visibleNodes}
             parentId={repositoryNode?.id ?? null}
             defaultType="folder"
             allowedTypes={["folder"]}

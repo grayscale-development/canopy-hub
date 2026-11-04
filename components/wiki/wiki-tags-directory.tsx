@@ -3,7 +3,8 @@
 import * as React from "react"
 import Link from "next/link"
 
-import { Input } from "@/components/ui/input"
+import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
+import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
 
 export type WikiTagDirectoryEntry = {
   name: string
@@ -24,15 +25,21 @@ export function WikiTagsDirectory({
   entries: WikiTagDirectoryEntry[]
   initialSearch?: string
 }) {
-  const [search, setSearch] = React.useState(initialSearch)
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const selectedTag = selectedTags[0] ?? ""
 
   React.useEffect(() => {
-    setSearch(initialSearch)
-  }, [initialSearch])
+    const matchingTag = entries.find(
+      (entry) =>
+        entry.name.toLocaleLowerCase() === initialSearch.toLocaleLowerCase()
+    )
+    setSelectedTags(matchingTag ? [matchingTag.name] : [])
+  }, [entries, initialSearch])
 
-  const normalizedSearch = search.trim().toLocaleLowerCase()
-  const visibleEntries = entries.filter((entry) =>
-    entry.name.toLocaleLowerCase().includes(normalizedSearch)
+  const visibleEntries = entries.filter(
+    (entry) =>
+      !selectedTag ||
+      entry.name.toLocaleLowerCase() === selectedTag.toLocaleLowerCase()
   )
 
   return (
@@ -44,20 +51,32 @@ export function WikiTagsDirectory({
         <p className="mt-3 text-sm text-muted-foreground">
           Browse every tag and the published Wiki pages that use it.
         </p>
-        <Input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search tags"
-          aria-label="Search tags"
-          className="mt-4 h-9 max-w-xs"
-        />
+        <div className="mt-4 max-w-xs">
+          <WikiTagPicker
+            availableTags={entries.map((entry) => entry.name)}
+            selectedTags={selectedTags}
+            onSelectedTagsChange={(nextTags) =>
+              setSelectedTags((currentTags) => {
+                const resolvedTags =
+                  typeof nextTags === "function"
+                    ? nextTags(currentTags)
+                    : nextTags
+                return resolvedTags.slice(-1)
+              })
+            }
+            open
+            inputId="wiki-tags-directory-filter"
+            allowCreate={false}
+            name="wiki-tags-directory-filter"
+          />
+        </div>
       </div>
       {visibleEntries.length ? (
         <div className="space-y-6">
           {visibleEntries.map((entry) => {
             const isHighlighted =
-              Boolean(normalizedSearch) &&
-              entry.name.toLocaleLowerCase() === normalizedSearch
+              Boolean(selectedTag) &&
+              entry.name.toLocaleLowerCase() === selectedTag.toLocaleLowerCase()
 
             return (
               <section
@@ -65,14 +84,16 @@ export function WikiTagsDirectory({
                 id={tagAnchorId(entry.name)}
                 className="space-y-3"
               >
-                <h2
-                  className={
-                    isHighlighted
-                      ? "inline-flex rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-semibold ring-2 ring-primary/30"
-                      : "inline-flex rounded-full border bg-muted px-3 py-1 text-sm font-semibold"
-                  }
-                >
-                  {entry.name}
+                <h2>
+                  <WikiTagPill
+                    className={
+                      isHighlighted
+                        ? "border-primary bg-primary/10 text-sm font-semibold ring-2 ring-primary/30"
+                        : "text-sm font-semibold"
+                    }
+                  >
+                    {entry.name}
+                  </WikiTagPill>
                 </h2>
                 {entry.pages.length ? (
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -80,7 +101,7 @@ export function WikiTagsDirectory({
                       <Link
                         key={page.id}
                         href={`/wiki/${page.path}`}
-                        className="rounded-lg border p-3 text-sm font-medium hover:bg-accent"
+                        className="cursor-pointer rounded-lg border p-3 text-sm font-medium hover:bg-accent"
                       >
                         {page.title}
                       </Link>
@@ -97,7 +118,7 @@ export function WikiTagsDirectory({
         </div>
       ) : (
         <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-          No tags match “{search.trim()}”.
+          No tags match “{selectedTag}”.
         </p>
       )}
     </section>

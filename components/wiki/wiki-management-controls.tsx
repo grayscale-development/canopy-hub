@@ -4,7 +4,10 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   ArchiveIcon,
+  ChevronRightIcon,
+  FileTextIcon,
   FilePlusIcon,
+  FolderIcon,
   FolderPlusIcon,
   PlusIcon,
 } from "lucide-react"
@@ -12,6 +15,7 @@ import {
 import {
   archiveWikiNodeAction,
   createWikiNodeAction,
+  moveWikiNodeAction,
   updateWikiNodeAction,
   type WikiActionResult,
 } from "@/app/wiki/actions"
@@ -35,6 +39,17 @@ function parentOptions(nodes: WikiNodeRow[], currentNodeId?: string) {
   return nodes
     .filter((node) => node.type === "folder" && node.id !== currentNodeId)
     .sort((left, right) => left.title.localeCompare(right.title))
+}
+
+function wikiNodePath(nodes: WikiNodeRow[], nodeId: string) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const path: WikiNodeRow[] = []
+  let current = byId.get(nodeId)
+  while (current) {
+    path.unshift(current)
+    current = current.parent_id ? byId.get(current.parent_id) : undefined
+  }
+  return path
 }
 
 function StatusMessage({ state }: { state: WikiActionResult | null }) {
@@ -68,7 +83,19 @@ export function WikiCreateDialog({
   const [open, setOpen] = React.useState(false)
   const [pending, startTransition] = React.useTransition()
   const [state, setState] = React.useState<WikiActionResult | null>(null)
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
   const options = parentOptions(nodes)
+  const availableTags = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          nodes.flatMap((node) =>
+            node.type === "page" ? (node.tags ?? []) : []
+          )
+        )
+      ).sort((left, right) => left.localeCompare(right)),
+    [nodes]
+  )
   const Icon = type === "folder" ? FolderPlusIcon : FilePlusIcon
 
   function handleSubmit(formData: FormData) {
@@ -128,14 +155,13 @@ export function WikiCreateDialog({
               >
                 Tags
               </label>
-              <Input
-                id={`wiki-${type}-tags`}
-                name="tags"
-                placeholder="Assets, Credit, Income"
+              <WikiTagPicker
+                availableTags={availableTags}
+                selectedTags={selectedTags}
+                onSelectedTagsChange={setSelectedTags}
+                open={open}
+                inputId={`wiki-${type}-tags`}
               />
-              <p className="text-xs text-muted-foreground">
-                Separate tags with commas.
-              </p>
             </div>
           ) : null}
           <div className="grid gap-2">
@@ -206,6 +232,7 @@ export function WikiCreateWizardDialog({
   open,
   onOpenChange,
   showTrigger = true,
+  nodes = [],
 }: {
   parentId?: string | null
   defaultType?: "folder" | "page"
@@ -222,13 +249,26 @@ export function WikiCreateWizardDialog({
   open?: boolean
   onOpenChange?: (open: boolean) => void
   showTrigger?: boolean
+  nodes?: WikiNodeRow[]
 }) {
   const router = useRouter()
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const [type, setType] = React.useState<"folder" | "page">(defaultType)
   const [pending, startTransition] = React.useTransition()
   const [state, setState] = React.useState<WikiActionResult | null>(null)
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
   const isOpen = open ?? uncontrolledOpen
+  const availableTags = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          nodes.flatMap((node) =>
+            node.type === "page" ? (node.tags ?? []) : []
+          )
+        )
+      ).sort((left, right) => left.localeCompare(right)),
+    [nodes]
+  )
 
   function handleOpenChange(nextOpen: boolean) {
     if (open === undefined) {
@@ -238,6 +278,7 @@ export function WikiCreateWizardDialog({
     if (!nextOpen) {
       setState(null)
       setType(defaultType)
+      setSelectedTags([])
     }
   }
 
@@ -324,14 +365,13 @@ export function WikiCreateWizardDialog({
               <label className="text-sm font-medium" htmlFor="wiki-create-tags">
                 Tags
               </label>
-              <Input
-                id="wiki-create-tags"
-                name="tags"
-                placeholder="Assets, Credit, Income"
+              <WikiTagPicker
+                availableTags={availableTags}
+                selectedTags={selectedTags}
+                onSelectedTagsChange={setSelectedTags}
+                open={isOpen}
+                inputId="wiki-create-tags"
               />
-              <p className="text-xs text-muted-foreground">
-                Separate tags with commas.
-              </p>
             </div>
           ) : null}
           <DialogFooter>
@@ -405,10 +445,32 @@ export function WikiNodeActionsMenu({
   const [state, setState] = React.useState<WikiActionResult | null>(null)
   const [archiveState, setArchiveState] =
     React.useState<WikiActionResult | null>(null)
+  const [moveOpen, setMoveOpen] = React.useState(false)
+  const [movePending, startMoveTransition] = React.useTransition()
+  const [moveState, setMoveState] = React.useState<WikiActionResult | null>(
+    null
+  )
+  const [selectedTargetId, setSelectedTargetId] = React.useState<string | null>(
+    node.parent_id
+  )
+  const [openFolderIds, setOpenFolderIds] = React.useState<string[]>([])
+  const [mergeConfirmOpen, setMergeConfirmOpen] = React.useState(false)
+  const [mergePending, setMergePending] = React.useState(false)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
-  const options = parentOptions(nodes, node.id)
   const cannotArchive = node.type === "folder" && hasChildren
+  const selectedTarget = nodes.find((item) => item.id === selectedTargetId)
+  const selectedPath = selectedTarget
+    ? wikiNodePath(nodes, selectedTarget.id)
+        .map((item) => item.title)
+        .join(" / ")
+    : ""
+  const moveColumns = [null, ...openFolderIds].map((parentId) =>
+    nodes
+      .filter((item) => item.parent_id === parentId)
+      .filter((item) => item.id !== node.id)
+      .sort((left, right) => left.title.localeCompare(right.title))
+  )
 
   const openEditDialog = React.useCallback(() => {
     setSelectedTags(node.tags ?? [])
@@ -469,6 +531,81 @@ export function WikiNodeActionsMenu({
     })
   }
 
+  function openMoveDialog() {
+    setSelectedTargetId(node.parent_id)
+    setOpenFolderIds(
+      wikiNodePath(nodes, node.parent_id ?? "").map((item) => item.id)
+    )
+    setMoveState(null)
+    setMoveOpen(true)
+  }
+
+  function chooseMoveTarget(target: WikiNodeRow, columnIndex: number) {
+    setSelectedTargetId(target.id)
+    if (target.type === "folder") {
+      setOpenFolderIds((current) => [
+        ...current.slice(0, columnIndex),
+        target.id,
+      ])
+    } else {
+      setOpenFolderIds((current) => current.slice(0, columnIndex))
+    }
+  }
+
+  function handleMove() {
+    if (!selectedTarget && node.type === "page") return
+    if (selectedTarget && selectedTarget.type !== "folder") return
+    const formData = new FormData()
+    formData.set("id", node.id)
+    formData.set("parent_id", selectedTarget?.id ?? "")
+    setMoveState(null)
+    startMoveTransition(async () => {
+      const result = await moveWikiNodeAction(formData)
+      setMoveState(result)
+      if (result.ok) {
+        setMoveOpen(false)
+        setOpen(false)
+        router.refresh()
+        if (result.path) router.push(result.path)
+      }
+    })
+  }
+
+  async function handleMerge() {
+    if (!selectedTarget || selectedTarget.type !== "page") return
+    setMergePending(true)
+    try {
+      const formData = new FormData()
+      formData.set("target_page_id", selectedTarget.id)
+      formData.set("source_page_id", node.id)
+      formData.set("mode", "update")
+      const response = await fetch("/api/wiki/import", {
+        method: "POST",
+        body: formData,
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+        path?: string
+      } | null
+      if (!response.ok || !payload?.path) {
+        setMoveState({
+          ok: false,
+          message: payload?.error ?? "Unable to merge these pages.",
+        })
+        return
+      }
+      setMergeConfirmOpen(false)
+      setMoveOpen(false)
+      setOpen(false)
+      router.push(payload.path)
+      router.refresh()
+    } catch {
+      setMoveState({ ok: false, message: "Unable to merge these pages." })
+    } finally {
+      setMergePending(false)
+    }
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -507,24 +644,6 @@ export function WikiNodeActionsMenu({
                 inputId="wiki-edit-tags"
               />
             ) : null}
-            <div className="grid gap-2">
-              <label className="text-sm font-medium" htmlFor="wiki-edit-parent">
-                Parent
-              </label>
-              <select
-                id="wiki-edit-parent"
-                name="parent_id"
-                defaultValue={node.parent_id ?? ""}
-                className="h-11 rounded-lg border bg-background px-3 text-sm"
-              >
-                <option value="">Wiki Root</option>
-                {options.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.title}
-                  </option>
-                ))}
-              </select>
-            </div>
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={pending}>
                 {pending ? "Saving..." : "Save"}
@@ -534,6 +653,9 @@ export function WikiNodeActionsMenu({
                   Cancel
                 </Button>
               </DialogClose>
+              <Button type="button" variant="outline" onClick={openMoveDialog}>
+                Move
+              </Button>
               <StatusMessage state={state} />
             </div>
           </form>
@@ -557,6 +679,129 @@ export function WikiNodeActionsMenu({
               <StatusMessage state={archiveState} />
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="sm:max-w-3xl" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>Move {node.title}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">
+              {selectedPath
+                ? `Destination: Hub / ${selectedPath}`
+                : node.type === "folder"
+                  ? "Destination: Hub"
+                  : "Choose a section or group."}
+            </p>
+            <div className="flex min-h-56 overflow-x-auto rounded-lg border bg-muted/20">
+              {node.type === "folder" ? (
+                <button
+                  type="button"
+                  className={`w-32 shrink-0 border-r px-3 text-left text-sm hover:bg-accent ${selectedTargetId === null ? "bg-accent" : ""}`}
+                  onClick={() => {
+                    setSelectedTargetId(null)
+                    setOpenFolderIds([])
+                  }}
+                >
+                  Hub
+                </button>
+              ) : null}
+              {moveColumns.map((column, columnIndex) => (
+                <div
+                  key={openFolderIds[columnIndex - 1] ?? "root"}
+                  className="w-52 shrink-0 border-r last:border-r-0"
+                >
+                  {column.map((item) => {
+                    const disabled =
+                      item.id === node.id ||
+                      wikiNodePath(nodes, item.id).some(
+                        (ancestor) => ancestor.id === node.id
+                      )
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        disabled={disabled}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 ${selectedTargetId === item.id ? "bg-accent" : ""}`}
+                        onClick={() => chooseMoveTarget(item, columnIndex)}
+                      >
+                        {item.type === "folder" ? (
+                          <FolderIcon className="size-4 shrink-0" />
+                        ) : (
+                          <FileTextIcon className="size-4 shrink-0" />
+                        )}
+                        <span className="min-w-0 flex-1 truncate">
+                          {item.title}
+                        </span>
+                        {item.type === "folder" ? (
+                          <ChevronRightIcon className="size-4 shrink-0" />
+                        ) : null}
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+            <StatusMessage state={moveState} />
+          </div>
+          <DialogFooter>
+            {node.type === "page" && selectedTarget?.type === "page" ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setMergeConfirmOpen(true)}
+              >
+                AI Merge into this page
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMoveOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                movePending ||
+                (selectedTarget
+                  ? selectedTarget.type !== "folder"
+                  : node.type === "page")
+              }
+              onClick={handleMove}
+            >
+              {movePending ? "Moving..." : "Move"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={mergeConfirmOpen} onOpenChange={setMergeConfirmOpen}>
+        <DialogContent aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>Merge pages?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This merges content into {selectedTarget?.title} and deletes{" "}
+            {node.title}.
+          </p>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMergeConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={mergePending}
+              onClick={() => void handleMerge()}
+            >
+              {mergePending ? "Merging..." : "AI Merge and delete"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { FileUpIcon, Loader2Icon, UploadIcon } from "lucide-react"
+import { FileUpIcon, Loader2Icon, SparklesIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -27,6 +27,7 @@ interface DuplicateImport {
 }
 
 type VideoImportProgress = "uploading" | "transcribing" | null
+type WikiAiUpdateMode = "update" | "replace"
 
 interface ImportResponse {
   error?: string
@@ -42,18 +43,33 @@ export function WikiImportWizardDialog({
   open,
   onOpenChange,
   showTrigger = true,
+  triggerLabel = "AI Create",
+  triggerAriaLabel,
+  triggerTitle,
+  triggerVariant = "default",
+  triggerClassName,
+  targetPageId,
 }: {
   nodes: WikiNodeRow[]
   parentId?: string | null
   open?: boolean
   onOpenChange?: (open: boolean) => void
   showTrigger?: boolean
+  triggerLabel?: string
+  triggerAriaLabel?: string
+  triggerTitle?: string
+  triggerVariant?: "default" | "outline" | "secondary" | "ghost"
+  triggerClassName?: string
+  targetPageId?: string
 }) {
   const router = useRouter()
+  const isUpdatingPage = Boolean(targetPageId)
+  const actionAriaLabel = triggerAriaLabel ?? triggerLabel
+  const actionTitle = triggerTitle ?? triggerLabel
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const [file, setFile] = React.useState<File | null>(null)
   const [text, setText] = React.useState("")
-  const [selectedParentId, setSelectedParentId] = React.useState(parentId ?? "")
+  const [updateMode, setUpdateMode] = React.useState<WikiAiUpdateMode>("update")
   const [isDragging, setIsDragging] = React.useState(false)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [videoImportProgress, setVideoImportProgress] =
@@ -62,18 +78,22 @@ export function WikiImportWizardDialog({
   const [duplicate, setDuplicate] = React.useState<DuplicateImport | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
-  const destinations = React.useMemo(
-    () =>
-      nodes
-        .filter((node) => node.type === "folder")
-        .sort((left, right) => left.title.localeCompare(right.title)),
-    [nodes]
-  )
+  const destinationPath = React.useMemo(() => {
+    if (!parentId) return "Wiki root"
+    const byId = new Map(nodes.map((node) => [node.id, node]))
+    const path: string[] = []
+    let current = byId.get(parentId)
+    while (current) {
+      path.unshift(current.title)
+      current = current.parent_id ? byId.get(current.parent_id) : undefined
+    }
+    return ["Hub", ...path].join(" / ")
+  }, [nodes, parentId])
 
   function reset() {
     setFile(null)
     setText("")
-    setSelectedParentId(parentId ?? "")
+    setUpdateMode("update")
     setError("")
     setDuplicate(null)
     setIsSubmitting(false)
@@ -118,7 +138,12 @@ export function WikiImportWizardDialog({
       } else {
         formData.set("text", text)
       }
-      formData.set("parent_id", selectedParentId)
+      if (isUpdatingPage && targetPageId) {
+        formData.set("target_page_id", targetPageId)
+        formData.set("mode", updateMode)
+      } else {
+        formData.set("parent_id", parentId ?? "")
+      }
       if (allowDuplicate) {
         formData.set("allow_duplicate", "1")
       }
@@ -136,16 +161,13 @@ export function WikiImportWizardDialog({
       }
       if (!response.ok) {
         setError(
-          payload?.error ??
-            "We could not import that content. Please try again."
+          payload?.error ?? "We could not create that page. Please try again."
         )
         return
       }
       if (isVideo && file) {
         if (!payload?.nodeId) {
-          setError(
-            "We could not prepare that video for import. Please try again."
-          )
+          setError("We could not prepare that video. Please try again.")
           return
         }
 
@@ -166,6 +188,10 @@ export function WikiImportWizardDialog({
           completeFormData.set("video_import", "complete")
           completeFormData.set("node_id", payload.nodeId)
           completeFormData.set("asset_id", assetId)
+          if (isUpdatingPage && targetPageId) {
+            completeFormData.set("target_page_id", targetPageId)
+            completeFormData.set("mode", updateMode)
+          }
           const completeResponse = await fetch("/api/wiki/import", {
             method: "POST",
             body: completeFormData,
@@ -190,7 +216,7 @@ export function WikiImportWizardDialog({
           setError(
             error instanceof Error
               ? error.message
-              : "We could not import that video. Please try again."
+              : "We could not create that page from the video. Please try again."
           )
           return
         }
@@ -216,15 +242,24 @@ export function WikiImportWizardDialog({
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       {showTrigger ? (
         <DialogTrigger asChild>
-          <Button type="button" size="sm" variant="default">
-            <UploadIcon />
-            Import
+          <Button
+            type="button"
+            size="sm"
+            variant={triggerVariant}
+            className={triggerClassName}
+            aria-label={actionAriaLabel}
+            title={actionTitle}
+          >
+            <SparklesIcon />
+            {triggerLabel}
           </Button>
         </DialogTrigger>
       ) : null}
       <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>Import into Wiki</DialogTitle>
+          <DialogTitle>
+            {isUpdatingPage ? "AI Update" : "AI Create"}
+          </DialogTitle>
         </DialogHeader>
         <div className="grid gap-4">
           <button
@@ -279,33 +314,40 @@ export function WikiImportWizardDialog({
                 setDuplicate(null)
               }}
               className="min-h-28 rounded-lg border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-              placeholder="Paste the content you want to turn into a Wiki draft…"
+              placeholder={
+                isUpdatingPage
+                  ? "Paste the content you want to apply to this page…"
+                  : "Paste the content you want to turn into a Wiki draft…"
+              }
             />
           </div>
-          <div className="grid gap-2">
-            <label
-              className="text-sm font-medium"
-              htmlFor="wiki-import-destination"
-            >
-              Add to
-            </label>
-            <select
-              id="wiki-import-destination"
-              value={selectedParentId}
-              onChange={(event) => setSelectedParentId(event.target.value)}
-              className="h-11 rounded-lg border bg-background px-3 text-sm"
-            >
-              <option value="">Wiki Root</option>
-              {destinations.map((destination) => (
-                <option key={destination.id} value={destination.id}>
-                  {destination.title}
-                </option>
-              ))}
-            </select>
-          </div>
+          {isUpdatingPage ? (
+            <div className="grid grid-cols-2 gap-2" aria-label="AI update mode">
+              <Button
+                type="button"
+                variant={updateMode === "update" ? "default" : "outline"}
+                aria-pressed={updateMode === "update"}
+                onClick={() => setUpdateMode("update")}
+              >
+                Update
+              </Button>
+              <Button
+                type="button"
+                variant={updateMode === "replace" ? "default" : "outline"}
+                aria-pressed={updateMode === "replace"}
+                onClick={() => setUpdateMode("replace")}
+              >
+                Replace
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This page will be added to {destinationPath}.
+            </p>
+          )}
           {duplicate ? (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-              <p>This content was already imported as “{duplicate.title}”.</p>
+              <p>This content already exists as “{duplicate.title}”.</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -341,8 +383,14 @@ export function WikiImportWizardDialog({
               : videoImportProgress === "transcribing"
                 ? "Transcribing video…"
                 : isSubmitting
-                  ? "Creating your draft…"
-                  : "Create draft"}
+                  ? isUpdatingPage
+                    ? "Updating page…"
+                    : "Creating your draft…"
+                  : isUpdatingPage
+                    ? updateMode === "replace"
+                      ? "Replace page"
+                      : "Update page"
+                    : "Create draft"}
           </Button>
         </DialogFooter>
       </DialogContent>

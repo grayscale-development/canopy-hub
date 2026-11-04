@@ -14,7 +14,7 @@ const samples = [
   "quick-tips.txt",
 ]
 
-test("Wiki managers can import every representative document sample @wiki", async ({
+test("Wiki managers can use AI Create with every representative document sample @wiki", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
@@ -25,14 +25,14 @@ test("Wiki managers can import every representative document sample @wiki", asyn
       name: "Toggle wiki editor mode",
     })
     // Editor mode persists between loads and restores after hydration, so
-    // only toggle it when the Import button has not appeared on its own.
-    const importButton = page.getByRole("button", { name: "Import" }).first()
+    // only toggle it when the AI Update button has not appeared on its own.
+    const aiUpdateButton = page.getByRole("button", { name: "AI Update" })
     try {
-      await importButton.waitFor({ timeout: 4000 })
+      await aiUpdateButton.waitFor({ timeout: 4000 })
     } catch {
       await editorSwitch.click()
     }
-    await page.getByRole("button", { name: "Import" }).first().click()
+    await page.getByRole("button", { name: "AI Update" }).click()
     await page
       .locator('input[type="file"]')
       .setInputFiles(
@@ -48,7 +48,7 @@ test("Wiki managers can import every representative document sample @wiki", asyn
     if (duplicateShown) await copyButton.click()
 
     await expect(
-      page.getByText(/please try again|could not import/i)
+      page.getByText(/please try again|could not create/i)
     ).toHaveCount(0)
     await expect(page).toHaveURL(/\/wiki\/.+/, { timeout: 60_000 })
     const title = page.locator("h1").first()

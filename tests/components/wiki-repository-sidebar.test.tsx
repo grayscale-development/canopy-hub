@@ -33,7 +33,18 @@ vi.mock("@/components/wiki/wiki-management-controls", () => ({
 }))
 
 vi.mock("@/components/wiki/wiki-import-wizard", () => ({
-  WikiImportWizardDialog: () => null,
+  WikiImportWizardDialog: ({
+    parentId,
+    open,
+  }: {
+    parentId?: string | null
+    open?: boolean
+  }) =>
+    open ? (
+      <div data-testid="ai-create-dialog" data-parent-id={parentId ?? ""}>
+        AI Create dialog
+      </div>
+    ) : null,
 }))
 
 const baseNode = {
@@ -183,9 +194,7 @@ describe("WikiRepositorySidebar", () => {
         name: "Add to Operations",
       })
     ).toBeVisible()
-    expect(
-      screen.getByRole("button", { name: "Add a page to Closing" })
-    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "Add to Closing" })).toBeVisible()
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull()
   })
 
@@ -267,6 +276,39 @@ describe("WikiRepositorySidebar", () => {
     window.removeEventListener("wiki:edit-node", onEdit)
   })
 
+  it("offers page and AI Create options when adding to a group", async () => {
+    const user = userEvent.setup()
+    renderSidebar("canopy-wiki")
+
+    const addButton = screen.getByRole("button", { name: "Add to Closing" })
+    expect(addButton).toHaveClass("size-8", "cursor-pointer")
+    await user.click(addButton)
+
+    const pageOption = screen.getByRole("menuitem", { name: "Page" })
+    const aiCreateOption = screen.getByRole("menuitem", { name: "AI Create" })
+    expect(pageOption).toBeVisible()
+    expect(pageOption.querySelector("svg")).toHaveClass("size-4")
+    expect(aiCreateOption.querySelector("svg")).toHaveClass("size-4")
+    await user.click(aiCreateOption)
+    expect(screen.getByTestId("ai-create-dialog")).toHaveAttribute(
+      "data-parent-id",
+      "closing-group"
+    )
+  })
+
+  it("shows an icon beside every section add option", async () => {
+    const user = userEvent.setup()
+    renderSidebar("canopy-wiki")
+
+    await user.click(screen.getByRole("button", { name: "Add to Operations" }))
+
+    for (const label of ["Page", "Group", "AI Create"]) {
+      expect(
+        screen.getByRole("menuitem", { name: label }).querySelector("svg")
+      ).toHaveClass("size-4")
+    }
+  })
+
   it("does not offer creation controls to a viewer", () => {
     renderSidebar("canopy-wiki", "canopy-wiki", nodes, false)
 
@@ -276,7 +318,7 @@ describe("WikiRepositorySidebar", () => {
       })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Add a page to Closing" })
+      screen.queryByRole("button", { name: "Add to Closing" })
     ).not.toBeInTheDocument()
   })
 })

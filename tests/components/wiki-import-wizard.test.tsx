@@ -29,7 +29,7 @@ describe("WikiImportWizardDialog", () => {
     vi.restoreAllMocks()
   })
 
-  it("imports video files through the direct upload and transcription flow", async () => {
+  it("creates pages from video files through the direct upload and transcription flow", async () => {
     const user = userEvent.setup()
     const fetchMock = vi.spyOn(globalThis, "fetch")
     fetchMock
@@ -45,7 +45,8 @@ describe("WikiImportWizardDialog", () => {
       )
 
     render(<WikiImportWizardDialog nodes={[]} />)
-    await user.click(screen.getByRole("button", { name: "Import" }))
+    await user.click(screen.getByRole("button", { name: "AI Create" }))
+    expect(screen.getByRole("heading", { name: "AI Create" })).toBeVisible()
 
     const input = document.querySelector('input[type="file"]')
     expect(input).toHaveAttribute("accept", expect.stringContaining(".mp4"))
@@ -79,5 +80,95 @@ describe("WikiImportWizardDialog", () => {
     const startBody = fetchMock.mock.calls[0]?.[1]?.body as FormData
     expect(startBody.get("video_import")).toBe("start")
     expect(startBody.get("video_file_name")).toBe("loan-review.mp4")
+  })
+
+  it("updates the current page without offering a destination and defaults to Update", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, path: "/wiki/existing" }), {
+        status: 200,
+      })
+    )
+
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="existing-page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+
+    expect(screen.getByRole("heading", { name: "AI Update" })).toBeVisible()
+    expect(screen.queryByLabelText("Add to")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Update" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Or paste text" }),
+      "Apply this guidance"
+    )
+    await user.click(screen.getByRole("button", { name: "Replace" }))
+    await user.click(screen.getByRole("button", { name: "Replace page" }))
+
+    await waitFor(() => {
+      expect(router.push).toHaveBeenCalledWith("/wiki/existing")
+    })
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    expect(body.get("target_page_id")).toBe("existing-page")
+    expect(body.get("mode")).toBe("replace")
+    expect(body.get("parent_id")).toBeNull()
+  })
+
+  it("creates in the trigger parent without exposing a destination selector", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ ok: true, path: "/wiki/reports/new-page" }),
+        {
+          status: 200,
+        }
+      )
+    )
+
+    render(
+      <WikiImportWizardDialog
+        parentId="reports"
+        nodes={[
+          {
+            id: "reports",
+            parent_id: null,
+            type: "folder",
+            slug: "reports",
+            title: "Reports",
+            status: "published",
+            sort_order: 0,
+            current_revision_id: null,
+            created_by: null,
+            updated_by: null,
+            created_at: "2026-01-01T00:00:00.000Z",
+            updated_at: "2026-01-01T00:00:00.000Z",
+          },
+        ]}
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Create" }))
+    expect(screen.queryByLabelText("Add to")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("This page will be added to Hub / Reports.")
+    ).toBeVisible()
+    await user.type(
+      screen.getByRole("textbox", { name: "Or paste text" }),
+      "New report"
+    )
+    await user.click(screen.getByRole("button", { name: "Create draft" }))
+
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith("/wiki/reports/new-page")
+    )
+    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    expect(body.get("parent_id")).toBe("reports")
   })
 })

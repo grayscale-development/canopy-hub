@@ -35,6 +35,7 @@ import {
   WikiViewModeTitleSpacing,
 } from "@/components/wiki/wiki-edit-mode"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
+import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
 import { type WikiNodeRow, type WikiRevisionRow } from "@/lib/wiki"
 import {
@@ -243,11 +244,11 @@ function WikiEditorMounted({
           >
             {node.title}
           </WikiEditableTitle>
+          {canEditPage ? createAction : null}
           {showEditorControls ? (
             <WikiStatusSelect nodeId={node.id} status={node.status} />
           ) : null}
           {canEditPage ? headerActions : null}
-          {canEditPage ? createAction : null}
         </div>
       </WikiViewModeTitleSpacing>
       <div className="wiki-blocknote-surface min-w-0 p-0">
@@ -272,7 +273,7 @@ function WikiEditorMounted({
         <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
           <button
             type="button"
-            className="text-xs font-medium tracking-wide uppercase transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+            className="cursor-pointer text-xs font-medium tracking-wide transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
             onClick={openTagDialog}
             disabled={!canEditPage || isHistorical}
             aria-label="Edit page tags"
@@ -284,9 +285,9 @@ function WikiEditorMounted({
                 <Link
                   key={tag}
                   href={getTagDirectoryHref(tag)}
-                  className="rounded-full border bg-muted px-3 py-1 text-xs font-medium text-foreground"
+                  className="cursor-pointer"
                 >
-                  {tag}
+                  <WikiTagPill>{tag}</WikiTagPill>
                 </Link>
               ))
             : null}

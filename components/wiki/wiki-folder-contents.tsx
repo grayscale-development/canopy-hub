@@ -5,6 +5,8 @@ import * as React from "react"
 import { ChevronRightIcon, FileTextIcon, FolderIcon } from "lucide-react"
 
 import { useVisibleWikiNodes } from "@/components/wiki/wiki-edit-mode"
+import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
+import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
 import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 
 export function WikiFolderContents({
@@ -28,7 +30,8 @@ export function WikiFolderContents({
       )
     )
   ).sort((left, right) => left.localeCompare(right))
-  const [selectedTag, setSelectedTag] = React.useState("")
+  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const selectedTag = selectedTags[0] ?? ""
   const filteredItems = visibleItems.filter(
     (node) =>
       node.type === "folder" ||
@@ -52,18 +55,25 @@ export function WikiFolderContents({
       {availableTags.length ? (
         <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
           Filter by tag
-          <select
-            value={selectedTag}
-            onChange={(event) => setSelectedTag(event.target.value)}
-            className="h-9 rounded-md border bg-background px-2 text-sm font-normal"
-          >
-            <option value="">All tags</option>
-            {availableTags.map((tag) => (
-              <option key={tag} value={tag}>
-                {tag}
-              </option>
-            ))}
-          </select>
+          <div className="w-full max-w-xs font-normal">
+            <WikiTagPicker
+              availableTags={availableTags}
+              selectedTags={selectedTags}
+              onSelectedTagsChange={(nextTags) =>
+                setSelectedTags((currentTags) => {
+                  const resolvedTags =
+                    typeof nextTags === "function"
+                      ? nextTags(currentTags)
+                      : nextTags
+                  return resolvedTags.slice(-1)
+                })
+              }
+              open
+              inputId="wiki-folder-tag-filter"
+              allowCreate={false}
+              name="wiki-folder-tag-filter"
+            />
+          </div>
         </label>
       ) : null}
       {filteredItems.length ? (
@@ -75,15 +85,19 @@ export function WikiFolderContents({
               <Link
                 key={node.id}
                 href={`/wiki/${path}`}
-                className="flex items-center gap-3 rounded-lg border bg-card p-4 hover:bg-accent hover:text-accent-foreground"
+                className="flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-4 hover:bg-accent hover:text-accent-foreground"
               >
                 <Icon className="size-5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{node.title}</p>
                   {node.type === "page" && node.tags?.length ? (
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {node.tags.join(" · ")}
-                    </p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {node.tags.map((tag) => (
+                        <WikiTagPill key={tag} className="px-2 py-0.5">
+                          {tag}
+                        </WikiTagPill>
+                      ))}
+                    </div>
                   ) : null}
                 </div>
                 <ChevronRightIcon className="ml-auto size-4 text-muted-foreground" />

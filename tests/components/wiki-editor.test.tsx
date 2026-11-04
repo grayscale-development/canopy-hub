@@ -171,6 +171,28 @@ describe("WikiEditor", () => {
     ).toBeInTheDocument()
   })
 
+  it("places the AI Update control immediately before the page status", () => {
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor
+          node={node}
+          revision={revision}
+          canManage
+          showStatusControl
+          createAction={<button type="button">AI Update</button>}
+        />
+      </WikiEditModeProvider>
+    )
+
+    const aiUpdate = screen.getByRole("button", { name: "AI Update" })
+    const status = screen.getByRole("button", { name: "Draft" })
+    expect(
+      aiUpdate.compareDocumentPosition(status) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it("searches, selects, and creates page tags", async () => {
     const user = userEvent.setup()
     render(
