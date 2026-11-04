@@ -407,7 +407,7 @@ function SidebarSection({
       <div
         id={contentId}
         hidden={!isOpen}
-        className="space-y-1 pl-3"
+        className="space-y-1"
       >
         {directPages.map((page) => (
           <SidebarPageLink
