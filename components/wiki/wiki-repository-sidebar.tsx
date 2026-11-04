@@ -198,7 +198,7 @@ function SidebarFolderEditButton({
         type="button"
         size="icon-sm"
         variant="ghost"
-        className="size-8 shrink-0 cursor-pointer px-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        className="-mr-1 size-6 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100"
         aria-label={`Edit ${folder.title}`}
         title={`Edit ${folder.title}`}
         onClick={() => {
@@ -209,7 +209,7 @@ function SidebarFolderEditButton({
           )
         }}
       >
-        <PencilIcon />
+        <PencilIcon className="size-3.5" />
       </Button>
     </>
   )

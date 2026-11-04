@@ -253,7 +253,7 @@ describe("WikiRepositorySidebar", () => {
     renderSidebar("canopy-wiki")
 
     expect(screen.getByRole("button", { name: "Edit Operations" })).toHaveClass(
-      "size-8"
+      "size-6"
     )
     expect(screen.getByRole("button", { name: "Edit Closing" })).toHaveClass(
       "cursor-pointer"
