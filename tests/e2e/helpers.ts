@@ -6,6 +6,11 @@ export async function signInAsLocalDev(page: Page) {
   await expect(page).toHaveURL(/\/home$/)
 }
 
+export async function openWikiAiCreate(page: Page) {
+  await page.getByRole("button", { name: "Add to Hub" }).click()
+  await page.getByRole("menuitem", { name: "AI Create" }).click()
+}
+
 export async function mockMiloChatApi(page: Page) {
   await page.route("**/api/wiki/chat**", async (route) => {
     if (route.request().method() === "GET") {

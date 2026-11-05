@@ -2,7 +2,7 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { signInAsLocalDev } from "./helpers"
+import { openWikiAiCreate, signInAsLocalDev } from "./helpers"
 
 const samples = [
   "it-password-reset.docx",
@@ -14,25 +14,14 @@ const samples = [
   "quick-tips.txt",
 ]
 
-test("Wiki managers can import every representative document sample @wiki", async ({
+test("Wiki managers can use AI Create with every representative document sample @wiki", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
 
   for (const sample of samples) {
     await page.goto("/wiki/canopy-wiki/hub/reports")
-    const editorSwitch = page.getByRole("switch", {
-      name: "Toggle wiki editor mode",
-    })
-    // Editor mode persists between loads and restores after hydration, so
-    // only toggle it when the Import button has not appeared on its own.
-    const importButton = page.getByRole("button", { name: "Import" }).first()
-    try {
-      await importButton.waitFor({ timeout: 4000 })
-    } catch {
-      await editorSwitch.click()
-    }
-    await page.getByRole("button", { name: "Import" }).first().click()
+    await openWikiAiCreate(page)
     await page
       .locator('input[type="file"]')
       .setInputFiles(
@@ -48,7 +37,7 @@ test("Wiki managers can import every representative document sample @wiki", asyn
     if (duplicateShown) await copyButton.click()
 
     await expect(
-      page.getByText(/please try again|could not import/i)
+      page.getByText(/please try again|could not create/i)
     ).toHaveCount(0)
     await expect(page).toHaveURL(/\/wiki\/.+/, { timeout: 60_000 })
     const title = page.locator("h1").first()

@@ -41,6 +41,14 @@ const emptyGroup = {
   tags: [],
 } satisfies WikiNodeRow
 
+const wikiSection = {
+  ...emptyGroup,
+  id: "wiki-section",
+  parent_id: null,
+  slug: "canopy-wiki",
+  title: "Canopy Wiki",
+} satisfies WikiNodeRow
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -48,6 +56,30 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("WikiNodeActionsMenu", () => {
+  it("keeps Move on the left and Cancel and Save together on the right", async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <WikiEditableTitle nodeId={emptyGroup.id}>Group</WikiEditableTitle>
+        <WikiNodeActionsMenu nodes={[emptyGroup]} node={emptyGroup} />
+      </>
+    )
+
+    await user.click(screen.getByRole("button", { name: "Group" }))
+    const dialog = await screen.findByRole("dialog", { name: "Edit Wiki Item" })
+    const move = within(dialog).getByRole("button", { name: "Move" })
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" })
+    const save = within(dialog).getByRole("button", { name: "Save" })
+
+    expect(move.parentElement).toHaveClass("justify-between")
+    expect(
+      move.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      cancel.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it("keeps Archive inside Edit and preserves the empty-folder guard", async () => {
     const user = userEvent.setup()
     render(
@@ -74,5 +106,35 @@ describe("WikiNodeActionsMenu", () => {
         "Move or archive the items inside this section or group first."
       )
     ).toBeVisible()
+  })
+
+  it("starts the move picker with real top-level folders, not a synthetic Hub entry", async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <WikiEditableTitle nodeId={emptyGroup.id}>Group</WikiEditableTitle>
+        <WikiNodeActionsMenu
+          nodes={[wikiSection, emptyGroup]}
+          node={emptyGroup}
+        />
+      </>
+    )
+
+    await user.click(screen.getByRole("button", { name: "Group" }))
+    const editDialog = await screen.findByRole("dialog", {
+      name: "Edit Wiki Item",
+    })
+    await user.click(within(editDialog).getByRole("button", { name: "Move" }))
+
+    const moveDialog = await screen.findByRole("dialog", {
+      name: "Move Operations",
+    })
+    expect(
+      within(moveDialog).getByRole("button", { name: "Canopy Wiki" })
+    ).toBeVisible()
+    expect(within(moveDialog).queryByRole("button", { name: "Hub" })).toBeNull()
+    expect(
+      within(moveDialog).queryByRole("button", { name: /AI Merge/i })
+    ).not.toBeInTheDocument()
   })
 })

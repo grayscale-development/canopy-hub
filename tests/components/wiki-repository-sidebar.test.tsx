@@ -15,6 +15,7 @@ import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar
 import type { WikiNodeRow } from "@/lib/wiki"
 
 vi.mock("@/components/wiki/wiki-management-controls", () => ({
+  WIKI_EDIT_NODE_EVENT: "wiki:edit-node",
   WikiCreateWizardDialog: ({
     triggerLabel = "Create",
     triggerAriaLabel,
@@ -28,6 +29,22 @@ vi.mock("@/components/wiki/wiki-management-controls", () => ({
       {iconOnly ? "+" : triggerLabel}
     </button>
   ),
+  WikiNodeActionsMenu: () => null,
+}))
+
+vi.mock("@/components/wiki/wiki-import-wizard", () => ({
+  WikiImportWizardDialog: ({
+    parentId,
+    open,
+  }: {
+    parentId?: string | null
+    open?: boolean
+  }) =>
+    open ? (
+      <div data-testid="ai-create-dialog" data-parent-id={parentId ?? ""}>
+        AI Create dialog
+      </div>
+    ) : null,
 }))
 
 const baseNode = {
@@ -155,8 +172,10 @@ function renderSidebar(
 }
 
 function expectBefore(leftLabel: string, rightLabel: string) {
-  const left = screen.getByRole("link", { name: leftLabel })
-  const right = screen.getByRole("link", { name: rightLabel })
+  const left = screen.getByRole("button", { name: `Collapse ${leftLabel}` })
+  const right = screen.getByRole("button", {
+    name: `Collapse ${rightLabel}`,
+  })
 
   expect(
     left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -172,26 +191,23 @@ describe("WikiRepositorySidebar", () => {
     expect(screen.getByRole("button", { name: "Create Section" })).toBeVisible()
     expect(
       screen.getByRole("button", {
-        name: "Add a page or group to Operations",
+        name: "Add to Operations",
       })
     ).toBeVisible()
-    expect(
-      screen.getByRole("button", { name: "Add a page to Closing" })
-    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "Add to Closing" })).toBeVisible()
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull()
   })
 
-  it("keeps sections ordered and makes title navigation separate from expansion", async () => {
+  it("keeps sections ordered and toggles them from the title or chevron", async () => {
     const user = userEvent.setup()
     const view = renderSidebar("canopy-wiki")
 
     expectBefore("Hub", "Operations")
 
-    const sectionTitle = screen.getByRole("link", { name: "Operations" })
-    expect(sectionTitle).toHaveAttribute("href", "/wiki/canopy-wiki/operations")
+    expect(screen.queryByRole("link", { name: "Operations" })).toBeNull()
 
     const sectionChevron = screen.getByRole("button", {
-      name: "Collapse Operations",
+      name: "Toggle Operations",
     })
     expect(sectionChevron).toHaveAttribute("aria-expanded", "true")
     await user.click(sectionChevron)
@@ -217,19 +233,15 @@ describe("WikiRepositorySidebar", () => {
     view.unmount()
   })
 
-  it("expands groups from the chevron and preserves their page link", async () => {
+  it("expands groups from the title without navigating to a folder page", async () => {
     const user = userEvent.setup()
     renderSidebar("canopy-wiki")
 
-    const groupTitle = screen.getByRole("link", { name: "Closing" })
-    expect(groupTitle).toHaveAttribute(
-      "href",
-      "/wiki/canopy-wiki/operations/closing"
-    )
+    expect(screen.queryByRole("link", { name: "Closing" })).toBeNull()
 
-    const groupChevron = screen.getByRole("button", { name: "Expand Closing" })
-    expect(groupChevron).toHaveAttribute("aria-expanded", "false")
-    await user.click(groupChevron)
+    const groupTitle = screen.getByRole("button", { name: "Expand Closing" })
+    expect(groupTitle).toHaveAttribute("aria-expanded", "false")
+    await user.click(groupTitle)
     expect(
       screen.getByRole("button", { name: "Collapse Closing" })
     ).toHaveAttribute("aria-expanded", "true")
@@ -243,16 +255,90 @@ describe("WikiRepositorySidebar", () => {
     expect(within(groupTitle).getByText("Closing")).toBeVisible()
   })
 
+  it("uses the same minimum row height for sections, groups, and pages", async () => {
+    const user = userEvent.setup()
+    renderSidebar("canopy-wiki")
+
+    await user.click(screen.getByRole("button", { name: "Expand Closing" }))
+
+    expect(
+      screen.getByRole("button", { name: "Collapse Operations" }).parentElement
+    ).toHaveClass("min-h-8")
+    expect(
+      screen.getByRole("button", { name: "Collapse Closing" }).parentElement
+    ).toHaveClass("min-h-8")
+    expect(screen.getByRole("link", { name: "Final Review" })).toHaveClass(
+      "min-h-8"
+    )
+  })
+
+  it("shows manager-only edit controls for sections and groups", async () => {
+    const user = userEvent.setup()
+    const onEdit = vi.fn()
+    window.addEventListener("wiki:edit-node", onEdit)
+    renderSidebar("canopy-wiki")
+
+    expect(screen.getByRole("button", { name: "Edit Operations" })).toHaveClass(
+      "size-6"
+    )
+    expect(screen.getByRole("button", { name: "Edit Closing" })).toHaveClass(
+      "cursor-pointer"
+    )
+
+    await user.click(screen.getByRole("button", { name: "Edit Operations" }))
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    expect(onEdit.mock.calls[0]?.[0]).toMatchObject({
+      detail: { id: "canopy-operations" },
+    })
+    window.removeEventListener("wiki:edit-node", onEdit)
+  })
+
+  it("offers page and AI Create options when adding to a group", async () => {
+    const user = userEvent.setup()
+    renderSidebar("canopy-wiki")
+
+    const addButton = screen.getByRole("button", { name: "Add to Closing" })
+    expect(addButton).toHaveClass("size-8", "cursor-pointer")
+    await user.click(addButton)
+
+    const pageOption = screen.getByRole("menuitem", { name: "Page" })
+    const aiCreateOption = screen.getByRole("menuitem", { name: "AI Create" })
+    expect(pageOption).toBeVisible()
+    expect(pageOption.querySelector("svg")).toHaveClass("size-4")
+    expect(aiCreateOption.querySelector("svg")).toHaveClass("size-4")
+    await user.click(aiCreateOption)
+    expect(screen.getByTestId("ai-create-dialog")).toHaveAttribute(
+      "data-parent-id",
+      "closing-group"
+    )
+  })
+
+  it("shows an icon beside every section add option", async () => {
+    const user = userEvent.setup()
+    renderSidebar("canopy-wiki")
+
+    await user.click(screen.getByRole("button", { name: "Add to Operations" }))
+
+    for (const label of ["Page", "Group", "AI Create"]) {
+      expect(
+        screen.getByRole("menuitem", { name: label }).querySelector("svg")
+      ).toHaveClass("size-4")
+    }
+  })
+
   it("does not offer creation controls to a viewer", () => {
     renderSidebar("canopy-wiki", "canopy-wiki", nodes, false)
 
     expect(
       screen.queryByRole("button", {
-        name: "Add a page or group to Operations",
+        name: "Add to Operations",
       })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Add a page to Closing" })
+      screen.queryByRole("button", { name: "Add to Closing" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Edit Operations" })
     ).not.toBeInTheDocument()
   })
 })

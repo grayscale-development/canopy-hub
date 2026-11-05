@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   insertedAssets: [] as Array<Record<string, unknown>>,
   videoAsset: null as Record<string, unknown> | null,
   videoNode: null as Record<string, unknown> | null,
+  targetRevision: null as Record<string, unknown> | null,
   aiResponse: {
     output_text: JSON.stringify({
       title: "Lock Review",
@@ -27,6 +28,9 @@ class Query {
     return this
   }
   neq() {
+    return this
+  }
+  or() {
     return this
   }
   is() {
@@ -58,9 +62,11 @@ class Query {
     data:
       this.table === "wiki_assets"
         ? state.videoAsset
-        : this.table === "wiki_nodes"
-          ? state.videoNode
-          : null,
+        : this.table === "wiki_page_revisions"
+          ? state.targetRevision
+          : this.table === "wiki_nodes"
+            ? state.videoNode
+            : null,
     error: null,
   })
   single = async () => ({ data: null, error: null })
@@ -126,6 +132,17 @@ function fileImportRequest(file: File) {
   })
 }
 
+function updateRequest(mode: "update" | "replace") {
+  const body = new FormData()
+  body.set("text", "New lock review guidance.")
+  body.set("target_page_id", "existing-page")
+  body.set("mode", mode)
+  return new Request("http://localhost/api/wiki/import", {
+    method: "POST",
+    body,
+  })
+}
+
 function videoImportRequest(values: Record<string, string>) {
   const body = new FormData()
   for (const [key, value] of Object.entries(values)) {
@@ -148,6 +165,14 @@ describe("/api/wiki/import route", () => {
     state.insertedAssets = []
     state.videoAsset = null
     state.videoNode = null
+    state.targetRevision = null
+    state.aiResponse = {
+      output_text: JSON.stringify({
+        title: "Lock Review",
+        tags: [],
+        markdown: "## Review\n\nReview lock 123 before submitting.",
+      }),
+    }
     extractor.isWikiDocxFile.mockReturnValue(false)
     extractor.extractWikiPdfDocument.mockReset()
   })
@@ -183,8 +208,99 @@ describe("/api/wiki/import route", () => {
       import_content_hash: expect.any(String),
     })
     expect(state.insertedRevisions[0]).toMatchObject({
-      change_note: "Imported pasted text",
+      change_note: "Created with AI from pasted text",
       plain_text: "Review lock 123 before submitting.",
+    })
+  })
+
+  it("updates an existing page by preserving its blocks and appending the AI draft", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        parent_id: null,
+        type: "page",
+        slug: "existing-page",
+        title: "Existing Page",
+        status: "published",
+        current_revision_id: "old-revision",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    state.targetRevision = {
+      id: "old-revision",
+      node_id: "existing-page",
+      blocks: [{ type: "paragraph", content: "Existing guidance." }],
+      plain_text: "Existing guidance.",
+    }
+    state.aiResponse = {
+      output_text: JSON.stringify({
+        title: "New Guidance",
+        tags: [],
+        markdown: "# New Guidance\n\nNew lock review guidance.",
+      }),
+    }
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(updateRequest("update"))
+
+    expect(response.status).toBe(200)
+    expect(state.insertedNodes).toEqual([])
+    expect(ai.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.stringContaining(
+          "Existing page text:\nExisting guidance."
+        ),
+      }),
+      expect.any(Object)
+    )
+    expect(state.insertedRevisions[0]).toMatchObject({
+      node_id: "existing-page",
+      plain_text: "Existing guidance.\n\nNew lock review guidance.",
+      change_note: "Updated with AI from pasted text",
+    })
+    expect(state.insertedRevisions[0]?.blocks).toEqual([
+      { type: "paragraph", content: "Existing guidance." },
+      { type: "paragraph", content: "New lock review guidance." },
+    ])
+  })
+
+  it("replaces an existing page with the AI draft when requested", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        parent_id: null,
+        type: "page",
+        slug: "existing-page",
+        title: "Existing Page",
+        status: "published",
+        current_revision_id: "old-revision",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    state.targetRevision = {
+      id: "old-revision",
+      node_id: "existing-page",
+      blocks: [{ type: "paragraph", content: "Existing guidance." }],
+      plain_text: "Existing guidance.",
+    }
+    state.aiResponse = {
+      output_text: JSON.stringify({
+        title: "New Guidance",
+        tags: [],
+        markdown: "# New Guidance\n\nNew lock review guidance.",
+      }),
+    }
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(updateRequest("replace"))
+
+    expect(response.status).toBe(200)
+    expect(state.insertedNodes).toEqual([])
+    expect(state.insertedRevisions[0]).toMatchObject({
+      node_id: "existing-page",
+      plain_text: "New lock review guidance.",
+      change_note: "Replaced with AI from pasted text",
+      blocks: [{ type: "paragraph", content: "New lock review guidance." }],
     })
   })
 
@@ -339,7 +455,12 @@ describe("/api/wiki/import route", () => {
         type: "page",
       },
     ]
-    state.videoNode = { id: nodeId, type: "page", status: "draft" }
+    state.videoNode = {
+      id: nodeId,
+      type: "page",
+      status: "draft",
+      created_by: "wiki-manager",
+    }
     state.videoAsset = {
       id: "video-asset",
       node_id: nodeId,
@@ -362,7 +483,7 @@ describe("/api/wiki/import route", () => {
     expect(response.status).toBe(200)
     expect(state.insertedRevisions[0]).toMatchObject({
       node_id: nodeId,
-      change_note: "Imported video loan-review.mp4",
+      change_note: "Created with AI from video loan-review.mp4",
       plain_text: "Review the loan before submitting.",
     })
     expect(state.insertedRevisions[0]?.blocks).toEqual(

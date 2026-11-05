@@ -13,6 +13,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   buildWikiPath,
+  blockNoteToPlainText,
   fetchWikiNodes,
   getWikiAssetKind,
   sanitizeWikiFileName,
@@ -22,6 +23,7 @@ import {
   WIKI_MAX_UPLOAD_SIZE_BYTES,
   WIKI_MAX_UPLOAD_SIZE_LABEL,
   type WikiNodeRow,
+  type WikiRevisionRow,
 } from "@/lib/wiki"
 import {
   extractWikiDocumentText,
@@ -40,15 +42,43 @@ import {
   createWikiImportDraft,
   createWikiVideoImportDraft,
   isSupportedWikiImportFile,
+  isFaithfulWikiImportOutput,
   isWikiImportVideoFile,
   normalizeWikiImportText,
   titleFromWikiImportFileName,
   WIKI_IMPORT_MAX_TEXT_LENGTH,
   type WikiImportAiOutput,
 } from "@/lib/wiki-import"
+import { archiveKnowledgeSource } from "@/lib/wiki-ai"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
+
+type WikiAiUpdateMode = "update" | "replace"
+
+function mergeWikiPageContent({
+  existingRevision,
+  draft,
+  mode,
+}: {
+  existingRevision: WikiRevisionRow | null
+  draft: { blocks: Array<Record<string, unknown>>; plainText: string }
+  mode: WikiAiUpdateMode
+}) {
+  if (mode === "replace" || !existingRevision) {
+    return { blocks: draft.blocks, plainText: draft.plainText }
+  }
+
+  const existingBlocks = Array.isArray(existingRevision.blocks)
+    ? existingRevision.blocks
+    : []
+  return {
+    blocks: [...existingBlocks, ...draft.blocks],
+    plainText: [existingRevision.plain_text, draft.plainText]
+      .filter(Boolean)
+      .join("\n\n"),
+  }
+}
 
 function getResponseText(response: unknown) {
   return response &&
@@ -95,7 +125,8 @@ function importSchema() {
 async function getImportAiOutput(
   text: string,
   fileName: string,
-  structureHints = ""
+  structureHints = "",
+  existingText = ""
 ) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
@@ -103,7 +134,12 @@ async function getImportAiOutput(
     const response = await createAgentResponseWithOpenAI(
       {
         model: getWikiImportModel(),
-        input: buildWikiImportPrompt({ text, fileName, structureHints }),
+        input: buildWikiImportPrompt({
+          text,
+          fileName,
+          structureHints,
+          existingText,
+        }),
         max_output_tokens: 6_000,
         reasoning: { effort: "low" },
         store: false,
@@ -151,17 +187,21 @@ function wikiImportImageExtension(contentType: string) {
 async function completeWikiVideoImport({
   assetId,
   nodeId,
+  mode,
+  isPageUpdate,
   supabase,
   userId,
 }: {
   assetId: string
   nodeId: string
+  mode: WikiAiUpdateMode
+  isPageUpdate: boolean
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userId: string
 }) {
   if (!assetId || !nodeId) {
     return NextResponse.json(
-      { error: "Video import details are required." },
+      { error: "Video details are required." },
       { status: 400 }
     )
   }
@@ -185,16 +225,17 @@ async function completeWikiVideoImport({
 
   const { data: node, error: nodeError } = await supabase
     .from("wiki_nodes")
-    .select("id,parent_id,type,status,created_by")
+    .select("id,parent_id,type,status,created_by,current_revision_id")
     .eq("id", nodeId)
     .eq("type", "page")
-    .eq("status", "draft")
-    .eq("created_by", userId)
     .maybeSingle()
   if (nodeError) {
     return NextResponse.json({ error: nodeError.message }, { status: 400 })
   }
-  if (!node) {
+  if (
+    !node ||
+    (!isPageUpdate && (node.status !== "draft" || node.created_by !== userId))
+  ) {
     return NextResponse.json(
       { error: "Video draft not found." },
       { status: 404 }
@@ -214,15 +255,34 @@ async function completeWikiVideoImport({
     fileName: asset.file_name,
     transcript,
   })
+  const currentRevision =
+    isPageUpdate && node.current_revision_id
+      ? ((
+          await supabase
+            .from("wiki_page_revisions")
+            .select(
+              "id,node_id,blocks,plain_text,change_note,created_by,created_at"
+            )
+            .eq("id", node.current_revision_id)
+            .maybeSingle()
+        ).data as WikiRevisionRow | null)
+      : null
+  const content = mergeWikiPageContent({
+    existingRevision: currentRevision,
+    draft,
+    mode,
+  })
   const revisionId = crypto.randomUUID()
   const { error: revisionError } = await supabase
     .from("wiki_page_revisions")
     .insert({
       id: revisionId,
       node_id: nodeId,
-      blocks: draft.blocks,
-      plain_text: draft.plainText,
-      change_note: `Imported video ${asset.file_name}`,
+      blocks: content.blocks,
+      plain_text: content.plainText,
+      change_note: isPageUpdate
+        ? `${mode === "replace" ? "Replaced" : "Updated"} with AI from video ${asset.file_name}`
+        : `Created with AI from video ${asset.file_name}`,
       created_by: userId,
     })
   if (revisionError) {
@@ -231,11 +291,15 @@ async function completeWikiVideoImport({
 
   const { error: updateError } = await supabase
     .from("wiki_nodes")
-    .update({
-      title: draft.title,
-      current_revision_id: revisionId,
-      updated_by: userId,
-    })
+    .update(
+      isPageUpdate
+        ? { current_revision_id: revisionId, updated_by: userId }
+        : {
+            title: draft.title,
+            current_revision_id: revisionId,
+            updated_by: userId,
+          }
+    )
     .eq("id", nodeId)
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 })
@@ -280,16 +344,13 @@ export async function POST(request: Request) {
   try {
     formData = await request.formData()
   } catch {
-    return NextResponse.json(
-      { error: "Invalid import request." },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 })
   }
 
   const fileValue = formData.get("file")
   const pastedValue = formData.get("text")
   const file = fileValue instanceof File && fileValue.size ? fileValue : null
-  const pastedText = typeof pastedValue === "string" ? pastedValue : ""
+  let pastedText = typeof pastedValue === "string" ? pastedValue : ""
   const parentIdValue = formData.get("parent_id")
   const parentId =
     typeof parentIdValue === "string" && parentIdValue.trim()
@@ -297,17 +358,132 @@ export async function POST(request: Request) {
       : null
   const allowDuplicate = formData.get("allow_duplicate") === "1"
   const videoImport = formData.get("video_import")
+  const targetPageIdValue = formData.get("target_page_id")
+  const targetPageId =
+    typeof targetPageIdValue === "string" && targetPageIdValue.trim()
+      ? targetPageIdValue.trim()
+      : null
+  const modeValue = formData.get("mode")
+  const mode: WikiAiUpdateMode = modeValue === "replace" ? "replace" : "update"
+  const sourcePageIdValue = formData.get("source_page_id")
+  const sourcePageId =
+    typeof sourcePageIdValue === "string" && sourcePageIdValue.trim()
+      ? sourcePageIdValue.trim()
+      : null
+
+  if (targetPageId && modeValue !== "update" && modeValue !== "replace") {
+    return NextResponse.json(
+      { error: "Choose an update mode." },
+      { status: 400 }
+    )
+  }
+  if (!targetPageId && modeValue) {
+    return NextResponse.json(
+      { error: "A target page is required for AI Update." },
+      { status: 400 }
+    )
+  }
+  if (sourcePageId && !targetPageId) {
+    return NextResponse.json(
+      { error: "Choose a destination page for the merge." },
+      { status: 400 }
+    )
+  }
+
+  let targetPage: WikiNodeRow | null = null
+  let targetRevision: WikiRevisionRow | null = null
+  if (targetPageId) {
+    const { data, error } = await supabase
+      .from("wiki_nodes")
+      .select(
+        "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
+      )
+      .eq("id", targetPageId)
+      .eq("type", "page")
+      .maybeSingle()
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+    if (!data) {
+      return NextResponse.json(
+        { error: "Wiki page not found." },
+        { status: 404 }
+      )
+    }
+    targetPage = data as WikiNodeRow
+    if (targetPage.current_revision_id) {
+      const { data: revision, error: revisionError } = await supabase
+        .from("wiki_page_revisions")
+        .select(
+          "id,node_id,blocks,plain_text,change_note,created_by,created_at"
+        )
+        .eq("id", targetPage.current_revision_id)
+        .maybeSingle()
+      if (revisionError) {
+        return NextResponse.json(
+          { error: revisionError.message },
+          { status: 400 }
+        )
+      }
+      targetRevision = revision as WikiRevisionRow | null
+    }
+  }
+
+  if (sourcePageId) {
+    if (sourcePageId === targetPageId) {
+      return NextResponse.json(
+        { error: "Choose a different page to merge into." },
+        { status: 400 }
+      )
+    }
+    const { data: sourcePage, error: sourceError } = await supabase
+      .from("wiki_nodes")
+      .select("id,type,current_revision_id")
+      .eq("id", sourcePageId)
+      .eq("type", "page")
+      .maybeSingle()
+    if (sourceError) {
+      return NextResponse.json({ error: sourceError.message }, { status: 400 })
+    }
+    if (!sourcePage?.current_revision_id) {
+      return NextResponse.json(
+        { error: "Source Wiki page not found." },
+        { status: 404 }
+      )
+    }
+    const { data: sourceRevision, error: sourceRevisionError } = await supabase
+      .from("wiki_page_revisions")
+      .select("plain_text")
+      .eq("id", sourcePage.current_revision_id)
+      .maybeSingle()
+    if (sourceRevisionError) {
+      return NextResponse.json(
+        { error: sourceRevisionError.message },
+        { status: 400 }
+      )
+    }
+    pastedText = sourceRevision?.plain_text ?? ""
+  }
 
   if (videoImport === "complete") {
+    const nodeId =
+      typeof formData.get("node_id") === "string"
+        ? (formData.get("node_id") as string).trim()
+        : ""
+    if (targetPageId && nodeId !== targetPageId) {
+      return NextResponse.json(
+        { error: "Video update target does not match the current page." },
+        { status: 400 }
+      )
+    }
     return completeWikiVideoImport({
       assetId:
         typeof formData.get("asset_id") === "string"
           ? (formData.get("asset_id") as string).trim()
           : "",
-      nodeId:
-        typeof formData.get("node_id") === "string"
-          ? (formData.get("node_id") as string).trim()
-          : "",
+      nodeId,
+      mode,
+      isPageUpdate: Boolean(targetPageId),
       supabase,
       userId: user.id,
     })
@@ -328,7 +504,7 @@ export async function POST(request: Request) {
     const videoFile = new File(["x"], videoFileName, { type: videoFileType })
     if (!videoFileName || !isWikiImportVideoFile(videoFile)) {
       return NextResponse.json(
-        { error: "Import supports MP4, MOV, and WebM video files." },
+        { error: "AI Create supports MP4, MOV, and WebM video files." },
         { status: 400 }
       )
     }
@@ -352,7 +528,10 @@ export async function POST(request: Request) {
   }
   if (!isVideoImportStart && !file && !pastedText.trim()) {
     return NextResponse.json(
-      { error: "Drop in a file or paste the text you want to import." },
+      {
+        error:
+          "Drop in a file or paste the text you want to use to create a page.",
+      },
       { status: 400 }
     )
   }
@@ -364,7 +543,9 @@ export async function POST(request: Request) {
   }
   if (file && !isSupportedWikiImportFile(file)) {
     return NextResponse.json(
-      { error: "Import supports PDF, DOCX, TXT, Markdown, and video files." },
+      {
+        error: "AI Create supports PDF, DOCX, TXT, Markdown, and video files.",
+      },
       { status: 400 }
     )
   }
@@ -418,31 +599,40 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "The extracted text is too large to import. Split it into smaller documents.",
+            "The extracted text is too large to use for AI Create. Split it into smaller documents.",
         },
         { status: 400 }
       )
     }
   }
 
-  if (parentId) {
+  if (!targetPageId && parentId) {
     const { data: parent, error: parentError } = await supabase
       .from("wiki_nodes")
-      .select("id,type,status")
+      .select("id,type")
       .eq("id", parentId)
       .maybeSingle()
     if (parentError) {
       return NextResponse.json({ error: parentError.message }, { status: 400 })
     }
-    if (!parent || parent.type !== "folder" || parent.status === "archived") {
+    if (!parent || parent.type !== "folder") {
       return NextResponse.json(
-        { error: "Choose an active Wiki section or group." },
+        { error: "Choose a Wiki section or group." },
         { status: 400 }
       )
     }
   }
 
   if (isVideoImportStart) {
+    if (targetPage) {
+      const nodes = await fetchWikiNodes(supabase)
+      const path = buildWikiPath(nodes, targetPage)
+      return NextResponse.json({
+        ok: true,
+        nodeId: targetPage.id,
+        path: `/wiki/${path}`,
+      })
+    }
     const contentHash = createWikiImportContentHash(
       `video:${sanitizeWikiFileName(videoFileName).toLocaleLowerCase()}:${videoFileSize}`
     )
@@ -509,30 +699,35 @@ export async function POST(request: Request) {
   }
 
   const contentHash = createWikiImportContentHash(normalizedText)
-  const duplicateQuery = supabase
-    .from("wiki_nodes")
-    .select("id,parent_id,slug,title,status")
-    .eq("import_content_hash", contentHash)
-    .neq("status", "archived")
-  const { data: duplicates, error: duplicateError } = await (parentId
-    ? duplicateQuery.eq("parent_id", parentId)
-    : duplicateQuery.is("parent_id", null))
-  if (duplicateError) {
-    return NextResponse.json({ error: duplicateError.message }, { status: 400 })
-  }
-  if (duplicates?.[0] && !allowDuplicate) {
-    const nodes = await fetchWikiNodes(supabase)
-    const existing = duplicates[0] as WikiNodeRow
-    return NextResponse.json(
-      {
-        duplicate: true,
-        existing: {
-          title: existing.title,
-          path: `/wiki/${buildWikiPath(nodes, existing)}`,
+  if (!targetPage) {
+    const duplicateQuery = supabase
+      .from("wiki_nodes")
+      .select("id,parent_id,slug,title,status")
+      .eq("import_content_hash", contentHash)
+      .neq("status", "archived")
+    const { data: duplicates, error: duplicateError } = await (parentId
+      ? duplicateQuery.eq("parent_id", parentId)
+      : duplicateQuery.is("parent_id", null))
+    if (duplicateError) {
+      return NextResponse.json(
+        { error: duplicateError.message },
+        { status: 400 }
+      )
+    }
+    if (duplicates?.[0] && !allowDuplicate) {
+      const nodes = await fetchWikiNodes(supabase)
+      const existing = duplicates[0] as WikiNodeRow
+      return NextResponse.json(
+        {
+          duplicate: true,
+          existing: {
+            title: existing.title,
+            path: `/wiki/${buildWikiPath(nodes, existing)}`,
+          },
         },
-      },
-      { status: 409 }
-    )
+        { status: 409 }
+      )
+    }
   }
 
   let aiOutput: WikiImportAiOutput | null = null
@@ -541,7 +736,10 @@ export async function POST(request: Request) {
       aiOutput = await getImportAiOutput(
         normalizedText,
         fileName,
-        pdfDocument ? buildWikiPdfStructureHints(pdfDocument.pages) : ""
+        pdfDocument ? buildWikiPdfStructureHints(pdfDocument.pages) : "",
+        targetPage && mode === "update"
+          ? (targetRevision?.plain_text ?? "")
+          : ""
       )
     } catch (error) {
       console.debug(
@@ -550,7 +748,7 @@ export async function POST(request: Request) {
       )
     }
   }
-  const nodeId = crypto.randomUUID()
+  const nodeId = targetPage?.id ?? crypto.randomUUID()
   const revisionId = crypto.randomUUID()
   const assetId = file ? crypto.randomUUID() : null
   const storagePath =
@@ -591,6 +789,20 @@ export async function POST(request: Request) {
           (image) => `/api/wiki/assets/${image.id}`
         ),
       })
+  const aiMergedCurrentPage = Boolean(
+    targetPage &&
+    mode === "update" &&
+    targetRevision &&
+    draft.usedAi &&
+    isFaithfulWikiImportOutput(
+      targetRevision.plain_text,
+      draft.markdown,
+      draft.title
+    )
+  )
+  const revisionDraft = aiMergedCurrentPage
+    ? { ...draft, plainText: blockNoteToPlainText(draft.blocks) }
+    : draft
   if (fileName === "wiki-import-cid-text.pdf" && aiOutput && !draft.usedAi) {
     console.warn(
       "Wiki import AI output failed fidelity or layout validation; using rule-based formatting",
@@ -627,33 +839,35 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: siblings, error: siblingError } = await (parentId
-      ? supabase.from("wiki_nodes").select("slug").eq("parent_id", parentId)
-      : supabase.from("wiki_nodes").select("slug").is("parent_id", null))
-    if (siblingError) {
-      throw new Error(siblingError.message)
-    }
-    const slug = createUniqueWikiImportSlug(
-      draft.title,
-      (siblings ?? []).map((sibling) => sibling.slug)
-    )
-    const { error: nodeError } = await supabase.from("wiki_nodes").insert({
-      id: nodeId,
-      parent_id: parentId,
-      type: "page",
-      title: draft.title,
-      slug,
-      status: "draft",
-      tags: draft.tags,
-      import_content_hash: contentHash,
-      created_by: user.id,
-      updated_by: user.id,
-    })
-    if (nodeError) {
-      throw new Error(nodeError.message)
+    if (!targetPage) {
+      const { data: siblings, error: siblingError } = await (parentId
+        ? supabase.from("wiki_nodes").select("slug").eq("parent_id", parentId)
+        : supabase.from("wiki_nodes").select("slug").is("parent_id", null))
+      if (siblingError) {
+        throw new Error(siblingError.message)
+      }
+      const slug = createUniqueWikiImportSlug(
+        draft.title,
+        (siblings ?? []).map((sibling) => sibling.slug)
+      )
+      const { error: nodeError } = await supabase.from("wiki_nodes").insert({
+        id: nodeId,
+        parent_id: parentId,
+        type: "page",
+        title: draft.title,
+        slug,
+        status: "draft",
+        tags: draft.tags,
+        import_content_hash: contentHash,
+        created_by: user.id,
+        updated_by: user.id,
+      })
+      if (nodeError) {
+        throw new Error(nodeError.message)
+      }
     }
 
-    const blocks =
+    const importedBlocks =
       file && assetId
         ? [
             ...draft.blocks,
@@ -665,16 +879,23 @@ export async function POST(request: Request) {
             },
           ]
         : draft.blocks
+    const content = mergeWikiPageContent({
+      existingRevision: targetRevision,
+      draft: { ...revisionDraft, blocks: importedBlocks },
+      mode: aiMergedCurrentPage ? "replace" : mode,
+    })
     const { error: revisionError } = await supabase
       .from("wiki_page_revisions")
       .insert({
         id: revisionId,
         node_id: nodeId,
-        blocks,
-        plain_text: draft.plainText,
-        change_note: file
-          ? `Imported from ${fileName}`
-          : "Imported pasted text",
+        blocks: content.blocks,
+        plain_text: content.plainText,
+        change_note: targetPage
+          ? `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${file ? fileName : "pasted text"}`
+          : file
+            ? `Created with AI from ${fileName}`
+            : "Created with AI from pasted text",
         created_by: user.id,
       })
     if (revisionError) {
@@ -724,7 +945,22 @@ export async function POST(request: Request) {
         throw new Error(assetError.message)
       }
     }
-    await syncWikiPageTags({ supabase, nodeId, tags: draft.tags })
+    if (!targetPage) {
+      await syncWikiPageTags({ supabase, nodeId, tags: draft.tags })
+    }
+
+    if (sourcePageId) {
+      const { error: archiveError } = await supabase
+        .from("wiki_nodes")
+        .update({ status: "archived", updated_by: user.id })
+        .eq("id", sourcePageId)
+      if (archiveError) throw new Error(archiveError.message)
+      await archiveKnowledgeSource({
+        supabase: createSupabaseAdminClient(),
+        sourceType: "wiki_page",
+        sourceId: sourcePageId,
+      })
+    }
 
     const nodes = await fetchWikiNodes(supabase)
     const node = nodes.find((item) => item.id === nodeId)
@@ -740,7 +976,7 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     await cleanUpImport({
-      nodeId,
+      nodeId: targetPage ? undefined : nodeId,
       storagePaths: [
         ...(storagePath ? [storagePath] : []),
         ...importedImageAssets.map((image) => image.storagePath),
@@ -751,9 +987,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "Unable to create the imported draft.",
+          error instanceof Error ? error.message : "Unable to create draft.",
       },
       { status: 400 }
     )

@@ -120,14 +120,14 @@ export function WikiViewModeTitleSpacing({
 }
 
 export function useVisibleWikiNodes(nodes: WikiNodeRow[]) {
-  const { canEditWiki } = useWikiEditMode()
+  const { canManageWiki } = useWikiEditMode()
 
   return React.useMemo(
     () =>
-      canEditWiki
+      canManageWiki
         ? nodes
         : nodes.filter((node) => isPublishedWikiBranch(nodes, node)),
-    [canEditWiki, nodes]
+    [canManageWiki, nodes]
   )
 }
 
@@ -142,9 +142,9 @@ export function WikiVisibleNodeGate({
   children: React.ReactNode
   fallback?: React.ReactNode
 }) {
-  const { canEditWiki } = useWikiEditMode()
+  const { canManageWiki } = useWikiEditMode()
 
-  return canEditWiki || isPublishedWikiBranch(nodes, node) ? (
+  return canManageWiki || isPublishedWikiBranch(nodes, node) ? (
     <>{children}</>
   ) : (
     <>{fallback}</>

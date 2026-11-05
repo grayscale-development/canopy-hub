@@ -2,16 +2,35 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ChevronRightIcon, PlusIcon, TagsIcon } from "lucide-react"
+import {
+  ChevronRightIcon,
+  FileTextIcon,
+  FolderIcon,
+  PencilIcon,
+  PlusIcon,
+  SparklesIcon,
+  TagsIcon,
+} from "lucide-react"
 
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { WikiCreateWizardDialog } from "@/components/wiki/wiki-management-controls"
+import {
+  WIKI_EDIT_NODE_EVENT,
+  WikiCreateWizardDialog,
+  WikiNodeActionsMenu,
+} from "@/components/wiki/wiki-management-controls"
+import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
 import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 import {
   getDefaultWikiRepository,
@@ -23,14 +42,6 @@ import {
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
 import { cn } from "@/lib/utils"
-
-function nodeIsActive(
-  node: WikiNodeRow,
-  nodes: WikiNodeRow[],
-  activePath: string
-) {
-  return buildWikiPath(nodes, node) === activePath
-}
 
 function readPersistedExpansion(storageKey: string) {
   if (typeof window === "undefined") {
@@ -158,10 +169,11 @@ function SidebarPageLink({
     <Link
       href={`/wiki/${path}`}
       className={cn(
-        "flex min-h-8 w-full items-center rounded-md px-2 py-1 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        "flex min-h-8 w-full items-center rounded-md pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
       )}
     >
+      <span aria-hidden="true" className="size-8 shrink-0" />
       <TruncatedTitle title={node.title} />
       {node.status === "draft" ? (
         <span
@@ -171,6 +183,43 @@ function SidebarPageLink({
         />
       ) : null}
     </Link>
+  )
+}
+
+function SidebarFolderEditButton({
+  folder,
+  nodes,
+}: {
+  folder: WikiNodeRow
+  nodes: WikiNodeRow[]
+}) {
+  const hasChildren = nodes.some((node) => node.parent_id === folder.id)
+
+  return (
+    <>
+      <WikiNodeActionsMenu
+        nodes={nodes}
+        node={folder}
+        hasChildren={hasChildren}
+      />
+      <Button
+        type="button"
+        size="icon-sm"
+        variant="ghost"
+        className="-mr-1 size-6 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100"
+        aria-label={`Edit ${folder.title}`}
+        title={`Edit ${folder.title}`}
+        onClick={() => {
+          window.dispatchEvent(
+            new CustomEvent(WIKI_EDIT_NODE_EVENT, {
+              detail: { id: folder.id },
+            })
+          )
+        }}
+      >
+        <PencilIcon className="size-3.5" />
+      </Button>
+    </>
   )
 }
 
@@ -186,7 +235,7 @@ function SidebarNestedFolder({
   canManage: boolean
 }) {
   const children = nodes
-    .filter((node) => node.parent_id === folder.id && node.type === "page")
+    .filter((node) => node.parent_id === folder.id)
     .sort(compareWikiNodes)
   const folderPath = buildWikiPath(nodes, folder)
   const [isOpen, setPersistedOpen] = usePersistedSidebarExpansion(
@@ -194,46 +243,23 @@ function SidebarNestedFolder({
     false,
     activePath.startsWith(`${folderPath}/`)
   )
-  const isActive = nodeIsActive(folder, nodes, activePath)
+  const isActive = activePath.startsWith(`${folderPath}/`)
   const contentId = `wiki-sidebar-group-${folder.id}`
 
   return (
     <div>
       <div
         className={cn(
-          "flex min-h-8 w-full items-center rounded-md text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          "group flex min-h-8 w-full items-center rounded-md text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
       >
-        <Link
-          href={`/wiki/${folderPath}`}
-          aria-current={isActive ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <TruncatedTitle title={folder.title} />
-        </Link>
-        {canManage ? (
-          <WikiCreateWizardDialog
-            parentId={folder.id}
-            defaultType="page"
-            allowedTypes={["page"]}
-            labels={{ page: "Page" }}
-            dialogTitle="Add Page"
-            dialogDescription="Add a page to this group."
-            triggerLabel=""
-            triggerAriaLabel={`Add a page to ${folder.title}`}
-            triggerTitle={`Add a page to ${folder.title}`}
-            iconOnly
-            triggerVariant="ghost"
-            triggerClassName="size-8 shrink-0 px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
-          />
-        ) : null}
         <button
           type="button"
-          aria-label={`${isOpen ? "Collapse" : "Expand"} ${folder.title}`}
+          aria-label={`Toggle ${folder.title}`}
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setPersistedOpen((current) => !current)
@@ -247,36 +273,189 @@ function SidebarNestedFolder({
             )}
           />
         </button>
+        <button
+          type="button"
+          aria-label={`${isOpen ? "Collapse" : "Expand"} ${folder.title}`}
+          aria-expanded={isOpen}
+          aria-controls={contentId}
+          className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={(event) =>
+            toggleExpansionWithoutScrollJump(event, () =>
+              setPersistedOpen((current) => !current)
+            )
+          }
+        >
+          <TruncatedTitle title={folder.title} />
+        </button>
+        {canManage ? (
+          <SidebarFolderEditButton folder={folder} nodes={nodes} />
+        ) : null}
+        {canManage ? (
+          <SidebarNestedFolderAddMenu folder={folder} nodes={nodes} />
+        ) : null}
       </div>
-      <div
-        id={contentId}
-        hidden={!isOpen}
-        className="mt-1 pl-3"
-      >
-        {children.map((child) => (
-          <SidebarPageLink
-            key={child.id}
-            node={child}
-            nodes={nodes}
-            activePath={activePath}
-          />
-        ))}
+      <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
+        {children.map((child) =>
+          child.type === "folder" ? (
+            <SidebarNestedFolder
+              key={child.id}
+              folder={child}
+              nodes={nodes}
+              activePath={activePath}
+              canManage={canManage}
+            />
+          ) : (
+            <SidebarPageLink
+              key={child.id}
+              node={child}
+              nodes={nodes}
+              activePath={activePath}
+            />
+          )
+        )}
       </div>
     </div>
   )
 }
 
+function SidebarNestedFolderAddMenu({
+  folder,
+  nodes,
+}: {
+  folder: WikiNodeRow
+  nodes: WikiNodeRow[]
+}) {
+  const [dialog, setDialog] = React.useState<"page" | "ai-create" | null>(null)
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="size-8 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+            aria-label={`Add to ${folder.title}`}
+            title={`Add to ${folder.title}`}
+          >
+            <PlusIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-32">
+          <DropdownMenuItem onSelect={() => setDialog("page")}>
+            <FileTextIcon className="size-4" />
+            Page
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDialog("ai-create")}>
+            <SparklesIcon className="size-4" />
+            AI Create
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <WikiCreateWizardDialog
+        nodes={nodes}
+        parentId={folder.id}
+        defaultType="page"
+        allowedTypes={["page"]}
+        labels={{ page: "Page" }}
+        dialogTitle="Add Page"
+        open={dialog === "page"}
+        onOpenChange={(open) => setDialog(open ? "page" : null)}
+        showTrigger={false}
+      />
+      <WikiImportWizardDialog
+        nodes={nodes}
+        parentId={folder.id}
+        open={dialog === "ai-create"}
+        onOpenChange={(open) => setDialog(open ? "ai-create" : null)}
+        showTrigger={false}
+      />
+    </>
+  )
+}
+
+function SidebarSectionAddMenu({
+  section,
+  nodes,
+}: {
+  section: WikiNodeRow
+  nodes: WikiNodeRow[]
+}) {
+  const [dialog, setDialog] = React.useState<
+    "page" | "folder" | "ai-create" | null
+  >(null)
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="size-8 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
+            aria-label={`Add to ${section.title}`}
+            title={`Add to ${section.title}`}
+          >
+            <PlusIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-32">
+          <DropdownMenuItem onSelect={() => setDialog("page")}>
+            <FileTextIcon className="size-4" />
+            Page
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDialog("folder")}>
+            <FolderIcon className="size-4" />
+            Group
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDialog("ai-create")}>
+            <SparklesIcon className="size-4" />
+            AI Create
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <WikiCreateWizardDialog
+        nodes={nodes}
+        parentId={section.id}
+        defaultType="page"
+        allowedTypes={["page"]}
+        labels={{ page: "Page" }}
+        dialogTitle="Add Page"
+        open={dialog === "page"}
+        onOpenChange={(open) => setDialog(open ? "page" : null)}
+        showTrigger={false}
+      />
+      <WikiCreateWizardDialog
+        nodes={nodes}
+        parentId={section.id}
+        defaultType="folder"
+        allowedTypes={["folder"]}
+        labels={{ folder: "Group" }}
+        dialogTitle="Add Group"
+        open={dialog === "folder"}
+        onOpenChange={(open) => setDialog(open ? "folder" : null)}
+        showTrigger={false}
+      />
+      <WikiImportWizardDialog
+        nodes={nodes}
+        parentId={section.id}
+        open={dialog === "ai-create"}
+        onOpenChange={(open) => setDialog(open ? "ai-create" : null)}
+        showTrigger={false}
+      />
+    </>
+  )
+}
+
 function SidebarSection({
   section,
-  directPages,
-  nestedFolders,
   nodes,
   activePath,
   canManage,
 }: {
   section: WikiNodeRow
-  directPages: WikiNodeRow[]
-  nestedFolders: WikiNodeRow[]
   nodes: WikiNodeRow[]
   activePath: string
   canManage: boolean
@@ -287,46 +466,23 @@ function SidebarSection({
     true,
     activePath.startsWith(`${sectionPath}/`)
   )
-  const isActive = nodeIsActive(section, nodes, activePath)
+  const isActive = activePath.startsWith(`${sectionPath}/`)
   const contentId = `wiki-sidebar-section-${section.id}`
 
   return (
     <section className="space-y-1">
       <div
         className={cn(
-          "flex min-h-8 w-full items-center rounded-md text-sm leading-5 font-semibold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          "group flex min-h-8 w-full items-center rounded-md text-sm leading-5 font-semibold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
       >
-        <Link
-          href={`/wiki/${sectionPath}`}
-          aria-current={isActive ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md px-2 py-1 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <TruncatedTitle title={section.title} />
-        </Link>
-        {canManage ? (
-          <WikiCreateWizardDialog
-            parentId={section.id}
-            defaultType="page"
-            allowedTypes={["page", "folder"]}
-            labels={{ page: "Page", folder: "Group" }}
-            dialogTitle="Add to Section"
-            dialogDescription="Create a page or group in this section."
-            triggerLabel=""
-            triggerAriaLabel={`Add a page or group to ${section.title}`}
-            triggerTitle={`Add a page or group to ${section.title}`}
-            iconOnly
-            triggerVariant="ghost"
-            triggerClassName="size-8 shrink-0 px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
-          />
-        ) : null}
         <button
           type="button"
-          aria-label={`${isOpen ? "Collapse" : "Expand"} ${section.title}`}
+          aria-label={`Toggle ${section.title}`}
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setPersistedOpen((current) => !current)
@@ -340,29 +496,49 @@ function SidebarSection({
             )}
           />
         </button>
+        <button
+          type="button"
+          aria-label={`${isOpen ? "Collapse" : "Expand"} ${section.title}`}
+          aria-expanded={isOpen}
+          aria-controls={contentId}
+          className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center rounded-md py-1 pr-2 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={(event) =>
+            toggleExpansionWithoutScrollJump(event, () =>
+              setPersistedOpen((current) => !current)
+            )
+          }
+        >
+          <TruncatedTitle title={section.title} />
+        </button>
+        {canManage ? (
+          <SidebarFolderEditButton folder={section} nodes={nodes} />
+        ) : null}
+        {canManage ? (
+          <SidebarSectionAddMenu section={section} nodes={nodes} />
+        ) : null}
       </div>
-      <div
-        id={contentId}
-        hidden={!isOpen}
-        className="space-y-1 pl-3"
-      >
-        {directPages.map((page) => (
-          <SidebarPageLink
-            key={page.id}
-            node={page}
-            nodes={nodes}
-            activePath={activePath}
-          />
-        ))}
-        {nestedFolders.map((folder) => (
-          <SidebarNestedFolder
-            key={folder.id}
-            folder={folder}
-            nodes={nodes}
-            activePath={activePath}
-            canManage={canManage}
-          />
-        ))}
+      <div id={contentId} hidden={!isOpen} className="space-y-1">
+        {nodes
+          .filter((node) => node.parent_id === section.id)
+          .sort(compareWikiNodes)
+          .map((node) =>
+            node.type === "folder" ? (
+              <SidebarNestedFolder
+                key={node.id}
+                folder={node}
+                nodes={nodes}
+                activePath={activePath}
+                canManage={canManage}
+              />
+            ) : (
+              <SidebarPageLink
+                key={node.id}
+                node={node}
+                nodes={nodes}
+                activePath={activePath}
+              />
+            )
+          )}
       </div>
     </section>
   )
@@ -421,12 +597,12 @@ export function WikiRepositorySidebar({
         </h2>
         {canEditSidebar ? (
           <WikiCreateWizardDialog
+            nodes={visibleNodes}
             parentId={repositoryNode?.id ?? null}
             defaultType="folder"
             allowedTypes={["folder"]}
             labels={{ folder: "Section" }}
             dialogTitle="Create Section"
-            dialogDescription={`Add a section to ${selectedRepository.title}.`}
             repositorySlug={
               repositoryNode ? undefined : selectedRepository.slug
             }
@@ -435,7 +611,7 @@ export function WikiRepositorySidebar({
             triggerTitle="Create Section"
             iconOnly
             triggerVariant="ghost"
-            triggerClassName="size-8 shrink-0 px-0"
+            triggerClassName="size-8 shrink-0 cursor-pointer px-0"
           />
         ) : !canManageWiki ? (
           <PermissionRequestGate
@@ -464,27 +640,13 @@ export function WikiRepositorySidebar({
       >
         {sections.length ? (
           sections.map((section) => {
-            const directPages = visibleNodes
-              .filter(
-                (node) => node.parent_id === section.id && node.type === "page"
-              )
-              .sort(compareWikiNodes)
-            const nestedFolders = visibleNodes
-              .filter(
-                (node) =>
-                  node.parent_id === section.id && node.type === "folder"
-              )
-              .sort(compareWikiNodes)
-
             return (
               <SidebarSection
                 key={section.id}
                 section={section}
-                directPages={directPages}
-                nestedFolders={nestedFolders}
                 nodes={visibleNodes}
                 activePath={activePath}
-                canManage={canEditSidebar}
+                canManage={canManageWiki}
               />
             )
           })

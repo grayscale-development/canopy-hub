@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation"
+import { redirect } from "next/navigation"
 
 import {
   WikiEditModeGate,
@@ -9,15 +9,9 @@ import { WikiEditor } from "@/components/wiki/wiki-editor"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import {
   WikiCreateWizardDialog,
-  WikiEditableTitle,
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
 import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
-import {
-  WikiLastPageRecorder,
-  WikiLastPageRedirect,
-} from "@/components/wiki/wiki-last-page-navigation"
-import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
 import {
   WikiTagsDirectory,
   type WikiTagDirectoryEntry,
@@ -32,7 +26,7 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
   buildWikiPath,
   compareWikiNodes,
-  findDefaultWikiPagePath,
+  findFirstPublishedWikiPagePath,
   fetchWikiNodes,
   fetchWikiPageData,
   fetchWikiTags,
@@ -104,12 +98,27 @@ function DirectoryView({
         <div className="flex flex-wrap items-center justify-between gap-3">
           {title ? <h2 className="text-xl font-semibold">{title}</h2> : null}
           {canManageWiki && showCreateControl ? (
-            <WikiEditModeGate>
+            items.length ? (
+              <WikiEditModeGate>
+                <div className="flex items-center gap-2">
+                  <WikiCreateWizardDialog parentId={parentId} nodes={nodes} />
+                  <WikiImportWizardDialog nodes={nodes} parentId={parentId} />
+                </div>
+              </WikiEditModeGate>
+            ) : (
               <div className="flex items-center gap-2">
-                <WikiCreateWizardDialog parentId={parentId} />
-                <WikiImportWizardDialog nodes={nodes} parentId={parentId} />
+                <WikiCreateWizardDialog
+                  parentId={parentId}
+                  nodes={nodes}
+                  defaultType="folder"
+                  allowedTypes={["folder"]}
+                  triggerLabel="Add Section"
+                  triggerAriaLabel="Add Section"
+                  triggerTitle="Add Section"
+                  labels={{ folder: "Section" }}
+                />
               </div>
-            </WikiEditModeGate>
+            )
           ) : null}
         </div>
       ) : null}
@@ -145,57 +154,6 @@ function getSelectedRepositorySlug({
   return (
     getWikiRepositoryBySlug(rootSlug)?.slug ?? getDefaultWikiRepository().slug
   )
-}
-
-function getDirectoryCreateConfig({
-  breadcrumbs,
-  repositorySlug,
-}: {
-  breadcrumbs: WikiNodeRow[]
-  repositorySlug?: string
-}) {
-  if (breadcrumbs.length <= 1) {
-    return {
-      allowedTypes: ["folder"] as Array<"folder" | "page">,
-      defaultType: "folder" as const,
-      labels: { folder: "Section" },
-      dialogTitle: "Create Section",
-      dialogDescription: "Add a section to this wiki.",
-      repositorySlug,
-    }
-  }
-
-  if (breadcrumbs.length === 2) {
-    return {
-      allowedTypes: ["page", "folder"] as Array<"folder" | "page">,
-      defaultType: "page" as const,
-      labels: { page: "Page", folder: "Group" },
-      dialogTitle: "Add to Section",
-      dialogDescription: "Create a page or group in this section.",
-      repositorySlug: undefined,
-    }
-  }
-
-  return {
-    allowedTypes: ["page"] as Array<"folder" | "page">,
-    defaultType: "page" as const,
-    labels: { page: "Page" },
-    dialogTitle: "Add Page",
-    dialogDescription: "Add a page to this group.",
-    repositorySlug: undefined,
-  }
-}
-
-function getDirectoryEmptyLabel(breadcrumbs: WikiNodeRow[]) {
-  if (breadcrumbs.length <= 1) {
-    return "No sections yet."
-  }
-
-  if (breadcrumbs.length === 2) {
-    return "This section is empty."
-  }
-
-  return "This group is empty."
 }
 
 function WikiSetupRequired({ canManageWiki }: { canManageWiki: boolean }) {
@@ -303,7 +261,7 @@ export default async function WikiPage({
   const isTagsDirectory = path.length === 1 && path[0] === "tags"
 
   if (path.length && !pageData && !missingRepositoryPage && !isTagsDirectory) {
-    notFound()
+    redirect("/wiki")
   }
 
   let lastUpdatedBy = "Unknown"
@@ -344,13 +302,10 @@ export default async function WikiPage({
   const rootChildren = nodes
     .filter((node) => node.parent_id === null)
     .sort(compareWikiNodes)
-  const activePath = path.join("/")
   const selectedRepositorySlug = getSelectedRepositorySlug({ path, pageData })
   const isNanoWiki = selectedRepositorySlug === "nano-wiki"
-  const isRepositoryLanding =
-    path.length === 1 && Boolean(getWikiRepositoryBySlug(path[0]))
-  const publishedNodes = nodes.filter((node) =>
-    isPublishedWikiBranch(nodes, node)
+  const publishedNodes = nodes.filter(
+    (node) => node.type === "page" && isPublishedWikiBranch(nodes, node)
   )
   const tagDirectoryEntries: WikiTagDirectoryEntry[] = wikiTags.map((tag) => ({
     name: tag.name,
@@ -369,59 +324,29 @@ export default async function WikiPage({
         path: buildWikiPath(nodes, page),
       })),
   }))
-  const repositoryDefaultPagePath = isRepositoryLanding
-    ? findDefaultWikiPagePath(publishedNodes, selectedRepositorySlug)
-    : null
-  const virtualRepositoryNode: WikiNodeRow | null = missingRepositoryPage
-    ? {
-        id: "",
-        parent_id: null,
-        type: "folder",
-        slug: missingRepositoryPage.slug,
-        title: missingRepositoryPage.title,
-        status: "published",
-        sort_order: missingRepositoryPage.sortOrder,
-        tags: [],
-        current_revision_id: null,
-        created_by: null,
-        updated_by: null,
-        created_at: new Date(0).toISOString(),
-        updated_at: new Date(0).toISOString(),
-      }
-    : null
-  const displayedNode = pageData?.node ?? virtualRepositoryNode
+  const displayedNode = pageData?.node ?? null
   const displayedChildren = pageData?.children ?? []
-  const displayedBreadcrumbs =
-    pageData?.breadcrumbs ?? (displayedNode ? [displayedNode] : [])
-  const displayedCreateConfig = getDirectoryCreateConfig({
-    breadcrumbs: displayedBreadcrumbs,
-    repositorySlug: missingRepositoryPage?.slug,
-  })
-  const pageCreateConfig =
-    pageData?.node.type === "page"
-      ? getDirectoryCreateConfig({
-          breadcrumbs: pageData.breadcrumbs.slice(0, -1),
-        })
-      : null
-  const displayedEmptyLabel = getDirectoryEmptyLabel(displayedBreadcrumbs)
+
+  if (
+    !isNanoWiki &&
+    (missingRepositoryPage || pageData?.node.type === "folder")
+  ) {
+    if (!pageData) {
+      if (path.length) {
+        redirect("/wiki")
+      }
+    }
+    if (pageData?.node.type === "folder") {
+      const firstPagePath = findFirstPublishedWikiPagePath(nodes, pageData.node)
+      if (firstPagePath) {
+        redirect(`/wiki/${firstPagePath}`)
+      }
+      redirect("/wiki")
+    }
+  }
+
   return (
     <>
-      {isRepositoryLanding && !isNanoWiki ? (
-        <WikiLastPageRedirect
-          nodes={nodes}
-          repositorySlug={selectedRepositorySlug}
-          fallbackPath={repositoryDefaultPagePath}
-          canManageWiki={canManageWiki}
-        />
-      ) : null}
-      {pageData?.node.type === "page" && !isNanoWiki ? (
-        <WikiLastPageRecorder
-          nodes={nodes}
-          path={activePath}
-          repositorySlug={selectedRepositorySlug}
-          canManageWiki={canManageWiki}
-        />
-      ) : null}
       {isNanoWiki ? (
         <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-white p-6 dark:bg-[#1F1F1F]">
           <p className="text-center text-2xl font-semibold text-muted-foreground">
@@ -443,85 +368,7 @@ export default async function WikiPage({
                 fallback={<HiddenDraftView title={displayedNode.title} />}
               >
                 <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
-                  {displayedNode.type === "folder" || missingRepositoryPage ? (
-                    <WikiViewModeTitleSpacing className="w-full">
-                      <div className="flex w-full flex-wrap items-center gap-3">
-                        <WikiEditableTitle
-                          nodeId={displayedNode.id}
-                          className="mr-auto text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]"
-                        >
-                          {displayedNode.title}
-                        </WikiEditableTitle>
-                        {canManageWiki ? (
-                          <WikiEditModeGate>
-                            <div className="flex shrink-0 items-center gap-2">
-                              {pageData ? (
-                                <WikiStatusSelect
-                                  nodeId={pageData.node.id}
-                                  status={pageData.node.status}
-                                />
-                              ) : null}
-                              {pageData ? (
-                                <WikiNodeActionsMenu
-                                  nodes={nodes}
-                                  node={pageData.node}
-                                  hasChildren={displayedChildren.length > 0}
-                                  availableTags={wikiTags.map(
-                                    (tag) => tag.name
-                                  )}
-                                />
-                              ) : null}
-                            </div>
-                            {pageData &&
-                            displayedNode.type === "folder" &&
-                            displayedBreadcrumbs.length > 1 ? (
-                              <div className="ml-auto flex items-center gap-2">
-                                <WikiCreateWizardDialog
-                                  parentId={pageData.node.id}
-                                  defaultType={
-                                    displayedCreateConfig.defaultType
-                                  }
-                                  allowedTypes={
-                                    displayedCreateConfig.allowedTypes
-                                  }
-                                  labels={displayedCreateConfig.labels}
-                                  dialogTitle={
-                                    displayedCreateConfig.dialogTitle
-                                  }
-                                  dialogDescription={
-                                    displayedCreateConfig.dialogDescription
-                                  }
-                                  triggerLabel={
-                                    displayedCreateConfig.dialogTitle
-                                  }
-                                  triggerAriaLabel={
-                                    displayedCreateConfig.dialogTitle
-                                  }
-                                  triggerTitle={
-                                    displayedCreateConfig.dialogTitle
-                                  }
-                                />
-                                <WikiImportWizardDialog
-                                  nodes={nodes}
-                                  parentId={pageData.node.id}
-                                />
-                              </div>
-                            ) : null}
-                          </WikiEditModeGate>
-                        ) : null}
-                      </div>
-                    </WikiViewModeTitleSpacing>
-                  ) : null}
-
-                  {displayedNode.type === "folder" ? (
-                    <DirectoryView
-                      items={displayedChildren}
-                      nodes={nodes}
-                      canManageWiki={canManageWiki}
-                      parentId={pageData?.node.id ?? null}
-                      emptyLabel={displayedEmptyLabel}
-                    />
-                  ) : pageData ? (
+                  {pageData ? (
                     <div className="flex min-w-0 flex-1 flex-col gap-6">
                       {isHistoricalRevision ? (
                         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
@@ -554,18 +401,7 @@ export default async function WikiPage({
                             </WikiEditModeGate>
                           ) : null
                         }
-                        createAction={
-                          canManageWiki && pageCreateConfig ? (
-                            <WikiEditModeGate>
-                              <div className="flex items-center gap-2">
-                                <WikiImportWizardDialog
-                                  nodes={nodes}
-                                  parentId={pageData.node.parent_id}
-                                />
-                              </div>
-                            </WikiEditModeGate>
-                          ) : null
-                        }
+                        // AI Update is hidden until it is better tested.
                       />
                     </div>
                   ) : null}

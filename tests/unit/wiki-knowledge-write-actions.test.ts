@@ -18,8 +18,13 @@ const mocks = vi.hoisted(() => {
     insert: vi.fn(() => query),
     select: vi.fn(() => query),
     update: vi.fn(() => query),
-    eq: vi.fn(async () => ({ error: null })),
+    eq: vi.fn(() => ({
+      maybeSingle: query.maybeSingle,
+      then: (resolve: (value: { error: null }) => unknown) =>
+        resolve({ error: null }),
+    })),
     single: vi.fn(async () => ({ data: revision, error: null })),
+    maybeSingle: vi.fn(async () => ({ data: { type: "page" }, error: null })),
   }
   const userClient = {
     auth: {

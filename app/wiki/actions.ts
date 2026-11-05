@@ -194,7 +194,10 @@ export async function createWikiNodeAction(
     const repository = getWikiRepositoryBySlug(
       getString(formData, "repository_slug")
     )
-    const status = parseNodeStatus(getString(formData, "status"), type)
+    const status =
+      type === "page"
+        ? parseNodeStatus(getString(formData, "status"), type)
+        : "published"
     const tags =
       type === "page" ? normalizeWikiTags(getString(formData, "tags")) : []
 
@@ -326,7 +329,7 @@ export async function updateWikiNodeAction(
     const { supabase, user } = await getWikiManagerClient()
     const id = getString(formData, "id")
     const title = getString(formData, "title")
-    const parentId = getString(formData, "parent_id") || null
+    const submittedParentId = getString(formData, "parent_id") || null
 
     if (!id || !title) {
       return { ok: false, message: "ID and title are required." }
@@ -334,7 +337,7 @@ export async function updateWikiNodeAction(
 
     const { data: existingNode, error: existingNodeError } = await supabase
       .from("wiki_nodes")
-      .select("type")
+      .select("type,parent_id")
       .eq("id", id)
       .maybeSingle()
 
@@ -346,6 +349,9 @@ export async function updateWikiNodeAction(
       return { ok: false, message: "Wiki item not found." }
     }
 
+    const parentId = formData.has("parent_id")
+      ? submittedParentId
+      : existingNode.parent_id
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,
@@ -396,6 +402,73 @@ export async function updateWikiNodeAction(
       ok: false,
       message:
         error instanceof Error ? error.message : "Unable to update Wiki item.",
+    }
+  }
+}
+
+export async function moveWikiNodeAction(
+  formData: FormData
+): Promise<WikiActionResult> {
+  try {
+    const { supabase, user } = await getWikiManagerClient()
+    const id = getString(formData, "id")
+    const parentId = getString(formData, "parent_id") || null
+    if (!id) return { ok: false, message: "Wiki item not found." }
+
+    const nodes = await fetchWikiNodes(supabase)
+    const node = nodes.find((item) => item.id === id)
+    const parent = parentId ? nodes.find((item) => item.id === parentId) : null
+    if (!node) return { ok: false, message: "Wiki item not found." }
+    if (
+      (!parentId && node.type === "page") ||
+      (parentId && (!parent || parent.type !== "folder"))
+    ) {
+      return { ok: false, message: "Choose a Wiki section or group." }
+    }
+
+    const descendantIds = new Set<string>()
+    const addDescendants = (ancestorId: string) => {
+      nodes
+        .filter((item) => item.parent_id === ancestorId)
+        .forEach((child) => {
+          descendantIds.add(child.id)
+          addDescendants(child.id)
+        })
+    }
+    addDescendants(id)
+    if (parentId && (parentId === id || descendantIds.has(parentId))) {
+      return {
+        ok: false,
+        message:
+          "A Wiki item cannot be moved into itself or one of its descendants.",
+      }
+    }
+
+    const slug = await generateUniqueWikiSlug({
+      supabase,
+      parentId,
+      title: node.title,
+      ignoreNodeId: id,
+    })
+    const { error } = await supabase
+      .from("wiki_nodes")
+      .update({ parent_id: parentId, slug, updated_by: user.id })
+      .eq("id", id)
+    if (error) return { ok: false, message: error.message }
+
+    const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId: id })
+    revalidatePath("/wiki")
+    if (path) revalidatePath(`/wiki/${path}`)
+    return {
+      ok: true,
+      message: "Moved.",
+      path: path ? `/wiki/${path}` : "/wiki",
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error ? error.message : "Unable to move Wiki item.",
     }
   }
 }
@@ -608,6 +681,20 @@ export async function updateWikiNodeStatusAction(
 
     if (!nodeId) {
       return { ok: false, message: "Page ID is required." }
+    }
+
+    const { data: node, error: nodeError } = await supabase
+      .from("wiki_nodes")
+      .select("type")
+      .eq("id", nodeId)
+      .maybeSingle()
+
+    if (nodeError) {
+      return { ok: false, message: nodeError.message }
+    }
+
+    if (!node || node.type !== "page") {
+      return { ok: false, message: "Wiki page not found." }
     }
 
     const { error } = await supabase

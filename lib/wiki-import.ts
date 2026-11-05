@@ -302,11 +302,26 @@ export function buildWikiImportPrompt({
   text,
   fileName,
   structureHints = "",
+  existingText = "",
 }: {
   text: string
   fileName: string
   structureHints?: string
+  existingText?: string
 }) {
+  const updateInstructions = existingText
+    ? `
+This is an update to an existing page. Return one complete, merged page:
+- Keep the existing page material unless the incoming source explicitly supersedes it.
+- Apply incoming additions and corrections in the relevant existing section when clear; otherwise add them under an appropriate section.
+- Do not drop existing instructions, warnings, numbers, or other material simply because it was not repeated in the incoming source.
+
+Existing page text:
+${existingText}
+
+`
+    : ""
+
   return `Prepare an imported document for Canopy Wiki. Return JSON only.
 
 The import must be faithful: preserve every fact, instruction, number, name, URL, warning, and list item from the source. Do not add facts, infer missing details, summarize, or omit content. You may only clean broken line wraps, repeated whitespace, PDF page markers/headers/footers, and obvious pasted-document artifacts.
@@ -337,6 +352,8 @@ Suggest a short, specific title and up to 5 existing-style tags. Tags are option
 Source filename: ${fileName}
 
 ${structureHints ? `Detected PDF layout hints (follow these only to format the same source words; do not add or remove words):\n${structureHints}\n` : ""}
+
+${updateInstructions}
 
 Source text:
 ${text}`
