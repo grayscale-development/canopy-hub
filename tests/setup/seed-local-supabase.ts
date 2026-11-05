@@ -23,6 +23,7 @@ const TEST_PERMISSION_CODES = [
   "wiki.manage",
   "ai.settings.access",
   "beta.1",
+  "department-dashboard.events.view",
   "newsletters.upload",
 ] as const
 
@@ -37,6 +38,7 @@ const TEST_PERMISSION_NAMES: Record<
   "wiki.manage": "Edit Wiki",
   "ai.settings.access": "Access AI Settings",
   "beta.1": "Beta 1",
+  "department-dashboard.events.view": "View Department Dashboard Events",
   "newsletters.upload": "Upload Newsletters",
 }
 

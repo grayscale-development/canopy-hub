@@ -58,6 +58,7 @@ export function DepartmentFilters({
   eventName,
   orgId,
   orgLabel,
+  showEventFilters,
 }: {
   filters: DepartmentDashboardFilters
   branchId: string | null
@@ -66,6 +67,7 @@ export function DepartmentFilters({
   eventName: string | null
   orgId: string | null
   orgLabel: string
+  showEventFilters: boolean
 }) {
   return (
     <div className="flex flex-wrap gap-3">
@@ -75,27 +77,31 @@ export function DepartmentFilters({
         value={branchId ?? ""}
         options={filters.branches}
       />
-      <FilterSelect
-        label="Event Month"
-        param="month"
-        value={eventMonth ?? ""}
-        options={filters.months.map((option) => ({
-          id: option.id.slice(0, 7),
-          label: option.label,
-        }))}
-      />
-      <FilterSelect
-        label="Event Week Of"
-        param="week"
-        value={eventWeek ?? ""}
-        options={filters.weeks}
-      />
-      <FilterSelect
-        label="Event"
-        param="event"
-        value={eventName ?? ""}
-        options={filters.events}
-      />
+      {showEventFilters ? (
+        <>
+          <FilterSelect
+            label="Event Month"
+            param="month"
+            value={eventMonth ?? ""}
+            options={filters.months.map((option) => ({
+              id: option.id.slice(0, 7),
+              label: option.label,
+            }))}
+          />
+          <FilterSelect
+            label="Event Week Of"
+            param="week"
+            value={eventWeek ?? ""}
+            options={filters.weeks}
+          />
+          <FilterSelect
+            label="Event"
+            param="event"
+            value={eventName ?? ""}
+            options={filters.events}
+          />
+        </>
+      ) : null}
       <FilterSelect
         label={orgLabel}
         param="org"

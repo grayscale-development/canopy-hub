@@ -12,10 +12,12 @@ export function DepartmentDashboardView({
   config,
   dashboard,
   query,
+  canViewEvents,
 }: {
   config: DepartmentDashboardConfig
   dashboard: DepartmentDashboard
   query: DepartmentDashboardQuery
+  canViewEvents: boolean
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -39,6 +41,7 @@ export function DepartmentDashboardView({
           eventName={query.eventName}
           orgId={query.orgId}
           orgLabel="Org"
+          showEventFilters={canViewEvents}
         />
       </div>
 
@@ -64,12 +67,14 @@ export function DepartmentDashboardView({
         />
       </div>
 
-      <DepartmentEventTable
-        columns={config.eventColumns}
-        rows={dashboard.events.rows}
-        total={dashboard.events.total}
-        page={query.page}
-      />
+      {canViewEvents ? (
+        <DepartmentEventTable
+          columns={config.eventColumns}
+          rows={dashboard.events.rows}
+          total={dashboard.events.total}
+          page={query.page}
+        />
+      ) : null}
     </div>
   )
 }

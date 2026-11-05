@@ -66,6 +66,11 @@ describe("department dashboard SQL", () => {
       create schema auth;
       create schema raw;
       create schema data;
+      create table public.permissions (
+        id uuid primary key default gen_random_uuid(),
+        name text not null,
+        code text not null unique
+      );
       create function auth.uid() returns uuid language sql stable as $$
         select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
       $$;
@@ -135,6 +140,7 @@ describe("department dashboard SQL", () => {
       "supabase/migrations/202611030001_underwriting_workdays.sql",
       "supabase/migrations/202611030003_underwriting_workdays_on_funded.sql",
       "supabase/migrations/202611030004_underwriting_initial_review_workdays_on_funded.sql",
+      "supabase/migrations/202611050001_department_dashboard_events_view_permission.sql",
     ]) {
       await db.exec(fs.readFileSync(path.resolve(migration), "utf8"))
     }
@@ -318,6 +324,17 @@ describe("department dashboard SQL", () => {
       "North",
       "South",
     ])
+  })
+
+  it("returns no event rows when the page requests an empty event payload", async () => {
+    const dashboard = await loadDashboard("processing", { limit: 0 })
+
+    expect(dashboard.events).toMatchObject({
+      total: 11,
+      limit: 0,
+      offset: 0,
+      rows: [],
+    })
   })
 
   it("filters processing events by loan branch, month, week, and event", async () => {
