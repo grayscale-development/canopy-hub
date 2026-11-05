@@ -444,12 +444,14 @@ test("AI merge archives the source only after the target save and keeps its hist
   await moveDialog
     .getByRole("button", { name: "AI Merge into this page" })
     .click()
+  const confirmAgain = page.getByRole("dialog", { name: "Merge pages?" })
+  await expect(confirmAgain.getByText("SAMPLE-MERGE")).toBeVisible()
   const merged = waitForAppliedPreview(page)
-  await page
-    .getByRole("dialog", { name: "Merge pages?" })
+  await confirmAgain
     .getByRole("button", { name: "AI Merge and archive" })
     .click()
   expect((await merged).status()).toBe(200)
+  await expect(confirmAgain).toBeHidden()
   await page.goto(target.path)
   await expect(page.getByText("SAMPLE-MERGE").first()).toBeVisible()
   await expect(
