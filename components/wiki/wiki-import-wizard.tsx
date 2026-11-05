@@ -483,7 +483,7 @@ export function WikiImportWizardDialog({
       <DialogContent
         className={
           preview
-            ? "max-h-[90vh] w-[min(92vw,56rem)] max-w-none overflow-y-auto"
+            ? "max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
             : "sm:max-w-lg"
         }
         aria-describedby={undefined}
@@ -546,7 +546,7 @@ export function WikiImportWizardDialog({
                 setDuplicate(null)
                 clearPreview()
               }}
-              className="min-h-28 rounded-lg border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-28 rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               placeholder={
                 isUpdatingPage
                   ? "Paste the content you want to apply to this page…"
@@ -605,7 +605,7 @@ export function WikiImportWizardDialog({
           ) : null}
           {preview ? (
             <div className="grid gap-3">
-              <p className="text-sm text-neutral-950 dark:text-neutral-50">
+              <p className="text-sm text-foreground">
                 {updateMode === "replace"
                   ? "This replaces the page with the new words and saves a new version."
                   : "This adds the new words onto this page and saves a new version."}

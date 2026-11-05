@@ -29,6 +29,15 @@ test.beforeAll(() => {
   ensureScreenshotDir()
 })
 
+async function settle(locator: ReturnType<Page["locator"]>) {
+  await locator.evaluate(async (element) => {
+    const animations = element.getAnimations({ subtree: true })
+    await Promise.all(
+      animations.map((animation) => animation.finished.catch(() => undefined))
+    )
+  })
+}
+
 function waitForAppliedPreview(page: Page) {
   return page.waitForResponse(
     (response) =>
@@ -71,9 +80,7 @@ test("a reader cannot open unpublished wiki history @wiki-reviewed", async ({
     path: `${screenshotDir}/footer-date-reader.png`,
     fullPage: true,
   })
-  await expect(
-    page.getByRole("listbox", { name: "Page versions" })
-  ).toHaveCount(0)
+  await expect(page.getByRole("menu")).toHaveCount(0)
 
   const { data: node, error: nodeError } = await serviceWiki()
     .from("wiki_nodes")
@@ -132,23 +139,24 @@ test("editor mode opens history only from the footer date and restore appends a 
   const dateButton = page.getByRole("button", { name: /Last updated at/ })
   await dateButton.scrollIntoViewIfNeeded()
   await dateButton.click()
-  await expect(
-    page.getByRole("listbox", { name: "Page versions" })
-  ).toBeVisible()
+  const versionMenu = page.getByRole("menu")
+  await expect(versionMenu).toBeVisible()
   await expect(
     page.getByRole("combobox", { name: "Page versions" })
   ).toHaveCount(0)
+  await settle(versionMenu)
   await page.screenshot({
     path: `${screenshotDir}/footer-version-history.png`,
     fullPage: true,
   })
 
   const before = await revisionTexts(reviewed.id)
-  await page.getByRole("option", { name: /Initial draft/ }).click()
+  await page.getByRole("menuitem", { name: /Initial draft/ }).click()
   await expect(page.getByText("1 change", { exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Restore this version" }).click()
   const dialog = page.getByRole("dialog", { name: "Restore this version?" })
   await expect(dialog).toBeVisible()
+  await settle(dialog)
   await page.screenshot({
     path: `${screenshotDir}/restore-confirm.png`,
     fullPage: true,
@@ -200,6 +208,7 @@ test("a long reviewed replacement shows non-text changes and persists after relo
   await expect(dialog.getByText(/picture/i)).toBeVisible()
   await expect(dialog.getByText(/table/i)).toBeVisible()
   await expect(dialog.getByText(/link/i)).toBeVisible()
+  await settle(dialog)
   await page.screenshot({
     path: `${screenshotDir}/long-page-update-preview.png`,
     fullPage: true,
@@ -419,6 +428,7 @@ test("AI merge archives the source only after the target save and keeps its hist
   await expect(confirm).toContainText("archives")
   await expect(confirm).not.toContainText(/delete/i)
   await expect(confirm.getByText("SAMPLE-MERGE")).toBeVisible()
+  await settle(confirm)
   await page.screenshot({
     path: `${screenshotDir}/merge-confirm.png`,
     fullPage: true,

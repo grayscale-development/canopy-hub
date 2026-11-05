@@ -93,7 +93,8 @@ describe("WikiRevisionSelector", () => {
     ).not.toBeInTheDocument()
     dateButton.focus()
     await user.keyboard("{Enter}")
-    expect(screen.getByRole("listbox", { name: "Page versions" })).toBeVisible()
+    expect(screen.getByRole("menu")).toBeVisible()
+    await user.keyboard("{Escape}")
     expect(screen.getByText("1 change")).toBeVisible()
     expect(screen.queryByText(/words are taken out/i)).not.toBeInTheDocument()
     expect(
@@ -146,9 +147,7 @@ describe("WikiRevisionSelector", () => {
     expect(
       screen.queryByRole("button", { name: "Last updated" })
     ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("listbox", { name: "Page versions" })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Restore this version" })
     ).not.toBeInTheDocument()
@@ -159,9 +158,7 @@ describe("WikiRevisionSelector", () => {
     )
 
     expect(screen.getByRole("button", { name: "Last updated" })).toBeVisible()
-    expect(
-      screen.queryByRole("listbox", { name: "Page versions" })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Restore this version" })
     ).toBeVisible()

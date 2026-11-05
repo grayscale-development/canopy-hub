@@ -7,6 +7,12 @@ import { RotateCcwIcon } from "lucide-react"
 import { restoreWikiRevisionAction } from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -106,49 +112,29 @@ export function WikiRevisionSelector({
   return (
     <div className="grid w-full justify-items-center gap-4">
       <div className="flex w-full flex-col items-center gap-2">
-        <button
-          type="button"
-          className="cursor-pointer text-center text-xs text-muted-foreground/70 underline decoration-dotted underline-offset-4 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          aria-expanded={menuOpen}
-          aria-controls="wiki-version-history"
-          aria-haspopup="listbox"
-          onClick={() => setMenuOpen((open) => !open)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setMenuOpen(false)
-          }}
-        >
-          {dateText}
-        </button>
-        {menuOpen ? (
-          <ul
-            id="wiki-version-history"
-            role="listbox"
-            aria-label="Page versions"
-            className="grid w-full max-w-md gap-1 rounded-lg border bg-white p-2 text-left text-sm shadow-sm dark:bg-[#1F1F1F]"
-          >
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="cursor-pointer text-center text-xs text-muted-foreground/70 underline decoration-dotted underline-offset-4 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+            >
+              {dateText}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="center" className="w-80">
             {revisions.map((revision) => {
-              const selected =
-                revision.id === (selectedRevisionId ?? currentRevisionId)
               const label = `${revision.id === currentRevisionId ? "Current - " : ""}${new Date(revision.created_at).toLocaleString()}${revision.change_note ? ` - ${revision.change_note}` : ""}`
               return (
-                <li key={revision.id}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    className={`w-full cursor-pointer rounded-md px-3 py-2 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${selected ? "bg-accent" : ""}`}
-                    onClick={() => {
-                      selectRevision(revision.id)
-                      setMenuOpen(false)
-                    }}
-                  >
-                    {label}
-                  </button>
-                </li>
+                <DropdownMenuItem
+                  key={revision.id}
+                  onSelect={() => selectRevision(revision.id)}
+                >
+                  {label}
+                </DropdownMenuItem>
               )
             })}
-          </ul>
-        ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
         {isHistorical && allowRestore ? (
           <Button
             type="button"
@@ -178,12 +164,12 @@ export function WikiRevisionSelector({
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent
           aria-describedby={undefined}
-          className="max-h-[90vh] w-[min(92vw,56rem)] max-w-none overflow-y-auto"
+          className="max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
         >
           <DialogHeader>
             <DialogTitle>Restore this version?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-neutral-950 dark:text-neutral-50">
+          <p className="text-sm text-foreground">
             This saves a new copy of the older version and makes that copy the
             current page.
           </p>

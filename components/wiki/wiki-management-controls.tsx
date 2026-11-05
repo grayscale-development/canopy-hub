@@ -804,19 +804,17 @@ export function WikiNodeActionsMenu({
       >
         <DialogContent
           aria-describedby={undefined}
-          className="max-h-[90vh] w-[min(92vw,56rem)] max-w-none overflow-y-auto"
+          className="max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
         >
           <DialogHeader>
             <DialogTitle>Merge pages?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-neutral-950 dark:text-neutral-50">
+          <p className="text-sm text-foreground">
             This merges “{node.title}” into “{selectedTarget?.title}” and
             archives “{node.title}”.
           </p>
           {mergePreviewPending ? (
-            <p className="text-sm text-neutral-950 dark:text-neutral-50">
-              Reading both pages…
-            </p>
+            <p className="text-sm text-foreground">Reading both pages…</p>
           ) : null}
           {mergePreview ? (
             <WikiPlainDiff
