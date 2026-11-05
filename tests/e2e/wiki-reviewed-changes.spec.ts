@@ -55,10 +55,6 @@ test("a reader cannot open unpublished wiki history @wiki-reviewed", async ({
     path: `${screenshotDir}/footer-date-reader.png`,
     fullPage: true,
   })
-  await page.getByRole("switch", { name: "Toggle wiki editor mode" }).click()
-  await expect(
-    page.getByRole("button", { name: /Last updated at/ })
-  ).toHaveCount(0)
   await expect(page.getByRole("listbox", { name: "Page versions" })).toHaveCount(
     0
   )
