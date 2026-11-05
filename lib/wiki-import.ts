@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom"
 import type { WikiPdfLine } from "@/lib/wiki-extract"
 
 import {
+  blockNoteToPlainText,
   getWikiAssetKind,
   normalizeWikiTags,
   sanitizeWikiFileName,
@@ -457,8 +458,11 @@ function markdownTableBlock(header: string[], rows: string[][]) {
   const width = header.length
   return {
     type: "table",
+    props: { textColor: "default" },
+    children: [],
     content: {
       type: "tableContent",
+      columnWidths: Array.from({ length: width }, () => undefined),
       headerRows: 1,
       rows: [header, ...rows].map((row) => ({
         cells: Array.from({ length: width }, (_, index) =>
@@ -466,6 +470,21 @@ function markdownTableBlock(header: string[], rows: string[][]) {
         ),
       })),
     },
+  }
+}
+
+function markdownImageBlock(alt: string, url: string) {
+  return {
+    type: "image",
+    props: {
+      url,
+      name: alt || "Image",
+      caption: alt,
+      showPreview: true,
+      backgroundColor: "default",
+      textAlignment: "left",
+    },
+    children: [],
   }
 }
 
@@ -838,6 +857,7 @@ export function markdownToWikiImportBlocks(markdown: string) {
   const lines = markdown.split("\n")
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex]
+    const image = line.match(/^!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)$/)
     const heading = line.match(/^(#{1,6})\s+(.+)$/)
     const bullet = line.match(/^\s*[-*+]\s+(.+)$/)
     const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/)
@@ -860,7 +880,10 @@ export function markdownToWikiImportBlocks(markdown: string) {
       continue
     }
 
-    if (heading?.[2]) {
+    if (image) {
+      flushParagraph()
+      blocks.push(markdownImageBlock(image[1]?.trim() ?? "", image[2] ?? ""))
+    } else if (heading?.[2]) {
       flushParagraph()
       blocks.push({
         type: "heading",
@@ -1490,15 +1513,9 @@ export function createWikiImportDraft({
   ).slice(0, 5)
 
   const blocks = markdownToWikiImportBlocks(markdown)
+  let savedBlocks = blocks
   try {
-    return {
-      title,
-      tags,
-      markdown,
-      blocks: addPdfImageBlocks(blocks, imageUrls),
-      plainText,
-      usedAi: usedAi && !pdfPages?.length,
-    }
+    savedBlocks = addPdfImageBlocks(blocks, imageUrls)
   } catch (error) {
     console.warn(
       "Wiki import PDF image placement failed; continuing without images",
@@ -1507,14 +1524,14 @@ export function createWikiImportDraft({
         fileName,
       }
     )
-    return {
-      title,
-      tags,
-      markdown,
-      blocks,
-      plainText,
-      usedAi: usedAi && !pdfPages?.length,
-    }
+  }
+  return {
+    title,
+    tags,
+    markdown,
+    blocks: savedBlocks,
+    plainText: blockNoteToPlainText(savedBlocks),
+    usedAi: usedAi && !pdfPages?.length,
   }
 }
 

@@ -566,6 +566,23 @@ export async function fetchWikiPageData(
   }
 }
 
+function tableContentToText(value: unknown): string {
+  if (!value || typeof value !== "object") return ""
+  const rows = (value as { rows?: unknown }).rows
+  if (!Array.isArray(rows)) return ""
+  return rows
+    .map((row) => {
+      const cells = (row as { cells?: unknown }).cells
+      if (!Array.isArray(cells)) return ""
+      return cells
+        .map((cell) => inlineContentToText(cell))
+        .filter(Boolean)
+        .join(" | ")
+    })
+    .filter(Boolean)
+    .join("\n")
+}
+
 function inlineContentToText(value: unknown): string {
   if (typeof value === "string") {
     return value
@@ -591,7 +608,10 @@ function blockToText(block: unknown): string {
   }
 
   const record = block as Record<string, unknown>
-  const content = inlineContentToText(record.content)
+  const content =
+    record.type === "table"
+      ? tableContentToText(record.content)
+      : inlineContentToText(record.content)
   const children = Array.isArray(record.children)
     ? record.children.map(blockToText).filter(Boolean).join("\n")
     : ""

@@ -78,11 +78,13 @@ export async function createReviewedPage({
   title,
   paragraphs,
   extraBlocks = [],
+  olderParagraphs,
 }: {
   slug: string
   title: string
   paragraphs: string[]
   extraBlocks?: Array<Record<string, unknown>>
+  olderParagraphs?: string[]
 }) {
   const supabase = serviceWiki()
   const { data: parent, error: parentError } = await supabase
@@ -107,10 +109,33 @@ export async function createReviewedPage({
     .single()
   if (error || !node) throw error ?? new Error(`Unable to create ${slug}.`)
 
+  let olderRevisionId: string | null = null
+  if (olderParagraphs?.length) {
+    const { data: older, error: olderError } = await supabase
+      .from("wiki_page_revisions")
+      .insert({
+        node_id: node.id,
+        blocks: olderParagraphs.map((text) => ({
+          type: "paragraph",
+          content: [{ type: "text", text, styles: {} }],
+          children: [],
+        })),
+        plain_text: olderParagraphs.join("\n\n"),
+        change_note: "Initial draft",
+      })
+      .select("id")
+      .single()
+    if (olderError || !older) {
+      throw olderError ?? new Error(`Unable to store older ${slug}.`)
+    }
+    olderRevisionId = older.id as string
+  }
+
   const blocks = [
     ...paragraphs.map((text) => ({
       type: "paragraph",
       content: [{ type: "text", text, styles: {} }],
+      children: [],
     })),
     ...extraBlocks,
   ]
@@ -136,6 +161,7 @@ export async function createReviewedPage({
   return {
     id: node.id as string,
     revisionId: revision.id as string,
+    olderRevisionId,
     path: `/wiki/canopy-wiki/operations/closing/${slug}`,
   }
 }

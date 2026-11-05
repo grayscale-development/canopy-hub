@@ -22,10 +22,10 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_SKIP_WEBSERVER
     ? undefined
     : {
-        command: "pnpm dev",
+        command: isCi ? "pnpm build && pnpm start" : "pnpm dev",
         url: baseURL,
         reuseExistingServer: !isCi,
-        timeout: 120_000,
+        timeout: isCi ? 300_000 : 120_000,
         env: {
           NEXT_PUBLIC_SUPABASE_URL:
             process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321",

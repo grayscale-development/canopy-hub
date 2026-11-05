@@ -314,7 +314,7 @@ describe("/api/wiki/import route", () => {
     })
     expect(state.insertedRevisions[0]).toMatchObject({
       change_note: "Created with AI from pasted text",
-      plain_text: "Review lock 123 before submitting.",
+      plain_text: "Review\n\nReview lock 123 before submitting.",
     })
   })
 

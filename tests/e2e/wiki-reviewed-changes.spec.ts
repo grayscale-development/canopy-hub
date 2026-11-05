@@ -29,6 +29,15 @@ test.beforeAll(() => {
   ensureScreenshotDir()
 })
 
+function waitForAppliedPreview(page: Page) {
+  return page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/wiki/import") &&
+      response.request().method() === "POST" &&
+      (response.request().postData() ?? "").includes("apply_preview")
+  )
+}
+
 async function openUpdate(page: Page) {
   await enableEditorMode(page)
   await page.getByRole("button", { name: "AI Update" }).click()
@@ -38,13 +47,20 @@ async function openUpdate(page: Page) {
 test("a reader cannot open unpublished wiki history @wiki-reviewed", async ({
   page,
 }) => {
+  const stamp = Date.now()
+  const reviewed = await createReviewedPage({
+    slug: `reader-history-${stamp}`,
+    title: `Reader history ${stamp}`,
+    paragraphs: ["Reader current sentence READER-CURRENT."],
+    olderParagraphs: ["Reader old sentence READER-OLD."],
+  })
   await signInAsSeededUser(page, "standard@canopy.test")
-  await page.goto("/wiki/canopy-wiki/operations/closing/funding-checklist")
+  await page.goto(reviewed.path)
   await expect(
-    page.getByRole("heading", { name: "Funding Checklist" })
+    page.getByRole("heading", { name: `Reader history ${stamp}` })
   ).toBeVisible()
-  await expect(page.getByText("Funding checklist content")).toBeVisible()
-  await expect(page.getByText("Old checklist")).toHaveCount(0)
+  await expect(page.getByText("READER-CURRENT")).toBeVisible()
+  await expect(page.getByText("READER-OLD")).toHaveCount(0)
   const date = page.getByText(/Last updated at/)
   await date.scrollIntoViewIfNeeded()
   await expect(date).toBeVisible()
@@ -55,15 +71,16 @@ test("a reader cannot open unpublished wiki history @wiki-reviewed", async ({
     path: `${screenshotDir}/footer-date-reader.png`,
     fullPage: true,
   })
-  await expect(page.getByRole("listbox", { name: "Page versions" })).toHaveCount(
-    0
-  )
+  await expect(
+    page.getByRole("listbox", { name: "Page versions" })
+  ).toHaveCount(0)
 
-  const { data: node } = await serviceWiki()
+  const { data: node, error: nodeError } = await serviceWiki()
     .from("wiki_nodes")
     .select("id,current_revision_id")
-    .eq("slug", "funding-checklist")
+    .eq("id", reviewed.id)
     .single()
+  expect(nodeError).toBeNull()
   const reader = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -82,25 +99,25 @@ test("a reader cannot open unpublished wiki history @wiki-reviewed", async ({
   expect(readerHistory?.map((revision) => revision.id)).toEqual([
     node?.current_revision_id,
   ])
-  const { data: history } = await serviceWiki()
-    .from("wiki_page_revisions")
-    .select("id,plain_text")
-    .eq("node_id", node!.id)
-  const older = history?.find(
-    (revision) => revision.id !== node?.current_revision_id
-  )
-  await page.goto(
-    `/wiki/canopy-wiki/operations/closing/funding-checklist?revision=${older?.id}`
-  )
-  await expect(page.getByText("Old checklist")).toHaveCount(0)
-  await expect(page.getByText("Funding checklist content")).toBeVisible()
+  await page.goto(`${reviewed.path}?revision=${reviewed.olderRevisionId}`)
+  await expect(page.getByText("READER-OLD")).toHaveCount(0)
+  await expect(page.getByText("READER-CURRENT")).toBeVisible()
+  const current = await currentRevisionId(reviewed.id)
+  expect(current).toBe(reviewed.revisionId)
 })
 
 test("editor mode opens history only from the footer date and restore appends a revision @wiki-reviewed", async ({
   page,
 }) => {
+  const stamp = Date.now()
+  const reviewed = await createReviewedPage({
+    slug: `restore-history-${stamp}`,
+    title: `Restore history ${stamp}`,
+    paragraphs: ["Current restore sentence RESTORE-NOW."],
+    olderParagraphs: ["Older restore sentence RESTORE-OLD."],
+  })
   await signInAsLocalDev(page)
-  await page.goto("/wiki/canopy-wiki/operations/closing/funding-checklist")
+  await page.goto(reviewed.path)
   const plainDate = page.getByText(/Last updated at/)
   await plainDate.scrollIntoViewIfNeeded()
   await expect(
@@ -126,15 +143,7 @@ test("editor mode opens history only from the footer date and restore appends a 
     fullPage: true,
   })
 
-  const before = await revisionTexts(
-    (
-      await serviceWiki()
-        .from("wiki_nodes")
-        .select("id")
-        .eq("slug", "funding-checklist")
-        .single()
-    ).data!.id
-  )
+  const before = await revisionTexts(reviewed.id)
   await page.getByRole("option", { name: /Initial draft/ }).click()
   await expect(page.getByText("1 change", { exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Restore this version" }).click()
@@ -145,30 +154,25 @@ test("editor mode opens history only from the footer date and restore appends a 
     fullPage: true,
   })
   await dialog.getByRole("button", { name: "Restore this version" }).click()
-  await expect(page.getByText("Old checklist").first()).toBeVisible()
+  await expect(page.getByText("RESTORE-OLD").first()).toBeVisible()
   await page.reload()
-  await expect(page.getByText("Old checklist").first()).toBeVisible()
+  await expect(page.getByText("RESTORE-OLD").first()).toBeVisible()
 
-  const nodeId = (
-    await serviceWiki()
-      .from("wiki_nodes")
-      .select("id")
-      .eq("slug", "funding-checklist")
-      .single()
-  ).data!.id
-  const after = await revisionTexts(nodeId)
+  const after = await revisionTexts(reviewed.id)
   expect(after.length).toBe(before.length + 1)
   expect(
     after.some((revision) => revision.change_note?.startsWith("Restored from"))
   ).toBe(true)
   expect(
-    after.some((revision) => revision.plain_text === "Old checklist")
+    after.some((revision) => revision.plain_text.includes("RESTORE-OLD"))
   ).toBe(true)
   expect(
-    after.some(
-      (revision) => revision.plain_text === "Funding checklist content"
-    )
+    after.some((revision) => revision.plain_text.includes("RESTORE-NOW"))
   ).toBe(true)
+  expect(await currentRevisionId(reviewed.id)).not.toBe(reviewed.revisionId)
+  expect(await currentRevisionId(reviewed.id)).not.toBe(
+    reviewed.olderRevisionId
+  )
 })
 
 test("a long reviewed replacement shows non-text changes and persists after reload @wiki-reviewed", async ({
@@ -187,28 +191,49 @@ test("a long reviewed replacement shows non-text changes and persists after relo
   await page
     .getByLabel("Or paste text")
     .fill(
-      `${changedLines.join("\n\n")}\n\n[Send the file](https://example.com/new-guide)\n\n| Fee | Amount |\n| --- | --- |\n| Review | 125 |`
+      `${changedLines.join("\n\n")}\n\n[Send the file](https://example.com/new-guide)\n\n![Reviewed chart](https://example.com/chart.png)\n\n| Fee | Amount |\n| --- | --- |\n| Review | 125 |`
     )
   await page.getByRole("button", { name: "See what will change" }).click()
   const dialog = page.getByRole("dialog")
   await expect(dialog.getByText("LONGPAGE-TOKEN")).toBeVisible()
+  await expect(dialog.getByText("Fee")).toBeVisible()
+  await expect(dialog.getByText(/picture/i)).toBeVisible()
   await expect(dialog.getByText(/table/i)).toBeVisible()
   await expect(dialog.getByText(/link/i)).toBeVisible()
   await page.screenshot({
     path: `${screenshotDir}/long-page-update-preview.png`,
     fullPage: true,
   })
+  const savedResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/wiki/import") &&
+      response.request().method() === "POST" &&
+      (response.request().postData() ?? "").includes("apply_preview")
+  )
   await dialog.getByRole("button", { name: "Replace page" }).click()
+  expect((await savedResponse).status()).toBe(200)
+  await expect(dialog).toBeHidden()
   await expect(page.getByText("LONGPAGE-TOKEN").first()).toBeVisible()
   await page.reload()
   await expect(page.getByText("LONGPAGE-TOKEN").first()).toBeVisible()
+  await expect(page.getByText("Fee").first()).toBeVisible()
   const saved = await revisionTexts(reviewed.id)
-  expect(
-    saved.some((revision) => revision.plain_text.includes("LONGPAGE-TOKEN"))
-  ).toBe(true)
+  const currentId = await currentRevisionId(reviewed.id)
+  const current = saved.find((revision) => revision.id === currentId)
+  expect(current?.plain_text).toContain("LONGPAGE-TOKEN")
+  expect(current?.plain_text).toContain("Fee")
   expect(saved.some((revision) => revision.id === reviewed.revisionId)).toBe(
     true
   )
+  const { data: currentRow } = await serviceWiki()
+    .from("wiki_page_revisions")
+    .select("blocks")
+    .eq("id", current?.id ?? "")
+    .single()
+  const savedTypes = JSON.stringify(currentRow?.blocks)
+  expect(savedTypes).toContain('"type":"table"')
+  expect(savedTypes).toContain('"type":"image"')
+  expect(savedTypes).toContain("https://example.com/new-guide")
 })
 
 test("cancel leaves the revision untouched and a reviewed file save persists @wiki-reviewed", async ({
@@ -244,7 +269,10 @@ test("cancel leaves the revision untouched and a reviewed file save persists @wi
   })
   await page.getByRole("button", { name: "See what will change" }).click()
   await expect(page.getByText("FILE-TOKEN")).toBeVisible()
+  const savedFile = waitForAppliedPreview(page)
   await page.getByRole("button", { name: "Update page" }).click()
+  expect((await savedFile).status()).toBe(200)
+  await expect(page.getByRole("dialog")).toBeHidden()
   await expect(page.getByText("FILE-TOKEN").first()).toBeVisible()
   await page.reload()
   await expect(page.getByText("FILE-TOKEN").first()).toBeVisible()
@@ -319,7 +347,9 @@ test("a stale or tampered preview is refused without a new revision @wiki-review
     .eq("id", reviewed.id)
   if (pointerError) throw pointerError
 
+  const staleSave = waitForAppliedPreview(page)
   await page.getByRole("button", { name: "Update page" }).click()
+  expect((await staleSave).status()).toBe(409)
   await expect(page.getByText(/changed after you looked at it/i)).toBeVisible()
   await page.reload()
   await expect(page.getByText("Concurrent edit BETA.")).toBeVisible()
@@ -405,13 +435,17 @@ test("AI merge archives the source only after the target save and keeps its hist
   await moveDialog
     .getByRole("button", { name: "AI Merge into this page" })
     .click()
+  const merged = waitForAppliedPreview(page)
   await page
     .getByRole("dialog", { name: "Merge pages?" })
     .getByRole("button", { name: "AI Merge and archive" })
     .click()
+  expect((await merged).status()).toBe(200)
   await page.goto(target.path)
   await expect(page.getByText("SAMPLE-MERGE").first()).toBeVisible()
-  await expect(page.getByText("Keep the target sentence.").first()).toBeVisible()
+  await expect(
+    page.getByText("Keep the target sentence.").first()
+  ).toBeVisible()
   await page.reload()
   await expect(page.getByText("SAMPLE-MERGE").first()).toBeVisible()
 
