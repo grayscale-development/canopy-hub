@@ -247,7 +247,9 @@ export default async function WikiPage({
     (revision) => revision.id === selectedRevisionParam
   )
   const selectedRevisionId =
-    requestedRevision && pageData?.node.type === "page"
+    canManageWiki &&
+    requestedRevision &&
+    pageData?.node.type === "page"
       ? selectedRevisionParam
       : null
   const selectedHistoricalRevision =
@@ -372,11 +374,13 @@ export default async function WikiPage({
                   {pageData ? (
                     <div className="flex min-w-0 flex-1 flex-col gap-6">
                       {isHistoricalRevision ? (
-                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-                          You are looking at an older version of this page.
-                        </div>
+                        <WikiEditModeGate>
+                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                            You are looking at an older version of this page.
+                          </div>
+                        </WikiEditModeGate>
                       ) : null}
-                      {pageData.node.type === "page" ? (
+                      {canManageWiki && pageData.node.type === "page" ? (
                         <WikiRevisionSelector
                           nodeId={pageData.node.id}
                           currentRevisionId={pageData.node.current_revision_id}
@@ -385,7 +389,7 @@ export default async function WikiPage({
                             pageData.node.current_revision_id
                           }
                           revisions={revisions}
-                          canRestore={canManageWiki}
+                          canRestore
                         />
                       ) : null}
                       <WikiEditor

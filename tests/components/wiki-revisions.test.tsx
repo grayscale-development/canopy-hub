@@ -4,6 +4,10 @@ import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import {
+  WikiEditModeProvider,
+  WikiEditModeToggle,
+} from "@/components/wiki/wiki-edit-mode"
 import { WikiRevisionSelector } from "@/components/wiki/wiki-revisions"
 import type { WikiRevisionRow } from "@/lib/wiki"
 
@@ -115,6 +119,62 @@ describe("WikiRevisionSelector", () => {
       await screen.findByText("That version could not be found on this page.")
     ).toBeVisible()
     expect(router.refresh).not.toHaveBeenCalled()
+  })
+
+  it("hides the version menu until Editor Mode is on", async () => {
+    const user = userEvent.setup()
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditModeToggle />
+        <WikiRevisionSelector
+          nodeId="page-1"
+          currentRevisionId="current-revision"
+          selectedRevisionId="old-revision"
+          revisions={revisions}
+          canRestore
+        />
+      </WikiEditModeProvider>
+    )
+
+    expect(
+      screen.queryByRole("combobox", { name: "Page versions" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Restore this version" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "What stayed" })
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole("switch", { name: "Toggle wiki editor mode" })
+    )
+
+    expect(screen.getByRole("combobox", { name: "Page versions" })).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Restore this version" })
+    ).toBeVisible()
+    expect(screen.getByRole("heading", { name: "What stayed" })).toBeVisible()
+  })
+
+  it("hides the version menu from readers even if edit mode was saved", () => {
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki={false}>
+        <WikiRevisionSelector
+          nodeId="page-1"
+          currentRevisionId="current-revision"
+          selectedRevisionId="old-revision"
+          revisions={revisions}
+          canRestore={false}
+        />
+      </WikiEditModeProvider>
+    )
+
+    expect(
+      screen.queryByRole("combobox", { name: "Page versions" })
+    ).not.toBeInTheDocument()
+    expect(router.replace).toHaveBeenCalledWith("/wiki/canopy-wiki/escrow")
   })
 
   it("hides restore when the person cannot manage the wiki", () => {

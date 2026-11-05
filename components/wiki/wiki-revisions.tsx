@@ -80,7 +80,17 @@ export function WikiRevisionSelector({
     router.refresh()
   }
 
-  if (!revisions.length) {
+  React.useEffect(() => {
+    if (canEditWiki || !searchParams.get("revision")) {
+      return
+    }
+    const params = new URLSearchParams(searchParams)
+    params.delete("revision")
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [canEditWiki, pathname, router, searchParams])
+
+  if (!canEditWiki || !revisions.length) {
     return null
   }
 

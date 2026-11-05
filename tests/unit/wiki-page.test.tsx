@@ -19,9 +19,16 @@ vi.mock("@/components/wiki/wiki-edit-mode", () => ({
   WikiViewModeTitleSpacing: () => null,
 }))
 vi.mock("@/components/wiki/wiki-editor", () => ({
-  WikiEditor: ({ createAction }: { createAction?: React.ReactNode }) => (
+  WikiEditor: ({
+    createAction,
+    isHistorical,
+  }: {
+    createAction?: React.ReactNode
+    isHistorical?: boolean
+  }) => (
     <div>
       Wiki editor
+      {isHistorical ? <span>Historical page</span> : null}
       {createAction}
     </div>
   ),
@@ -168,7 +175,7 @@ describe("Wiki landing page", () => {
     expect(screen.getByRole("button", { name: "AI Update" })).toBeVisible()
   })
 
-  it("keeps AI Update and restore hidden without wiki manage permission", async () => {
+  it("keeps the version menu and old revisions hidden from readers", async () => {
     state.canManage = false
     state.pageData = {
       node: {
@@ -186,23 +193,39 @@ describe("Wiki landing page", () => {
         updated_at: "2026-11-04T00:00:00.000Z",
         tags: [],
       },
-      revision: null,
+      revision: {
+        id: "rev-current",
+        plain_text: "Current words",
+      },
       assets: [],
       breadcrumbs: [],
       children: [],
       path: "canopy-wiki/welcome",
     }
+    state.revisions = [
+      {
+        id: "rev-old",
+        plain_text: "Older words",
+        created_at: "2026-11-01T00:00:00.000Z",
+      },
+      {
+        id: "rev-current",
+        plain_text: "Current words",
+        created_at: "2026-11-04T00:00:00.000Z",
+      },
+    ]
 
     const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
     render(
       await WikiPage({
         params: Promise.resolve({ path: ["canopy-wiki", "welcome"] }),
-        searchParams: Promise.resolve({}),
+        searchParams: Promise.resolve({ revision: "rev-old" }),
       })
     )
 
-    expect(screen.getByText("Revision history")).toBeVisible()
+    expect(screen.queryByText("Revision history")).not.toBeInTheDocument()
     expect(screen.queryByText("Can restore")).not.toBeInTheDocument()
+    expect(screen.queryByText("Historical page")).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "AI Update" })
     ).not.toBeInTheDocument()
