@@ -86,9 +86,14 @@ describe("WikiRevisionSelector", () => {
       />
     )
 
-    expect(screen.getByRole("combobox", { name: "Page versions" })).toHaveValue(
-      "old-revision"
-    )
+    const dateButton = screen.getByRole("button", { name: "Last updated" })
+    expect(dateButton).toHaveAttribute("aria-expanded", "false")
+    expect(
+      screen.queryByRole("combobox", { name: "Page versions" })
+    ).not.toBeInTheDocument()
+    dateButton.focus()
+    await user.keyboard("{Enter}")
+    expect(screen.getByRole("listbox", { name: "Page versions" })).toBeVisible()
     expect(screen.getByText("1 change")).toBeVisible()
     expect(screen.queryByText(/words are taken out/i)).not.toBeInTheDocument()
     expect(
@@ -137,8 +142,12 @@ describe("WikiRevisionSelector", () => {
       </WikiEditModeProvider>
     )
 
+    expect(screen.getByText("Last updated").tagName).toBe("P")
     expect(
-      screen.queryByRole("combobox", { name: "Page versions" })
+      screen.queryByRole("button", { name: "Last updated" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("listbox", { name: "Page versions" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Restore this version" })
@@ -149,9 +158,10 @@ describe("WikiRevisionSelector", () => {
       screen.getByRole("switch", { name: "Toggle wiki editor mode" })
     )
 
+    expect(screen.getByRole("button", { name: "Last updated" })).toBeVisible()
     expect(
-      screen.getByRole("combobox", { name: "Page versions" })
-    ).toBeVisible()
+      screen.queryByRole("listbox", { name: "Page versions" })
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Restore this version" })
     ).toBeVisible()
@@ -172,8 +182,9 @@ describe("WikiRevisionSelector", () => {
       </WikiEditModeProvider>
     )
 
+    expect(screen.getByText("Last updated").tagName).toBe("P")
     expect(
-      screen.queryByRole("combobox", { name: "Page versions" })
+      screen.queryByRole("button", { name: "Last updated" })
     ).not.toBeInTheDocument()
     expect(router.replace).toHaveBeenCalledWith("/wiki/canopy-wiki/escrow")
   })

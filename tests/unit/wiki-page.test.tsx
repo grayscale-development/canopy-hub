@@ -22,13 +22,16 @@ vi.mock("@/components/wiki/wiki-editor", () => ({
   WikiEditor: ({
     createAction,
     isHistorical,
+    versionHistory,
   }: {
     createAction?: React.ReactNode
     isHistorical?: boolean
+    versionHistory?: React.ReactNode
   }) => (
     <div>
       Wiki editor
       {isHistorical ? <span>Historical page</span> : null}
+      {versionHistory}
       {createAction}
     </div>
   ),

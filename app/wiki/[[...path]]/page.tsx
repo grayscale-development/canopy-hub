@@ -378,18 +378,6 @@ export default async function WikiPage({
                           </div>
                         </WikiEditModeGate>
                       ) : null}
-                      {canManageWiki && pageData.node.type === "page" ? (
-                        <WikiRevisionSelector
-                          nodeId={pageData.node.id}
-                          currentRevisionId={pageData.node.current_revision_id}
-                          selectedRevisionId={
-                            selectedRevisionId ??
-                            pageData.node.current_revision_id
-                          }
-                          revisions={revisions}
-                          canRestore
-                        />
-                      ) : null}
                       <WikiEditor
                         key={displayedRevision?.id ?? pageData.node.id}
                         node={pageData.node}
@@ -401,6 +389,27 @@ export default async function WikiPage({
                           lastUpdatedAt
                             ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
                             : null
+                        }
+                        versionHistory={
+                          canManageWiki && pageData.node.type === "page" ? (
+                            <WikiRevisionSelector
+                              nodeId={pageData.node.id}
+                              currentRevisionId={
+                                pageData.node.current_revision_id
+                              }
+                              selectedRevisionId={
+                                selectedRevisionId ??
+                                pageData.node.current_revision_id
+                              }
+                              revisions={revisions}
+                              canRestore
+                              lastUpdatedLabel={
+                                lastUpdatedAt
+                                  ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
+                                  : null
+                              }
+                            />
+                          ) : null
                         }
                         showStatusControl
                         createAction={

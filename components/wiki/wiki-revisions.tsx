@@ -23,12 +23,14 @@ export function WikiRevisionSelector({
   selectedRevisionId,
   revisions,
   canRestore,
+  lastUpdatedLabel = "Last updated",
 }: {
   nodeId: string
   currentRevisionId: string | null
   selectedRevisionId: string | null
   revisions: WikiRevisionRow[]
   canRestore: boolean
+  lastUpdatedLabel?: string | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -36,6 +38,7 @@ export function WikiRevisionSelector({
   const { canEditWiki } = useWikiEditMode()
   const [pending, setPending] = React.useState(false)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [menuOpen, setMenuOpen] = React.useState(false)
   const [error, setError] = React.useState("")
   const isHistorical =
     Boolean(selectedRevisionId) && selectedRevisionId !== currentRevisionId
@@ -90,28 +93,62 @@ export function WikiRevisionSelector({
     router.replace(query ? `${pathname}?${query}` : pathname)
   }, [canEditWiki, pathname, router, searchParams])
 
-  if (!canEditWiki || !revisions.length) {
-    return null
+  const dateText = lastUpdatedLabel ?? ""
+
+  if (!canEditWiki || !revisions.length || !dateText) {
+    return dateText ? (
+      <p className="w-full text-center text-xs text-muted-foreground/70">
+        {dateText}
+      </p>
+    ) : null
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <select
-          aria-label="Page versions"
-          value={selectedRevisionId ?? currentRevisionId ?? ""}
-          onChange={(event) => selectRevision(event.currentTarget.value)}
-          className="h-10 min-w-56 cursor-pointer rounded-lg border bg-white px-3 pr-8 text-sm dark:bg-[#1F1F1F]"
+    <div className="grid w-full justify-items-center gap-4">
+      <div className="flex w-full flex-col items-center gap-2">
+        <button
+          type="button"
+          className="cursor-pointer text-center text-xs text-muted-foreground/70 underline decoration-dotted underline-offset-4 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          aria-expanded={menuOpen}
+          aria-controls="wiki-version-history"
+          aria-haspopup="listbox"
+          onClick={() => setMenuOpen((open) => !open)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setMenuOpen(false)
+          }}
         >
-          {revisions.map((revision) => (
-            <option key={revision.id} value={revision.id}>
-              {revision.id === currentRevisionId ? "Current - " : ""}
-              {new Date(revision.created_at).toLocaleString()}
-              {revision.change_note ? ` - ${revision.change_note}` : ""}
-            </option>
-          ))}
-        </select>
-
+          {dateText}
+        </button>
+        {menuOpen ? (
+          <ul
+            id="wiki-version-history"
+            role="listbox"
+            aria-label="Page versions"
+            className="grid w-full max-w-md gap-1 rounded-lg border bg-white p-2 text-left text-sm shadow-sm dark:bg-[#1F1F1F]"
+          >
+            {revisions.map((revision) => {
+              const selected =
+                revision.id === (selectedRevisionId ?? currentRevisionId)
+              const label = `${revision.id === currentRevisionId ? "Current - " : ""}${new Date(revision.created_at).toLocaleString()}${revision.change_note ? ` - ${revision.change_note}` : ""}`
+              return (
+                <li key={revision.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    className={`w-full cursor-pointer rounded-md px-3 py-2 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${selected ? "bg-accent" : ""}`}
+                    onClick={() => {
+                      selectRevision(revision.id)
+                      setMenuOpen(false)
+                    }}
+                  >
+                    {label}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        ) : null}
         {isHistorical && allowRestore ? (
           <Button
             type="button"

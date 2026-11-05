@@ -73,6 +73,7 @@ export function WikiEditor({
   showStatusControl = false,
   headerActions,
   createAction,
+  versionHistory,
   availableTags = [],
 }: {
   node: WikiNodeRow
@@ -83,6 +84,7 @@ export function WikiEditor({
   showStatusControl?: boolean
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
+  versionHistory?: React.ReactNode
   availableTags?: string[]
 }) {
   const [mounted, setMounted] = React.useState(false)
@@ -105,6 +107,7 @@ export function WikiEditor({
       showStatusControl={showStatusControl}
       headerActions={headerActions}
       createAction={createAction}
+      versionHistory={versionHistory}
       availableTags={availableTags}
     />
   )
@@ -119,6 +122,7 @@ function WikiEditorMounted({
   showStatusControl = false,
   headerActions,
   createAction,
+  versionHistory,
   availableTags,
 }: {
   node: WikiNodeRow
@@ -129,6 +133,7 @@ function WikiEditorMounted({
   showStatusControl?: boolean
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
+  versionHistory?: React.ReactNode
   availableTags: string[]
 }) {
   const router = useRouter()
@@ -292,9 +297,11 @@ function WikiEditorMounted({
               ))
             : null}
         </div>
-        <p className="w-full text-center text-xs text-muted-foreground/70">
-          {lastUpdatedLabel ?? null}
-        </p>
+        {versionHistory ?? (
+          <p className="w-full text-center text-xs text-muted-foreground/70">
+            {lastUpdatedLabel ?? null}
+          </p>
+        )}
       </div>
       {canEditPage && !isHistorical && isDirty ? (
         <Button
