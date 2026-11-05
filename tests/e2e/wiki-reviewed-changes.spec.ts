@@ -29,6 +29,19 @@ test.beforeAll(() => {
   ensureScreenshotDir()
 })
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const hide = () => {
+      document.querySelectorAll("nextjs-portal").forEach((node) => node.remove())
+    }
+    hide()
+    new MutationObserver(hide).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    })
+  })
+})
+
 async function openUpdate(page: Page) {
   await enableEditorMode(page)
   await page.getByRole("button", { name: "AI Update" }).click()
@@ -136,7 +149,7 @@ test("editor mode opens history only from the footer date and restore appends a 
     ).data!.id
   )
   await page.getByRole("option", { name: /Initial draft/ }).click()
-  await expect(page.getByText(/change/)).toBeVisible()
+  await expect(page.getByText("1 change", { exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Restore this version" }).click()
   const dialog = page.getByRole("dialog", { name: "Restore this version?" })
   await expect(dialog).toBeVisible()
