@@ -54,7 +54,9 @@ begin
   end if;
 
   if tg_op = 'INSERT' then
-    new.status := 'published';
+    if new.status <> 'archived' then
+      new.status := 'published';
+    end if;
   elsif new.status in ('draft', 'published') then
     new.status := old.status;
   end if;
