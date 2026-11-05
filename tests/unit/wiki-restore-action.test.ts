@@ -120,6 +120,7 @@ describe("restoreWikiRevisionAction", () => {
     state.user = { id: "manager" }
     state.canManage = true
     state.node.current_revision_id = "current-revision"
+    state.revision.node_id = "page-1"
     state.inserted = []
     state.updates = []
   })
@@ -175,6 +176,20 @@ describe("restoreWikiRevisionAction", () => {
       message: "That version is already the current page.",
     })
     expect(state.inserted).toEqual([])
+  })
+
+  it("rejects a revision that belongs to a different page", async () => {
+    state.revision.node_id = "other-page"
+    const form = new FormData()
+    form.set("node_id", "page-1")
+    form.set("revision_id", "old-revision")
+
+    expect(await restoreWikiRevisionAction(form)).toMatchObject({
+      ok: false,
+      message: "That version could not be found on this page.",
+    })
+    expect(state.inserted).toEqual([])
+    expect(state.updates).toEqual([])
   })
 
   it("rejects people who cannot manage the wiki", async () => {

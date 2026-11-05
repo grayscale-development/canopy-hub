@@ -452,6 +452,8 @@ export function WikiNodeActionsMenu({
     beforeText: string
     afterText: string
     blocks: unknown[]
+    beforeBlocks: unknown
+    baseRevisionId: string | null
   } | null>(null)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
@@ -576,6 +578,8 @@ export function WikiNodeActionsMenu({
         beforeText?: string
         afterText?: string
         blocks?: unknown[]
+        beforeBlocks?: unknown
+        baseRevisionId?: string | null
       } | null
       if (!response.ok || !payload?.preview || !Array.isArray(payload.blocks)) {
         setMergeError(payload?.error ?? "Unable to compare these pages.")
@@ -585,6 +589,11 @@ export function WikiNodeActionsMenu({
         beforeText: payload.beforeText ?? "",
         afterText: payload.afterText ?? "",
         blocks: payload.blocks,
+        beforeBlocks: payload.beforeBlocks ?? [],
+        baseRevisionId:
+          typeof payload.baseRevisionId === "string"
+            ? payload.baseRevisionId
+            : null,
       })
     } catch {
       setMergeError("Unable to compare these pages.")
@@ -605,6 +614,7 @@ export function WikiNodeActionsMenu({
       formData.set("source_page_id", node.id)
       formData.set("mode", "update")
       formData.set("prepared_blocks", JSON.stringify(mergePreview.blocks))
+      formData.set("base_revision_id", mergePreview.baseRevisionId ?? "")
       const response = await fetch("/api/wiki/import", {
         method: "POST",
         body: formData,
@@ -613,6 +623,14 @@ export function WikiNodeActionsMenu({
         error?: string
         path?: string
       } | null
+      if (response.status === 409) {
+        setMergePreview(null)
+        setMergeError(
+          payload?.error ??
+            "This page changed after you looked at it. Look again before saving."
+        )
+        return
+      }
       if (!response.ok || !payload?.path) {
         setMergeError(payload?.error ?? "Unable to merge these pages.")
         return
@@ -792,6 +810,8 @@ export function WikiNodeActionsMenu({
             <WikiPlainDiff
               beforeText={mergePreview.beforeText}
               afterText={mergePreview.afterText}
+              beforeBlocks={mergePreview.beforeBlocks}
+              afterBlocks={mergePreview.blocks}
               beforeTitle={`${selectedTarget?.title ?? "The other page"} now`}
               afterTitle="After the merge"
             />

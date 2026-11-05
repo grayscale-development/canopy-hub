@@ -45,12 +45,16 @@ interface ImportResponse {
   beforeText?: string
   afterText?: string
   blocks?: unknown[]
+  beforeBlocks?: unknown
+  baseRevisionId?: string | null
 }
 
 interface UpdatePreview {
   beforeText: string
   afterText: string
   blocks: unknown[]
+  beforeBlocks: unknown
+  baseRevisionId: string | null
 }
 
 interface PendingVideoCommit {
@@ -66,6 +70,11 @@ function readUpdatePreview(payload: ImportResponse | null) {
     beforeText: payload.beforeText ?? "",
     afterText: payload.afterText ?? "",
     blocks: payload.blocks,
+    beforeBlocks: payload.beforeBlocks ?? [],
+    baseRevisionId:
+      typeof payload.baseRevisionId === "string"
+        ? payload.baseRevisionId
+        : null,
   } satisfies UpdatePreview
 }
 
@@ -326,16 +335,13 @@ export function WikiImportWizardDialog({
         return
       }
 
-      if (file) {
-        await submit()
-        return
-      }
-
       const formData = new FormData()
       formData.set("apply_preview", "1")
       formData.set("target_page_id", targetPageId)
       formData.set("mode", updateMode)
       formData.set("prepared_blocks", JSON.stringify(preview.blocks))
+      formData.set("base_revision_id", preview.baseRevisionId ?? "")
+      if (file) formData.set("file", file)
       const response = await fetch("/api/wiki/import", {
         method: "POST",
         body: formData,
@@ -343,6 +349,14 @@ export function WikiImportWizardDialog({
       const payload = (await response
         .json()
         .catch(() => null)) as ImportResponse | null
+      if (response.status === 409) {
+        setPreview(null)
+        setError(
+          payload?.error ??
+            "This page changed after you looked at it. Look again before saving."
+        )
+        return
+      }
       if (!response.ok || !payload?.path) {
         setError(
           payload?.error ?? "We could not update that page. Please try again."
@@ -612,6 +626,8 @@ export function WikiImportWizardDialog({
               <WikiPlainDiff
                 beforeText={preview.beforeText}
                 afterText={preview.afterText}
+                beforeBlocks={preview.beforeBlocks}
+                afterBlocks={preview.blocks}
                 beforeTitle="This page now"
                 afterTitle={
                   updateMode === "replace"

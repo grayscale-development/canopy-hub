@@ -231,7 +231,7 @@ export default async function WikiPage({
     fetchWikiTags(supabase),
   ])
   const revisions =
-    pageData?.node.type === "page"
+    canManageWiki && pageData?.node.type === "page"
       ? (((
           await supabase
             .from("wiki_page_revisions")
@@ -247,9 +247,7 @@ export default async function WikiPage({
     (revision) => revision.id === selectedRevisionParam
   )
   const selectedRevisionId =
-    canManageWiki &&
-    requestedRevision &&
-    pageData?.node.type === "page"
+    canManageWiki && requestedRevision && pageData?.node.type === "page"
       ? selectedRevisionParam
       : null
   const selectedHistoricalRevision =

@@ -326,6 +326,165 @@ async function completeWikiVideoImport({
   return NextResponse.json({ ok: true, path: `/wiki/${path}` })
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+async function storeReviewedAsset({
+  supabase,
+  userId,
+  nodeId,
+  fileName,
+  contentType,
+  data,
+  kind,
+  extractedText,
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  userId: string
+  nodeId: string
+  fileName: string
+  contentType: string
+  data: File | Buffer
+  kind: string
+  extractedText: string | null
+}) {
+  const assetId = crypto.randomUUID()
+  const safeName = sanitizeWikiFileName(fileName)
+  const storagePath = `${nodeId}/${assetId}/${safeName}`
+  const admin = createSupabaseAdminClient()
+  const upload = await admin.storage
+    .from(WIKI_BUCKET)
+    .upload(storagePath, data, {
+      contentType,
+      upsert: false,
+    })
+  if (upload.error) {
+    throw new Error(upload.error.message)
+  }
+  const sizeBytes = data instanceof File ? data.size : data.byteLength
+  const { error } = await supabase.from("wiki_assets").insert({
+    id: assetId,
+    node_id: nodeId,
+    storage_bucket: WIKI_BUCKET,
+    storage_path: storagePath,
+    file_name: safeName,
+    mime_type: contentType,
+    size_bytes: sizeBytes,
+    kind,
+    extracted_text: extractedText,
+    created_by: userId,
+    updated_by: userId,
+  })
+  if (error) {
+    await admin.storage
+      .from(WIKI_BUCKET)
+      .remove([storagePath])
+      .catch(() => undefined)
+    throw new Error(error.message)
+  }
+  return { id: assetId, url: `/api/wiki/assets/${assetId}` }
+}
+
+function replaceBlockUrls(blocks: unknown[], type: string, urls: string[]) {
+  let index = 0
+  return blocks.map((block) => {
+    if (!isRecord(block) || block.type !== type || index >= urls.length) {
+      return block
+    }
+    const url = urls[index]
+    index += 1
+    const props = isRecord(block.props) ? block.props : {}
+    return { ...block, props: { ...props, url } }
+  })
+}
+
+async function attachReviewedFile({
+  supabase,
+  userId,
+  nodeId,
+  file,
+  blocks,
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  userId: string
+  nodeId: string
+  file: File
+  blocks: unknown[]
+}) {
+  const storedFile = await storeReviewedAsset({
+    supabase,
+    userId,
+    nodeId,
+    fileName: file.name,
+    contentType: file.type || "application/octet-stream",
+    data: file,
+    kind: getWikiAssetKind(file) ?? "document",
+    extractedText: null,
+  })
+  let boundFile = false
+  let next = blocks.map((block) => {
+    if (!isRecord(block) || block.type !== "file" || boundFile) return block
+    boundFile = true
+    const props = isRecord(block.props) ? block.props : {}
+    return {
+      ...block,
+      props: {
+        ...props,
+        url: storedFile.url,
+        name: sanitizeWikiFileName(file.name),
+      },
+    }
+  })
+  if (!boundFile) {
+    next = [
+      ...next,
+      {
+        id: `imported-file-${storedFile.id}`,
+        type: "file",
+        props: {
+          url: storedFile.url,
+          name: sanitizeWikiFileName(file.name),
+        },
+        children: [],
+      },
+    ]
+  }
+
+  let images: Array<{ contentType: string; data: Buffer }> = []
+  try {
+    if (isWikiDocxFile(file)) {
+      images = (await extractWikiDocxDocument(file)).images
+    } else if (
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf")
+    ) {
+      images = (await extractWikiPdfDocument(file)).images
+    }
+  } catch (error) {
+    console.error("Wiki reviewed file image extraction failed", error)
+    images = []
+  }
+  const imageUrls: string[] = []
+  for (const [index, image] of images.entries()) {
+    const storedImage = await storeReviewedAsset({
+      supabase,
+      userId,
+      nodeId,
+      fileName: `imported-image-${index + 1}.${wikiImportImageExtension(image.contentType)}`,
+      contentType: image.contentType,
+      data: image.data,
+      kind: "image",
+      extractedText: null,
+    })
+    imageUrls.push(storedImage.url)
+  }
+  if (imageUrls.length) {
+    next = replaceBlockUrls(next, "image", imageUrls)
+  }
+  return next
+}
+
 async function applyPreparedWikiPreview({
   supabase,
   userId,
@@ -334,6 +493,7 @@ async function applyPreparedWikiPreview({
   sourceTitle,
   mode,
   blocks,
+  fileName,
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userId: string
@@ -342,6 +502,7 @@ async function applyPreparedWikiPreview({
   sourceTitle: string
   mode: WikiAiUpdateMode
   blocks: unknown[]
+  fileName?: string | null
 }) {
   const plainText = blockNoteToPlainText(blocks)
   const revisionId = crypto.randomUUID()
@@ -354,7 +515,7 @@ async function applyPreparedWikiPreview({
       plain_text: plainText,
       change_note: sourcePageId
         ? `Merged with AI from ${sourceTitle || "another page"}`
-        : `${mode === "replace" ? "Replaced" : "Updated"} with AI from pasted text`,
+        : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${fileName || "pasted text"}`,
       created_by: userId,
     })
   if (revisionError) {
@@ -576,6 +737,51 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    const baseValue = formData.get("base_revision_id")
+    if (typeof baseValue !== "string") {
+      return NextResponse.json(
+        { error: "Look at the changes again before saving." },
+        { status: 400 }
+      )
+    }
+    const baseRevisionId = baseValue.trim() || null
+    if ((targetPage.current_revision_id ?? null) !== baseRevisionId) {
+      return NextResponse.json(
+        {
+          error:
+            "This page changed after you looked at it. Look again before saving.",
+        },
+        { status: 409 }
+      )
+    }
+    if (file && file.size > WIKI_MAX_UPLOAD_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: `Files must be ${WIKI_MAX_UPLOAD_SIZE_LABEL} or smaller.` },
+        { status: 400 }
+      )
+    }
+    let reviewedBlocks = preparedBlocks
+    if (file) {
+      try {
+        reviewedBlocks = await attachReviewedFile({
+          supabase,
+          userId: user.id,
+          nodeId: targetPage.id,
+          file,
+          blocks: preparedBlocks,
+        })
+      } catch (error) {
+        return NextResponse.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : "We could not store that file.",
+          },
+          { status: 400 }
+        )
+      }
+    }
     return applyPreparedWikiPreview({
       supabase,
       userId: user.id,
@@ -583,7 +789,8 @@ export async function POST(request: Request) {
       sourcePageId,
       sourceTitle: sourcePageTitle,
       mode,
-      blocks: preparedBlocks,
+      blocks: reviewedBlocks,
+      fileName: file?.name ?? null,
     })
   }
 
@@ -1020,6 +1227,8 @@ export async function POST(request: Request) {
         beforeText: targetRevision?.plain_text ?? "",
         afterText: content.plainText,
         blocks: content.blocks,
+        beforeBlocks: targetRevision?.blocks ?? [],
+        baseRevisionId: targetPage.current_revision_id,
       })
     }
     const { error: revisionError } = await supabase

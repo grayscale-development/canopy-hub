@@ -114,6 +114,68 @@ describe("plain-language wiki diff", () => {
   })
 })
 
+describe("non-text wiki changes", () => {
+  it("does not call an unchanged page unchanged when a picture, link, or table differs", () => {
+    const before = [
+      {
+        type: "paragraph",
+        content: [
+          { type: "link", href: "https://example.com/old", text: "Desk" },
+        ],
+      },
+      { type: "image", props: { url: "/api/wiki/assets/old-picture" } },
+      { type: "table", content: [[{ text: "Fee" }, { text: "10" }]] },
+    ]
+    const after = [
+      {
+        type: "paragraph",
+        content: [
+          { type: "link", href: "https://example.com/new", text: "Desk" },
+        ],
+      },
+      { type: "image", props: { url: "/api/wiki/assets/new-picture" } },
+      { type: "table", content: [[{ text: "Fee" }, { text: "30" }]] },
+    ]
+    const diff = buildWikiPlainDiff("Desk", "Desk", { before, after })
+
+    expect(diff.headline).not.toMatch(/nothing changes/i)
+    expect(
+      diff.segments.map(
+        (segment) => segment.type === "text" && segment.pieces[0]?.text
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("A picture changed"),
+        expect.stringContaining("A link changed"),
+        expect.stringContaining("A table changed"),
+      ])
+    )
+  })
+
+  it("says when only formatting changed", () => {
+    const diff = buildWikiPlainDiff("Send the file.", "Send the file.", {
+      before: [{ type: "paragraph", content: [{ text: "Send the file." }] }],
+      after: [
+        {
+          type: "paragraph",
+          content: [{ text: "Send the file.", styles: { bold: true } }],
+        },
+      ],
+    })
+
+    expect(diff.headline).toBe("1 change")
+    expect(diff.segments[0]).toMatchObject({
+      type: "text",
+      pieces: [
+        {
+          kind: "added",
+          text: expect.stringContaining("Formatting changed"),
+        },
+      ],
+    })
+  })
+})
+
 describe("formatWikiRestoreChangeNote", () => {
   it("names the older version by its timestamp", () => {
     expect(formatWikiRestoreChangeNote("2026-11-04T15:15:00.000Z")).toBe(

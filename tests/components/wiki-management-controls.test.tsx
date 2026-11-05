@@ -160,6 +160,7 @@ describe("WikiNodeActionsMenu", () => {
             beforeText: "Keep the lock steps.",
             afterText: "Keep the lock steps.\n\nAdd the escrow note.",
             blocks,
+            baseRevisionId: "target-rev",
           }),
           { status: 200 }
         )
@@ -238,6 +239,7 @@ describe("WikiNodeActionsMenu", () => {
     expect(previewBody.get("target_page_id")).toBe("target-page")
     const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
     expect(applyBody.get("apply_preview")).toBe("1")
+    expect(applyBody.get("base_revision_id")).toBe("target-rev")
     expect(applyBody.get("prepared_blocks")).toBe(JSON.stringify(blocks))
     expect(applyBody.get("source_page_id")).toBe("source-page")
     expect(applyBody.get("target_page_id")).toBe("target-page")

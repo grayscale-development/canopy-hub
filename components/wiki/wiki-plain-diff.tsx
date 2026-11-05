@@ -116,17 +116,25 @@ function PageBox({
 export function WikiPlainDiff({
   beforeText,
   afterText,
+  beforeBlocks,
+  afterBlocks,
   beforeTitle = "Before",
   afterTitle = "After",
 }: {
   beforeText: string
   afterText: string
+  beforeBlocks?: unknown
+  afterBlocks?: unknown
   beforeTitle?: string
   afterTitle?: string
 }) {
   const diff = React.useMemo(
-    () => buildWikiPlainDiff(beforeText, afterText),
-    [beforeText, afterText]
+    () =>
+      buildWikiPlainDiff(beforeText, afterText, {
+        before: beforeBlocks,
+        after: afterBlocks,
+      }),
+    [afterBlocks, afterText, beforeBlocks, beforeText]
   )
   const [openFolds, setOpenFolds] = React.useState<Record<string, boolean>>({})
   const [showTakenOut, setShowTakenOut] = React.useState(false)

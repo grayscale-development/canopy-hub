@@ -132,6 +132,8 @@ export function WikiRevisionSelector({
         <WikiPlainDiff
           beforeText={currentRevision?.plain_text ?? ""}
           afterText={selectedRevision?.plain_text ?? ""}
+          beforeBlocks={currentRevision?.blocks}
+          afterBlocks={selectedRevision?.blocks}
           beforeTitle="This page now"
           afterTitle="Page after restore"
         />
@@ -151,6 +153,8 @@ export function WikiRevisionSelector({
           <WikiPlainDiff
             beforeText={currentRevision?.plain_text ?? ""}
             afterText={selectedRevision?.plain_text ?? ""}
+            beforeBlocks={currentRevision?.blocks}
+            afterBlocks={selectedRevision?.blocks}
             beforeTitle="This page now"
             afterTitle="Page after restore"
           />

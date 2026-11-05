@@ -95,6 +95,7 @@ describe("WikiImportWizardDialog", () => {
             beforeText: "Keep the lock steps.",
             afterText: "Replacement guidance.",
             blocks,
+            baseRevisionId: "old-revision",
           }),
           { status: 200 }
         )
@@ -152,6 +153,7 @@ describe("WikiImportWizardDialog", () => {
     const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
     expect(applyBody.get("apply_preview")).toBe("1")
     expect(applyBody.get("prepared_blocks")).toBe(JSON.stringify(blocks))
+    expect(applyBody.get("base_revision_id")).toBe("old-revision")
     expect(applyBody.get("mode")).toBe("replace")
   })
 
@@ -209,5 +211,100 @@ describe("WikiImportWizardDialog", () => {
     )
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
     expect(body.get("parent_id")).toBe("reports")
+  })
+
+  it("saves a file from the reviewed blocks instead of asking the model again", async () => {
+    const user = userEvent.setup()
+    const blocks = [{ type: "paragraph", content: "Reviewed guidance." }]
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            preview: true,
+            beforeText: "Old guidance.",
+            afterText: "Reviewed guidance.",
+            blocks,
+            baseRevisionId: "old-revision",
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, path: "/wiki/existing" }), {
+          status: 200,
+        })
+      )
+
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="existing-page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    const input = document.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement
+    await user.upload(
+      input,
+      new File(["notes"], "notes.txt", { type: "text/plain" })
+    )
+    await user.click(
+      screen.getByRole("button", { name: "See what will change" })
+    )
+    await screen.findByRole("heading", { name: "Page after update" })
+    await user.click(screen.getByRole("button", { name: "Update page" }))
+
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith("/wiki/existing")
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
+    expect(applyBody.get("apply_preview")).toBe("1")
+    expect(applyBody.get("prepared_blocks")).toBe(JSON.stringify(blocks))
+    expect(applyBody.get("base_revision_id")).toBe("old-revision")
+    expect(applyBody.get("file")).toBeInstanceOf(File)
+  })
+
+  it("leaves the page untouched when the review is cancelled", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          preview: true,
+          beforeText: "Old guidance.",
+          afterText: "Reviewed guidance.",
+          blocks: [{ type: "paragraph", content: "Reviewed guidance." }],
+          baseRevisionId: "old-revision",
+        }),
+        { status: 200 }
+      )
+    )
+
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="existing-page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Or paste text" }),
+      "Reviewed guidance."
+    )
+    await user.click(
+      screen.getByRole("button", { name: "See what will change" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Back" }))
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole("button", { name: "See what will change" })
+    ).toBeVisible()
   })
 })

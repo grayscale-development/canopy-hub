@@ -208,6 +208,8 @@ interface WikiContentFeatures {
   links: string[]
   tables: string[]
   files: string[]
+  formats: string[]
+  order: string[]
 }
 
 function collectLinks(value: unknown, links: string[]) {
@@ -221,6 +223,24 @@ function collectLinks(value: unknown, links: string[]) {
   collectLinks(record.content, links)
 }
 
+function collectFormats(value: unknown, formats: string[]) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectFormats(item, formats)
+    return
+  }
+  if (!value || typeof value !== "object") return
+  const record = value as Record<string, unknown>
+  if (record.styles && typeof record.styles === "object") {
+    const names = Object.keys(record.styles as object).sort()
+    if (names.length) {
+      formats.push(
+        `${names.join(",")}:${typeof record.text === "string" ? record.text : ""}`
+      )
+    }
+  }
+  collectFormats(record.content, formats)
+}
+
 function collectFeatures(blocks: unknown, features: WikiContentFeatures) {
   if (!Array.isArray(blocks)) return
   for (const block of blocks) {
@@ -232,6 +252,7 @@ function collectFeatures(blocks: unknown, features: WikiContentFeatures) {
         : {}
     const url = typeof props.url === "string" ? props.url : ""
     const name = typeof props.name === "string" ? props.name : ""
+    features.order.push(String(record.type ?? "block"))
     if (record.type === "image") features.images.push(url)
     if (record.type === "file" || record.type === "video") {
       features.files.push(`${url}|${name}`)
@@ -241,6 +262,10 @@ function collectFeatures(blocks: unknown, features: WikiContentFeatures) {
         JSON.stringify(record.content ?? record.children ?? [])
       )
     }
+    if (record.type === "heading") {
+      features.formats.push(`heading:${String(props.level ?? "")}`)
+    }
+    collectFormats(record.content, features.formats)
     collectLinks(record.content, features.links)
     collectFeatures(record.children, features)
   }
@@ -262,21 +287,50 @@ export function wikiNonTextChangeNotes(
     links: [],
     tables: [],
     files: [],
+    formats: [],
+    order: [],
   }
   const after: WikiContentFeatures = {
     images: [],
     links: [],
     tables: [],
     files: [],
+    formats: [],
+    order: [],
   }
   collectFeatures(beforeBlocks, before)
   collectFeatures(afterBlocks, after)
-  return [
+  const notes = [
     featureNote("picture", before.images, after.images),
     featureNote("link", before.links, after.links),
     featureNote("table", before.tables, after.tables),
     featureNote("attached file", before.files, after.files),
   ].filter((note): note is string => Boolean(note))
+  if (before.formats.join("\n") !== after.formats.join("\n")) {
+    notes.push(
+      "Formatting changed, such as bold or a heading. This view shows the words, not the styling."
+    )
+  }
+  if (before.order.join("|") !== after.order.join("|")) {
+    notes.push(
+      "The order of parts changed. This view follows the words, not every block position."
+    )
+  }
+  return notes.map((note) => {
+    if (note.startsWith("A picture")) {
+      return `${note} This comparison cannot show the picture, so check the page.`
+    }
+    if (note.startsWith("A link")) {
+      return `${note} The visible words may be the same.`
+    }
+    if (note.startsWith("A table")) {
+      return `${note} Check the rows and columns on the page.`
+    }
+    if (note.startsWith("An attached file")) {
+      return `${note} This comparison cannot show the file itself.`
+    }
+    return note
+  })
 }
 
 function applyNonTextNotes(
@@ -285,7 +339,9 @@ function applyNonTextNotes(
   afterBlocks: unknown
 ) {
   if (beforeBlocks === undefined && afterBlocks === undefined) return diff
-  const notes = wikiNonTextChangeNotes(beforeBlocks, afterBlocks)
+  const notes = wikiNonTextChangeNotes(beforeBlocks, afterBlocks).filter(
+    (note) => diff.changeCount === 0 || !note.startsWith("The order of parts")
+  )
   if (!notes.length) return diff
   const noteSegments: WikiDiffSegment[] = notes.map((note) => ({
     type: "text" as const,

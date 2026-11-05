@@ -579,6 +579,7 @@ describe("/api/wiki/import route", () => {
     expect(payload.afterText).toContain("Existing guidance.")
     expect(payload.afterText).toContain("New lock review guidance.")
     expect(Array.isArray(payload.blocks)).toBe(true)
+    expect(payload.baseRevisionId).toBe("old-revision")
     expect(state.insertedRevisions).toEqual([])
     expect(state.updates).toEqual([])
   })
@@ -600,6 +601,7 @@ describe("/api/wiki/import route", () => {
     body.set("apply_preview", "1")
     body.set("target_page_id", "existing-page")
     body.set("mode", "replace")
+    body.set("base_revision_id", "old-revision")
     body.set(
       "prepared_blocks",
       JSON.stringify([{ type: "paragraph", content: "Replacement guidance." }])
@@ -696,6 +698,7 @@ describe("/api/wiki/import route", () => {
     body.set("target_page_id", "target-page")
     body.set("source_page_id", "source-page")
     body.set("mode", "update")
+    body.set("base_revision_id", "target-rev")
     body.set(
       "prepared_blocks",
       JSON.stringify([
@@ -731,5 +734,108 @@ describe("/api/wiki/import route", () => {
     expect(state.insertedNodes.some((node) => node.id === "source-page")).toBe(
       false
     )
+    const pointerUpdate = state.updates.findIndex((update) => {
+      const value = update.value as { current_revision_id?: unknown }
+      return (
+        update.table === "wiki_nodes" &&
+        typeof value.current_revision_id === "string"
+      )
+    })
+    const archiveUpdate = state.updates.findIndex((update) => {
+      const value = update.value as { status?: unknown }
+      return value.status === "archived"
+    })
+    expect(pointerUpdate).toBeGreaterThanOrEqual(0)
+    expect(archiveUpdate).toBeGreaterThan(pointerUpdate)
+    expect(
+      state.deletes.some((entry) => entry.table === "wiki_page_revisions")
+    ).toBe(false)
+  })
+
+  it("rejects a reviewed update after the page has changed", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        type: "page",
+        slug: "existing-page",
+        title: "Existing Page",
+        status: "published",
+        current_revision_id: "old-revision",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    const body = new FormData()
+    body.set("apply_preview", "1")
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "update")
+    body.set("base_revision_id", "someone-else")
+    body.set(
+      "prepared_blocks",
+      JSON.stringify([{ type: "paragraph", content: "Stale guidance." }])
+    )
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+
+    expect(response.status).toBe(409)
+    expect(state.insertedRevisions).toEqual([])
+    expect(state.updates).toEqual([])
+    expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
+  })
+
+  it("saves the reviewed file text and stores the file without another model call", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        type: "page",
+        slug: "existing-page",
+        title: "Existing Page",
+        status: "published",
+        current_revision_id: "old-revision",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    const body = new FormData()
+    body.set("apply_preview", "1")
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "update")
+    body.set("base_revision_id", "old-revision")
+    body.set(
+      "prepared_blocks",
+      JSON.stringify([
+        { type: "paragraph", content: "Reviewed guidance." },
+        {
+          type: "file",
+          props: { url: "/api/wiki/assets/preview-only", name: "notes.txt" },
+        },
+      ])
+    )
+    body.set("file", new File(["notes"], "notes.txt", { type: "text/plain" }))
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+
+    expect(response.status).toBe(200)
+    expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
+    expect(state.insertedRevisions[0]).toMatchObject({
+      plain_text: "Reviewed guidance.",
+      change_note: "Updated with AI from notes.txt",
+    })
+    const savedBlocks = state.insertedRevisions[0]?.blocks as Array<{
+      type: string
+      content?: string
+      props?: { url?: string }
+    }>
+    expect(savedBlocks[0]?.content).toBe("Reviewed guidance.")
+    expect(savedBlocks[1]?.props?.url).toMatch(/^\/api\/wiki\/assets\//)
+    expect(savedBlocks[1]?.props?.url).not.toBe("/api/wiki/assets/preview-only")
+    expect(state.insertedAssets[0]).toMatchObject({
+      kind: "document",
+      file_name: "notes.txt",
+    })
   })
 })
