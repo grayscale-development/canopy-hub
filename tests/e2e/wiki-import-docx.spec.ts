@@ -2,15 +2,14 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { signInAsLocalDev } from "./helpers"
+import { openWikiAiCreate, signInAsLocalDev } from "./helpers"
 
 test("Wiki managers can use AI Create with a structured DOCX and embedded images @wiki", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
   await page.goto("/wiki/canopy-wiki/hub/reports")
-  await page.getByRole("switch", { name: "Toggle wiki editor mode" }).click()
-  await page.getByRole("button", { name: "AI Update" }).click()
+  await openWikiAiCreate(page)
   await page
     .locator('input[type="file"]')
     .setInputFiles(

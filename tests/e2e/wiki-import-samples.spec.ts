@@ -2,7 +2,7 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { signInAsLocalDev } from "./helpers"
+import { openWikiAiCreate, signInAsLocalDev } from "./helpers"
 
 const samples = [
   "it-password-reset.docx",
@@ -21,18 +21,7 @@ test("Wiki managers can use AI Create with every representative document sample 
 
   for (const sample of samples) {
     await page.goto("/wiki/canopy-wiki/hub/reports")
-    const editorSwitch = page.getByRole("switch", {
-      name: "Toggle wiki editor mode",
-    })
-    // Editor mode persists between loads and restores after hydration, so
-    // only toggle it when the AI Update button has not appeared on its own.
-    const aiUpdateButton = page.getByRole("button", { name: "AI Update" })
-    try {
-      await aiUpdateButton.waitFor({ timeout: 4000 })
-    } catch {
-      await editorSwitch.click()
-    }
-    await page.getByRole("button", { name: "AI Update" }).click()
+    await openWikiAiCreate(page)
     await page
       .locator('input[type="file"]')
       .setInputFiles(
