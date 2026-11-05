@@ -65,10 +65,12 @@ export async function signInAsSeededUser(page: Page, email: string) {
 export async function enableEditorMode(page: Page) {
   const toggle = page.getByRole("switch", { name: "Toggle wiki editor mode" })
   await expect(toggle).toBeVisible()
-  if ((await toggle.getAttribute("aria-checked")) !== "true") {
-    await toggle.click()
-  }
-  await expect(toggle).toHaveAttribute("aria-checked", "true")
+  await expect(async () => {
+    if ((await toggle.getAttribute("aria-checked")) !== "true") {
+      await toggle.click()
+    }
+    await expect(toggle).toHaveAttribute("aria-checked", "true")
+  }).toPass()
 }
 
 export async function createReviewedPage({
