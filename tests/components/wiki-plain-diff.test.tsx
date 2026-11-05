@@ -1,53 +1,105 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react"
+import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
 import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
 
 describe("WikiPlainDiff", () => {
-  it("uses plain labels and can switch to side by side", async () => {
-    const user = userEvent.setup()
-    const beforeText = ["Keep the lock steps.", "Send the file today."].join(
-      "\n"
-    )
-    const afterText = ["Keep the lock steps.", "Send the file tomorrow."].join(
-      "\n"
-    )
+  afterEach(() => {
+    cleanup()
+  })
+
+  it("shows one marked-up page instead of a second breakdown", () => {
     render(
       <WikiPlainDiff
-        beforeText={beforeText}
-        afterText={afterText}
-        beforeTitle="Current page"
-        afterTitle="Older version you picked"
+        beforeText="Send the file tomorrow."
+        afterText="Send the file today."
+        beforeTitle="This page now"
+        afterTitle="Page after restore"
       />
     )
 
+    expect(screen.getByText("1 change")).toBeVisible()
+    expect(screen.getByText(/words are taken out/)).toBeVisible()
+    expect(screen.getByText(/words are put in/)).toBeVisible()
+    expect(
+      screen.getByRole("heading", { name: "Page after restore" })
+    ).toBeVisible()
+    expect(screen.getByText("tomorrow.")).toHaveClass("line-through")
+    expect(screen.getByText("today.")).toHaveClass("underline")
+    expect(screen.getByText("Taken out:", { exact: false })).toHaveClass(
+      "sr-only"
+    )
+    expect(
+      screen.queryByRole("button", { name: "Side by side" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "What was removed" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("then becomes ↓")).not.toBeInTheDocument()
+  })
+
+  it("hides a long unchanged stretch behind one button", async () => {
+    const user = userEvent.setup()
+    const lines = Array.from(
+      { length: 20 },
+      (_, index) => `Paragraph ${index + 1} stays the same.`
+    )
+    const after = [...lines]
+    after[10] = "Paragraph 11 is brand new."
+
+    render(
+      <WikiPlainDiff
+        beforeText={lines.join("\n")}
+        afterText={after.join("\n")}
+        beforeTitle="This page now"
+        afterTitle="Page after update"
+      />
+    )
+
+    const showRest = screen.getAllByRole("button", {
+      name: /Show \d+ lines that don't change/,
+    })[0]
+    expect(showRest).toBeVisible()
+    await user.click(showRest)
+    expect(
+      screen.getByRole("button", { name: "Hide lines that don't change" })
+    ).toBeVisible()
+  })
+
+  it("says when nothing changes and when the page will be emptied", async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(
+      <WikiPlainDiff
+        beforeText="Keep the lock steps."
+        afterText="Keep the lock steps."
+        afterTitle="Page after update"
+      />
+    )
+    expect(
+      screen.getByText("Nothing changes. The page stays exactly the same.")
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("heading", { name: "Page after update" })
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <WikiPlainDiff
+        beforeText="Remove this page."
+        afterText=""
+        afterTitle="Page after update"
+      />
+    )
     expect(
       screen.getByText(
-        "1 part was removed. 1 part was added. 1 part stayed the same."
+        "Everything on this page will be taken out. Nothing will be left."
       )
     ).toBeVisible()
-    expect(
-      screen.getByRole("heading", { name: "What was removed" })
-    ).toBeVisible()
-    expect(
-      screen.getByRole("heading", { name: "What was added" })
-    ).toBeVisible()
-    expect(screen.getByRole("heading", { name: "What stayed" })).toBeVisible()
-    expect(screen.getAllByText(/today/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/tomorrow/).length).toBeGreaterThan(0)
-    expect(screen.getByText("then becomes ↓")).toBeVisible()
-
-    await user.click(screen.getByRole("button", { name: "Side by side" }))
-
-    expect(
-      screen.getByRole("button", { name: "Side by side" })
-    ).toHaveAttribute("aria-pressed", "true")
-    expect(screen.queryByText("then becomes ↓")).not.toBeInTheDocument()
-    expect(
-      document.querySelector("[data-layout='side-by-side']")
-    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Show what gets taken out" })
+    )
+    expect(screen.getByText("Remove this page.")).toHaveClass("line-through")
   })
 })

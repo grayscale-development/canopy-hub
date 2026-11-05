@@ -3,113 +3,138 @@
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
-import { buildWikiPlainDiff, type WikiDiffPiece } from "@/lib/wiki-diff"
-import { cn } from "@/lib/utils"
+import {
+  buildWikiPlainDiff,
+  type WikiDiffPiece,
+  type WikiDiffSegment,
+} from "@/lib/wiki-diff"
 
-function DiffPieces({ pieces }: { pieces: WikiDiffPiece[] }) {
+const takenOutClass =
+  "rounded bg-red-100 px-1 text-red-900 line-through decoration-red-900 decoration-2 dark:bg-red-950 dark:text-red-100 dark:decoration-red-100"
+const putInClass =
+  "rounded bg-green-100 px-1 font-semibold text-green-900 underline decoration-green-900 decoration-2 underline-offset-4 dark:bg-green-950 dark:text-green-100 dark:decoration-green-100"
+
+function MarkedText({ pieces }: { pieces: WikiDiffPiece[] }) {
   return (
     <>
       {pieces.map((piece, index) => {
-        if (piece.text === "\n") {
-          return <br key={`break-${index}`} />
-        }
+        const spacer = index > 0 ? " " : null
         if (piece.kind === "removed") {
           return (
-            <mark
-              key={`removed-${index}`}
-              className="rounded bg-red-200 px-1 text-red-950 line-through decoration-red-950 decoration-2 dark:bg-red-700 dark:text-red-50 dark:decoration-red-50"
-            >
-              <span className="sr-only">Removed: </span>
-              {piece.text}{" "}
-            </mark>
+            <React.Fragment key={`removed-${index}`}>
+              {spacer}
+              <mark className={takenOutClass}>
+                <span className="sr-only">Taken out: </span>
+                {piece.text}
+              </mark>
+            </React.Fragment>
           )
         }
         if (piece.kind === "added") {
           return (
-            <mark
-              key={`added-${index}`}
-              className="rounded bg-green-200 px-1 font-semibold text-green-950 dark:bg-green-700 dark:text-green-50"
-            >
-              <span className="sr-only">Added: </span>
-              {piece.text}{" "}
-            </mark>
+            <React.Fragment key={`added-${index}`}>
+              {spacer}
+              <mark className={putInClass}>
+                <span className="sr-only">Put in: </span>
+                {piece.text}
+              </mark>
+            </React.Fragment>
           )
         }
         return (
-          <span
-            key={`stayed-${index}`}
-            className="text-neutral-950 dark:text-neutral-50"
-          >
-            {piece.text}{" "}
-          </span>
+          <React.Fragment key={`stayed-${index}`}>
+            {spacer}
+            <span className="text-neutral-950 dark:text-neutral-50">
+              {piece.text}
+            </span>
+          </React.Fragment>
         )
       })}
     </>
   )
 }
 
-function VersionCard({
-  title,
-  pieces,
-  emptyLabel,
+function PageBox({
+  beforeTitle,
+  afterTitle,
+  segments,
+  openFolds,
+  onToggleFold,
 }: {
-  title: string
-  pieces: WikiDiffPiece[]
-  emptyLabel: string
+  beforeTitle: string
+  afterTitle: string
+  segments: WikiDiffSegment[]
+  openFolds: Record<string, boolean>
+  onToggleFold: (id: string) => void
 }) {
-  const hasWords = pieces.some((piece) => piece.text !== "\n")
   return (
-    <section className="grid gap-2" aria-label={title}>
+    <section
+      className="grid gap-2"
+      aria-label={`Changes from ${beforeTitle} to ${afterTitle}`}
+    >
       <h3 className="text-lg font-semibold text-neutral-950 dark:text-neutral-50">
-        {title}
+        {afterTitle}
       </h3>
       <div className="rounded-lg border-2 border-neutral-950 bg-white p-4 text-lg leading-8 text-neutral-950 dark:border-neutral-50 dark:bg-neutral-950 dark:text-neutral-50">
-        {hasWords ? <DiffPieces pieces={pieces} /> : <p>{emptyLabel}</p>}
+        {segments.map((segment, index) => {
+          if (segment.type === "fold") {
+            const open = Boolean(openFolds[segment.id])
+            const label = open
+              ? "Hide lines that don't change"
+              : `Show ${segment.lines.length} lines that don't change`
+            return (
+              <div key={segment.id} className="my-3">
+                {open
+                  ? segment.lines.map((line, lineIndex) => (
+                      <p key={`${segment.id}-${lineIndex}`} className="my-1">
+                        {line}
+                      </p>
+                    ))
+                  : null}
+                <button
+                  type="button"
+                  className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-neutral-950 px-3 text-base font-semibold text-neutral-950 dark:border-neutral-50 dark:text-neutral-50"
+                  aria-expanded={open}
+                  onClick={() => onToggleFold(segment.id)}
+                >
+                  {label}
+                </button>
+              </div>
+            )
+          }
+          return (
+            <p key={`line-${index}`} className="my-1">
+              <MarkedText pieces={segment.pieces} />
+            </p>
+          )
+        })}
       </div>
     </section>
   )
 }
 
-function ChangeList({
-  title,
-  items,
-  emptyLabel,
-  tone,
+function ChangeKey({
+  showTakenOut,
+  showPutIn,
 }: {
-  title: string
-  items: string[]
-  emptyLabel: string
-  tone: "removed" | "added" | "stayed"
+  showTakenOut: boolean
+  showPutIn: boolean
 }) {
   return (
-    <section className="grid gap-2">
-      <h3 className="text-base font-semibold text-neutral-950 dark:text-neutral-50">
-        {title}
-      </h3>
-      {items.length ? (
-        <ul
-          className={cn(
-            "grid gap-2 rounded-lg border-2 p-3 text-base",
-            tone === "removed" &&
-              "border-red-900 bg-red-100 text-red-950 dark:border-red-200 dark:bg-red-950 dark:text-red-50",
-            tone === "added" &&
-              "border-green-900 bg-green-100 text-green-950 dark:border-green-200 dark:bg-green-950 dark:text-green-50",
-            tone === "stayed" &&
-              "border-neutral-950 bg-white text-neutral-950 dark:border-neutral-50 dark:bg-neutral-950 dark:text-neutral-50"
-          )}
-        >
-          {items.map((item, index) => (
-            <li key={`${title}-${index}`} className="leading-7">
-              {item}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-base text-neutral-950 dark:text-neutral-50">
-          {emptyLabel}
-        </p>
-      )}
-    </section>
+    <p className="text-base leading-7 text-neutral-950 dark:text-neutral-50">
+      {showTakenOut ? (
+        <>
+          <mark className={takenOutClass}>Crossed-out</mark> words are taken
+          out.
+        </>
+      ) : null}
+      {showTakenOut && showPutIn ? " " : null}
+      {showPutIn ? (
+        <>
+          <mark className={putInClass}>Underlined</mark> words are put in.
+        </>
+      ) : null}
+    </p>
   )
 }
 
@@ -128,107 +153,67 @@ export function WikiPlainDiff({
     () => buildWikiPlainDiff(beforeText, afterText),
     [beforeText, afterText]
   )
-  const [layout, setLayout] = React.useState<"stacked" | "side-by-side">(
-    "stacked"
+  const [openFolds, setOpenFolds] = React.useState<Record<string, boolean>>({})
+  const [showTakenOut, setShowTakenOut] = React.useState(false)
+  const hasTakenOut = diff.segments.some(
+    (segment) =>
+      segment.type === "text" &&
+      segment.pieces.some((piece) => piece.kind === "removed")
   )
-  const [showStayed, setShowStayed] = React.useState(false)
-  const stayedItems =
-    diff.stayed.length > 6 && !showStayed
-      ? diff.stayed.slice(0, 6)
-      : diff.stayed
+  const hasPutIn = diff.segments.some(
+    (segment) =>
+      segment.type === "text" &&
+      segment.pieces.some((piece) => piece.kind === "added")
+  )
+
+  function toggleFold(id: string) {
+    setOpenFolds((current) => ({ ...current, [id]: !current[id] }))
+  }
 
   return (
-    <div className="grid gap-4" data-layout={layout}>
+    <div className="grid gap-3">
       <p className="text-lg leading-7 font-semibold text-neutral-950 dark:text-neutral-50">
-        {diff.summary}
+        {diff.headline}
       </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded bg-red-200 px-3 py-1 text-base font-semibold text-red-950 line-through decoration-2 dark:bg-red-700 dark:text-red-50">
-          Removed
-        </span>
-        <span className="rounded bg-green-200 px-3 py-1 text-base font-semibold text-green-950 dark:bg-green-700 dark:text-green-50">
-          Added
-        </span>
-        <span className="rounded border-2 border-neutral-950 bg-white px-3 py-1 text-base font-semibold text-neutral-950 dark:border-neutral-50 dark:bg-neutral-950 dark:text-neutral-50">
-          Stayed
-        </span>
-        <div className="ml-auto flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={layout === "stacked" ? "default" : "outline"}
-            className="cursor-pointer"
-            aria-pressed={layout === "stacked"}
-            onClick={() => setLayout("stacked")}
-          >
-            Before, then after
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={layout === "side-by-side" ? "default" : "outline"}
-            className="cursor-pointer"
-            aria-pressed={layout === "side-by-side"}
-            onClick={() => setLayout("side-by-side")}
-          >
-            Side by side
-          </Button>
-        </div>
-      </div>
-      <div
-        className={cn(
-          "grid gap-3",
-          layout === "side-by-side" && "md:grid-cols-2"
-        )}
-      >
-        <VersionCard
-          title={beforeTitle}
-          pieces={diff.beforePieces}
-          emptyLabel="Nothing was here."
+      {diff.showMarkup && (hasTakenOut || hasPutIn) ? (
+        <ChangeKey showTakenOut={hasTakenOut} showPutIn={hasPutIn} />
+      ) : null}
+      {diff.showMarkup ? (
+        <PageBox
+          beforeTitle={beforeTitle}
+          afterTitle={afterTitle}
+          segments={diff.segments}
+          openFolds={openFolds}
+          onToggleFold={toggleFold}
         />
-        {layout === "stacked" ? (
-          <p className="text-center text-lg font-semibold text-neutral-950 dark:text-neutral-50">
-            then becomes ↓
-          </p>
-        ) : null}
-        <VersionCard
-          title={afterTitle}
-          pieces={diff.afterPieces}
-          emptyLabel="Nothing will be left."
-        />
-      </div>
-      <div className="grid gap-4">
-        <ChangeList
-          title="What was removed"
-          items={diff.removed}
-          emptyLabel="Nothing was removed."
-          tone="removed"
-        />
-        <ChangeList
-          title="What was added"
-          items={diff.added}
-          emptyLabel="Nothing was added."
-          tone="added"
-        />
-        <ChangeList
-          title="What stayed"
-          items={stayedItems}
-          emptyLabel="No whole line stayed the same. Unchanged words are still shown above."
-          tone="stayed"
-        />
-        {diff.stayed.length > 6 ? (
+      ) : null}
+      {diff.revealTakenOut ? (
+        <div className="grid gap-3">
           <Button
             type="button"
             variant="outline"
-            className="cursor-pointer justify-self-start"
-            onClick={() => setShowStayed((current) => !current)}
+            className="min-h-11 cursor-pointer justify-self-start"
+            aria-expanded={showTakenOut}
+            onClick={() => setShowTakenOut((current) => !current)}
           >
-            {showStayed
-              ? "Show fewer lines that stayed"
-              : `Show all ${diff.stayed.length} lines that stayed`}
+            {showTakenOut
+              ? "Hide what gets taken out"
+              : "Show what gets taken out"}
           </Button>
-        ) : null}
-      </div>
+          {showTakenOut ? (
+            <>
+              <ChangeKey showTakenOut showPutIn={false} />
+              <PageBox
+                beforeTitle={beforeTitle}
+                afterTitle={afterTitle}
+                segments={diff.segments}
+                openFolds={openFolds}
+                onToggleFold={toggleFold}
+              />
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

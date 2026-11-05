@@ -89,7 +89,8 @@ describe("WikiRevisionSelector", () => {
     expect(screen.getByRole("combobox", { name: "Page versions" })).toHaveValue(
       "old-revision"
     )
-    expect(screen.getByRole("heading", { name: "This page now" })).toBeVisible()
+    expect(screen.getByText("1 change")).toBeVisible()
+    expect(screen.getByText(/words are taken out/)).toBeVisible()
     expect(
       screen.getAllByRole("heading", { name: "Page after restore" }).length
     ).toBeGreaterThan(0)
@@ -142,19 +143,19 @@ describe("WikiRevisionSelector", () => {
     expect(
       screen.queryByRole("button", { name: "Restore this version" })
     ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("heading", { name: "What stayed" })
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText("1 change")).not.toBeInTheDocument()
 
     await user.click(
       screen.getByRole("switch", { name: "Toggle wiki editor mode" })
     )
 
-    expect(screen.getByRole("combobox", { name: "Page versions" })).toBeVisible()
+    expect(
+      screen.getByRole("combobox", { name: "Page versions" })
+    ).toBeVisible()
     expect(
       screen.getByRole("button", { name: "Restore this version" })
     ).toBeVisible()
-    expect(screen.getByRole("heading", { name: "What stayed" })).toBeVisible()
+    expect(screen.getByText("1 change")).toBeVisible()
   })
 
   it("hides the version menu from readers even if edit mode was saved", () => {
@@ -191,6 +192,6 @@ describe("WikiRevisionSelector", () => {
     expect(
       screen.queryByRole("button", { name: "Restore this version" })
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "What stayed" })).toBeVisible()
+    expect(screen.getByText("1 change")).toBeVisible()
   })
 })

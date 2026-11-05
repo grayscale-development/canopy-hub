@@ -10,37 +10,87 @@ describe("plain-language wiki diff", () => {
       "Keep the lock steps."
     )
 
-    expect(diff.summary).toBe(
-      "Nothing changed. These two versions use the same words."
+    expect(diff.headline).toBe(
+      "Nothing changes. The page stays exactly the same."
     )
-    expect(diff.removed).toEqual([])
-    expect(diff.added).toEqual([])
-    expect(diff.stayed).toEqual(["Keep the lock steps."])
+    expect(diff.changeCount).toBe(0)
+    expect(diff.showMarkup).toBe(false)
+    expect(diff.headline.toLowerCase()).not.toContain("hunk")
+    expect(diff.headline.toLowerCase()).not.toContain("diff")
   })
 
-  it("separates removed words, added words, and lines that stayed", () => {
+  it("marks a swapped word in one line", () => {
     const diff = buildWikiPlainDiff(
       "Keep the lock steps.\nSend the file today.",
       "Keep the lock steps.\nSend the file tomorrow."
     )
 
-    expect(diff.removed).toEqual(["today."])
-    expect(diff.added).toEqual(["tomorrow."])
-    expect(diff.stayed).toEqual(["Keep the lock steps."])
-    expect(diff.summary).toBe(
-      "1 part was removed. 1 part was added. 1 part stayed the same."
+    expect(diff.headline).toBe("1 change")
+    expect(diff.changeCount).toBe(1)
+    const changed = diff.segments.find(
+      (segment) =>
+        segment.type === "text" &&
+        segment.pieces.some((piece) => piece.kind !== "stayed")
     )
-    expect(diff.summary.toLowerCase()).not.toContain("hunk")
-    expect(diff.summary.toLowerCase()).not.toContain("diff")
+    expect(changed).toMatchObject({
+      type: "text",
+      pieces: [
+        { kind: "stayed", text: "Send the file" },
+        { kind: "removed", text: "today." },
+        { kind: "added", text: "tomorrow." },
+      ],
+    })
+  })
+
+  it("keeps a very different line whole instead of marking every word", () => {
+    const diff = buildWikiPlainDiff(
+      "Send the file today.",
+      "Escrow holdback is 10 percent."
+    )
+
+    expect(diff.changeCount).toBe(1)
+    expect(diff.segments).toEqual([
+      {
+        type: "text",
+        pieces: [{ kind: "removed", text: "Send the file today." }],
+      },
+      {
+        type: "text",
+        pieces: [{ kind: "added", text: "Escrow holdback is 10 percent." }],
+      },
+    ])
   })
 
   it("explains an empty page in plain language", () => {
-    expect(buildWikiPlainDiff("", "Add the escrow note.").summary).toBe(
-      "This version is empty right now. Everything below will be added."
+    expect(buildWikiPlainDiff("", "Add the escrow note.").headline).toBe(
+      "This page is empty now. All of this will be put in."
     )
-    expect(buildWikiPlainDiff("Remove this page.", "").summary).toBe(
-      "Everything below will be removed. The result is empty."
+    const emptied = buildWikiPlainDiff("Remove this page.", "")
+    expect(emptied.headline).toBe(
+      "Everything on this page will be taken out. Nothing will be left."
     )
+    expect(emptied.revealTakenOut).toBe(true)
+    expect(emptied.showMarkup).toBe(false)
+  })
+
+  it("folds a long unchanged stretch and keeps the change visible", () => {
+    const lines = Array.from(
+      { length: 20 },
+      (_, index) => `Paragraph ${index + 1} stays the same.`
+    )
+    const after = [...lines]
+    after[10] = "Paragraph 11 is brand new."
+    const diff = buildWikiPlainDiff(lines.join("\n"), after.join("\n"))
+
+    expect(diff.changeCount).toBe(1)
+    expect(diff.segments.some((segment) => segment.type === "fold")).toBe(true)
+    expect(
+      diff.segments.some(
+        (segment) =>
+          segment.type === "text" &&
+          segment.pieces.some((piece) => piece.text.includes("brand new"))
+      )
+    ).toBe(true)
   })
 })
 

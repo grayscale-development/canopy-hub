@@ -218,8 +218,9 @@ describe("WikiNodeActionsMenu", () => {
     )
     expect(confirm).not.toHaveTextContent(/delete/i)
     expect(
-      await within(confirm).findByRole("heading", { name: "What was added" })
+      await within(confirm).findByRole("heading", { name: "After the merge" })
     ).toBeVisible()
+    expect(within(confirm).getByText("1 change")).toBeVisible()
     expect(
       within(confirm).getAllByText("Add the escrow note.").length
     ).toBeGreaterThan(0)

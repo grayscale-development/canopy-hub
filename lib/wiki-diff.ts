@@ -5,13 +5,25 @@ export interface WikiDiffPiece {
   text: string
 }
 
+export interface WikiDiffTextSegment {
+  type: "text"
+  pieces: WikiDiffPiece[]
+}
+
+export interface WikiDiffFoldSegment {
+  type: "fold"
+  id: string
+  lines: string[]
+}
+
+export type WikiDiffSegment = WikiDiffTextSegment | WikiDiffFoldSegment
+
 export interface WikiPlainDiff {
-  beforePieces: WikiDiffPiece[]
-  afterPieces: WikiDiffPiece[]
-  removed: string[]
-  added: string[]
-  stayed: string[]
-  summary: string
+  headline: string
+  changeCount: number
+  segments: WikiDiffSegment[]
+  showMarkup: boolean
+  revealTakenOut: boolean
 }
 
 interface LineOp {
@@ -19,7 +31,15 @@ interface LineOp {
   value: string
 }
 
+interface DisplayLine {
+  changed: boolean
+  pieces: WikiDiffPiece[]
+}
+
 const MAX_LINE_CELLS = 400_000
+const FULL_PAGE_LIMIT = 15
+const CONTEXT_LINES = 2
+const MIN_FOLD = 3
 
 function splitLines(text: string) {
   return text
@@ -88,86 +108,99 @@ function lineOps(before: string[], after: string[]): LineOp[] {
 function pushPiece(pieces: WikiDiffPiece[], kind: WikiDiffKind, text: string) {
   if (!text) return
   const previous = pieces[pieces.length - 1]
-  if (previous?.kind === kind && previous.text !== "\n" && text !== "\n") {
+  if (previous?.kind === kind) {
     previous.text = `${previous.text} ${text}`
     return
   }
   pieces.push({ kind, text })
 }
 
-function pushWordDiff(
-  beforeLine: string,
-  afterLine: string,
-  beforePieces: WikiDiffPiece[],
-  afterPieces: WikiDiffPiece[],
-  removed: string[],
-  added: string[]
-) {
+function overlapRatio(beforeLine: string, afterLine: string) {
   const beforeWords = wordsOf(beforeLine)
   const afterWords = wordsOf(afterLine)
-  const ops = lineOps(beforeWords, afterWords)
-  const removedWords: string[] = []
-  const addedWords: string[] = []
-
-  for (const op of ops) {
-    if (op.type === "same") {
-      pushPiece(beforePieces, "stayed", op.value)
-      pushPiece(afterPieces, "stayed", op.value)
-    } else if (op.type === "removed") {
-      pushPiece(beforePieces, "removed", op.value)
-      removedWords.push(op.value)
-    } else {
-      pushPiece(afterPieces, "added", op.value)
-      addedWords.push(op.value)
+  if (!beforeWords.length || !afterWords.length) return 0
+  const remaining = new Map<string, number>()
+  for (const word of afterWords) {
+    const key = word.toLocaleLowerCase()
+    remaining.set(key, (remaining.get(key) ?? 0) + 1)
+  }
+  let shared = 0
+  for (const word of beforeWords) {
+    const key = word.toLocaleLowerCase()
+    const count = remaining.get(key) ?? 0
+    if (count > 0) {
+      shared += 1
+      remaining.set(key, count - 1)
     }
   }
-
-  if (removedWords.length) removed.push(removedWords.join(" "))
-  if (addedWords.length) added.push(addedWords.join(" "))
+  return shared / Math.max(beforeWords.length, afterWords.length)
 }
 
-function countLabel(count: number, singular: string, plural: string) {
-  return `${count} ${count === 1 ? singular : plural}`
+function inlinePieces(beforeLine: string, afterLine: string) {
+  const pieces: WikiDiffPiece[] = []
+  for (const op of lineOps(wordsOf(beforeLine), wordsOf(afterLine))) {
+    pushPiece(
+      pieces,
+      op.type === "same"
+        ? "stayed"
+        : op.type === "removed"
+          ? "removed"
+          : "added",
+      op.value
+    )
+  }
+  return pieces
 }
 
-export function summarizeWikiDiff({
-  beforeText,
-  afterText,
-  removed,
-  added,
-  stayed,
-}: {
-  beforeText: string
-  afterText: string
-  removed: number
-  added: number
-  stayed: number
-}) {
-  if (!beforeText.trim() && !afterText.trim()) {
-    return "Both versions are empty."
-  }
-  if (!beforeText.trim()) {
-    return "This version is empty right now. Everything below will be added."
-  }
-  if (!afterText.trim()) {
-    return "Everything below will be removed. The result is empty."
-  }
-  if (removed === 0 && added === 0) {
-    return "Nothing changed. These two versions use the same words."
+function lineText(line: DisplayLine) {
+  return line.pieces.map((piece) => piece.text).join(" ")
+}
+
+function foldLines(lines: DisplayLine[]): WikiDiffSegment[] {
+  if (lines.length <= FULL_PAGE_LIMIT) {
+    return lines.map((line) => ({ type: "text", pieces: line.pieces }))
   }
 
-  const sentences = [
-    removed === 0
-      ? "Nothing was removed."
-      : `${countLabel(removed, "part was", "parts were")} removed.`,
-    added === 0
-      ? "Nothing was added."
-      : `${countLabel(added, "part was", "parts were")} added.`,
-    stayed === 0
-      ? "Nothing stayed the same."
-      : `${countLabel(stayed, "part", "parts")} stayed the same.`,
-  ]
-  return sentences.join(" ")
+  const segments: WikiDiffSegment[] = []
+  let index = 0
+  while (index < lines.length) {
+    if (lines[index]?.changed) {
+      segments.push({ type: "text", pieces: lines[index].pieces })
+      index += 1
+      continue
+    }
+
+    let end = index
+    while (end < lines.length && !lines[end]?.changed) end += 1
+    const run = lines.slice(index, end)
+    const keepStart = index > 0 ? CONTEXT_LINES : 0
+    const keepEnd = end < lines.length ? CONTEXT_LINES : 0
+    const hiddenCount = run.length - keepStart - keepEnd
+    if (hiddenCount < MIN_FOLD) {
+      for (const line of run) {
+        segments.push({ type: "text", pieces: line.pieces })
+      }
+    } else {
+      for (const line of run.slice(0, keepStart)) {
+        segments.push({ type: "text", pieces: line.pieces })
+      }
+      const hidden = run.slice(keepStart, run.length - keepEnd)
+      segments.push({
+        type: "fold",
+        id: `fold-${index}`,
+        lines: hidden.map(lineText),
+      })
+      for (const line of run.slice(run.length - keepEnd)) {
+        segments.push({ type: "text", pieces: line.pieces })
+      }
+    }
+    index = end
+  }
+  return segments
+}
+
+function headlineFor(changeCount: number) {
+  return changeCount === 1 ? "1 change" : `${changeCount} changes`
 }
 
 export function buildWikiPlainDiff(
@@ -176,70 +209,103 @@ export function buildWikiPlainDiff(
 ): WikiPlainDiff {
   const beforeLines = splitLines(beforeText)
   const afterLines = splitLines(afterText)
+  const identical =
+    beforeLines.length === afterLines.length &&
+    beforeLines.every((line, index) => line === afterLines[index])
+
+  if (identical) {
+    return {
+      headline: "Nothing changes. The page stays exactly the same.",
+      changeCount: 0,
+      segments: [],
+      showMarkup: false,
+      revealTakenOut: false,
+    }
+  }
+
+  if (!beforeLines.length) {
+    return {
+      headline: "This page is empty now. All of this will be put in.",
+      changeCount: afterLines.length,
+      segments: afterLines.map((line) => ({
+        type: "text" as const,
+        pieces: [{ kind: "stayed" as const, text: line }],
+      })),
+      showMarkup: true,
+      revealTakenOut: false,
+    }
+  }
+
+  if (!afterLines.length) {
+    return {
+      headline:
+        "Everything on this page will be taken out. Nothing will be left.",
+      changeCount: beforeLines.length,
+      segments: beforeLines.map((line) => ({
+        type: "text" as const,
+        pieces: [{ kind: "removed" as const, text: line }],
+      })),
+      showMarkup: false,
+      revealTakenOut: true,
+    }
+  }
+
   const ops = lineOps(beforeLines, afterLines)
-  const beforePieces: WikiDiffPiece[] = []
-  const afterPieces: WikiDiffPiece[] = []
-  const removed: string[] = []
-  const added: string[] = []
-  const stayed: string[] = []
+  const display: DisplayLine[] = []
+  let changeCount = 0
 
   for (let index = 0; index < ops.length; index += 1) {
     const op = ops[index]
     const next = ops[index + 1]
-    const writesBefore = op.type === "same" || op.type === "removed"
-    const writesAfter =
-      op.type === "same" ||
-      op.type === "added" ||
-      (op.type === "removed" && next?.type === "added")
-    if (writesBefore && beforePieces.length) {
-      beforePieces.push({ kind: "stayed", text: "\n" })
-    }
-    if (writesAfter && afterPieces.length) {
-      afterPieces.push({ kind: "stayed", text: "\n" })
-    }
-
-    if (op.type === "same") {
-      pushPiece(beforePieces, "stayed", op.value)
-      pushPiece(afterPieces, "stayed", op.value)
-      stayed.push(op.value)
+    if (op?.type === "same") {
+      display.push({
+        changed: false,
+        pieces: [{ kind: "stayed", text: op.value }],
+      })
       continue
     }
-
-    if (op.type === "removed" && next?.type === "added") {
-      pushWordDiff(
-        op.value,
-        next.value,
-        beforePieces,
-        afterPieces,
-        removed,
-        added
-      )
+    if (op?.type === "removed" && next?.type === "added") {
+      changeCount += 1
+      if (overlapRatio(op.value, next.value) < 0.5) {
+        display.push({
+          changed: true,
+          pieces: [{ kind: "removed", text: op.value }],
+        })
+        display.push({
+          changed: true,
+          pieces: [{ kind: "added", text: next.value }],
+        })
+      } else {
+        display.push({
+          changed: true,
+          pieces: inlinePieces(op.value, next.value),
+        })
+      }
       index += 1
       continue
     }
-
-    if (op.type === "removed") {
-      pushPiece(beforePieces, "removed", op.value)
-      removed.push(op.value)
+    if (op?.type === "removed") {
+      changeCount += 1
+      display.push({
+        changed: true,
+        pieces: [{ kind: "removed", text: op.value }],
+      })
       continue
     }
-
-    pushPiece(afterPieces, "added", op.value)
-    added.push(op.value)
+    if (op?.type === "added") {
+      changeCount += 1
+      display.push({
+        changed: true,
+        pieces: [{ kind: "added", text: op.value }],
+      })
+    }
   }
 
   return {
-    beforePieces,
-    afterPieces,
-    removed,
-    added,
-    stayed,
-    summary: summarizeWikiDiff({
-      beforeText,
-      afterText,
-      removed: removed.length,
-      added: added.length,
-      stayed: stayed.length,
-    }),
+    headline: headlineFor(changeCount),
+    changeCount,
+    segments: foldLines(display),
+    showMarkup: true,
+    revealTakenOut: false,
   }
 }

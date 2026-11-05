@@ -131,8 +131,9 @@ describe("WikiImportWizardDialog", () => {
     )
 
     expect(
-      await screen.findByRole("heading", { name: "What was removed" })
+      await screen.findByRole("heading", { name: "Page after replace" })
     ).toBeVisible()
+    expect(screen.getByText("1 change")).toBeVisible()
     expect(
       screen.getByText(
         "This replaces the page with the new words and saves a new version."
