@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { cleanup, render, screen, within } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { DepartmentDashboardView } from "@/components/department-dashboard/department-dashboard"
 import {
@@ -15,6 +15,8 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/reports/processing",
   useSearchParams: () => new URLSearchParams(),
 }))
+
+afterEach(cleanup)
 
 const query: DepartmentDashboardQuery = {
   branchId: null,
@@ -120,6 +122,7 @@ describe("department dashboard view", () => {
         config={DEPARTMENT_DASHBOARDS.processing}
         dashboard={dashboard("processing")}
         query={query}
+        canViewEvents
       />
     )
 
@@ -162,6 +165,7 @@ describe("department dashboard view", () => {
         config={DEPARTMENT_DASHBOARDS.underwriting}
         dashboard={dashboard("underwriting")}
         query={query}
+        canViewEvents
       />
     )
 
@@ -191,5 +195,30 @@ describe("department dashboard view", () => {
       )
     ).not.toBeInTheDocument()
     expect(screen.getAllByText("—").length).toBeGreaterThan(0)
+  })
+
+  it("hides event data and event-only controls without permission", () => {
+    render(
+      <DepartmentDashboardView
+        config={DEPARTMENT_DASHBOARDS.processing}
+        dashboard={dashboard("processing")}
+        query={query}
+        canViewEvents={false}
+      />
+    )
+
+    expect(screen.getAllByRole("table")).toHaveLength(2)
+    expect(screen.queryByText("Last 12 Months")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: "Event Month" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: "Event Week Of" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: "Event" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: "Branch" })).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "Org" })).toBeVisible()
   })
 })

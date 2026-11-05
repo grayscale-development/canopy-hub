@@ -2567,10 +2567,12 @@ export async function fetchCurrentMonthLeaderboardFiles({
 export async function fetchDepartmentDashboard({
   department,
   query,
+  includeEvents = true,
   referenceDate = new Date(),
 }: {
   department: DepartmentId
   query: DepartmentDashboardQuery
+  includeEvents?: boolean
   referenceDate?: Date
 }): Promise<DepartmentDashboard> {
   const supabase = await createSupabaseServerClient()
@@ -2583,8 +2585,10 @@ export async function fetchDepartmentDashboard({
       p_event_week: query.eventWeek,
       p_event: query.eventName,
       p_org_id: query.orgId,
-      p_event_limit: DEPARTMENT_EVENT_PAGE_SIZE,
-      p_event_offset: (query.page - 1) * DEPARTMENT_EVENT_PAGE_SIZE,
+      p_event_limit: includeEvents ? DEPARTMENT_EVENT_PAGE_SIZE : 0,
+      p_event_offset: includeEvents
+        ? (query.page - 1) * DEPARTMENT_EVENT_PAGE_SIZE
+        : 0,
       p_reference_date: toIsoDate(referenceDate),
     })
 
@@ -2592,5 +2596,25 @@ export async function fetchDepartmentDashboard({
     throw new Error(error.message)
   }
 
-  return parseDepartmentDashboardPayload(department, data)
+  const dashboard = parseDepartmentDashboardPayload(department, data)
+
+  if (includeEvents) {
+    return dashboard
+  }
+
+  return {
+    ...dashboard,
+    filters: {
+      ...dashboard.filters,
+      months: [],
+      weeks: [],
+      events: [],
+    },
+    events: {
+      total: 0,
+      limit: 0,
+      offset: 0,
+      rows: [],
+    },
+  }
 }

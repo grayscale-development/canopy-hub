@@ -8,6 +8,8 @@ import {
   type DepartmentId,
 } from "@/lib/department-dashboard"
 import { fetchDepartmentDashboard } from "@/lib/hub-data"
+import { DEPARTMENT_DASHBOARD_EVENTS_VIEW_PERMISSION } from "@/lib/permission-codes"
+import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export async function DepartmentReportPage({
@@ -28,6 +30,20 @@ export async function DepartmentReportPage({
 
   const config = DEPARTMENT_DASHBOARDS[department]
   const query = parseDepartmentDashboardQuery((await searchParams) ?? {})
+  const canViewEvents = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: DEPARTMENT_DASHBOARD_EVENTS_VIEW_PERMISSION,
+  })
+  const dashboardQuery = canViewEvents
+    ? query
+    : {
+        ...query,
+        eventMonth: null,
+        eventWeek: null,
+        eventName: null,
+        page: 1,
+      }
 
   let loadError: string | null = null
   let dashboard: Awaited<ReturnType<typeof fetchDepartmentDashboard>> | null =
@@ -36,7 +52,8 @@ export async function DepartmentReportPage({
   try {
     dashboard = await fetchDepartmentDashboard({
       department,
-      query,
+      query: dashboardQuery,
+      includeEvents: canViewEvents,
       referenceDate: new Date(),
     })
   } catch (error) {
@@ -63,7 +80,8 @@ export async function DepartmentReportPage({
         <DepartmentDashboardView
           config={config}
           dashboard={dashboard}
-          query={query}
+          query={dashboardQuery}
+          canViewEvents={canViewEvents}
         />
       </div>
     </main>
