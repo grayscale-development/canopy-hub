@@ -203,9 +203,116 @@ function headlineFor(changeCount: number) {
   return changeCount === 1 ? "1 change" : `${changeCount} changes`
 }
 
+interface WikiContentFeatures {
+  images: string[]
+  links: string[]
+  tables: string[]
+  files: string[]
+}
+
+function collectLinks(value: unknown, links: string[]) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectLinks(item, links)
+    return
+  }
+  if (!value || typeof value !== "object") return
+  const record = value as Record<string, unknown>
+  if (typeof record.href === "string") links.push(record.href)
+  collectLinks(record.content, links)
+}
+
+function collectFeatures(blocks: unknown, features: WikiContentFeatures) {
+  if (!Array.isArray(blocks)) return
+  for (const block of blocks) {
+    if (!block || typeof block !== "object") continue
+    const record = block as Record<string, unknown>
+    const props =
+      record.props && typeof record.props === "object"
+        ? (record.props as Record<string, unknown>)
+        : {}
+    const url = typeof props.url === "string" ? props.url : ""
+    const name = typeof props.name === "string" ? props.name : ""
+    if (record.type === "image") features.images.push(url)
+    if (record.type === "file" || record.type === "video") {
+      features.files.push(`${url}|${name}`)
+    }
+    if (record.type === "table") {
+      features.tables.push(
+        JSON.stringify(record.content ?? record.children ?? [])
+      )
+    }
+    collectLinks(record.content, features.links)
+    collectFeatures(record.children, features)
+  }
+}
+
+function featureNote(label: string, before: string[], after: string[]) {
+  if (before.join("\n") === after.join("\n")) return null
+  if (!before.length && after.length) return `A ${label} was put in.`
+  if (before.length && !after.length) return `A ${label} was taken out.`
+  return `A ${label} changed.`
+}
+
+export function wikiNonTextChangeNotes(
+  beforeBlocks: unknown,
+  afterBlocks: unknown
+) {
+  const before: WikiContentFeatures = {
+    images: [],
+    links: [],
+    tables: [],
+    files: [],
+  }
+  const after: WikiContentFeatures = {
+    images: [],
+    links: [],
+    tables: [],
+    files: [],
+  }
+  collectFeatures(beforeBlocks, before)
+  collectFeatures(afterBlocks, after)
+  return [
+    featureNote("picture", before.images, after.images),
+    featureNote("link", before.links, after.links),
+    featureNote("table", before.tables, after.tables),
+    featureNote("attached file", before.files, after.files),
+  ].filter((note): note is string => Boolean(note))
+}
+
+function applyNonTextNotes(
+  diff: WikiPlainDiff,
+  beforeBlocks: unknown,
+  afterBlocks: unknown
+) {
+  if (beforeBlocks === undefined && afterBlocks === undefined) return diff
+  const notes = wikiNonTextChangeNotes(beforeBlocks, afterBlocks)
+  if (!notes.length) return diff
+  const noteSegments: WikiDiffSegment[] = notes.map((note) => ({
+    type: "text" as const,
+    pieces: [
+      {
+        kind: note.includes("taken out")
+          ? ("removed" as const)
+          : ("added" as const),
+        text: note,
+      },
+    ],
+  }))
+  const changeCount = diff.changeCount + notes.length
+  return {
+    ...diff,
+    changeCount,
+    headline: headlineFor(changeCount),
+    segments: [...noteSegments, ...diff.segments],
+    showMarkup: true,
+    revealTakenOut: false,
+  }
+}
+
 export function buildWikiPlainDiff(
   beforeText: string,
-  afterText: string
+  afterText: string,
+  blocks?: { before?: unknown; after?: unknown }
 ): WikiPlainDiff {
   const beforeLines = splitLines(beforeText)
   const afterLines = splitLines(afterText)
@@ -214,13 +321,17 @@ export function buildWikiPlainDiff(
     beforeLines.every((line, index) => line === afterLines[index])
 
   if (identical) {
-    return {
-      headline: "Nothing changes. The page stays exactly the same.",
-      changeCount: 0,
-      segments: [],
-      showMarkup: false,
-      revealTakenOut: false,
-    }
+    return applyNonTextNotes(
+      {
+        headline: "Nothing changes. The page stays exactly the same.",
+        changeCount: 0,
+        segments: [],
+        showMarkup: false,
+        revealTakenOut: false,
+      },
+      blocks?.before,
+      blocks?.after
+    )
   }
 
   if (!beforeLines.length) {
@@ -266,7 +377,15 @@ export function buildWikiPlainDiff(
     }
     if (op?.type === "removed" && next?.type === "added") {
       changeCount += 1
-      if (overlapRatio(op.value, next.value) < 0.5) {
+      const inline = inlinePieces(op.value, next.value)
+      const removedChunks = inline.filter(
+        (piece) => piece.kind === "removed"
+      ).length
+      const addedChunks = inline.filter(
+        (piece) => piece.kind === "added"
+      ).length
+      const scatteredEdit = removedChunks > 2 || addedChunks > 2
+      if (overlapRatio(op.value, next.value) < 0.5 || scatteredEdit) {
         display.push({
           changed: true,
           pieces: [{ kind: "removed", text: op.value }],
@@ -278,7 +397,7 @@ export function buildWikiPlainDiff(
       } else {
         display.push({
           changed: true,
-          pieces: inlinePieces(op.value, next.value),
+          pieces: inline,
         })
       }
       index += 1
@@ -301,11 +420,15 @@ export function buildWikiPlainDiff(
     }
   }
 
-  return {
-    headline: headlineFor(changeCount),
-    changeCount,
-    segments: foldLines(display),
-    showMarkup: true,
-    revealTakenOut: false,
-  }
+  return applyNonTextNotes(
+    {
+      headline: headlineFor(changeCount),
+      changeCount,
+      segments: foldLines(display),
+      showMarkup: true,
+      revealTakenOut: false,
+    },
+    blocks?.before,
+    blocks?.after
+  )
 }

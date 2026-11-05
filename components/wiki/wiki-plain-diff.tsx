@@ -75,7 +75,7 @@ function PageBox({
       <h3 className="text-lg font-semibold text-neutral-950 dark:text-neutral-50">
         {afterTitle}
       </h3>
-      <div className="rounded-lg border-2 border-neutral-950 bg-white p-4 text-lg leading-8 text-neutral-950 dark:border-neutral-50 dark:bg-neutral-950 dark:text-neutral-50">
+      <div className="rounded-lg border-2 border-neutral-950 bg-white p-4 text-lg leading-8 break-words text-neutral-950 dark:border-neutral-50 dark:bg-neutral-950 dark:text-neutral-50">
         {segments.map((segment, index) => {
           if (segment.type === "fold") {
             const open = Boolean(openFolds[segment.id])

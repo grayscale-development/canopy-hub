@@ -42,6 +42,26 @@ describe("plain-language wiki diff", () => {
     })
   })
 
+  it("shows a heavily rewritten sentence as two whole lines", () => {
+    const diff = buildWikiPlainDiff(
+      "Skip the notary journal when the borrower is in a hurry. Then count the pages.",
+      "Write the notary journal entry before the borrower leaves. Then count the pages."
+    )
+    const changed = diff.segments.filter((segment) => segment.type === "text")
+    expect(changed[0]?.pieces).toEqual([
+      {
+        kind: "removed",
+        text: "Skip the notary journal when the borrower is in a hurry. Then count the pages.",
+      },
+    ])
+    expect(changed[1]?.pieces).toEqual([
+      {
+        kind: "added",
+        text: "Write the notary journal entry before the borrower leaves. Then count the pages.",
+      },
+    ])
+  })
+
   it("keeps a very different line whole instead of marking every word", () => {
     const diff = buildWikiPlainDiff(
       "Send the file today.",
