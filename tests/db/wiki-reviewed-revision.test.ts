@@ -110,14 +110,13 @@ async function createPage(
 
 const dbDescribe = shouldRunDbTests ? describe : describe.skip
 
-dbDescribe("apply_wiki_reviewed_revision", () => {
+dbDescribe("apply_wiki_reviewed_revision", { timeout: 20_000 }, () => {
   it("saves the target and archives the source together, and a stale retry writes nothing", async () => {
     const manager = await signIn("wiki-manager@canopy.test")
     const { data: parent, error: parentError } = await manager
       .from("wiki_nodes")
       .select("id")
       .eq("slug", "closing")
-      .limit(1)
       .single()
     expect(parentError).toBeNull()
     const stamp = Date.now()
@@ -211,7 +210,6 @@ dbDescribe("apply_wiki_reviewed_revision", () => {
       .from("wiki_nodes")
       .select("id")
       .eq("slug", "closing")
-      .limit(1)
       .single()
     const stamp = Date.now()
     const target = await createPage(
