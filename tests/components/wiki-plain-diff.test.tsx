@@ -102,4 +102,31 @@ describe("WikiPlainDiff", () => {
     )
     expect(screen.getByText("Remove this page.")).toHaveClass("line-through")
   })
+
+  it("says when a picture changes even if the words stay the same", () => {
+    render(
+      <WikiPlainDiff
+        beforeText="Send the file."
+        afterText="Send the file."
+        beforeBlocks={[
+          {
+            type: "image",
+            props: { url: "/old.png", name: "old" },
+          },
+        ]}
+        afterBlocks={[
+          {
+            type: "image",
+            props: { url: "/new.png", name: "new" },
+          },
+        ]}
+      />
+    )
+
+    expect(
+      screen.getByText(
+        "A picture changed. This comparison cannot show the picture, so check the page."
+      )
+    ).toBeVisible()
+  })
 })

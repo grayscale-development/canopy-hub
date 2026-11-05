@@ -50,11 +50,42 @@ import {
   type WikiImportAiOutput,
 } from "@/lib/wiki-import"
 import { archiveKnowledgeSource } from "@/lib/wiki-ai"
+import {
+  readSignedWikiPreview,
+  signWikiPreview,
+  type WikiPreviewClaim,
+} from "@/lib/wiki-preview-signature"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
 type WikiAiUpdateMode = "update" | "replace"
+
+function signedPreviewResponse(
+  claim: WikiPreviewClaim,
+  fields: Record<string, unknown>
+) {
+  try {
+    return NextResponse.json({
+      ok: true,
+      preview: true,
+      ...fields,
+      blocks: claim.blocks,
+      baseRevisionId: claim.baseRevisionId,
+      ...signWikiPreview(claim),
+    })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Preview signing is not configured.",
+      },
+      { status: 500 }
+    )
+  }
+}
 
 function mergeWikiPageContent({
   existingRevision,
@@ -275,13 +306,21 @@ async function completeWikiVideoImport({
     mode,
   })
   if (preview) {
-    return NextResponse.json({
-      ok: true,
-      preview: true,
-      beforeText: currentRevision?.plain_text ?? "",
-      afterText: content.plainText,
-      blocks: content.blocks,
-    })
+    return signedPreviewResponse(
+      {
+        userId,
+        targetPageId: nodeId,
+        baseRevisionId: node.current_revision_id,
+        mode,
+        sourcePageId: null,
+        blocks: content.blocks,
+      },
+      {
+        beforeText: currentRevision?.plain_text ?? "",
+        afterText: content.plainText,
+        beforeBlocks: currentRevision?.blocks ?? [],
+      }
+    )
   }
   const revisionId = crypto.randomUUID()
   const { error: revisionError } = await supabase
@@ -715,37 +754,47 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    const rawBlocks = formData.get("prepared_blocks")
-    if (typeof rawBlocks !== "string" || !rawBlocks.trim()) {
-      return NextResponse.json(
-        { error: "Prepared page content is required." },
-        { status: 400 }
-      )
-    }
-    let preparedBlocks: unknown
-    try {
-      preparedBlocks = JSON.parse(rawBlocks)
-    } catch {
-      return NextResponse.json(
-        { error: "Prepared page content is invalid." },
-        { status: 400 }
-      )
-    }
-    if (!Array.isArray(preparedBlocks)) {
-      return NextResponse.json(
-        { error: "Prepared page content is invalid." },
-        { status: 400 }
-      )
-    }
-    const baseValue = formData.get("base_revision_id")
-    if (typeof baseValue !== "string") {
+    const signedPreview = formData.get("signed_preview")
+    const previewSignature = formData.get("preview_signature")
+    if (
+      typeof signedPreview !== "string" ||
+      !signedPreview.trim() ||
+      typeof previewSignature !== "string" ||
+      !previewSignature.trim()
+    ) {
       return NextResponse.json(
         { error: "Look at the changes again before saving." },
         { status: 400 }
       )
     }
-    const baseRevisionId = baseValue.trim() || null
-    if ((targetPage.current_revision_id ?? null) !== baseRevisionId) {
+    let reviewedClaim
+    try {
+      reviewedClaim = readSignedWikiPreview(signedPreview, previewSignature)
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "This review does not match. Look again before saving.",
+        },
+        { status: 400 }
+      )
+    }
+    if (
+      reviewedClaim.userId !== user.id ||
+      reviewedClaim.targetPageId !== targetPage.id ||
+      reviewedClaim.mode !== mode ||
+      reviewedClaim.sourcePageId !== sourcePageId
+    ) {
+      return NextResponse.json(
+        { error: "This review does not match. Look again before saving." },
+        { status: 400 }
+      )
+    }
+    if (
+      (targetPage.current_revision_id ?? null) !== reviewedClaim.baseRevisionId
+    ) {
       return NextResponse.json(
         {
           error:
@@ -760,7 +809,7 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    let reviewedBlocks = preparedBlocks
+    let reviewedBlocks = reviewedClaim.blocks
     if (file) {
       try {
         reviewedBlocks = await attachReviewedFile({
@@ -768,7 +817,7 @@ export async function POST(request: Request) {
           userId: user.id,
           nodeId: targetPage.id,
           file,
-          blocks: preparedBlocks,
+          blocks: reviewedClaim.blocks,
         })
       } catch (error) {
         return NextResponse.json(
@@ -1221,15 +1270,21 @@ export async function POST(request: Request) {
           { status: 400 }
         )
       }
-      return NextResponse.json({
-        ok: true,
-        preview: true,
-        beforeText: targetRevision?.plain_text ?? "",
-        afterText: content.plainText,
-        blocks: content.blocks,
-        beforeBlocks: targetRevision?.blocks ?? [],
-        baseRevisionId: targetPage.current_revision_id,
-      })
+      return signedPreviewResponse(
+        {
+          userId: user.id,
+          targetPageId: targetPage.id,
+          baseRevisionId: targetPage.current_revision_id,
+          mode,
+          sourcePageId,
+          blocks: content.blocks,
+        },
+        {
+          beforeText: targetRevision?.plain_text ?? "",
+          afterText: content.plainText,
+          beforeBlocks: targetRevision?.blocks ?? [],
+        }
+      )
     }
     const { error: revisionError } = await supabase
       .from("wiki_page_revisions")

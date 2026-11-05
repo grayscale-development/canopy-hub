@@ -96,6 +96,8 @@ describe("WikiImportWizardDialog", () => {
             afterText: "Replacement guidance.",
             blocks,
             baseRevisionId: "old-revision",
+            signedPreview: "signed-update",
+            previewSignature: "sig-update",
           }),
           { status: 200 }
         )
@@ -152,8 +154,8 @@ describe("WikiImportWizardDialog", () => {
     expect(previewBody.get("parent_id")).toBeNull()
     const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
     expect(applyBody.get("apply_preview")).toBe("1")
-    expect(applyBody.get("prepared_blocks")).toBe(JSON.stringify(blocks))
-    expect(applyBody.get("base_revision_id")).toBe("old-revision")
+    expect(applyBody.get("signed_preview")).toBe("signed-update")
+    expect(applyBody.get("preview_signature")).toBe("sig-update")
     expect(applyBody.get("mode")).toBe("replace")
   })
 
@@ -227,6 +229,8 @@ describe("WikiImportWizardDialog", () => {
             afterText: "Reviewed guidance.",
             blocks,
             baseRevisionId: "old-revision",
+            signedPreview: "signed-file",
+            previewSignature: "sig-file",
           }),
           { status: 200 }
         )
@@ -264,8 +268,8 @@ describe("WikiImportWizardDialog", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
     expect(applyBody.get("apply_preview")).toBe("1")
-    expect(applyBody.get("prepared_blocks")).toBe(JSON.stringify(blocks))
-    expect(applyBody.get("base_revision_id")).toBe("old-revision")
+    expect(applyBody.get("signed_preview")).toBe("signed-file")
+    expect(applyBody.get("preview_signature")).toBe("sig-file")
     expect(applyBody.get("file")).toBeInstanceOf(File)
   })
 
@@ -280,6 +284,8 @@ describe("WikiImportWizardDialog", () => {
           afterText: "Reviewed guidance.",
           blocks: [{ type: "paragraph", content: "Reviewed guidance." }],
           baseRevisionId: "old-revision",
+          signedPreview: "signed-cancel",
+          previewSignature: "sig-cancel",
         }),
         { status: 200 }
       )

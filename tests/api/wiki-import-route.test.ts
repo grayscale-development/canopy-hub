@@ -1,5 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import {
+  signWikiPreview,
+  type WikiPreviewClaim,
+} from "@/lib/wiki-preview-signature"
+
+process.env.WIKI_PREVIEW_SECRET = "test-preview-secret"
+
+function signFor(body: FormData, claim: WikiPreviewClaim) {
+  const signed = signWikiPreview(claim)
+  body.set("signed_preview", signed.signedPreview)
+  body.set("preview_signature", signed.previewSignature)
+}
+
 const state = vi.hoisted(() => ({
   user: { id: "wiki-manager" } as { id: string } | null,
   canManage: true,
@@ -580,6 +593,8 @@ describe("/api/wiki/import route", () => {
     expect(payload.afterText).toContain("New lock review guidance.")
     expect(Array.isArray(payload.blocks)).toBe(true)
     expect(payload.baseRevisionId).toBe("old-revision")
+    expect(payload.signedPreview).toContain("old-revision")
+    expect(typeof payload.previewSignature).toBe("string")
     expect(state.insertedRevisions).toEqual([])
     expect(state.updates).toEqual([])
   })
@@ -601,11 +616,14 @@ describe("/api/wiki/import route", () => {
     body.set("apply_preview", "1")
     body.set("target_page_id", "existing-page")
     body.set("mode", "replace")
-    body.set("base_revision_id", "old-revision")
-    body.set(
-      "prepared_blocks",
-      JSON.stringify([{ type: "paragraph", content: "Replacement guidance." }])
-    )
+    signFor(body, {
+      userId: "wiki-manager",
+      targetPageId: "existing-page",
+      baseRevisionId: "old-revision",
+      mode: "replace",
+      sourcePageId: null,
+      blocks: [{ type: "paragraph", content: "Replacement guidance." }],
+    })
 
     const { POST } = await import("@/app/api/wiki/import/route")
     const response = await POST(
@@ -698,14 +716,17 @@ describe("/api/wiki/import route", () => {
     body.set("target_page_id", "target-page")
     body.set("source_page_id", "source-page")
     body.set("mode", "update")
-    body.set("base_revision_id", "target-rev")
-    body.set(
-      "prepared_blocks",
-      JSON.stringify([
+    signFor(body, {
+      userId: "wiki-manager",
+      targetPageId: "target-page",
+      baseRevisionId: "target-rev",
+      mode: "update",
+      sourcePageId: "source-page",
+      blocks: [
         { type: "paragraph", content: "Keep the lock steps." },
         { type: "paragraph", content: "Add the escrow note." },
-      ])
-    )
+      ],
+    })
 
     const { POST } = await import("@/app/api/wiki/import/route")
     const response = await POST(
@@ -768,11 +789,14 @@ describe("/api/wiki/import route", () => {
     body.set("apply_preview", "1")
     body.set("target_page_id", "existing-page")
     body.set("mode", "update")
-    body.set("base_revision_id", "someone-else")
-    body.set(
-      "prepared_blocks",
-      JSON.stringify([{ type: "paragraph", content: "Stale guidance." }])
-    )
+    signFor(body, {
+      userId: "wiki-manager",
+      targetPageId: "existing-page",
+      baseRevisionId: "someone-else",
+      mode: "update",
+      sourcePageId: null,
+      blocks: [{ type: "paragraph", content: "Stale guidance." }],
+    })
 
     const { POST } = await import("@/app/api/wiki/import/route")
     const response = await POST(
@@ -780,6 +804,47 @@ describe("/api/wiki/import route", () => {
     )
 
     expect(response.status).toBe(409)
+    expect(state.insertedRevisions).toEqual([])
+    expect(state.updates).toEqual([])
+    expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
+  })
+
+  it("rejects a reviewed update whose signature does not match the content", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        type: "page",
+        slug: "existing-page",
+        title: "Existing Page",
+        status: "published",
+        current_revision_id: "old-revision",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    const body = new FormData()
+    body.set("apply_preview", "1")
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "update")
+    signFor(body, {
+      userId: "wiki-manager",
+      targetPageId: "existing-page",
+      baseRevisionId: "old-revision",
+      mode: "update",
+      sourcePageId: null,
+      blocks: [{ type: "paragraph", content: "Reviewed guidance." }],
+    })
+    const signed = body.get("signed_preview")
+    body.set(
+      "signed_preview",
+      typeof signed === "string" ? signed.replace("Reviewed", "Swapped") : ""
+    )
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+
+    expect(response.status).toBe(400)
     expect(state.insertedRevisions).toEqual([])
     expect(state.updates).toEqual([])
     expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
@@ -801,17 +866,20 @@ describe("/api/wiki/import route", () => {
     body.set("apply_preview", "1")
     body.set("target_page_id", "existing-page")
     body.set("mode", "update")
-    body.set("base_revision_id", "old-revision")
-    body.set(
-      "prepared_blocks",
-      JSON.stringify([
+    signFor(body, {
+      userId: "wiki-manager",
+      targetPageId: "existing-page",
+      baseRevisionId: "old-revision",
+      mode: "update",
+      sourcePageId: null,
+      blocks: [
         { type: "paragraph", content: "Reviewed guidance." },
         {
           type: "file",
           props: { url: "/api/wiki/assets/preview-only", name: "notes.txt" },
         },
-      ])
-    )
+      ],
+    })
     body.set("file", new File(["notes"], "notes.txt", { type: "text/plain" }))
 
     const { POST } = await import("@/app/api/wiki/import/route")

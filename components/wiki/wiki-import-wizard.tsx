@@ -47,6 +47,8 @@ interface ImportResponse {
   blocks?: unknown[]
   beforeBlocks?: unknown
   baseRevisionId?: string | null
+  signedPreview?: string
+  previewSignature?: string
 }
 
 interface UpdatePreview {
@@ -55,6 +57,8 @@ interface UpdatePreview {
   blocks: unknown[]
   beforeBlocks: unknown
   baseRevisionId: string | null
+  signedPreview: string
+  previewSignature: string
 }
 
 interface PendingVideoCommit {
@@ -63,7 +67,12 @@ interface PendingVideoCommit {
 }
 
 function readUpdatePreview(payload: ImportResponse | null) {
-  if (!payload?.preview || !Array.isArray(payload.blocks)) {
+  if (
+    !payload?.preview ||
+    !Array.isArray(payload.blocks) ||
+    !payload.signedPreview ||
+    !payload.previewSignature
+  ) {
     return null
   }
   return {
@@ -75,6 +84,8 @@ function readUpdatePreview(payload: ImportResponse | null) {
       typeof payload.baseRevisionId === "string"
         ? payload.baseRevisionId
         : null,
+    signedPreview: payload.signedPreview ?? "",
+    previewSignature: payload.previewSignature ?? "",
   } satisfies UpdatePreview
 }
 
@@ -311,37 +322,13 @@ export function WikiImportWizardDialog({
     setError("")
     setIsSubmitting(true)
     try {
-      if (pendingVideo) {
-        const completeFormData = new FormData()
-        completeFormData.set("video_import", "complete")
-        completeFormData.set("node_id", pendingVideo.nodeId)
-        completeFormData.set("asset_id", pendingVideo.assetId)
-        completeFormData.set("target_page_id", targetPageId)
-        completeFormData.set("mode", updateMode)
-        const response = await fetch("/api/wiki/import", {
-          method: "POST",
-          body: completeFormData,
-        })
-        const payload = (await response
-          .json()
-          .catch(() => null)) as ImportResponse | null
-        if (!response.ok || !payload?.path) {
-          setError(
-            payload?.error ?? "We could not update that page. Please try again."
-          )
-          return
-        }
-        finishNavigation(payload.path)
-        return
-      }
-
       const formData = new FormData()
       formData.set("apply_preview", "1")
       formData.set("target_page_id", targetPageId)
       formData.set("mode", updateMode)
-      formData.set("prepared_blocks", JSON.stringify(preview.blocks))
-      formData.set("base_revision_id", preview.baseRevisionId ?? "")
-      if (file) formData.set("file", file)
+      formData.set("signed_preview", preview.signedPreview)
+      formData.set("preview_signature", preview.previewSignature)
+      if (file && !pendingVideo) formData.set("file", file)
       const response = await fetch("/api/wiki/import", {
         method: "POST",
         body: formData,

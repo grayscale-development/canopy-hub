@@ -454,6 +454,8 @@ export function WikiNodeActionsMenu({
     blocks: unknown[]
     beforeBlocks: unknown
     baseRevisionId: string | null
+    signedPreview: string
+    previewSignature: string
   } | null>(null)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
@@ -580,8 +582,16 @@ export function WikiNodeActionsMenu({
         blocks?: unknown[]
         beforeBlocks?: unknown
         baseRevisionId?: string | null
+        signedPreview?: string
+        previewSignature?: string
       } | null
-      if (!response.ok || !payload?.preview || !Array.isArray(payload.blocks)) {
+      if (
+        !response.ok ||
+        !payload?.preview ||
+        !Array.isArray(payload.blocks) ||
+        !payload.signedPreview ||
+        !payload.previewSignature
+      ) {
         setMergeError(payload?.error ?? "Unable to compare these pages.")
         return
       }
@@ -594,6 +604,8 @@ export function WikiNodeActionsMenu({
           typeof payload.baseRevisionId === "string"
             ? payload.baseRevisionId
             : null,
+        signedPreview: payload.signedPreview ?? "",
+        previewSignature: payload.previewSignature ?? "",
       })
     } catch {
       setMergeError("Unable to compare these pages.")
@@ -613,8 +625,8 @@ export function WikiNodeActionsMenu({
       formData.set("target_page_id", selectedTarget.id)
       formData.set("source_page_id", node.id)
       formData.set("mode", "update")
-      formData.set("prepared_blocks", JSON.stringify(mergePreview.blocks))
-      formData.set("base_revision_id", mergePreview.baseRevisionId ?? "")
+      formData.set("signed_preview", mergePreview.signedPreview)
+      formData.set("preview_signature", mergePreview.previewSignature)
       const response = await fetch("/api/wiki/import", {
         method: "POST",
         body: formData,
