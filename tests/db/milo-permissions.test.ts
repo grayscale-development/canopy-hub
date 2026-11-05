@@ -170,6 +170,161 @@ dbDescribe("Milo user permission enforcement", () => {
     expect(data).toEqual([])
   })
 
+  it("derives viewer folder visibility from published descendants and protects folder status", async () => {
+    const ids = {
+      visibleRoot: randomUUID(),
+      visibleSection: randomUUID(),
+      visibleGroup: randomUUID(),
+      visiblePage: randomUUID(),
+      draftsRoot: randomUUID(),
+      draftPage: randomUUID(),
+      emptyRoot: randomUUID(),
+      archivedRoot: randomUUID(),
+      archivedSection: randomUUID(),
+      archivedPage: randomUUID(),
+    }
+    const slug = (name: string) =>
+      `visibility-${name}-${randomUUID().replaceAll("-", "")}`
+    const { error: fixtureError } = await admin.from("wiki_nodes").insert([
+      {
+        id: ids.visibleRoot,
+        type: "folder",
+        slug: slug("root"),
+        title: "Visible root",
+        status: "draft",
+      },
+      {
+        id: ids.visibleSection,
+        parent_id: ids.visibleRoot,
+        type: "folder",
+        slug: slug("section"),
+        title: "Visible section",
+        status: "draft",
+      },
+      {
+        id: ids.visibleGroup,
+        parent_id: ids.visibleSection,
+        type: "folder",
+        slug: slug("group"),
+        title: "Visible group",
+        status: "published",
+      },
+      {
+        id: ids.visiblePage,
+        parent_id: ids.visibleGroup,
+        type: "page",
+        slug: slug("published-page"),
+        title: "Published descendant",
+        status: "published",
+      },
+      {
+        id: ids.draftsRoot,
+        type: "folder",
+        slug: slug("drafts"),
+        title: "Draft-only root",
+        status: "published",
+      },
+      {
+        id: ids.draftPage,
+        parent_id: ids.draftsRoot,
+        type: "page",
+        slug: slug("draft-page"),
+        title: "Draft descendant",
+        status: "draft",
+      },
+      {
+        id: ids.emptyRoot,
+        type: "folder",
+        slug: slug("empty"),
+        title: "Empty root",
+        status: "published",
+      },
+      {
+        id: ids.archivedRoot,
+        type: "folder",
+        slug: slug("archived-root"),
+        title: "Archived root",
+        status: "archived",
+      },
+      {
+        id: ids.archivedSection,
+        parent_id: ids.archivedRoot,
+        type: "folder",
+        slug: slug("archived-section"),
+        title: "Archived section",
+        status: "published",
+      },
+      {
+        id: ids.archivedPage,
+        parent_id: ids.archivedSection,
+        type: "page",
+        slug: slug("archived-page"),
+        title: "Published under archived folder",
+        status: "published",
+      },
+    ])
+    expect(fixtureError).toBeNull()
+
+    const allIds = Object.values(ids)
+    const { data: managerNodes, error: managerError } = await manager
+      .from("wiki_nodes")
+      .select("id,status")
+      .in("id", allIds)
+    expect(managerError).toBeNull()
+    expect(managerNodes?.map((item) => item.id).sort()).toEqual(
+      [...allIds].sort()
+    )
+
+    const { data: viewerNodes, error: viewerError } = await viewer
+      .from("wiki_nodes")
+      .select("id")
+      .in("id", allIds)
+    expect(viewerError).toBeNull()
+    expect(viewerNodes?.map((item) => item.id).sort()).toEqual(
+      [
+        ids.visibleRoot,
+        ids.visibleSection,
+        ids.visibleGroup,
+        ids.visiblePage,
+      ].sort()
+    )
+
+    const { data: insertedFolder, error: insertedFolderError } = await manager
+      .from("wiki_nodes")
+      .select("status")
+      .eq("id", ids.visibleRoot)
+      .single()
+    expect(insertedFolderError).toBeNull()
+    expect(insertedFolder?.status).toBe("published")
+
+    const { data: draftUpdate, error: draftUpdateError } = await manager
+      .from("wiki_nodes")
+      .update({ status: "draft" })
+      .eq("id", ids.visibleRoot)
+      .select("status")
+      .single()
+    expect(draftUpdateError).toBeNull()
+    expect(draftUpdate?.status).toBe("published")
+
+    const { data: archivedUpdate, error: archivedUpdateError } = await manager
+      .from("wiki_nodes")
+      .update({ status: "archived" })
+      .eq("id", ids.visibleRoot)
+      .select("status")
+      .single()
+    expect(archivedUpdateError).toBeNull()
+    expect(archivedUpdate?.status).toBe("archived")
+
+    const { data: publishedUpdate, error: publishedUpdateError } = await manager
+      .from("wiki_nodes")
+      .update({ status: "published" })
+      .eq("id", ids.visibleRoot)
+      .select("status")
+      .single()
+    expect(publishedUpdateError).toBeNull()
+    expect(publishedUpdate?.status).toBe("archived")
+  })
+
   it("denies direct database tools and storage reads/signing for viewers", async () => {
     for (const relation of [
       "public.wiki_nodes",
@@ -402,15 +557,13 @@ dbDescribe("Milo user permission enforcement", () => {
         "branch",
         "site",
       ]) {
-        const { error } = await client
-          .from("knowledge_sources")
-          .insert({
-            source_type: type,
-            source_id: randomUUID(),
-            title: "Forged draft",
-            url: "/home",
-            content_hash: "forged",
-          })
+        const { error } = await client.from("knowledge_sources").insert({
+          source_type: type,
+          source_id: randomUUID(),
+          title: "Forged draft",
+          url: "/home",
+          content_hash: "forged",
+        })
         expect(error?.code).toBe("42501")
       }
       expect(
@@ -431,13 +584,11 @@ dbDescribe("Milo user permission enforcement", () => {
       ).toBe("42501")
       expect(
         (
-          await client
-            .from("knowledge_chunks")
-            .insert({
-              source_id: sources[0].id,
-              chunk_index: 1,
-              content: "Forged draft content",
-            })
+          await client.from("knowledge_chunks").insert({
+            source_id: sources[0].id,
+            chunk_index: 1,
+            content: "Forged draft content",
+          })
         ).error?.code
       ).toBe("42501")
       expect(

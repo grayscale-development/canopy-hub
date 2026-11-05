@@ -359,7 +359,7 @@ export function findFirstPublishedWikiPagePath(
     currentFolder: WikiNodeRow,
     visited: Set<string>
   ): string | null {
-    if (visited.has(currentFolder.id)) {
+    if (visited.has(currentFolder.id) || currentFolder.status === "archived") {
       return null
     }
     visited.add(currentFolder.id)
@@ -392,18 +392,17 @@ export function findFirstPublishedWikiPagePath(
 }
 
 export function isPublishedWikiBranch(nodes: WikiNodeRow[], node: WikiNodeRow) {
-  if (node.type === "page") {
-    return node.status === "published"
-  }
+  return nodes.some((candidate) => {
+    if (candidate.type !== "page" || candidate.status !== "published") {
+      return false
+    }
 
-  return nodes.some(
-    (candidate) =>
-      candidate.type === "page" &&
-      candidate.status === "published" &&
-      buildWikiBreadcrumbs(nodes, candidate).some(
-        (ancestor) => ancestor.id === node.id
-      )
-  )
+    const branch = buildWikiBreadcrumbs(nodes, candidate)
+    return (
+      branch.some((ancestor) => ancestor.id === node.id) &&
+      branch.every((ancestor) => ancestor.status !== "archived")
+    )
+  })
 }
 
 export async function fetchWikiNodes(supabase: SupabaseWikiClient) {

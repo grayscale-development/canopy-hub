@@ -39,5 +39,6 @@ describe("WikiTagPicker", () => {
       screen.getByRole("textbox", { name: "Search or create a tag" })
         .parentElement
     ).toHaveClass("overflow-hidden", "rounded-lg", "border")
+    expect(screen.getByText("Income ×")).toHaveClass("rounded-full")
   })
 })

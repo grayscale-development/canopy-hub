@@ -207,6 +207,51 @@ describe("wiki helpers", () => {
     ).toBeNull()
   })
 
+  it("does not treat an archived folder branch as visible or redirectable", () => {
+    const root = node({ id: "root", type: "folder", slug: "root" })
+    const archivedSection = node({
+      id: "archived-section",
+      parent_id: root.id,
+      type: "folder",
+      slug: "archived-section",
+      status: "archived",
+    })
+    const archivedPage = node({
+      id: "archived-page",
+      parent_id: archivedSection.id,
+      slug: "archived-page",
+      status: "published",
+    })
+    const visibleSection = node({
+      id: "visible-section",
+      parent_id: root.id,
+      type: "folder",
+      slug: "visible-section",
+    })
+    const visiblePage = node({
+      id: "visible-page",
+      parent_id: visibleSection.id,
+      slug: "visible-page",
+      status: "published",
+      sort_order: 1,
+    })
+    const nodes = [
+      root,
+      archivedSection,
+      archivedPage,
+      visibleSection,
+      visiblePage,
+    ]
+
+    expect(isPublishedWikiBranch(nodes, archivedPage)).toBe(false)
+    expect(isPublishedWikiBranch(nodes, archivedSection)).toBe(false)
+    expect(isPublishedWikiBranch(nodes, root)).toBe(true)
+    expect(findFirstPublishedWikiPagePath(nodes, archivedSection)).toBeNull()
+    expect(findFirstPublishedWikiPagePath(nodes, root)).toBe(
+      "root/visible-section/visible-page"
+    )
+  })
+
   it("finds the first direct page across wiki sections as the default page", () => {
     const nodes = [
       node({

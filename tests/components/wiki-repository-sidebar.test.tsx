@@ -255,6 +255,23 @@ describe("WikiRepositorySidebar", () => {
     expect(within(groupTitle).getByText("Closing")).toBeVisible()
   })
 
+  it("uses the same minimum row height for sections, groups, and pages", async () => {
+    const user = userEvent.setup()
+    renderSidebar("canopy-wiki")
+
+    await user.click(screen.getByRole("button", { name: "Expand Closing" }))
+
+    expect(
+      screen.getByRole("button", { name: "Collapse Operations" }).parentElement
+    ).toHaveClass("min-h-8")
+    expect(
+      screen.getByRole("button", { name: "Collapse Closing" }).parentElement
+    ).toHaveClass("min-h-8")
+    expect(screen.getByRole("link", { name: "Final Review" })).toHaveClass(
+      "min-h-8"
+    )
+  })
+
   it("shows manager-only edit controls for sections and groups", async () => {
     const user = userEvent.setup()
     const onEdit = vi.fn()
@@ -319,6 +336,9 @@ describe("WikiRepositorySidebar", () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Add to Closing" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Edit Operations" })
     ).not.toBeInTheDocument()
   })
 })

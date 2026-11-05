@@ -73,33 +73,56 @@ test("Wiki repository page renders seeded content @wiki @smoke", async ({
   await expect(page.getByText("Operations").first()).toBeVisible()
 })
 
-test("Wiki repository landing reopens the last valid page @wiki @smoke", async ({
+test("Wiki folder URLs open the first published page @wiki @smoke", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
 
-  await page.goto("/wiki/canopy-wiki/hub/reports")
+  await page.goto("/wiki/canopy-wiki")
+  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/home-dashboard$/)
+
+  await page.goto("/wiki/canopy-wiki/hub")
+  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/[^/]+$/)
+})
+
+test("Wiki sidebar titles toggle without navigation and manager edit opens folder-only Move @wiki", async ({
+  page,
+}) => {
+  await signInAsLocalDev(page)
+  await page.goto("/wiki/canopy-wiki/hub/home-dashboard")
+
+  const wikiSidebar = page.locator("[data-wiki-sidebar-scroll]")
+  const operationsTitle = wikiSidebar.getByRole("button", {
+    name: "Collapse Operations",
+  })
+  const initialUrl = page.url()
+
+  await operationsTitle.click()
   await expect(
-    page.getByRole("heading", { name: "Reports", exact: true })
+    wikiSidebar.getByRole("button", { name: "Expand Operations" })
   ).toBeVisible()
+  await expect(page).toHaveURL(initialUrl)
 
-  await page.goto("/wiki/canopy-wiki")
-  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/reports$/)
+  await wikiSidebar.getByRole("button", { name: "Expand Operations" }).click()
+  const operationsRow = wikiSidebar
+    .getByRole("button", { name: "Collapse Operations" })
+    .locator("..")
+  await operationsRow.hover()
+  await wikiSidebar.getByRole("button", { name: "Edit Operations" }).click()
 
-  await page.evaluate(() => {
-    window.localStorage.removeItem("wiki:last-page:canopy-wiki")
-  })
-  await page.goto("/wiki/canopy-wiki")
-  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/home-dashboard$/)
+  const editDialog = page.getByRole("dialog", { name: "Edit Wiki Item" })
+  await expect(editDialog).toBeVisible()
+  await editDialog.getByRole("button", { name: "Move" }).click()
 
-  await page.evaluate(() => {
-    window.localStorage.setItem(
-      "wiki:last-page:canopy-wiki",
-      JSON.stringify("canopy-wiki/not-present")
-    )
-  })
-  await page.goto("/wiki/canopy-wiki")
-  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/home-dashboard$/)
+  const moveDialog = page.getByRole("dialog", { name: "Move Operations" })
+  await expect(moveDialog).toBeVisible()
+  await expect(
+    moveDialog.getByRole("button", { name: "Canopy Wiki" })
+  ).toBeVisible()
+  await expect(moveDialog.getByRole("button", { name: "Hub" })).toHaveCount(0)
+  await expect(
+    moveDialog.getByRole("button", { name: "Home Dashboard" })
+  ).toHaveCount(0)
 })
 
 test("Ask Milo opens and streams a deterministic mocked answer @milo @smoke", async ({

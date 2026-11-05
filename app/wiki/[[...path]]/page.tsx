@@ -327,7 +327,10 @@ export default async function WikiPage({
   const displayedNode = pageData?.node ?? null
   const displayedChildren = pageData?.children ?? []
 
-  if (missingRepositoryPage || pageData?.node.type === "folder") {
+  if (
+    !isNanoWiki &&
+    (missingRepositoryPage || pageData?.node.type === "folder")
+  ) {
     if (!pageData) {
       if (path.length) {
         redirect("/wiki")

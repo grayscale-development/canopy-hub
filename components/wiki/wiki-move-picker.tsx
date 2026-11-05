@@ -63,7 +63,11 @@ export function WikiMovePicker({
   const columns = [null, ...openFolderIds].map((parentId) =>
     nodes
       .filter((node) => node.parent_id === parentId && node.type === "folder")
-      .filter((node) => node.id !== excludedNodeId)
+      .filter(
+        (node) =>
+          node.id !== excludedNodeId &&
+          !(excludedNodeId && isDescendantOf(nodes, node, excludedNodeId))
+      )
       .sort((left, right) => left.title.localeCompare(right.title))
   )
 
@@ -84,15 +88,11 @@ export function WikiMovePicker({
           className="w-[280px] shrink-0 border-r last:border-r-0"
         >
           {column.map((item) => {
-            const disabled = Boolean(
-              excludedNodeId && isDescendantOf(nodes, item, excludedNodeId)
-            )
             return (
               <button
                 key={item.id}
                 type="button"
-                disabled={disabled}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 ${selectedTargetId === item.id ? "bg-accent" : ""}`}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${selectedTargetId === item.id ? "bg-accent" : ""}`}
                 onClick={() => chooseTarget(item, columnIndex)}
               >
                 <FolderIcon className="size-4 shrink-0" />
