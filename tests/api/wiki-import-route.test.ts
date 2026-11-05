@@ -765,6 +765,7 @@ describe("/api/wiki/import route", () => {
       baseRevisionId: "target-rev",
       mode: "update",
       sourcePageId: "source-page",
+      sourceRevisionId: "source-rev",
       blocks: [
         { type: "paragraph", content: "Keep the lock steps." },
         { type: "paragraph", content: "Add the escrow note." },
@@ -817,6 +818,7 @@ describe("/api/wiki/import route", () => {
       args: expect.objectContaining({
         p_target_id: "target-page",
         p_source_id: "source-page",
+        p_source_base_revision_id: "source-rev",
         p_base_revision_id: "target-rev",
       }),
     })
@@ -859,6 +861,34 @@ describe("/api/wiki/import route", () => {
     expect(state.insertedRevisions).toEqual([])
     expect(state.updates).toEqual([])
     expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
+  })
+
+  it("rejects a reviewed merge after the source page has changed", async () => {
+    seedMergePages()
+    const body = new FormData()
+    body.set("apply_preview", "1")
+    body.set("target_page_id", "target-page")
+    body.set("source_page_id", "source-page")
+    body.set("mode", "update")
+    signFor(body, {
+      userId: "wiki-manager",
+      targetPageId: "target-page",
+      baseRevisionId: "target-rev",
+      mode: "update",
+      sourcePageId: "source-page",
+      sourceRevisionId: "older-source-revision",
+      blocks: [{ type: "paragraph", content: "Reviewed merge." }],
+    })
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+
+    expect(response.status).toBe(409)
+    expect(state.insertedRevisions).toEqual([])
+    expect(state.updates).toEqual([])
+    expect(state.rpcCalls).toEqual([])
   })
 
   it("rejects a reviewed update whose signature does not match the content", async () => {
@@ -924,6 +954,13 @@ describe("/api/wiki/import route", () => {
       baseRevisionId: "old-revision",
       mode: "update",
       sourcePageId: null,
+      reviewedFile: {
+        fileName: "notes.txt",
+        contentType: "text/plain",
+        sizeBytes: 5,
+        sha256:
+          "ab5aa97074c454a0632057e704220d9a6678fbf773a0a5806fc09b8173b07309",
+      },
       blocks: [
         { type: "paragraph", content: "Reviewed guidance." },
         {
@@ -957,5 +994,50 @@ describe("/api/wiki/import route", () => {
       kind: "document",
       file_name: "notes.txt",
     })
+  })
+
+  it("rejects a file that changed after its reviewed preview", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        type: "page",
+        slug: "existing-page",
+        title: "Existing Page",
+        status: "published",
+        current_revision_id: "old-revision",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    const body = new FormData()
+    body.set("apply_preview", "1")
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "update")
+    signFor(body, {
+      userId: "wiki-manager",
+      targetPageId: "existing-page",
+      baseRevisionId: "old-revision",
+      mode: "update",
+      sourcePageId: null,
+      reviewedFile: {
+        fileName: "notes.txt",
+        contentType: "text/plain",
+        sizeBytes: 5,
+        sha256:
+          "ab5aa97074c454a0632057e704220d9a6678fbf773a0a5806fc09b8173b07309",
+      },
+      blocks: [{ type: "paragraph", content: "Reviewed guidance." }],
+    })
+    body.set("file", new File(["changed"], "notes.txt", { type: "text/plain" }))
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+
+    expect(response.status).toBe(409)
+    expect(state.insertedAssets).toEqual([])
+    expect(state.insertedRevisions).toEqual([])
+    expect(state.rpcCalls).toEqual([])
+    expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
   })
 })

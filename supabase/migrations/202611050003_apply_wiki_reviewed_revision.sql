@@ -8,7 +8,8 @@ create or replace function public.apply_wiki_reviewed_revision(
   p_blocks jsonb,
   p_plain_text text,
   p_change_note text,
-  p_source_id uuid
+  p_source_id uuid,
+  p_source_base_revision_id uuid
 )
 returns uuid
 language plpgsql
@@ -31,12 +32,24 @@ begin
     raise exception 'invalid_blocks' using errcode = '22023';
   end if;
 
+  if p_source_id is not null and p_source_id = p_target_id then
+    raise exception 'same_page' using errcode = '22023';
+  end if;
+
+  -- Lock both pages in a stable order. This lets opposite-direction merge
+  -- attempts fail as stale instead of deadlocking after each locks its target.
+  perform 1
+  from public.wiki_nodes
+  where id = p_target_id
+    or id = p_source_id
+  order by id
+  for update;
+
   select current_revision_id
     into v_current
   from public.wiki_nodes
   where id = p_target_id
-    and type = 'page'
-  for update;
+    and type = 'page';
 
   if not found then
     raise exception 'target_not_found' using errcode = 'P0002';
@@ -48,19 +61,19 @@ begin
   end if;
 
   if p_source_id is not null then
-    if p_source_id = p_target_id then
-      raise exception 'same_page' using errcode = '22023';
-    end if;
-
-    select status
-      into v_source_status
+    select status, current_revision_id
+      into v_source_status, v_current
     from public.wiki_nodes
     where id = p_source_id
       and type = 'page'
-    for update;
 
     if not found then
       raise exception 'source_not_found' using errcode = 'P0002';
+    end if;
+
+    if v_source_status = 'archived'
+      or v_current is distinct from p_source_base_revision_id then
+      raise exception 'stale_revision' using errcode = 'P0001';
     end if;
   end if;
 
@@ -103,7 +116,7 @@ begin
 end;
 $$;
 
-revoke all on function public.apply_wiki_reviewed_revision(uuid, uuid, jsonb, text, text, uuid)
+revoke all on function public.apply_wiki_reviewed_revision(uuid, uuid, jsonb, text, text, uuid, uuid)
   from public, anon;
-grant execute on function public.apply_wiki_reviewed_revision(uuid, uuid, jsonb, text, text, uuid)
+grant execute on function public.apply_wiki_reviewed_revision(uuid, uuid, jsonb, text, text, uuid, uuid)
   to authenticated;

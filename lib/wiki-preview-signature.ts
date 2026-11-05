@@ -1,11 +1,20 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 
+export interface WikiPreviewFileClaim {
+  fileName: string
+  contentType: string
+  sizeBytes: number
+  sha256: string
+}
+
 export interface WikiPreviewClaim {
   userId: string
   targetPageId: string
   baseRevisionId: string | null
   mode: "update" | "replace"
   sourcePageId: string | null
+  sourceRevisionId?: string | null
+  reviewedFile?: WikiPreviewFileClaim | null
   blocks: unknown[]
 }
 
@@ -62,6 +71,14 @@ export function readSignedWikiPreview(
       typeof parsed.baseRevisionId !== "string") ||
     (parsed.mode !== "update" && parsed.mode !== "replace") ||
     (parsed.sourcePageId !== null && typeof parsed.sourcePageId !== "string") ||
+    (parsed.sourcePageId !== null &&
+      typeof parsed.sourceRevisionId !== "string") ||
+    (parsed.sourcePageId === null &&
+      parsed.sourceRevisionId !== undefined &&
+      parsed.sourceRevisionId !== null) ||
+    (parsed.reviewedFile !== undefined &&
+      parsed.reviewedFile !== null &&
+      !isReviewedFileClaim(parsed.reviewedFile)) ||
     !Array.isArray(parsed.blocks)
   ) {
     throw new Error("This review does not match. Look again before saving.")
@@ -72,6 +89,24 @@ export function readSignedWikiPreview(
     baseRevisionId: parsed.baseRevisionId ?? null,
     mode: parsed.mode,
     sourcePageId: parsed.sourcePageId ?? null,
+    sourceRevisionId: parsed.sourceRevisionId ?? null,
+    reviewedFile: parsed.reviewedFile ?? null,
     blocks: parsed.blocks,
   }
+}
+
+function isReviewedFileClaim(value: unknown): value is WikiPreviewFileClaim {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false
+  }
+  const record = value as Record<string, unknown>
+  return (
+    typeof record.fileName === "string" &&
+    typeof record.contentType === "string" &&
+    typeof record.sizeBytes === "number" &&
+    Number.isSafeInteger(record.sizeBytes) &&
+    record.sizeBytes >= 0 &&
+    typeof record.sha256 === "string" &&
+    /^[a-f0-9]{64}$/.test(record.sha256)
+  )
 }

@@ -57,6 +57,7 @@ import { archiveKnowledgeSource } from "@/lib/wiki-ai"
 import {
   readSignedWikiPreview,
   signWikiPreview,
+  type WikiPreviewFileClaim,
   type WikiPreviewClaim,
 } from "@/lib/wiki-preview-signature"
 
@@ -64,6 +65,35 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 type WikiAiUpdateMode = "update" | "replace"
+
+async function createReviewedFileClaim(
+  file: File
+): Promise<WikiPreviewFileClaim> {
+  return {
+    fileName: sanitizeWikiFileName(file.name),
+    contentType: file.type || "application/octet-stream",
+    sizeBytes: file.size,
+    sha256: crypto
+      .createHash("sha256")
+      .update(Buffer.from(await file.arrayBuffer()))
+      .digest("hex"),
+  }
+}
+
+function matchesReviewedFile(
+  left: WikiPreviewFileClaim | null | undefined,
+  right: WikiPreviewFileClaim | null
+) {
+  if (!left || !right) {
+    return left === right
+  }
+  return (
+    left.fileName === right.fileName &&
+    left.contentType === right.contentType &&
+    left.sizeBytes === right.sizeBytes &&
+    left.sha256 === right.sha256
+  )
+}
 
 function signedPreviewResponse(
   claim: WikiPreviewClaim,
@@ -323,6 +353,8 @@ async function completeWikiVideoImport({
         baseRevisionId: node.current_revision_id,
         mode,
         sourcePageId: null,
+        sourceRevisionId: null,
+        reviewedFile: null,
         blocks: content.blocks,
       },
       {
@@ -538,6 +570,7 @@ async function applyPreparedWikiPreview({
   supabase,
   targetPage,
   sourcePageId,
+  sourceRevisionId,
   sourceTitle,
   mode,
   blocks,
@@ -546,6 +579,7 @@ async function applyPreparedWikiPreview({
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   targetPage: WikiNodeRow
   sourcePageId: string | null
+  sourceRevisionId: string | null
   sourceTitle: string
   mode: WikiAiUpdateMode
   blocks: unknown[]
@@ -564,6 +598,7 @@ async function applyPreparedWikiPreview({
       p_plain_text: plainText,
       p_change_note: changeNote,
       p_source_id: sourcePageId,
+      p_source_base_revision_id: sourceRevisionId,
     }
   )
   if (saveError || typeof revisionId !== "string" || !revisionId) {
@@ -649,6 +684,7 @@ export async function POST(request: Request) {
       ? sourcePageIdValue.trim()
       : null
   let sourcePageTitle = ""
+  let sourceRevisionId: string | null = null
 
   if (targetPageId && modeValue !== "update" && modeValue !== "replace") {
     return NextResponse.json(
@@ -717,14 +753,14 @@ export async function POST(request: Request) {
     }
     const { data: sourcePage, error: sourceError } = await supabase
       .from("wiki_nodes")
-      .select("id,type,title,current_revision_id")
+      .select("id,type,title,status,current_revision_id")
       .eq("id", sourcePageId)
       .eq("type", "page")
       .maybeSingle()
     if (sourceError) {
       return NextResponse.json({ error: sourceError.message }, { status: 400 })
     }
-    if (!sourcePage?.current_revision_id) {
+    if (!sourcePage?.current_revision_id || sourcePage.status === "archived") {
       return NextResponse.json(
         { error: "Source Wiki page not found." },
         { status: 404 }
@@ -732,6 +768,7 @@ export async function POST(request: Request) {
     }
     sourcePageTitle =
       typeof sourcePage.title === "string" ? sourcePage.title : ""
+    sourceRevisionId = sourcePage.current_revision_id
     const { data: sourceRevision, error: sourceRevisionError } = await supabase
       .from("wiki_page_revisions")
       .select("plain_text")
@@ -791,6 +828,15 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    if (reviewedClaim.sourceRevisionId !== sourceRevisionId) {
+      return NextResponse.json(
+        {
+          error:
+            "A page in this merge changed after you looked at it. Look again before saving.",
+        },
+        { status: 409 }
+      )
+    }
     if (
       (targetPage.current_revision_id ?? null) !== reviewedClaim.baseRevisionId
     ) {
@@ -806,6 +852,16 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: `Files must be ${WIKI_MAX_UPLOAD_SIZE_LABEL} or smaller.` },
         { status: 400 }
+      )
+    }
+    const reviewedFile = file ? await createReviewedFileClaim(file) : null
+    if (!matchesReviewedFile(reviewedClaim.reviewedFile, reviewedFile)) {
+      return NextResponse.json(
+        {
+          error:
+            "This file changed after you looked at it. Look again before saving.",
+        },
+        { status: 409 }
       )
     }
     let reviewedBlocks = reviewedClaim.blocks
@@ -834,6 +890,7 @@ export async function POST(request: Request) {
       supabase,
       targetPage,
       sourcePageId,
+      sourceRevisionId: reviewedClaim.sourceRevisionId,
       sourceTitle: sourcePageTitle,
       mode,
       blocks: reviewedBlocks,
@@ -1278,6 +1335,8 @@ export async function POST(request: Request) {
           baseRevisionId: targetPage.current_revision_id,
           mode,
           sourcePageId,
+          sourceRevisionId,
+          reviewedFile: file ? await createReviewedFileClaim(file) : null,
           blocks: content.blocks,
         },
         {

@@ -140,6 +140,7 @@ dbDescribe("apply_wiki_reviewed_revision", { timeout: 20_000 }, () => {
       p_plain_text: "Should not save.",
       p_change_note: "Stale",
       p_source_id: source.id,
+      p_source_base_revision_id: source.revisionId,
     })
     expect(stale.error?.message).toMatch(/stale_revision/)
 
@@ -149,6 +150,23 @@ dbDescribe("apply_wiki_reviewed_revision", { timeout: 20_000 }, () => {
       .eq("node_id", target.id)
     expect(beforeCount).toBe(2)
 
+    const staleSource = await manager.rpc("apply_wiki_reviewed_revision", {
+      p_target_id: target.id,
+      p_base_revision_id: target.revisionId,
+      p_blocks: [{ type: "paragraph", content: "Should not archive." }],
+      p_plain_text: "Should not archive.",
+      p_change_note: "Stale source",
+      p_source_id: source.id,
+      p_source_base_revision_id: "00000000-0000-4000-8000-000000000098",
+    })
+    expect(staleSource.error?.message).toMatch(/stale_revision/)
+
+    const { count: afterStaleSourceCount } = await manager
+      .from("wiki_page_revisions")
+      .select("id", { count: "exact", head: true })
+      .eq("node_id", target.id)
+    expect(afterStaleSourceCount).toBe(beforeCount)
+
     const saved = await manager.rpc("apply_wiki_reviewed_revision", {
       p_target_id: target.id,
       p_base_revision_id: target.revisionId,
@@ -156,6 +174,7 @@ dbDescribe("apply_wiki_reviewed_revision", { timeout: 20_000 }, () => {
       p_plain_text: "Merged result.",
       p_change_note: "Merged",
       p_source_id: source.id,
+      p_source_base_revision_id: source.revisionId,
     })
     expect(saved.error).toBeNull()
     expect(saved.data).toEqual(expect.any(String))
@@ -193,6 +212,7 @@ dbDescribe("apply_wiki_reviewed_revision", { timeout: 20_000 }, () => {
       p_plain_text: "Retry.",
       p_change_note: "Retry",
       p_source_id: source.id,
+      p_source_base_revision_id: source.revisionId,
     })
     expect(retry.error?.message).toMatch(/stale_revision/)
 
@@ -226,6 +246,7 @@ dbDescribe("apply_wiki_reviewed_revision", { timeout: 20_000 }, () => {
         p_plain_text: "Winner A.",
         p_change_note: "A",
         p_source_id: null,
+        p_source_base_revision_id: null,
       }),
       second.rpc("apply_wiki_reviewed_revision", {
         p_target_id: target.id,
@@ -234,6 +255,7 @@ dbDescribe("apply_wiki_reviewed_revision", { timeout: 20_000 }, () => {
         p_plain_text: "Winner B.",
         p_change_note: "B",
         p_source_id: null,
+        p_source_base_revision_id: null,
       }),
     ])
     const successes = calls.filter((result) => !result.error)
