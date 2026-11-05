@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
+import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
 import {
   wikiFolderPath,
   WikiMovePicker,
@@ -40,6 +41,32 @@ interface ImportResponse {
   existing?: DuplicateImport
   nodeId?: string
   path?: string
+  preview?: boolean
+  beforeText?: string
+  afterText?: string
+  blocks?: unknown[]
+}
+
+interface UpdatePreview {
+  beforeText: string
+  afterText: string
+  blocks: unknown[]
+}
+
+interface PendingVideoCommit {
+  nodeId: string
+  assetId: string
+}
+
+function readUpdatePreview(payload: ImportResponse | null) {
+  if (!payload?.preview || !Array.isArray(payload.blocks)) {
+    return null
+  }
+  return {
+    beforeText: payload.beforeText ?? "",
+    afterText: payload.afterText ?? "",
+    blocks: payload.blocks,
+  } satisfies UpdatePreview
 }
 
 export function WikiImportWizardDialog({
@@ -81,12 +108,16 @@ export function WikiImportWizardDialog({
     React.useState<VideoImportProgress>(null)
   const [error, setError] = React.useState("")
   const [duplicate, setDuplicate] = React.useState<DuplicateImport | null>(null)
+  const [preview, setPreview] = React.useState<UpdatePreview | null>(null)
+  const [pendingVideo, setPendingVideo] =
+    React.useState<PendingVideoCommit | null>(null)
   const [destinationPickerOpen, setDestinationPickerOpen] =
     React.useState(false)
   const [selectedParentId, setSelectedParentId] = React.useState<string | null>(
     parentId
   )
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const keepUploadedVideoRef = React.useRef(false)
 
   const destinationPath = React.useMemo(() => {
     const path = wikiFolderPath(nodes, selectedParentId).map(
@@ -101,6 +132,8 @@ export function WikiImportWizardDialog({
     setUpdateMode("update")
     setError("")
     setDuplicate(null)
+    setPreview(null)
+    setPendingVideo(null)
     setDestinationPickerOpen(false)
     setSelectedParentId(parentId)
     setIsSubmitting(false)
@@ -115,8 +148,19 @@ export function WikiImportWizardDialog({
     }
     onOpenChange?.(nextOpen)
     if (!nextOpen) {
+      const assetId = pendingVideo?.assetId
+      const keepVideo = keepUploadedVideoRef.current
+      keepUploadedVideoRef.current = false
       reset()
+      if (assetId && !keepVideo) {
+        void archiveWikiAsset(assetId)
+      }
     }
+  }
+
+  function clearPreview() {
+    setPreview(null)
+    setPendingVideo(null)
   }
 
   function chooseFile(nextFile: File | null) {
@@ -126,6 +170,193 @@ export function WikiImportWizardDialog({
     }
     setError("")
     setDuplicate(null)
+    clearPreview()
+  }
+
+  function finishNavigation(path: string) {
+    keepUploadedVideoRef.current = true
+    handleOpenChange(false)
+    router.push(path)
+    router.refresh()
+  }
+
+  async function uploadImportedVideo(videoFile: File, nodeId: string) {
+    setVideoImportProgress("uploading")
+    const upload = await prepareDirectWikiUpload({
+      file: videoFile,
+      nodeId,
+    })
+    await uploadWikiFileToStorage({ file: videoFile, upload })
+    setVideoImportProgress("transcribing")
+    await postWikiAssetAction(upload.asset.id, "transcribe")
+    await postWikiAssetAction(upload.asset.id, "index")
+    return upload.asset.id
+  }
+
+  async function discardPreview() {
+    const assetId = pendingVideo?.assetId
+    clearPreview()
+    if (assetId) {
+      await archiveWikiAsset(assetId)
+    }
+  }
+
+  async function previewUpdate() {
+    if (!isUpdatingPage || !targetPageId) {
+      return
+    }
+    setError("")
+    setDuplicate(null)
+    setIsSubmitting(true)
+    const isVideo = file && getWikiAssetKind(file) === "video"
+    let assetId: string | null = null
+    try {
+      const formData = new FormData()
+      if (isVideo && file) {
+        formData.set("video_import", "start")
+        formData.set("video_file_name", file.name)
+        formData.set("video_file_size", String(file.size))
+        formData.set("video_file_type", file.type)
+      } else if (file) {
+        formData.set("file", file)
+      } else {
+        formData.set("text", text)
+      }
+      formData.set("target_page_id", targetPageId)
+      formData.set("mode", updateMode)
+      formData.set("preview", "1")
+
+      const response = await fetch("/api/wiki/import", {
+        method: "POST",
+        body: formData,
+      })
+      const payload = (await response
+        .json()
+        .catch(() => null)) as ImportResponse | null
+      if (!response.ok) {
+        setError(
+          payload?.error ?? "We could not read that page. Please try again."
+        )
+        return
+      }
+
+      if (isVideo && file) {
+        if (!payload?.nodeId) {
+          setError("We could not prepare that video. Please try again.")
+          return
+        }
+        assetId = await uploadImportedVideo(file, payload.nodeId)
+        const completeFormData = new FormData()
+        completeFormData.set("video_import", "complete")
+        completeFormData.set("node_id", payload.nodeId)
+        completeFormData.set("asset_id", assetId)
+        completeFormData.set("target_page_id", targetPageId)
+        completeFormData.set("mode", updateMode)
+        completeFormData.set("preview", "1")
+        const completeResponse = await fetch("/api/wiki/import", {
+          method: "POST",
+          body: completeFormData,
+        })
+        const completePayload = (await completeResponse
+          .json()
+          .catch(() => null)) as ImportResponse | null
+        const nextPreview = readUpdatePreview(completePayload)
+        if (!completeResponse.ok || !nextPreview) {
+          throw new Error(
+            completePayload?.error ??
+              "We could not compare that video with this page."
+          )
+        }
+        setPendingVideo({ nodeId: payload.nodeId, assetId })
+        setPreview(nextPreview)
+        assetId = null
+        return
+      }
+
+      const nextPreview = readUpdatePreview(payload)
+      if (!nextPreview) {
+        setError("We could not compare that content with this page.")
+        return
+      }
+      setPreview(nextPreview)
+    } catch (error) {
+      if (assetId) {
+        await archiveWikiAsset(assetId)
+      }
+      setError(
+        error instanceof Error
+          ? error.message
+          : "We could not reach the Wiki. Check your connection and try again."
+      )
+    } finally {
+      setIsSubmitting(false)
+      setVideoImportProgress(null)
+    }
+  }
+
+  async function commitUpdate() {
+    if (!isUpdatingPage || !targetPageId || !preview) {
+      setError("See what will change before saving.")
+      return
+    }
+    setError("")
+    setIsSubmitting(true)
+    try {
+      if (pendingVideo) {
+        const completeFormData = new FormData()
+        completeFormData.set("video_import", "complete")
+        completeFormData.set("node_id", pendingVideo.nodeId)
+        completeFormData.set("asset_id", pendingVideo.assetId)
+        completeFormData.set("target_page_id", targetPageId)
+        completeFormData.set("mode", updateMode)
+        const response = await fetch("/api/wiki/import", {
+          method: "POST",
+          body: completeFormData,
+        })
+        const payload = (await response
+          .json()
+          .catch(() => null)) as ImportResponse | null
+        if (!response.ok || !payload?.path) {
+          setError(
+            payload?.error ?? "We could not update that page. Please try again."
+          )
+          return
+        }
+        finishNavigation(payload.path)
+        return
+      }
+
+      if (file) {
+        await submit()
+        return
+      }
+
+      const formData = new FormData()
+      formData.set("apply_preview", "1")
+      formData.set("target_page_id", targetPageId)
+      formData.set("mode", updateMode)
+      formData.set("prepared_blocks", JSON.stringify(preview.blocks))
+      const response = await fetch("/api/wiki/import", {
+        method: "POST",
+        body: formData,
+      })
+      const payload = (await response
+        .json()
+        .catch(() => null)) as ImportResponse | null
+      if (!response.ok || !payload?.path) {
+        setError(
+          payload?.error ?? "We could not update that page. Please try again."
+        )
+        return
+      }
+      finishNavigation(payload.path)
+    } catch {
+      setError(
+        "We could not reach the Wiki. Check your connection and try again."
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   async function submit(allowDuplicate = false) {
@@ -180,17 +411,7 @@ export function WikiImportWizardDialog({
 
         let assetId: string | null = null
         try {
-          setVideoImportProgress("uploading")
-          const upload = await prepareDirectWikiUpload({
-            file,
-            nodeId: payload.nodeId,
-          })
-          assetId = upload.asset.id
-          await uploadWikiFileToStorage({ file, upload })
-          setVideoImportProgress("transcribing")
-          await postWikiAssetAction(assetId, "transcribe")
-          await postWikiAssetAction(assetId, "index")
-
+          assetId = await uploadImportedVideo(file, payload.nodeId)
           const completeFormData = new FormData()
           completeFormData.set("video_import", "complete")
           completeFormData.set("node_id", payload.nodeId)
@@ -212,9 +433,7 @@ export function WikiImportWizardDialog({
                 "We could not create the video draft. Please try again."
             )
           }
-          handleOpenChange(false)
-          router.push(completePayload.path)
-          router.refresh()
+          finishNavigation(completePayload.path)
           return
         } catch (error) {
           if (assetId) {
@@ -232,9 +451,7 @@ export function WikiImportWizardDialog({
         setError("We could not create the draft. Please try again.")
         return
       }
-      handleOpenChange(false)
-      router.push(payload.path)
-      router.refresh()
+      finishNavigation(payload.path)
     } catch {
       setError(
         "We could not reach the Wiki. Check your connection and try again."
@@ -262,7 +479,14 @@ export function WikiImportWizardDialog({
           </Button>
         </DialogTrigger>
       ) : null}
-      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
+      <DialogContent
+        className={
+          preview
+            ? "max-h-[90vh] w-[min(92vw,56rem)] max-w-none overflow-y-auto"
+            : "sm:max-w-lg"
+        }
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>
             {isUpdatingPage ? "AI Update" : "AI Create"}
@@ -319,6 +543,7 @@ export function WikiImportWizardDialog({
                 }
                 setError("")
                 setDuplicate(null)
+                clearPreview()
               }}
               className="min-h-28 rounded-lg border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
               placeholder={
@@ -330,25 +555,19 @@ export function WikiImportWizardDialog({
           </div>
           {isUpdatingPage ? (
             <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-              <div className="grid gap-0.5">
-                <label
-                  className="cursor-pointer text-sm font-medium"
-                  htmlFor="wiki-replace-existing-content"
-                >
-                  Replace existing content
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  {updateMode === "replace"
-                    ? "Replace the current page content."
-                    : "Update the current page content."}
-                </p>
-              </div>
+              <label
+                className="cursor-pointer text-sm font-medium"
+                htmlFor="wiki-replace-existing-content"
+              >
+                Replace existing content
+              </label>
               <Switch
                 id="wiki-replace-existing-content"
                 checked={updateMode === "replace"}
-                onCheckedChange={(checked) =>
+                onCheckedChange={(checked) => {
                   setUpdateMode(checked ? "replace" : "update")
-                }
+                  clearPreview()
+                }}
                 aria-label="Replace existing content"
               />
             </div>
@@ -383,15 +602,56 @@ export function WikiImportWizardDialog({
               </div>
             </div>
           ) : null}
+          {preview ? (
+            <div className="grid gap-3">
+              <p className="text-sm text-neutral-950 dark:text-neutral-50">
+                {updateMode === "replace"
+                  ? "This replaces the page with the new words and saves a new version."
+                  : "This adds the new words onto this page and saves a new version."}
+              </p>
+              <WikiPlainDiff
+                beforeText={preview.beforeText}
+                afterText={preview.afterText}
+                beforeTitle="This page now"
+                afterTitle={
+                  updateMode === "replace"
+                    ? "Page after replace"
+                    : "Page after update"
+                }
+              />
+            </div>
+          ) : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
         <DialogFooter>
+          {preview ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={isSubmitting}
+              onClick={() => void discardPreview()}
+            >
+              Back
+            </Button>
+          ) : null}
           <Button
             type="button"
+            className="cursor-pointer"
             disabled={isSubmitting || (!file && !text.trim())}
-            onClick={() => void submit()}
+            onClick={() => {
+              if (!isUpdatingPage) {
+                void submit()
+                return
+              }
+              if (preview) {
+                void commitUpdate()
+                return
+              }
+              void previewUpdate()
+            }}
           >
-            {videoImportProgress ? (
+            {videoImportProgress || isSubmitting ? (
               <Loader2Icon className="animate-spin" aria-hidden="true" />
             ) : null}
             {videoImportProgress === "uploading"
@@ -400,12 +660,16 @@ export function WikiImportWizardDialog({
                 ? "Transcribing video…"
                 : isSubmitting
                   ? isUpdatingPage
-                    ? "Updating page…"
+                    ? preview
+                      ? "Saving the new version…"
+                      : "Reading the page…"
                     : "Creating your draft…"
                   : isUpdatingPage
-                    ? updateMode === "replace"
-                      ? "Replace page"
-                      : "Update page"
+                    ? preview
+                      ? updateMode === "replace"
+                        ? "Replace page"
+                        : "Update page"
+                      : "See what will change"
                     : "Create draft"}
           </Button>
         </DialogFooter>

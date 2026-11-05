@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, within } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -136,5 +142,103 @@ describe("WikiNodeActionsMenu", () => {
     expect(
       within(moveDialog).queryByRole("button", { name: /AI Merge/i })
     ).not.toBeInTheDocument()
+  })
+
+  it("previews an AI merge and archives the source page instead of deleting it", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+    const blocks = [
+      { type: "paragraph", content: "Keep the lock steps." },
+      { type: "paragraph", content: "Add the escrow note." },
+    ]
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            preview: true,
+            beforeText: "Keep the lock steps.",
+            afterText: "Keep the lock steps.\n\nAdd the escrow note.",
+            blocks,
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ ok: true, path: "/wiki/canopy-wiki/funding" }),
+          { status: 200 }
+        )
+      )
+    const source = {
+      ...emptyGroup,
+      id: "source-page",
+      parent_id: "wiki-section",
+      type: "page" as const,
+      slug: "escrow-notes",
+      title: "Escrow notes",
+    }
+    const target = {
+      ...source,
+      id: "target-page",
+      slug: "funding-checklist",
+      title: "Funding checklist",
+    }
+
+    render(
+      <>
+        <WikiEditableTitle nodeId={source.id}>Escrow notes</WikiEditableTitle>
+        <WikiNodeActionsMenu
+          nodes={[wikiSection, source, target]}
+          node={source}
+        />
+      </>
+    )
+
+    await user.click(screen.getByRole("button", { name: "Escrow notes" }))
+    const editDialog = await screen.findByRole("dialog", {
+      name: "Edit Wiki Item",
+    })
+    await user.click(within(editDialog).getByRole("button", { name: "Move" }))
+    const moveDialog = await screen.findByRole("dialog", {
+      name: "Move Escrow notes",
+    })
+    await user.click(
+      within(moveDialog).getByRole("button", { name: "Funding checklist" })
+    )
+    await user.click(
+      within(moveDialog).getByRole("button", {
+        name: "AI Merge into this page",
+      })
+    )
+
+    const confirm = await screen.findByRole("dialog", { name: "Merge pages?" })
+    expect(confirm).toHaveTextContent(
+      "This merges “Escrow notes” into “Funding checklist” and archives “Escrow notes”."
+    )
+    expect(confirm).not.toHaveTextContent(/delete/i)
+    expect(
+      await within(confirm).findByRole("heading", { name: "What was added" })
+    ).toBeVisible()
+    expect(
+      within(confirm).getAllByText("Add the escrow note.").length
+    ).toBeGreaterThan(0)
+
+    await user.click(
+      within(confirm).getByRole("button", { name: "AI Merge and archive" })
+    )
+
+    await waitFor(() => {
+      expect(router.push).toHaveBeenCalledWith("/wiki/canopy-wiki/funding")
+    })
+    const previewBody = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    expect(previewBody.get("preview")).toBe("1")
+    expect(previewBody.get("source_page_id")).toBe("source-page")
+    expect(previewBody.get("target_page_id")).toBe("target-page")
+    const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
+    expect(applyBody.get("apply_preview")).toBe("1")
+    expect(applyBody.get("prepared_blocks")).toBe(JSON.stringify(blocks))
+    expect(applyBody.get("source_page_id")).toBe("source-page")
+    expect(applyBody.get("target_page_id")).toBe("target-page")
   })
 })

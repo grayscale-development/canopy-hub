@@ -12,6 +12,7 @@ import {
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
 import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
+import { WikiRevisionSelector } from "@/components/wiki/wiki-revisions"
 import {
   WikiTagsDirectory,
   type WikiTagDirectoryEntry,
@@ -371,10 +372,21 @@ export default async function WikiPage({
                   {pageData ? (
                     <div className="flex min-w-0 flex-1 flex-col gap-6">
                       {isHistoricalRevision ? (
-                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-                          This is an old version of this Wiki page. Use Restore
-                          to Primary to make it the current version.
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                          You are looking at an older version of this page.
                         </div>
+                      ) : null}
+                      {pageData.node.type === "page" ? (
+                        <WikiRevisionSelector
+                          nodeId={pageData.node.id}
+                          currentRevisionId={pageData.node.current_revision_id}
+                          selectedRevisionId={
+                            selectedRevisionId ??
+                            pageData.node.current_revision_id
+                          }
+                          revisions={revisions}
+                          canRestore={canManageWiki}
+                        />
                       ) : null}
                       <WikiEditor
                         key={displayedRevision?.id ?? pageData.node.id}
@@ -389,6 +401,22 @@ export default async function WikiPage({
                             : null
                         }
                         showStatusControl
+                        createAction={
+                          canManageWiki &&
+                          pageData.node.type === "page" &&
+                          !isHistoricalRevision ? (
+                            <WikiEditModeGate>
+                              <WikiImportWizardDialog
+                                nodes={nodes}
+                                targetPageId={pageData.node.id}
+                                triggerLabel="AI Update"
+                                triggerAriaLabel="AI Update"
+                                triggerTitle="AI Update"
+                                triggerVariant="outline"
+                              />
+                            </WikiEditModeGate>
+                          ) : null
+                        }
                         headerActions={
                           canManageWiki ? (
                             <WikiEditModeGate>
@@ -401,7 +429,6 @@ export default async function WikiPage({
                             </WikiEditModeGate>
                           ) : null
                         }
-                        // AI Update is hidden until it is better tested.
                       />
                     </div>
                   ) : null}

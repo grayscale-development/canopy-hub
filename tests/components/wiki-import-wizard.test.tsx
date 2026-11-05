@@ -82,13 +82,28 @@ describe("WikiImportWizardDialog", () => {
     expect(startBody.get("video_file_name")).toBe("loan-review.mp4")
   })
 
-  it("updates the current page without offering a destination and defaults to Update", async () => {
+  it("previews an AI update, then saves that exact new version", async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true, path: "/wiki/existing" }), {
-        status: 200,
-      })
-    )
+    const blocks = [{ type: "paragraph", content: "Replacement guidance." }]
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            preview: true,
+            beforeText: "Keep the lock steps.",
+            afterText: "Replacement guidance.",
+            blocks,
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, path: "/wiki/existing" }), {
+          status: 200,
+        })
+      )
 
     render(
       <WikiImportWizardDialog
@@ -111,15 +126,32 @@ describe("WikiImportWizardDialog", () => {
       "Apply this guidance"
     )
     await user.click(replaceSwitch)
+    await user.click(
+      screen.getByRole("button", { name: "See what will change" })
+    )
+
+    expect(
+      await screen.findByRole("heading", { name: "What was removed" })
+    ).toBeVisible()
+    expect(
+      screen.getByText(
+        "This replaces the page with the new words and saves a new version."
+      )
+    ).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Replace page" }))
 
     await waitFor(() => {
       expect(router.push).toHaveBeenCalledWith("/wiki/existing")
     })
-    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
-    expect(body.get("target_page_id")).toBe("existing-page")
-    expect(body.get("mode")).toBe("replace")
-    expect(body.get("parent_id")).toBeNull()
+    const previewBody = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    expect(previewBody.get("target_page_id")).toBe("existing-page")
+    expect(previewBody.get("mode")).toBe("replace")
+    expect(previewBody.get("preview")).toBe("1")
+    expect(previewBody.get("parent_id")).toBeNull()
+    const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
+    expect(applyBody.get("apply_preview")).toBe("1")
+    expect(applyBody.get("prepared_blocks")).toBe(JSON.stringify(blocks))
+    expect(applyBody.get("mode")).toBe("replace")
   })
 
   it("creates in the selected destination folder", async () => {

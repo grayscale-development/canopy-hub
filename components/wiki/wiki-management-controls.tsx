@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
+import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
 import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
 import {
   wikiFolderPath,
@@ -445,6 +446,13 @@ export function WikiNodeActionsMenu({
   )
   const [mergeConfirmOpen, setMergeConfirmOpen] = React.useState(false)
   const [mergePending, setMergePending] = React.useState(false)
+  const [mergePreviewPending, setMergePreviewPending] = React.useState(false)
+  const [mergeError, setMergeError] = React.useState("")
+  const [mergePreview, setMergePreview] = React.useState<{
+    beforeText: string
+    afterText: string
+    blocks: unknown[]
+  } | null>(null)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
   const cannotArchive = node.type === "folder" && hasChildren
@@ -539,14 +547,64 @@ export function WikiNodeActionsMenu({
     })
   }
 
-  async function handleMerge() {
+  function resetMergePreview() {
+    setMergePreview(null)
+    setMergeError("")
+    setMergePreviewPending(false)
+    setMergePending(false)
+  }
+
+  async function openMergePreview() {
     if (!selectedTarget || selectedTarget.type !== "page") return
-    setMergePending(true)
+    setMergeConfirmOpen(true)
+    setMergePreview(null)
+    setMergeError("")
+    setMergePreviewPending(true)
     try {
       const formData = new FormData()
       formData.set("target_page_id", selectedTarget.id)
       formData.set("source_page_id", node.id)
       formData.set("mode", "update")
+      formData.set("preview", "1")
+      const response = await fetch("/api/wiki/import", {
+        method: "POST",
+        body: formData,
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+        preview?: boolean
+        beforeText?: string
+        afterText?: string
+        blocks?: unknown[]
+      } | null
+      if (!response.ok || !payload?.preview || !Array.isArray(payload.blocks)) {
+        setMergeError(payload?.error ?? "Unable to compare these pages.")
+        return
+      }
+      setMergePreview({
+        beforeText: payload.beforeText ?? "",
+        afterText: payload.afterText ?? "",
+        blocks: payload.blocks,
+      })
+    } catch {
+      setMergeError("Unable to compare these pages.")
+    } finally {
+      setMergePreviewPending(false)
+    }
+  }
+
+  async function handleMerge() {
+    if (!selectedTarget || selectedTarget.type !== "page" || !mergePreview)
+      return
+    setMergePending(true)
+    setMergeError("")
+    try {
+      const formData = new FormData()
+      formData.set("apply_preview", "1")
+      formData.set("target_page_id", selectedTarget.id)
+      formData.set("source_page_id", node.id)
+      formData.set("mode", "update")
+      formData.set("prepared_blocks", JSON.stringify(mergePreview.blocks))
       const response = await fetch("/api/wiki/import", {
         method: "POST",
         body: formData,
@@ -556,19 +614,17 @@ export function WikiNodeActionsMenu({
         path?: string
       } | null
       if (!response.ok || !payload?.path) {
-        setMoveState({
-          ok: false,
-          message: payload?.error ?? "Unable to merge these pages.",
-        })
+        setMergeError(payload?.error ?? "Unable to merge these pages.")
         return
       }
       setMergeConfirmOpen(false)
       setMoveOpen(false)
       setOpen(false)
+      resetMergePreview()
       router.push(payload.path)
       router.refresh()
     } catch {
-      setMoveState({ ok: false, message: "Unable to merge these pages." })
+      setMergeError("Unable to merge these pages.")
     } finally {
       setMergePending(false)
     }
@@ -672,15 +728,17 @@ export function WikiNodeActionsMenu({
               selectedTargetId={selectedTargetId}
               onSelectedTargetChange={setSelectedTargetId}
               excludedNodeId={node.id}
+              includePages={node.type === "page"}
             />
             <StatusMessage state={moveState} />
           </div>
           <DialogFooter>
-            {false && node.type === "page" && selectedTarget?.type === "page" ? (
+            {node.type === "page" && selectedTarget?.type === "page" ? (
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setMergeConfirmOpen(true)}
+                className="cursor-pointer"
+                onClick={() => void openMergePreview()}
               >
                 AI Merge into this page
               </Button>
@@ -707,29 +765,60 @@ export function WikiNodeActionsMenu({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={mergeConfirmOpen} onOpenChange={setMergeConfirmOpen}>
-        <DialogContent aria-describedby={undefined}>
+      <Dialog
+        open={mergeConfirmOpen}
+        onOpenChange={(nextOpen) => {
+          setMergeConfirmOpen(nextOpen)
+          if (!nextOpen) resetMergePreview()
+        }}
+      >
+        <DialogContent
+          aria-describedby={undefined}
+          className="max-h-[90vh] w-[min(92vw,56rem)] max-w-none overflow-y-auto"
+        >
           <DialogHeader>
             <DialogTitle>Merge pages?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            This merges content into {selectedTarget?.title} and deletes{" "}
-            {node.title}.
+          <p className="text-sm text-neutral-950 dark:text-neutral-50">
+            This merges “{node.title}” into “{selectedTarget?.title}” and
+            archives “{node.title}”.
           </p>
+          {mergePreviewPending ? (
+            <p className="text-sm text-neutral-950 dark:text-neutral-50">
+              Reading both pages…
+            </p>
+          ) : null}
+          {mergePreview ? (
+            <WikiPlainDiff
+              beforeText={mergePreview.beforeText}
+              afterText={mergePreview.afterText}
+              beforeTitle={`${selectedTarget?.title ?? "The other page"} now`}
+              afterTitle="After the merge"
+            />
+          ) : null}
+          {mergeError ? (
+            <p className="text-sm text-destructive">{mergeError}</p>
+          ) : null}
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
+              className="cursor-pointer"
               onClick={() => setMergeConfirmOpen(false)}
             >
               Cancel
             </Button>
             <Button
               type="button"
-              disabled={mergePending}
+              className="cursor-pointer"
+              disabled={mergePending || mergePreviewPending || !mergePreview}
               onClick={() => void handleMerge()}
             >
-              {mergePending ? "Merging..." : "AI Merge and delete"}
+              {mergePending
+                ? "Merging..."
+                : mergePreviewPending
+                  ? "Reading both pages…"
+                  : "AI Merge and archive"}
             </Button>
           </DialogFooter>
         </DialogContent>

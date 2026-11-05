@@ -189,6 +189,7 @@ async function completeWikiVideoImport({
   nodeId,
   mode,
   isPageUpdate,
+  preview,
   supabase,
   userId,
 }: {
@@ -196,6 +197,7 @@ async function completeWikiVideoImport({
   nodeId: string
   mode: WikiAiUpdateMode
   isPageUpdate: boolean
+  preview: boolean
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userId: string
 }) {
@@ -272,6 +274,15 @@ async function completeWikiVideoImport({
     draft,
     mode,
   })
+  if (preview) {
+    return NextResponse.json({
+      ok: true,
+      preview: true,
+      beforeText: currentRevision?.plain_text ?? "",
+      afterText: content.plainText,
+      blocks: content.blocks,
+    })
+  }
   const revisionId = crypto.randomUUID()
   const { error: revisionError } = await supabase
     .from("wiki_page_revisions")
@@ -308,6 +319,74 @@ async function completeWikiVideoImport({
   const nodes = await fetchWikiNodes(supabase)
   const completedNode = nodes.find((item) => item.id === nodeId)
   const path = completedNode ? buildWikiPath(nodes, completedNode) : ""
+  revalidatePath("/wiki")
+  if (path) {
+    revalidatePath(`/wiki/${path}`)
+  }
+  return NextResponse.json({ ok: true, path: `/wiki/${path}` })
+}
+
+async function applyPreparedWikiPreview({
+  supabase,
+  userId,
+  targetPage,
+  sourcePageId,
+  sourceTitle,
+  mode,
+  blocks,
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  userId: string
+  targetPage: WikiNodeRow
+  sourcePageId: string | null
+  sourceTitle: string
+  mode: WikiAiUpdateMode
+  blocks: unknown[]
+}) {
+  const plainText = blockNoteToPlainText(blocks)
+  const revisionId = crypto.randomUUID()
+  const { error: revisionError } = await supabase
+    .from("wiki_page_revisions")
+    .insert({
+      id: revisionId,
+      node_id: targetPage.id,
+      blocks,
+      plain_text: plainText,
+      change_note: sourcePageId
+        ? `Merged with AI from ${sourceTitle || "another page"}`
+        : `${mode === "replace" ? "Replaced" : "Updated"} with AI from pasted text`,
+      created_by: userId,
+    })
+  if (revisionError) {
+    return NextResponse.json({ error: revisionError.message }, { status: 400 })
+  }
+
+  const { error: updateError } = await supabase
+    .from("wiki_nodes")
+    .update({ current_revision_id: revisionId, updated_by: userId })
+    .eq("id", targetPage.id)
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 400 })
+  }
+
+  if (sourcePageId) {
+    const { error: archiveError } = await supabase
+      .from("wiki_nodes")
+      .update({ status: "archived", updated_by: userId })
+      .eq("id", sourcePageId)
+    if (archiveError) {
+      return NextResponse.json({ error: archiveError.message }, { status: 400 })
+    }
+    await archiveKnowledgeSource({
+      supabase: createSupabaseAdminClient(),
+      sourceType: "wiki_page",
+      sourceId: sourcePageId,
+    })
+  }
+
+  const nodes = await fetchWikiNodes(supabase)
+  const node = nodes.find((item) => item.id === targetPage.id)
+  const path = node ? buildWikiPath(nodes, node) : ""
   revalidatePath("/wiki")
   if (path) {
     revalidatePath(`/wiki/${path}`)
@@ -370,6 +449,7 @@ export async function POST(request: Request) {
     typeof sourcePageIdValue === "string" && sourcePageIdValue.trim()
       ? sourcePageIdValue.trim()
       : null
+  let sourcePageTitle = ""
 
   if (targetPageId && modeValue !== "update" && modeValue !== "replace") {
     return NextResponse.json(
@@ -438,7 +518,7 @@ export async function POST(request: Request) {
     }
     const { data: sourcePage, error: sourceError } = await supabase
       .from("wiki_nodes")
-      .select("id,type,current_revision_id")
+      .select("id,type,title,current_revision_id")
       .eq("id", sourcePageId)
       .eq("type", "page")
       .maybeSingle()
@@ -451,6 +531,8 @@ export async function POST(request: Request) {
         { status: 404 }
       )
     }
+    sourcePageTitle =
+      typeof sourcePage.title === "string" ? sourcePage.title : ""
     const { data: sourceRevision, error: sourceRevisionError } = await supabase
       .from("wiki_page_revisions")
       .select("plain_text")
@@ -463,6 +545,46 @@ export async function POST(request: Request) {
       )
     }
     pastedText = sourceRevision?.plain_text ?? ""
+  }
+
+  if (formData.get("apply_preview") === "1") {
+    if (!targetPage) {
+      return NextResponse.json(
+        { error: "A target page is required." },
+        { status: 400 }
+      )
+    }
+    const rawBlocks = formData.get("prepared_blocks")
+    if (typeof rawBlocks !== "string" || !rawBlocks.trim()) {
+      return NextResponse.json(
+        { error: "Prepared page content is required." },
+        { status: 400 }
+      )
+    }
+    let preparedBlocks: unknown
+    try {
+      preparedBlocks = JSON.parse(rawBlocks)
+    } catch {
+      return NextResponse.json(
+        { error: "Prepared page content is invalid." },
+        { status: 400 }
+      )
+    }
+    if (!Array.isArray(preparedBlocks)) {
+      return NextResponse.json(
+        { error: "Prepared page content is invalid." },
+        { status: 400 }
+      )
+    }
+    return applyPreparedWikiPreview({
+      supabase,
+      userId: user.id,
+      targetPage,
+      sourcePageId,
+      sourceTitle: sourcePageTitle,
+      mode,
+      blocks: preparedBlocks,
+    })
   }
 
   if (videoImport === "complete") {
@@ -484,6 +606,7 @@ export async function POST(request: Request) {
       nodeId,
       mode,
       isPageUpdate: Boolean(targetPageId),
+      preview: formData.get("preview") === "1",
       supabase,
       userId: user.id,
     })
@@ -884,6 +1007,21 @@ export async function POST(request: Request) {
       draft: { ...revisionDraft, blocks: importedBlocks },
       mode: aiMergedCurrentPage ? "replace" : mode,
     })
+    if (formData.get("preview") === "1") {
+      if (!targetPage) {
+        return NextResponse.json(
+          { error: "A target page is required to preview changes." },
+          { status: 400 }
+        )
+      }
+      return NextResponse.json({
+        ok: true,
+        preview: true,
+        beforeText: targetRevision?.plain_text ?? "",
+        afterText: content.plainText,
+        blocks: content.blocks,
+      })
+    }
     const { error: revisionError } = await supabase
       .from("wiki_page_revisions")
       .insert({
@@ -891,11 +1029,13 @@ export async function POST(request: Request) {
         node_id: nodeId,
         blocks: content.blocks,
         plain_text: content.plainText,
-        change_note: targetPage
-          ? `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${file ? fileName : "pasted text"}`
-          : file
-            ? `Created with AI from ${fileName}`
-            : "Created with AI from pasted text",
+        change_note: sourcePageId
+          ? `Merged with AI from ${sourcePageTitle || "another page"}`
+          : targetPage
+            ? `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${file ? fileName : "pasted text"}`
+            : file
+              ? `Created with AI from ${fileName}`
+              : "Created with AI from pasted text",
         created_by: user.id,
       })
     if (revisionError) {

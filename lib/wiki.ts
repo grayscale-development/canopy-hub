@@ -78,6 +78,20 @@ export interface WikiRevisionRow {
   created_at: string
 }
 
+export function formatWikiRestoreChangeNote(createdAt: string) {
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) {
+    return `Restored from ${createdAt}`
+  }
+
+  const timestamp = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(date)
+  return `Restored from ${timestamp} UTC`
+}
+
 export interface WikiTagRow {
   id: string
   name: string

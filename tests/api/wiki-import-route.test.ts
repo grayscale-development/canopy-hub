@@ -10,6 +10,9 @@ const state = vi.hoisted(() => ({
   videoAsset: null as Record<string, unknown> | null,
   videoNode: null as Record<string, unknown> | null,
   targetRevision: null as Record<string, unknown> | null,
+  revisions: [] as Array<Record<string, unknown>>,
+  updates: [] as Array<Record<string, unknown>>,
+  deletes: [] as Array<Record<string, unknown>>,
   aiResponse: {
     output_text: JSON.stringify({
       title: "Lock Review",
@@ -20,11 +23,16 @@ const state = vi.hoisted(() => ({
 }))
 
 class Query {
+  private filters: Record<string, unknown> = {}
+  private pendingUpdate: Record<string, unknown> | null = null
+  private pendingDelete = false
+
   constructor(private table: string) {}
   select() {
     return this
   }
-  eq() {
+  eq(column: string, value: unknown) {
+    this.filters[column] = value
     return this
   }
   neq() {
@@ -52,23 +60,60 @@ class Query {
     }
     return this
   }
-  update() {
+  update(value: Record<string, unknown>) {
+    this.pendingUpdate = value
     return this
   }
   delete() {
+    this.pendingDelete = true
     return this
   }
-  maybeSingle = async () => ({
-    data:
-      this.table === "wiki_assets"
-        ? state.videoAsset
-        : this.table === "wiki_page_revisions"
-          ? state.targetRevision
-          : this.table === "wiki_nodes"
-            ? state.videoNode
-            : null,
-    error: null,
-  })
+  private record() {
+    if (this.pendingUpdate) {
+      state.updates.push({
+        table: this.table,
+        value: this.pendingUpdate,
+        filters: { ...this.filters },
+      })
+      this.pendingUpdate = null
+    }
+    if (this.pendingDelete) {
+      state.deletes.push({ table: this.table, filters: { ...this.filters } })
+      this.pendingDelete = false
+    }
+  }
+  maybeSingle = async () => {
+    this.record()
+    if (this.table === "wiki_assets") {
+      return { data: state.videoAsset, error: null }
+    }
+    if (this.table === "wiki_page_revisions") {
+      if (state.revisions.length) {
+        return {
+          data:
+            state.revisions.find(
+              (revision) => revision.id === this.filters.id
+            ) ?? null,
+          error: null,
+        }
+      }
+      return { data: state.targetRevision, error: null }
+    }
+    if (this.table === "wiki_nodes") {
+      const videoNode = state.videoNode
+      if (videoNode && (!this.filters.id || videoNode.id === this.filters.id)) {
+        return { data: videoNode, error: null }
+      }
+      if (this.filters.id) {
+        return {
+          data: state.nodes.find((node) => node.id === this.filters.id) ?? null,
+          error: null,
+        }
+      }
+      return { data: videoNode, error: null }
+    }
+    return { data: null, error: null }
+  }
   single = async () => ({ data: null, error: null })
   then(
     resolve: (value: {
@@ -76,6 +121,7 @@ class Query {
       error: null
     }) => unknown
   ) {
+    this.record()
     return Promise.resolve({ data: state.nodes, error: null }).then(resolve)
   }
 }
@@ -166,6 +212,9 @@ describe("/api/wiki/import route", () => {
     state.videoAsset = null
     state.videoNode = null
     state.targetRevision = null
+    state.revisions = []
+    state.updates = []
+    state.deletes = []
     state.aiResponse = {
       output_text: JSON.stringify({
         title: "Lock Review",
@@ -491,6 +540,196 @@ describe("/api/wiki/import route", () => {
         expect.objectContaining({ type: "video" }),
         expect.objectContaining({ content: "Transcript" }),
       ])
+    )
+  })
+
+  it("previews an AI update without writing a revision", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        parent_id: null,
+        type: "page",
+        slug: "existing-page",
+        title: "Existing Page",
+        status: "published",
+        current_revision_id: "old-revision",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    state.targetRevision = {
+      id: "old-revision",
+      plain_text: "Existing guidance.",
+      blocks: [{ type: "paragraph", content: "Existing guidance." }],
+    }
+    const body = new FormData()
+    body.set("text", "New lock review guidance.")
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "update")
+    body.set("preview", "1")
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload.preview).toBe(true)
+    expect(payload.beforeText).toBe("Existing guidance.")
+    expect(payload.afterText).toContain("Existing guidance.")
+    expect(payload.afterText).toContain("New lock review guidance.")
+    expect(Array.isArray(payload.blocks)).toBe(true)
+    expect(state.insertedRevisions).toEqual([])
+    expect(state.updates).toEqual([])
+  })
+
+  it("applies a prepared AI update as a new revision", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        parent_id: null,
+        type: "page",
+        slug: "existing-page",
+        title: "Existing Page",
+        status: "published",
+        current_revision_id: "old-revision",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    const body = new FormData()
+    body.set("apply_preview", "1")
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "replace")
+    body.set(
+      "prepared_blocks",
+      JSON.stringify([{ type: "paragraph", content: "Replacement guidance." }])
+    )
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+
+    expect(response.status).toBe(200)
+    expect(ai.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
+    expect(state.insertedRevisions[0]).toMatchObject({
+      node_id: "existing-page",
+      plain_text: "Replacement guidance.",
+      change_note: "Replaced with AI from pasted text",
+    })
+    expect(state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "wiki_nodes",
+        value: expect.objectContaining({
+          current_revision_id: state.insertedRevisions[0]?.id,
+        }),
+        filters: { id: "existing-page" },
+      })
+    )
+  })
+
+  function seedMergePages() {
+    state.videoNode = null
+    state.nodes = [
+      {
+        id: "target-page",
+        parent_id: null,
+        type: "page",
+        slug: "funding-checklist",
+        title: "Funding checklist",
+        status: "published",
+        current_revision_id: "target-rev",
+      },
+      {
+        id: "source-page",
+        parent_id: null,
+        type: "page",
+        slug: "escrow-notes",
+        title: "Escrow notes",
+        status: "published",
+        current_revision_id: "source-rev",
+      },
+    ]
+    state.revisions = [
+      {
+        id: "target-rev",
+        plain_text: "Keep the lock steps.",
+        blocks: [{ type: "paragraph", content: "Keep the lock steps." }],
+      },
+      { id: "source-rev", plain_text: "Add the escrow note." },
+    ]
+    state.aiResponse = {
+      output_text: JSON.stringify({
+        title: "Funding checklist",
+        tags: [],
+        markdown: "Add the escrow note.",
+      }),
+    }
+  }
+
+  it("previews an AI merge without archiving the source page", async () => {
+    seedMergePages()
+    const body = new FormData()
+    body.set("target_page_id", "target-page")
+    body.set("source_page_id", "source-page")
+    body.set("mode", "update")
+    body.set("preview", "1")
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload.beforeText).toBe("Keep the lock steps.")
+    expect(payload.afterText).toContain("Add the escrow note.")
+    expect(state.insertedRevisions).toEqual([])
+    expect(state.updates).toEqual([])
+    expect(state.deletes).toEqual([])
+  })
+
+  it("archives the source page after a prepared AI merge", async () => {
+    seedMergePages()
+    const body = new FormData()
+    body.set("apply_preview", "1")
+    body.set("target_page_id", "target-page")
+    body.set("source_page_id", "source-page")
+    body.set("mode", "update")
+    body.set(
+      "prepared_blocks",
+      JSON.stringify([
+        { type: "paragraph", content: "Keep the lock steps." },
+        { type: "paragraph", content: "Add the escrow note." },
+      ])
+    )
+
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+
+    expect(response.status).toBe(200)
+    expect(state.insertedRevisions[0]).toMatchObject({
+      node_id: "target-page",
+      change_note: "Merged with AI from Escrow notes",
+      plain_text: "Keep the lock steps.\n\nAdd the escrow note.",
+    })
+    expect(state.updates).toContainEqual(
+      expect.objectContaining({
+        table: "wiki_nodes",
+        value: { status: "archived", updated_by: "wiki-manager" },
+        filters: { id: "source-page" },
+      })
+    )
+    expect(
+      state.deletes.some(
+        (entry) =>
+          (entry.filters as { id?: string } | undefined)?.id === "source-page"
+      )
+    ).toBe(false)
+    expect(state.insertedNodes.some((node) => node.id === "source-page")).toBe(
+      false
     )
   })
 })
