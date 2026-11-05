@@ -29,19 +29,6 @@ test.beforeAll(() => {
   ensureScreenshotDir()
 })
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    const hide = () => {
-      document.querySelectorAll("nextjs-portal").forEach((node) => node.remove())
-    }
-    hide()
-    new MutationObserver(hide).observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-    })
-  })
-})
-
 async function openUpdate(page: Page) {
   await enableEditorMode(page)
   await page.getByRole("button", { name: "AI Update" }).click()
@@ -158,9 +145,9 @@ test("editor mode opens history only from the footer date and restore appends a 
     fullPage: true,
   })
   await dialog.getByRole("button", { name: "Restore this version" }).click()
-  await expect(page.getByText("Old checklist")).toBeVisible()
+  await expect(page.getByText("Old checklist").first()).toBeVisible()
   await page.reload()
-  await expect(page.getByText("Old checklist")).toBeVisible()
+  await expect(page.getByText("Old checklist").first()).toBeVisible()
 
   const nodeId = (
     await serviceWiki()
@@ -238,9 +225,9 @@ test("a long reviewed replacement shows non-text changes and persists after relo
     fullPage: true,
   })
   await dialog.getByRole("button", { name: "Replace page" }).click()
-  await expect(page.getByText("LONGPAGE-TOKEN")).toBeVisible()
+  await expect(page.getByText("LONGPAGE-TOKEN").first()).toBeVisible()
   await page.reload()
-  await expect(page.getByText("LONGPAGE-TOKEN")).toBeVisible()
+  await expect(page.getByText("LONGPAGE-TOKEN").first()).toBeVisible()
   const saved = await revisionTexts(reviewed.id)
   expect(
     saved.some((revision) => revision.plain_text.includes("LONGPAGE-TOKEN"))
@@ -284,9 +271,9 @@ test("cancel leaves the revision untouched and a reviewed file save persists @wi
   await page.getByRole("button", { name: "See what will change" }).click()
   await expect(page.getByText("FILE-TOKEN")).toBeVisible()
   await page.getByRole("button", { name: "Update page" }).click()
-  await expect(page.getByText("FILE-TOKEN")).toBeVisible()
+  await expect(page.getByText("FILE-TOKEN").first()).toBeVisible()
   await page.reload()
-  await expect(page.getByText("FILE-TOKEN")).toBeVisible()
+  await expect(page.getByText("FILE-TOKEN").first()).toBeVisible()
   await page.screenshot({
     path: `${screenshotDir}/persisted-file-update.png`,
     fullPage: true,
@@ -449,10 +436,10 @@ test("AI merge archives the source only after the target save and keeps its hist
     .getByRole("button", { name: "AI Merge and archive" })
     .click()
   await page.goto(target.path)
-  await expect(page.getByText("SAMPLE-MERGE")).toBeVisible()
-  await expect(page.getByText("Keep the target sentence.")).toBeVisible()
+  await expect(page.getByText("SAMPLE-MERGE").first()).toBeVisible()
+  await expect(page.getByText("Keep the target sentence.").first()).toBeVisible()
   await page.reload()
-  await expect(page.getByText("SAMPLE-MERGE")).toBeVisible()
+  await expect(page.getByText("SAMPLE-MERGE").first()).toBeVisible()
 
   const { data: archived } = await serviceWiki()
     .from("wiki_nodes")
