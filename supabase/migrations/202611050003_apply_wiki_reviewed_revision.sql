@@ -43,7 +43,8 @@ begin
   end if;
 
   if v_current is distinct from p_base_revision_id then
-    raise exception 'stale_revision' using errcode = '40001';
+    -- P0001, not a serialization code. Clients retry 40001 and would hang.
+    raise exception 'stale_revision' using errcode = 'P0001';
   end if;
 
   if p_source_id is not null then
