@@ -113,31 +113,6 @@ function PageBox({
   )
 }
 
-function ChangeKey({
-  showTakenOut,
-  showPutIn,
-}: {
-  showTakenOut: boolean
-  showPutIn: boolean
-}) {
-  return (
-    <p className="text-base leading-7 text-neutral-950 dark:text-neutral-50">
-      {showTakenOut ? (
-        <>
-          <mark className={takenOutClass}>Crossed-out</mark> words are taken
-          out.
-        </>
-      ) : null}
-      {showTakenOut && showPutIn ? " " : null}
-      {showPutIn ? (
-        <>
-          <mark className={putInClass}>Underlined</mark> words are put in.
-        </>
-      ) : null}
-    </p>
-  )
-}
-
 export function WikiPlainDiff({
   beforeText,
   afterText,
@@ -155,16 +130,6 @@ export function WikiPlainDiff({
   )
   const [openFolds, setOpenFolds] = React.useState<Record<string, boolean>>({})
   const [showTakenOut, setShowTakenOut] = React.useState(false)
-  const hasTakenOut = diff.segments.some(
-    (segment) =>
-      segment.type === "text" &&
-      segment.pieces.some((piece) => piece.kind === "removed")
-  )
-  const hasPutIn = diff.segments.some(
-    (segment) =>
-      segment.type === "text" &&
-      segment.pieces.some((piece) => piece.kind === "added")
-  )
 
   function toggleFold(id: string) {
     setOpenFolds((current) => ({ ...current, [id]: !current[id] }))
@@ -175,9 +140,6 @@ export function WikiPlainDiff({
       <p className="text-lg leading-7 font-semibold text-neutral-950 dark:text-neutral-50">
         {diff.headline}
       </p>
-      {diff.showMarkup && (hasTakenOut || hasPutIn) ? (
-        <ChangeKey showTakenOut={hasTakenOut} showPutIn={hasPutIn} />
-      ) : null}
       {diff.showMarkup ? (
         <PageBox
           beforeTitle={beforeTitle}
@@ -201,16 +163,13 @@ export function WikiPlainDiff({
               : "Show what gets taken out"}
           </Button>
           {showTakenOut ? (
-            <>
-              <ChangeKey showTakenOut showPutIn={false} />
-              <PageBox
-                beforeTitle={beforeTitle}
-                afterTitle={afterTitle}
-                segments={diff.segments}
-                openFolds={openFolds}
-                onToggleFold={toggleFold}
-              />
-            </>
+            <PageBox
+              beforeTitle={beforeTitle}
+              afterTitle={afterTitle}
+              segments={diff.segments}
+              openFolds={openFolds}
+              onToggleFold={toggleFold}
+            />
           ) : null}
         </div>
       ) : null}

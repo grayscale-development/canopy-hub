@@ -90,7 +90,7 @@ describe("WikiRevisionSelector", () => {
       "old-revision"
     )
     expect(screen.getByText("1 change")).toBeVisible()
-    expect(screen.getByText(/words are taken out/)).toBeVisible()
+    expect(screen.queryByText(/words are taken out/i)).not.toBeInTheDocument()
     expect(
       screen.getAllByRole("heading", { name: "Page after restore" }).length
     ).toBeGreaterThan(0)

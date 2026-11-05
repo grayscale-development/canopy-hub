@@ -22,8 +22,8 @@ describe("WikiPlainDiff", () => {
     )
 
     expect(screen.getByText("1 change")).toBeVisible()
-    expect(screen.getByText(/words are taken out/)).toBeVisible()
-    expect(screen.getByText(/words are put in/)).toBeVisible()
+    expect(screen.queryByText(/words are taken out/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/words are put in/i)).not.toBeInTheDocument()
     expect(
       screen.getByRole("heading", { name: "Page after restore" })
     ).toBeVisible()
