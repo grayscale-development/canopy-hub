@@ -36,6 +36,8 @@ export default defineConfig({
           OPENAI_CHAT_MODEL: process.env.OPENAI_CHAT_MODEL ?? "fake-chat",
           OPENAI_EMBEDDING_MODEL:
             process.env.OPENAI_EMBEDDING_MODEL ?? "fake-embedding",
+          WIKI_IMPORT_TEST_PROVIDER:
+            process.env.WIKI_IMPORT_TEST_PROVIDER ?? "",
         },
       },
   projects: [

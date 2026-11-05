@@ -26,6 +26,7 @@ const state = vi.hoisted(() => ({
   revisions: [] as Array<Record<string, unknown>>,
   updates: [] as Array<Record<string, unknown>>,
   deletes: [] as Array<Record<string, unknown>>,
+  rpcCalls: [] as Array<Record<string, unknown>>,
   aiResponse: {
     output_text: JSON.stringify({
       title: "Lock Review",
@@ -144,6 +145,47 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
     auth: { getUser: async () => ({ data: { user: state.user } }) },
     from: (table: string) => new Query(table),
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      state.rpcCalls.push({ fn, args })
+      if (fn !== "apply_wiki_reviewed_revision") {
+        return { data: null, error: { message: "unknown_function" } }
+      }
+      const target = state.nodes.find((node) => node.id === args.p_target_id)
+      if (
+        (target?.current_revision_id ?? null) !==
+        (args.p_base_revision_id ?? null)
+      ) {
+        return { data: null, error: { message: "stale_revision" } }
+      }
+      const id = `reviewed-${state.insertedRevisions.length + 1}`
+      state.insertedRevisions.push({
+        id,
+        node_id: args.p_target_id,
+        blocks: args.p_blocks,
+        plain_text: args.p_plain_text,
+        change_note: args.p_change_note,
+        created_by: state.user?.id,
+      })
+      state.updates.push({
+        table: "wiki_nodes",
+        value: {
+          current_revision_id: id,
+          updated_by: state.user?.id,
+        },
+        filters: { id: args.p_target_id },
+      })
+      if (target) target.current_revision_id = id
+      if (args.p_source_id) {
+        state.updates.push({
+          table: "wiki_nodes",
+          value: { status: "archived", updated_by: state.user?.id },
+          filters: { id: args.p_source_id },
+        })
+        const source = state.nodes.find((node) => node.id === args.p_source_id)
+        if (source) source.status = "archived"
+      }
+      return { data: id, error: null }
+    },
   }),
 }))
 vi.mock("@/lib/supabase/admin", () => ({
@@ -228,6 +270,7 @@ describe("/api/wiki/import route", () => {
     state.revisions = []
     state.updates = []
     state.deletes = []
+    state.rpcCalls = []
     state.aiResponse = {
       output_text: JSON.stringify({
         title: "Lock Review",
@@ -768,6 +811,15 @@ describe("/api/wiki/import route", () => {
     })
     expect(pointerUpdate).toBeGreaterThanOrEqual(0)
     expect(archiveUpdate).toBeGreaterThan(pointerUpdate)
+    expect(state.rpcCalls).toHaveLength(1)
+    expect(state.rpcCalls[0]).toMatchObject({
+      fn: "apply_wiki_reviewed_revision",
+      args: expect.objectContaining({
+        p_target_id: "target-page",
+        p_source_id: "source-page",
+        p_base_revision_id: "target-rev",
+      }),
+    })
     expect(
       state.deletes.some((entry) => entry.table === "wiki_page_revisions")
     ).toBe(false)

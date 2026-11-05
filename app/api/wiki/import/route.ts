@@ -49,6 +49,10 @@ import {
   WIKI_IMPORT_MAX_TEXT_LENGTH,
   type WikiImportAiOutput,
 } from "@/lib/wiki-import"
+import {
+  deterministicWikiImportAllowed,
+  deterministicWikiImportOutput,
+} from "@/lib/ai/wiki-import-test-provider"
 import { archiveKnowledgeSource } from "@/lib/wiki-ai"
 import {
   readSignedWikiPreview,
@@ -159,6 +163,12 @@ async function getImportAiOutput(
   structureHints = "",
   existingText = ""
 ) {
+  if (deterministicWikiImportAllowed()) {
+    console.info(
+      "Wiki import is using the deterministic local test provider. No live model was called."
+    )
+    return deterministicWikiImportOutput(text, fileName)
+  }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
   try {
@@ -526,7 +536,6 @@ async function attachReviewedFile({
 
 async function applyPreparedWikiPreview({
   supabase,
-  userId,
   targetPage,
   sourcePageId,
   sourceTitle,
@@ -535,7 +544,6 @@ async function applyPreparedWikiPreview({
   fileName,
 }: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-  userId: string
   targetPage: WikiNodeRow
   sourcePageId: string | null
   sourceTitle: string
@@ -544,44 +552,35 @@ async function applyPreparedWikiPreview({
   fileName?: string | null
 }) {
   const plainText = blockNoteToPlainText(blocks)
-  const revisionId = crypto.randomUUID()
-  const { error: revisionError } = await supabase
-    .from("wiki_page_revisions")
-    .insert({
-      id: revisionId,
-      node_id: targetPage.id,
-      blocks,
-      plain_text: plainText,
-      change_note: sourcePageId
-        ? `Merged with AI from ${sourceTitle || "another page"}`
-        : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${fileName || "pasted text"}`,
-      created_by: userId,
-    })
-  if (revisionError) {
-    return NextResponse.json({ error: revisionError.message }, { status: 400 })
-  }
-
-  const { error: updateError } = await supabase
-    .from("wiki_nodes")
-    .update({ current_revision_id: revisionId, updated_by: userId })
-    .eq("id", targetPage.id)
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 400 })
-  }
-
-  if (sourcePageId) {
-    const { error: archiveError } = await supabase
-      .from("wiki_nodes")
-      .update({ status: "archived", updated_by: userId })
-      .eq("id", sourcePageId)
-    if (archiveError) {
-      return NextResponse.json({ error: archiveError.message }, { status: 400 })
+  const changeNote = sourcePageId
+    ? `Merged with AI from ${sourceTitle || "another page"}`
+    : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${fileName || "pasted text"}`
+  const { data: revisionId, error: saveError } = await supabase.rpc(
+    "apply_wiki_reviewed_revision",
+    {
+      p_target_id: targetPage.id,
+      p_base_revision_id: targetPage.current_revision_id,
+      p_blocks: blocks,
+      p_plain_text: plainText,
+      p_change_note: changeNote,
+      p_source_id: sourcePageId,
     }
-    await archiveKnowledgeSource({
-      supabase: createSupabaseAdminClient(),
-      sourceType: "wiki_page",
-      sourceId: sourcePageId,
-    })
+  )
+  if (saveError || typeof revisionId !== "string" || !revisionId) {
+    const message = saveError?.message ?? "Unable to save the reviewed page."
+    if (message.includes("stale_revision")) {
+      return NextResponse.json(
+        {
+          error:
+            "This page changed after you looked at it. Look again before saving.",
+        },
+        { status: 409 }
+      )
+    }
+    if (message.includes("forbidden")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+    return NextResponse.json({ error: message }, { status: 400 })
   }
 
   const nodes = await fetchWikiNodes(supabase)
@@ -833,7 +832,6 @@ export async function POST(request: Request) {
     }
     return applyPreparedWikiPreview({
       supabase,
-      userId: user.id,
       targetPage,
       sourcePageId,
       sourceTitle: sourcePageTitle,
@@ -1194,8 +1192,9 @@ export async function POST(request: Request) {
   }
 
   try {
+    const isPreview = formData.get("preview") === "1"
     const adminSupabase = createSupabaseAdminClient()
-    if (file && storagePath) {
+    if (!isPreview && file && storagePath) {
       const upload = await adminSupabase.storage
         .from(WIKI_BUCKET)
         .upload(storagePath, file, {
@@ -1206,15 +1205,17 @@ export async function POST(request: Request) {
         throw new Error(upload.error.message)
       }
     }
-    for (const image of importedImageAssets) {
-      const upload = await adminSupabase.storage
-        .from(WIKI_BUCKET)
-        .upload(image.storagePath, image.data, {
-          contentType: image.contentType,
-          upsert: false,
-        })
-      if (upload.error) {
-        throw new Error(upload.error.message)
+    if (!isPreview) {
+      for (const image of importedImageAssets) {
+        const upload = await adminSupabase.storage
+          .from(WIKI_BUCKET)
+          .upload(image.storagePath, image.data, {
+            contentType: image.contentType,
+            upsert: false,
+          })
+        if (upload.error) {
+          throw new Error(upload.error.message)
+        }
       }
     }
 
