@@ -35,8 +35,10 @@ export default async function LoginPage() {
     redirect("/home")
   }
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
   const showLocalDevLogin =
-    process.env.NODE_ENV !== "production" && isLocalhostHost(host)
+    isLocalhostHost(host) &&
+    /^http:\/\/(localhost|127\.0\.0\.1):54321$/.test(supabaseUrl)
 
   return (
     <main
