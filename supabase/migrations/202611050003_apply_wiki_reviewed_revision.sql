@@ -65,7 +65,7 @@ begin
       into v_source_status, v_current
     from public.wiki_nodes
     where id = p_source_id
-      and type = 'page'
+      and type = 'page';
 
     if not found then
       raise exception 'source_not_found' using errcode = 'P0002';
