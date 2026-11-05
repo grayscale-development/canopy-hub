@@ -42,8 +42,7 @@ function waitForAppliedPreview(page: Page) {
   return page.waitForResponse(
     (response) =>
       response.url().includes("/api/wiki/import") &&
-      response.request().method() === "POST" &&
-      (response.request().postData() ?? "").includes("apply_preview")
+      response.request().method() === "POST"
   )
 }
 

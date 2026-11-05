@@ -174,6 +174,7 @@ function WikiEditorMounted({
     return uploadPayload
   }
 
+  const changeBaseline = React.useRef<string | null>(null)
   const editor = useCreateBlockNote({
     initialContent: normalizeInitialBlocks(revision?.blocks),
     uploadFile: canManage
@@ -262,8 +263,13 @@ function WikiEditorMounted({
           theme={resolvedTheme === "dark" ? "dark" : "light"}
           editable={canEditPage && !isHistorical}
           onChange={() => {
+            const next = JSON.stringify(editor.document)
             setBlocks(editor.document)
-            setIsDirty(true)
+            if (changeBaseline.current === null) {
+              changeBaseline.current = next
+              return
+            }
+            setIsDirty(next !== changeBaseline.current)
           }}
           className="w-full min-w-0"
           slashMenu={false}
