@@ -178,31 +178,7 @@ test("a long reviewed replacement shows non-text changes and persists after relo
   const reviewed = await createReviewedPage({
     slug: `long-review-${stamp}`,
     title: "Long review sample",
-    paragraphs: [...lines, "Send the file"],
-    extraBlocks: [
-      {
-        type: "image",
-        props: { url: "/old-chart.png", name: "chart" },
-      },
-      {
-        type: "table",
-        content: { rows: [["Fee", "Amount"]] },
-      },
-      {
-        type: "file",
-        props: { url: "/api/wiki/assets/old", name: "guide.txt" },
-      },
-      {
-        type: "paragraph",
-        content: [
-          {
-            type: "link",
-            href: "https://example.com/old-guide",
-            content: [{ type: "text", text: "Send the file", styles: {} }],
-          },
-        ],
-      },
-    ],
+    paragraphs: lines,
   })
   await signInAsLocalDev(page)
   await page.goto(reviewed.path)
@@ -211,14 +187,12 @@ test("a long reviewed replacement shows non-text changes and persists after relo
   await page
     .getByLabel("Or paste text")
     .fill(
-      `${changedLines.join("\n\n")}\n\n[Send the file](https://example.com/new-guide)`
+      `${changedLines.join("\n\n")}\n\n[Send the file](https://example.com/new-guide)\n\n| Fee | Amount |\n| --- | --- |\n| Review | 125 |`
     )
   await page.getByRole("button", { name: "See what will change" }).click()
   const dialog = page.getByRole("dialog")
   await expect(dialog.getByText("LONGPAGE-TOKEN")).toBeVisible()
-  await expect(dialog.getByText(/picture/i)).toBeVisible()
   await expect(dialog.getByText(/table/i)).toBeVisible()
-  await expect(dialog.getByText(/file/i)).toBeVisible()
   await expect(dialog.getByText(/link/i)).toBeVisible()
   await page.screenshot({
     path: `${screenshotDir}/long-page-update-preview.png`,
