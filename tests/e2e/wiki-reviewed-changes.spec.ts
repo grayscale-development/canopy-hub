@@ -51,13 +51,17 @@ test("a reader cannot open unpublished wiki history @wiki-reviewed", async ({
   await expect(
     page.getByRole("button", { name: /Last updated at/ })
   ).toHaveCount(0)
-  await expect(
-    page.getByRole("switch", { name: "Toggle wiki editor mode" })
-  ).toHaveCount(0)
   await page.screenshot({
     path: `${screenshotDir}/footer-date-reader.png`,
     fullPage: true,
   })
+  await page.getByRole("switch", { name: "Toggle wiki editor mode" }).click()
+  await expect(
+    page.getByRole("button", { name: /Last updated at/ })
+  ).toHaveCount(0)
+  await expect(page.getByRole("listbox", { name: "Page versions" })).toHaveCount(
+    0
+  )
 
   const { data: node } = await serviceWiki()
     .from("wiki_nodes")
