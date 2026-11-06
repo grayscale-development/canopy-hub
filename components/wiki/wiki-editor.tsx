@@ -136,6 +136,7 @@ function WikiEditorMounted({
   const { canEditWiki } = useWikiEditMode()
   const canEditPage = canManage && canEditWiki
   const [pending, startTransition] = React.useTransition()
+  const saveInFlight = React.useRef(false)
   const [state, setState] = React.useState<WikiActionResult | null>(null)
   const [isDirty, setIsDirty] = React.useState(false)
   const [blocks, setBlocks] = React.useState<unknown>(
@@ -182,17 +183,32 @@ function WikiEditorMounted({
   })
 
   function save() {
+    if (saveInFlight.current) {
+      return
+    }
+
+    saveInFlight.current = true
     const formData = new FormData()
     setState(null)
     formData.set("node_id", node.id)
     formData.set("blocks", JSON.stringify(blocks))
 
     startTransition(async () => {
-      const result = await saveWikiPageAction(formData)
-      setState(result)
-      if (result.ok) {
-        setIsDirty(false)
-        router.refresh()
+      try {
+        const result = await saveWikiPageAction(formData)
+        setState(result)
+        if (result.ok) {
+          setIsDirty(false)
+          router.refresh()
+        }
+      } catch {
+        setState({
+          ok: false,
+          message:
+            "Save failed, but your changes are still in the editor. Please try again.",
+        })
+      } finally {
+        saveInFlight.current = false
       }
     })
   }

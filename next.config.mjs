@@ -13,6 +13,12 @@ const nextConfig = {
     // Keep this slightly above the app-level 250MB upload limit so multipart
     // overhead does not trigger a framework-level 413 first.
     proxyClientMaxBodySize: "260mb",
+    // Wiki saves submit the complete BlockNote document, so a short edit to a
+    // large page can still exceed the framework's default 1MB action limit.
+    // Keep this aligned with the proxy and app-level upload allowances above.
+    serverActions: {
+      bodySizeLimit: "260mb",
+    },
   },
   // pdf-parse resolves its Node worker at runtime. Bundling it makes Turbopack
   // resolve the browser entry instead, which cannot load that worker on the
