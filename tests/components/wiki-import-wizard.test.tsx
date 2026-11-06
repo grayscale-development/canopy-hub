@@ -82,13 +82,31 @@ describe("WikiImportWizardDialog", () => {
     expect(startBody.get("video_file_name")).toBe("loan-review.mp4")
   })
 
-  it("updates the current page without offering a destination and defaults to Update", async () => {
+  it("previews an AI update, then saves that exact new version", async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true, path: "/wiki/existing" }), {
-        status: 200,
-      })
-    )
+    const blocks = [{ type: "paragraph", content: "Replacement guidance." }]
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            preview: true,
+            beforeText: "Keep the lock steps.",
+            afterText: "Replacement guidance.",
+            blocks,
+            baseRevisionId: "old-revision",
+            signedPreview: "signed-update",
+            previewSignature: "sig-update",
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, path: "/wiki/existing" }), {
+          status: 200,
+        })
+      )
 
     render(
       <WikiImportWizardDialog
@@ -111,15 +129,34 @@ describe("WikiImportWizardDialog", () => {
       "Apply this guidance"
     )
     await user.click(replaceSwitch)
+    await user.click(
+      screen.getByRole("button", { name: "See what will change" })
+    )
+
+    expect(
+      await screen.findByRole("heading", { name: "Page after replace" })
+    ).toBeVisible()
+    expect(screen.getByText("1 change")).toBeVisible()
+    expect(
+      screen.getByText(
+        "This replaces the page with the new words and saves a new version."
+      )
+    ).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Replace page" }))
 
     await waitFor(() => {
       expect(router.push).toHaveBeenCalledWith("/wiki/existing")
     })
-    const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
-    expect(body.get("target_page_id")).toBe("existing-page")
-    expect(body.get("mode")).toBe("replace")
-    expect(body.get("parent_id")).toBeNull()
+    const previewBody = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    expect(previewBody.get("target_page_id")).toBe("existing-page")
+    expect(previewBody.get("mode")).toBe("replace")
+    expect(previewBody.get("preview")).toBe("1")
+    expect(previewBody.get("parent_id")).toBeNull()
+    const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
+    expect(applyBody.get("apply_preview")).toBe("1")
+    expect(applyBody.get("signed_preview")).toBe("signed-update")
+    expect(applyBody.get("preview_signature")).toBe("sig-update")
+    expect(applyBody.get("mode")).toBe("replace")
   })
 
   it("creates in the selected destination folder", async () => {
@@ -176,5 +213,104 @@ describe("WikiImportWizardDialog", () => {
     )
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData
     expect(body.get("parent_id")).toBe("reports")
+  })
+
+  it("saves a file from the reviewed blocks instead of asking the model again", async () => {
+    const user = userEvent.setup()
+    const blocks = [{ type: "paragraph", content: "Reviewed guidance." }]
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            preview: true,
+            beforeText: "Old guidance.",
+            afterText: "Reviewed guidance.",
+            blocks,
+            baseRevisionId: "old-revision",
+            signedPreview: "signed-file",
+            previewSignature: "sig-file",
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, path: "/wiki/existing" }), {
+          status: 200,
+        })
+      )
+
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="existing-page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    const input = document.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement
+    await user.upload(
+      input,
+      new File(["notes"], "notes.txt", { type: "text/plain" })
+    )
+    await user.click(
+      screen.getByRole("button", { name: "See what will change" })
+    )
+    await screen.findByRole("heading", { name: "Page after update" })
+    await user.click(screen.getByRole("button", { name: "Update page" }))
+
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith("/wiki/existing")
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const applyBody = fetchMock.mock.calls[1]?.[1]?.body as FormData
+    expect(applyBody.get("apply_preview")).toBe("1")
+    expect(applyBody.get("signed_preview")).toBe("signed-file")
+    expect(applyBody.get("preview_signature")).toBe("sig-file")
+    expect(applyBody.get("file")).toBeInstanceOf(File)
+  })
+
+  it("leaves the page untouched when the review is cancelled", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          preview: true,
+          beforeText: "Old guidance.",
+          afterText: "Reviewed guidance.",
+          blocks: [{ type: "paragraph", content: "Reviewed guidance." }],
+          baseRevisionId: "old-revision",
+          signedPreview: "signed-cancel",
+          previewSignature: "sig-cancel",
+        }),
+        { status: 200 }
+      )
+    )
+
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="existing-page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Or paste text" }),
+      "Reviewed guidance."
+    )
+    await user.click(
+      screen.getByRole("button", { name: "See what will change" })
+    )
+    await user.click(await screen.findByRole("button", { name: "Back" }))
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole("button", { name: "See what will change" })
+    ).toBeVisible()
   })
 })

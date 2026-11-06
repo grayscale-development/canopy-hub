@@ -6,6 +6,21 @@ import { RotateCcwIcon } from "lucide-react"
 
 import { restoreWikiRevisionAction } from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
+import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
 import type { WikiRevisionRow } from "@/lib/wiki"
 
 export function WikiRevisionSelector({
@@ -14,19 +29,30 @@ export function WikiRevisionSelector({
   selectedRevisionId,
   revisions,
   canRestore,
+  lastUpdatedLabel = "Last updated",
 }: {
   nodeId: string
   currentRevisionId: string | null
   selectedRevisionId: string | null
   revisions: WikiRevisionRow[]
   canRestore: boolean
+  lastUpdatedLabel?: string | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { canEditWiki } = useWikiEditMode()
   const [pending, setPending] = React.useState(false)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [menuOpen, setMenuOpen] = React.useState(false)
+  const [error, setError] = React.useState("")
   const isHistorical =
     Boolean(selectedRevisionId) && selectedRevisionId !== currentRevisionId
+  const allowRestore = canRestore && canEditWiki
+  const currentRevision =
+    revisions.find((revision) => revision.id === currentRevisionId) ?? null
+  const selectedRevision =
+    revisions.find((revision) => revision.id === selectedRevisionId) ?? null
 
   function selectRevision(revisionId: string) {
     const params = new URLSearchParams(searchParams)
@@ -48,49 +74,135 @@ export function WikiRevisionSelector({
     formData.set("node_id", nodeId)
     formData.set("revision_id", selectedRevisionId)
     setPending(true)
+    setError("")
     const result = await restoreWikiRevisionAction(formData)
     setPending(false)
-    if (result.ok) {
-      const params = new URLSearchParams(searchParams)
-      params.delete("revision")
-      const query = params.toString()
-      router.replace(query ? `${pathname}?${query}` : pathname)
-      router.refresh()
+    if (!result.ok) {
+      setError(result.message)
+      return
     }
+    setConfirmOpen(false)
+    const params = new URLSearchParams(searchParams)
+    params.delete("revision")
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+    router.refresh()
   }
 
-  if (!revisions.length) {
-    return null
+  React.useEffect(() => {
+    if (canEditWiki || !searchParams.get("revision")) {
+      return
+    }
+    const params = new URLSearchParams(searchParams)
+    params.delete("revision")
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [canEditWiki, pathname, router, searchParams])
+
+  const dateText = lastUpdatedLabel ?? ""
+
+  if (!canEditWiki || !revisions.length || !dateText) {
+    return dateText ? (
+      <p className="w-full text-center text-xs text-muted-foreground/70">
+        {dateText}
+      </p>
+    ) : null
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <select
-        value={selectedRevisionId ?? currentRevisionId ?? ""}
-        onChange={(event) => selectRevision(event.currentTarget.value)}
-        className="h-10 min-w-56 rounded-lg border bg-white px-3 pr-8 text-sm dark:bg-[#1F1F1F]"
-      >
-        {revisions.map((revision) => (
-          <option key={revision.id} value={revision.id}>
-            {revision.id === currentRevisionId ? "Current - " : ""}
-            {new Date(revision.created_at).toLocaleString()}
-            {revision.change_note ? ` - ${revision.change_note}` : ""}
-          </option>
-        ))}
-      </select>
-
-      {isHistorical && canRestore ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={pending}
-          onClick={restoreSelected}
-        >
-          <RotateCcwIcon />
-          {pending ? "Restoring..." : "Restore to Primary"}
-        </Button>
+    <div className="grid w-full justify-items-center gap-4">
+      <div className="flex w-full flex-col items-center gap-2">
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="cursor-pointer text-center text-xs text-muted-foreground/70 underline decoration-dotted underline-offset-4 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+            >
+              {dateText}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="center" className="w-80">
+            {revisions.map((revision) => {
+              const label = `${revision.id === currentRevisionId ? "Current - " : ""}${new Date(revision.created_at).toLocaleString()}${revision.change_note ? ` - ${revision.change_note}` : ""}`
+              return (
+                <DropdownMenuItem
+                  key={revision.id}
+                  onSelect={() => selectRevision(revision.id)}
+                >
+                  {label}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {isHistorical && allowRestore ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="cursor-pointer"
+            onClick={() => {
+              setError("")
+              setConfirmOpen(true)
+            }}
+          >
+            <RotateCcwIcon />
+            Restore this version
+          </Button>
+        ) : null}
+      </div>
+      {isHistorical ? (
+        <WikiPlainDiff
+          beforeText={currentRevision?.plain_text ?? ""}
+          afterText={selectedRevision?.plain_text ?? ""}
+          beforeBlocks={currentRevision?.blocks}
+          afterBlocks={selectedRevision?.blocks}
+          beforeTitle="This page now"
+          afterTitle="Page after restore"
+        />
       ) : null}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent
+          aria-describedby={undefined}
+          className="max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
+        >
+          <DialogHeader>
+            <DialogTitle>Restore this version?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-foreground">
+            This saves a new copy of the older version and makes that copy the
+            current page.
+          </p>
+          <WikiPlainDiff
+            beforeText={currentRevision?.plain_text ?? ""}
+            afterText={selectedRevision?.plain_text ?? ""}
+            beforeBlocks={currentRevision?.blocks}
+            afterBlocks={selectedRevision?.blocks}
+            beforeTitle="This page now"
+            afterTitle="Page after restore"
+          />
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              onClick={() => setConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="cursor-pointer"
+              disabled={pending}
+              onClick={() => void restoreSelected()}
+            >
+              <RotateCcwIcon />
+              {pending ? "Restoring..." : "Restore this version"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

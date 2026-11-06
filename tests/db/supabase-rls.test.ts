@@ -81,6 +81,38 @@ dbDescribe("local Supabase RLS and RPC smoke tests", () => {
     ])
   })
 
+  it("hides older wiki revisions from readers and shows them to managers", async () => {
+    const standard = await signIn("standard@canopy.test")
+    const manager = await signIn("wiki-manager@canopy.test")
+    const pageId = await getWikiNodeId(manager, "funding-checklist")
+    const { data: page, error: pageError } = await manager
+      .from("wiki_nodes")
+      .select("current_revision_id")
+      .eq("id", pageId)
+      .single()
+
+    expect(pageError).toBeNull()
+    const currentId = page?.current_revision_id
+    expect(currentId).toEqual(expect.any(String))
+
+    const { data: readerHistory, error: readerError } = await standard
+      .from("wiki_page_revisions")
+      .select("id")
+      .eq("node_id", pageId)
+
+    expect(readerError).toBeNull()
+    expect(readerHistory?.map((revision) => revision.id)).toEqual([currentId])
+
+    const { data: managerHistory, error: managerError } = await manager
+      .from("wiki_page_revisions")
+      .select("id")
+      .eq("node_id", pageId)
+
+    expect(managerError).toBeNull()
+    expect(managerHistory?.length).toBeGreaterThan(1)
+    expect(managerHistory?.map((revision) => revision.id)).toContain(currentId)
+  })
+
   it("prevents standard users from mutating Wiki nodes", async () => {
     const standard = await signIn("standard@canopy.test")
     const groupId = await getWikiNodeId(standard, "closing")

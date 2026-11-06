@@ -18,11 +18,7 @@ export async function POST(request: NextRequest) {
     request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? ""
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
 
-  if (
-    process.env.NODE_ENV === "production" ||
-    !isLocalhostHost(host) ||
-    !isLocalSupabaseUrl(supabaseUrl)
-  ) {
+  if (!isLocalhostHost(host) || !isLocalSupabaseUrl(supabaseUrl)) {
     return NextResponse.json(
       { error: "Local dev sign-in is only available on localhost." },
       { status: 403 }

@@ -73,6 +73,7 @@ export function WikiEditor({
   showStatusControl = false,
   headerActions,
   createAction,
+  versionHistory,
   availableTags = [],
 }: {
   node: WikiNodeRow
@@ -83,6 +84,7 @@ export function WikiEditor({
   showStatusControl?: boolean
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
+  versionHistory?: React.ReactNode
   availableTags?: string[]
 }) {
   const [mounted, setMounted] = React.useState(false)
@@ -105,6 +107,7 @@ export function WikiEditor({
       showStatusControl={showStatusControl}
       headerActions={headerActions}
       createAction={createAction}
+      versionHistory={versionHistory}
       availableTags={availableTags}
     />
   )
@@ -119,6 +122,7 @@ function WikiEditorMounted({
   showStatusControl = false,
   headerActions,
   createAction,
+  versionHistory,
   availableTags,
 }: {
   node: WikiNodeRow
@@ -129,6 +133,7 @@ function WikiEditorMounted({
   showStatusControl?: boolean
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
+  versionHistory?: React.ReactNode
   availableTags: string[]
 }) {
   const router = useRouter()
@@ -170,6 +175,7 @@ function WikiEditorMounted({
     return uploadPayload
   }
 
+  const changeBaseline = React.useRef<string | null>(null)
   const editor = useCreateBlockNote({
     initialContent: normalizeInitialBlocks(revision?.blocks),
     uploadFile: canManage
@@ -273,8 +279,13 @@ function WikiEditorMounted({
           theme={resolvedTheme === "dark" ? "dark" : "light"}
           editable={canEditPage && !isHistorical}
           onChange={() => {
+            const next = JSON.stringify(editor.document)
             setBlocks(editor.document)
-            setIsDirty(true)
+            if (changeBaseline.current === null) {
+              changeBaseline.current = next
+              return
+            }
+            setIsDirty(next !== changeBaseline.current)
           }}
           className="w-full min-w-0"
           slashMenu={false}
@@ -308,9 +319,11 @@ function WikiEditorMounted({
               ))
             : null}
         </div>
-        <p className="w-full text-center text-xs text-muted-foreground/70">
-          {lastUpdatedLabel ?? null}
-        </p>
+        {versionHistory ?? (
+          <p className="w-full text-center text-xs text-muted-foreground/70">
+            {lastUpdatedLabel ?? null}
+          </p>
+        )}
       </div>
       {canEditPage && !isHistorical && isDirty ? (
         <Button
