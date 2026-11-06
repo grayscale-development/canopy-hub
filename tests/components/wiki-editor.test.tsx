@@ -8,6 +8,7 @@ import {
   WikiEditModeProvider,
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
+import { saveWikiPageAction } from "@/app/wiki/actions"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import type { WikiNodeRow } from "@/lib/wiki"
 
@@ -27,8 +28,24 @@ vi.mock("@blocknote/react", () => ({
 }))
 
 vi.mock("@blocknote/shadcn", () => ({
-  BlockNoteView: ({ editable }: { editable?: boolean }) => (
-    <div data-testid="blocknote-view" data-editable={String(editable)} />
+  BlockNoteView: ({
+    editable,
+    onChange,
+  }: {
+    editable?: boolean
+    onChange?: () => void
+  }) => (
+    <button
+      type="button"
+      data-testid="blocknote-view"
+      data-editable={String(editable)}
+      onClick={() => {
+        blockNoteState.document = [
+          { type: "paragraph", content: "Updated wiki content." },
+        ]
+        onChange?.()
+      }}
+    />
   ),
 }))
 
@@ -88,7 +105,18 @@ describe("WikiEditor", () => {
   })
 
   beforeEach(() => {
+    vi.clearAllMocks()
     window.localStorage.clear()
+    blockNoteState.document = [
+      {
+        type: "paragraph",
+        content: "Cancel a loan by completing the required fields.",
+      },
+    ]
+    vi.mocked(saveWikiPageAction).mockResolvedValue({
+      ok: true,
+      message: "Saved.",
+    })
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(224)
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(400)
   })
@@ -229,5 +257,79 @@ describe("WikiEditor", () => {
     await user.type(searchInput, "Policies")
     await user.click(screen.getByRole("button", { name: "Create “Policies”" }))
     expect(screen.getByRole("button", { name: "Policies ×" })).toBeVisible()
+  })
+
+  it("keeps the draft editable and shows a recoverable error when saving fails", async () => {
+    const user = userEvent.setup()
+    vi.mocked(saveWikiPageAction).mockRejectedValueOnce(
+      new Error("Body exceeded 1 MB limit.")
+    )
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor
+          node={node}
+          revision={revision}
+          canManage
+          showStatusControl
+        />
+      </WikiEditModeProvider>
+    )
+
+    await user.click(screen.getByTestId("blocknote-view"))
+    await user.click(screen.getByRole("button", { name: "Save Changes" }))
+
+    expect(
+      await screen.findByText(
+        "Save failed, but your changes are still in the editor. Please try again."
+      )
+    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled()
+    expect(screen.getByTestId("blocknote-view")).toHaveAttribute(
+      "data-editable",
+      "true"
+    )
+  })
+
+  it("prevents a second save while the first save is pending", async () => {
+    const user = userEvent.setup()
+    let resolveSave: (result: {
+      ok: boolean
+      message: string
+    }) => void = () => {
+      throw new Error("Save action resolver was not initialized.")
+    }
+    vi.mocked(saveWikiPageAction).mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean; message: string }>((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor
+          node={node}
+          revision={revision}
+          canManage
+          showStatusControl
+        />
+      </WikiEditModeProvider>
+    )
+
+    await user.click(screen.getByTestId("blocknote-view"))
+    const saveButton = screen.getByRole("button", { name: "Save Changes" })
+    await user.click(saveButton)
+    await user.click(saveButton)
+
+    expect(saveWikiPageAction).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled()
+
+    resolveSave({ ok: true, message: "Saved." })
+    expect(
+      await screen.findByRole("button", { name: "Edit page tags" })
+    ).toBeVisible()
   })
 })

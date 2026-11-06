@@ -641,16 +641,25 @@ export async function saveWikiPageAction(
       return { ok: false, message: revisionError.message }
     }
 
-    const { error: updateError } = await supabase
+    const { data: savedNode, error: updateError } = await supabase
       .from("wiki_nodes")
       .update({
         current_revision_id: revision.id,
         updated_by: user.id,
       })
       .eq("id", nodeId)
+      .select("current_revision_id")
+      .single()
 
     if (updateError) {
       return { ok: false, message: updateError.message }
+    }
+
+    if (savedNode?.current_revision_id !== revision.id) {
+      return {
+        ok: false,
+        message: "Wiki page content could not be confirmed as saved.",
+      }
     }
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
