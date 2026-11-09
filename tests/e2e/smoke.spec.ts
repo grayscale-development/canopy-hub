@@ -73,16 +73,27 @@ test("Wiki repository page renders seeded content @wiki @smoke", async ({
   await expect(page.getByText("Operations").first()).toBeVisible()
 })
 
-test("Wiki folder URLs open the first published page @wiki @smoke", async ({
+test("Wiki folder URLs show their landing contents @wiki @smoke", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
 
   await page.goto("/wiki/canopy-wiki")
-  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/home-dashboard$/)
+  await expect(page).toHaveURL(/\/wiki\/canopy-wiki$/)
+  const main = page.getByRole("main")
+  await expect(
+    main.getByRole("link", { name: "Hub", exact: true })
+  ).toHaveAttribute("href", "/wiki/canopy-wiki/hub")
 
   await page.goto("/wiki/canopy-wiki/hub")
-  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/[^/]+$/)
+  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub$/)
+  await expect(
+    main.getByRole("link", { name: "Home Dashboard", exact: true })
+  ).toHaveAttribute("href", "/wiki/canopy-wiki/hub/home-dashboard")
+  await expect(main.getByRole("link", { name: "File Viewer" })).toBeVisible()
+  await expect(
+    main.getByRole("combobox", { name: "Filter by tag" })
+  ).toHaveCount(0)
 })
 
 test("Wiki sidebar titles toggle without navigation and manager edit opens folder-only Move @wiki", async ({
