@@ -2,6 +2,7 @@
 
 import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useEffect, useRef } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -34,19 +35,27 @@ vi.mock("@blocknote/shadcn", () => ({
   }: {
     editable?: boolean
     onChange?: () => void
-  }) => (
-    <button
-      type="button"
-      data-testid="blocknote-view"
-      data-editable={String(editable)}
-      onClick={() => {
-        blockNoteState.document = [
-          { type: "paragraph", content: "Updated wiki content." },
-        ]
-        onChange?.()
-      }}
-    />
-  ),
+  }) => {
+    const initialOnChange = useRef(onChange)
+    useEffect(() => {
+      // The real editor emits an initialization change when it mounts.
+      initialOnChange.current?.()
+    }, [])
+
+    return (
+      <button
+        type="button"
+        data-testid="blocknote-view"
+        data-editable={String(editable)}
+        onClick={() => {
+          blockNoteState.document = [
+            { type: "paragraph", content: "Updated wiki content." },
+          ]
+          onChange?.()
+        }}
+      />
+    )
+  },
 }))
 
 vi.mock("next/navigation", () => ({
@@ -277,6 +286,9 @@ describe("WikiEditor", () => {
       </WikiEditModeProvider>
     )
 
+    expect(
+      screen.queryByRole("button", { name: "Save Changes" })
+    ).not.toBeInTheDocument()
     await user.click(screen.getByTestId("blocknote-view"))
     await user.click(screen.getByRole("button", { name: "Save Changes" }))
 
