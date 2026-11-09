@@ -18,6 +18,9 @@ const upload = vi.hoisted(() => ({
   uploadWikiFileToStorage: vi.fn(async () => {}),
 }))
 
+const toast = vi.hoisted(() => ({ success: vi.fn() }))
+vi.mock("sonner", () => ({ toast }))
+
 const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }))
 
 vi.mock("@/lib/wiki-upload-client", () => upload)
@@ -119,19 +122,25 @@ describe("WikiImportWizardDialog", () => {
 
     expect(screen.getByRole("heading", { name: "AI Update" })).toBeVisible()
     expect(screen.queryByLabelText("Add to")).not.toBeInTheDocument()
-    const replaceSwitch = screen.getByRole("switch", {
-      name: "Replace existing content",
+    const addChoice = screen.getByRole("radio", { name: "Add to this page" })
+    const replaceChoice = screen.getByRole("radio", {
+      name: "Replace this page",
     })
-    expect(replaceSwitch).toHaveAttribute("data-state", "unchecked")
+    expect(addChoice).toBeChecked()
+    expect(replaceChoice).not.toBeChecked()
+    expect(
+      screen.getByText("Choose a file or paste text to continue.")
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toBeDisabled()
 
     await user.type(
-      screen.getByRole("textbox", { name: "Or paste text" }),
+      screen.getByRole("textbox", { name: "Paste text" }),
       "Apply this guidance"
     )
-    await user.click(replaceSwitch)
-    await user.click(
-      screen.getByRole("button", { name: "See what will change" })
-    )
+    await user.click(replaceChoice)
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
 
     expect(
       await screen.findByRole("heading", { name: "Page after replace" })
@@ -142,10 +151,17 @@ describe("WikiImportWizardDialog", () => {
         "This replaces the page with the new words and saves a new version."
       )
     ).toBeVisible()
-    await user.click(screen.getByRole("button", { name: "Replace page" }))
+    await user.click(
+      screen.getByRole("button", { name: "Save as new version" })
+    )
 
     await waitFor(() => {
       expect(router.push).toHaveBeenCalledWith("/wiki/existing")
+      expect(router.refresh).toHaveBeenCalled()
+      expect(toast.success).toHaveBeenCalledWith(
+        "Page updated. The older version is still in the history."
+      )
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     })
     const previewBody = fetchMock.mock.calls[0]?.[1]?.body as FormData
     expect(previewBody.get("target_page_id")).toBe("existing-page")
@@ -192,18 +208,17 @@ describe("WikiImportWizardDialog", () => {
       />
     )
     await user.click(screen.getByRole("button", { name: "AI Create" }))
-    await user.click(
-      screen.getByRole("button", {
-        name: "This page will be added to Hub / Reports.",
-      })
-    )
+    expect(
+      screen.getByText("This page will be added to Hub / Reports.")
+    ).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Change" }))
     expect(
       screen.getByRole("heading", { name: "Choose destination" })
     ).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Reports" }))
     await user.click(screen.getByRole("button", { name: "Choose destination" }))
     await user.type(
-      screen.getByRole("textbox", { name: "Or paste text" }),
+      screen.getByRole("textbox", { name: "Paste text" }),
       "New report"
     )
     await user.click(screen.getByRole("button", { name: "Create draft" }))
@@ -256,11 +271,15 @@ describe("WikiImportWizardDialog", () => {
       input,
       new File(["notes"], "notes.txt", { type: "text/plain" })
     )
-    await user.click(
-      screen.getByRole("button", { name: "See what will change" })
-    )
+    expect(screen.getByText(/notes.txt/)).toHaveTextContent("5 bytes")
+    expect(
+      screen.getByText("Remove the file to paste text instead.")
+    ).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
     await screen.findByRole("heading", { name: "Page after update" })
-    await user.click(screen.getByRole("button", { name: "Update page" }))
+    await user.click(
+      screen.getByRole("button", { name: "Save as new version" })
+    )
 
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith("/wiki/existing")
@@ -300,17 +319,184 @@ describe("WikiImportWizardDialog", () => {
     )
     await user.click(screen.getByRole("button", { name: "AI Update" }))
     await user.type(
-      screen.getByRole("textbox", { name: "Or paste text" }),
+      screen.getByRole("textbox", { name: "Paste text" }),
       "Reviewed guidance."
     )
-    await user.click(
-      screen.getByRole("button", { name: "See what will change" })
-    )
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
     await user.click(await screen.findByRole("button", { name: "Back" }))
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeVisible()
+  })
+
+  it("removes a selected file and allows it to be chosen again", async () => {
+    const user = userEvent.setup()
+    render(<WikiImportWizardDialog nodes={[]} />)
+    await user.click(screen.getByRole("button", { name: "AI Create" }))
+    const input = document.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" })
+    await user.upload(input, file)
+    expect(screen.getByRole("textbox", { name: "Paste text" })).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Remove" }))
+    expect(screen.getByRole("textbox", { name: "Paste text" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Create draft" })).toBeDisabled()
+    await user.upload(input, file)
+    expect(screen.getByText(/notes.txt/)).toBeVisible()
+  })
+
+  it("shows an actionable error when an update preview fails", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Could not read the file." }), {
+        status: 400,
+      })
+    )
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Paste text" }),
+      "Notes"
+    )
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not read the file. Please try again."
+    )
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled()
+  })
+
+  it("ignores a preview that finishes after Escape closes the dialog", async () => {
+    const user = userEvent.setup()
+    let resolveRequest!: (response: Response) => void
+    vi.spyOn(globalThis, "fetch").mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRequest = resolve
+      })
+    )
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Paste text" }),
+      "Notes"
+    )
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
     expect(
-      screen.getByRole("button", { name: "See what will change" })
-    ).toBeVisible()
+      screen.getByRole("button", { name: "Reading the page…" })
+    ).toBeDisabled()
+    expect(screen.getByRole("textbox", { name: "Paste text" })).toBeDisabled()
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    resolveRequest(
+      new Response(
+        JSON.stringify({
+          preview: true,
+          beforeText: "Old",
+          afterText: "New",
+          blocks: [],
+          signedPreview: "signed",
+          previewSignature: "signature",
+        }),
+        { status: 200 }
+      )
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toBeDisabled()
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Save as new version" })
+      ).not.toBeInTheDocument()
+    )
+  })
+
+  it("shows duplicate content with choices for AI Create", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          duplicate: true,
+          existing: { title: "Notes", path: "/wiki/notes" },
+        }),
+        { status: 409 }
+      )
+    )
+    render(<WikiImportWizardDialog nodes={[]} />)
+    await user.click(screen.getByRole("button", { name: "AI Create" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Paste text" }),
+      "Notes"
+    )
+    await user.click(screen.getByRole("button", { name: "Create draft" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This content already exists as “Notes”."
+    )
+    expect(screen.getByRole("button", { name: "Open existing" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Create a copy" })).toBeVisible()
+  })
+
+  it("keeps the dialog open while the reviewed version is saving", async () => {
+    const user = userEvent.setup()
+    let finishSave!: (response: Response) => void
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            preview: true,
+            beforeText: "Old",
+            afterText: "New",
+            blocks: [],
+            signedPreview: "signed",
+            previewSignature: "signature",
+          }),
+          { status: 200 }
+        )
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishSave = resolve
+        })
+      )
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    expect(
+      screen.getByRole("button", { name: /Drop a file here/ })
+    ).toHaveFocus()
+    await user.type(screen.getByRole("textbox", { name: "Paste text" }), "New")
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Save as new version" })
+    )
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: "Close" })
+    ).not.toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    expect(screen.getByRole("dialog")).toBeVisible()
+    finishSave(
+      new Response(JSON.stringify({ path: "/wiki/existing" }), { status: 200 })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
   })
 })

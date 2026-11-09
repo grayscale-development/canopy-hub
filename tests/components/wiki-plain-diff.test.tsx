@@ -22,6 +22,13 @@ describe("WikiPlainDiff", () => {
     )
 
     expect(screen.getByText("1 change")).toBeVisible()
+    expect(screen.getByText("1 change").parentElement).toHaveTextContent(
+      "1 change to review"
+    )
+    expect(screen.getByText("1 change").parentElement).toHaveAttribute(
+      "aria-live",
+      "polite"
+    )
     expect(screen.queryByText(/words are taken out/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/words are put in/i)).not.toBeInTheDocument()
     expect(

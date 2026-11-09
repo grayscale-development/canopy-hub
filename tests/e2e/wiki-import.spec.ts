@@ -8,8 +8,6 @@ test("Wiki managers can start an AI Create from pasted text @wiki @smoke", async
   await signInAsLocalDev(page)
   await page.goto("/wiki/canopy-wiki/hub/reports")
   await openWikiAiCreate(page)
-  await page
-    .getByLabel("Or paste text")
-    .fill("Review lock 123 before submitting.")
+  await page.getByLabel("Paste text").fill("Review lock 123 before submitting.")
   await expect(page.getByRole("button", { name: "Create draft" })).toBeEnabled()
 })

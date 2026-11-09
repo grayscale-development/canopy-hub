@@ -93,7 +93,7 @@ function PageBox({
                   : null}
                 <button
                   type="button"
-                  className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-neutral-950 px-3 text-base font-semibold text-neutral-950 dark:border-neutral-50 dark:text-neutral-50"
+                  className="min-h-11 rounded-md px-2 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
                   aria-expanded={open}
                   onClick={() => onToggleFold(segment.id)}
                 >
@@ -145,8 +145,12 @@ export function WikiPlainDiff({
 
   return (
     <div className="grid gap-3">
-      <p className="text-lg leading-7 font-semibold text-neutral-950 dark:text-neutral-50">
-        {diff.headline}
+      <p
+        aria-live="polite"
+        className="text-lg leading-7 font-semibold text-neutral-950 dark:text-neutral-50"
+      >
+        <span>{diff.headline}</span>
+        {/^\d+ changes?$/.test(diff.headline) ? " to review" : null}
       </p>
       {diff.showMarkup ? (
         <PageBox
