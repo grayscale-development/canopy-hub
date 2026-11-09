@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronRightIcon, FolderIcon } from "lucide-react"
+import { ChevronRightIcon, FileTextIcon, FolderIcon } from "lucide-react"
 
 import type { WikiNodeRow } from "@/lib/wiki"
 
@@ -37,21 +37,28 @@ export function WikiMovePicker({
   selectedTargetId,
   onSelectedTargetChange,
   excludedNodeId,
+  includePages = false,
+  initialOpenFolderId = null,
 }: {
   nodes: WikiNodeRow[]
   selectedTargetId: string | null
   onSelectedTargetChange: (targetId: string) => void
   excludedNodeId?: string
+  includePages?: boolean
+  initialOpenFolderId?: string | null
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const selectedPath = wikiFolderPath(nodes, selectedTargetId)
   const [openFolderIds, setOpenFolderIds] = React.useState<string[]>(() =>
-    selectedPath.map((node) => node.id)
+    (selectedTargetId
+      ? selectedPath
+      : wikiFolderPath(nodes, initialOpenFolderId)
+    ).map((node) => node.id)
   )
 
   React.useEffect(() => {
     const element = scrollRef.current
-    if (!element) return
+    if (!element || element.scrollWidth <= element.clientWidth) return
 
     if (typeof element.scrollTo === "function") {
       element.scrollTo({ left: element.scrollWidth, behavior: "smooth" })
@@ -62,7 +69,11 @@ export function WikiMovePicker({
 
   const columns = [null, ...openFolderIds].map((parentId) =>
     nodes
-      .filter((node) => node.parent_id === parentId && node.type === "folder")
+      .filter((node) => {
+        if (node.parent_id !== parentId) return false
+        if (!includePages) return node.type === "folder"
+        return node.type !== "page" || node.status !== "archived"
+      })
       .filter(
         (node) =>
           node.id !== excludedNodeId &&
@@ -73,7 +84,11 @@ export function WikiMovePicker({
 
   function chooseTarget(target: WikiNodeRow, columnIndex: number) {
     onSelectedTargetChange(target.id)
-    setOpenFolderIds((current) => [...current.slice(0, columnIndex), target.id])
+    setOpenFolderIds((current) =>
+      target.type === "folder"
+        ? [...current.slice(0, columnIndex), target.id]
+        : current.slice(0, columnIndex)
+    )
   }
 
   return (
@@ -92,12 +107,18 @@ export function WikiMovePicker({
               <button
                 key={item.id}
                 type="button"
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${selectedTargetId === item.id ? "bg-accent" : ""}`}
+                className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${selectedTargetId === item.id ? "bg-accent" : ""}`}
                 onClick={() => chooseTarget(item, columnIndex)}
               >
-                <FolderIcon className="size-4 shrink-0" />
+                {item.type === "page" ? (
+                  <FileTextIcon className="size-4 shrink-0" />
+                ) : (
+                  <FolderIcon className="size-4 shrink-0" />
+                )}
                 <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                <ChevronRightIcon className="size-4 shrink-0" />
+                {item.type === "folder" ? (
+                  <ChevronRightIcon className="size-4 shrink-0" />
+                ) : null}
               </button>
             )
           })}

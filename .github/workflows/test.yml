@@ -211,8 +211,19 @@ jobs:
       - name: Reset and seed local Supabase
         run: pnpm test:db:reset && pnpm test:db:seed
 
-      - name: Run Playwright smoke tests
-        run: pnpm test:e2e --grep "@smoke"
+      - name: Run Playwright smoke and reviewed wiki tests
+        env:
+          WIKI_IMPORT_TEST_PROVIDER: deterministic
+        run: pnpm test:e2e --grep "@smoke|@wiki-reviewed"
+
+      - name: Upload reviewed wiki screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wiki-reviewed-ui
+          path: playwright-screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload Playwright report
         if: failure()

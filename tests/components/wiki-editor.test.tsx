@@ -2,12 +2,14 @@
 
 import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useEffect, useRef } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   WikiEditModeProvider,
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
+import { toast } from "sonner"
 import { saveWikiPageAction } from "@/app/wiki/actions"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import type { WikiNodeRow } from "@/lib/wiki"
@@ -34,19 +36,27 @@ vi.mock("@blocknote/shadcn", () => ({
   }: {
     editable?: boolean
     onChange?: () => void
-  }) => (
-    <button
-      type="button"
-      data-testid="blocknote-view"
-      data-editable={String(editable)}
-      onClick={() => {
-        blockNoteState.document = [
-          { type: "paragraph", content: "Updated wiki content." },
-        ]
-        onChange?.()
-      }}
-    />
-  ),
+  }) => {
+    const initialOnChange = useRef(onChange)
+    useEffect(() => {
+      // The real editor emits an initialization change when it mounts.
+      initialOnChange.current?.()
+    }, [])
+
+    return (
+      <button
+        type="button"
+        data-testid="blocknote-view"
+        data-editable={String(editable)}
+        onClick={() => {
+          blockNoteState.document = [
+            { type: "paragraph", content: "Updated wiki content." },
+          ]
+          onChange?.()
+        }}
+      />
+    )
+  },
 }))
 
 vi.mock("next/navigation", () => ({
@@ -141,6 +151,12 @@ describe("WikiEditor", () => {
       "false"
     )
 
+    expect(
+      screen.queryByRole("button", { name: "Edit page tags" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Draft" })
+    ).not.toBeInTheDocument()
     await user.click(
       screen.getByRole("switch", { name: "Toggle wiki editor mode" })
     )
@@ -177,26 +193,6 @@ describe("WikiEditor", () => {
       "data-editable",
       "false"
     )
-  })
-
-  it("hides status controls on historical revisions", () => {
-    render(
-      <WikiEditor
-        node={node}
-        revision={revision}
-        canManage
-        isHistorical
-        showStatusControl
-        headerActions={<button type="button">Page actions</button>}
-      />
-    )
-
-    expect(
-      screen.queryByRole("button", { name: "Draft" })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Page actions" })
-    ).toBeInTheDocument()
   })
 
   it("places the AI Update control immediately before the page status", () => {
@@ -277,6 +273,9 @@ describe("WikiEditor", () => {
       </WikiEditModeProvider>
     )
 
+    expect(
+      screen.queryByRole("button", { name: "Save Changes" })
+    ).not.toBeInTheDocument()
     await user.click(screen.getByTestId("blocknote-view"))
     await user.click(screen.getByRole("button", { name: "Save Changes" }))
 
@@ -290,6 +289,54 @@ describe("WikiEditor", () => {
       "data-editable",
       "true"
     )
+  })
+
+  it("warns before leaving a dirty page and confirms a successful save", async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor node={node} revision={revision} canManage />
+      </WikiEditModeProvider>
+    )
+    await user.click(screen.getByTestId("blocknote-view"))
+    expect(screen.getByText("Unsaved changes")).toBeVisible()
+    const dirtyEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(dirtyEvent)
+    expect(dirtyEvent.defaultPrevented).toBe(true)
+    await user.click(screen.getByRole("button", { name: "Save Changes" }))
+    await screen.findByTestId("blocknote-view")
+    expect(toast.success).toHaveBeenCalledWith("Saved")
+    const cleanEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(cleanEvent)
+    expect(cleanEvent.defaultPrevented).toBe(false)
+  })
+
+  it("keeps edits made while a save is in flight", async () => {
+    const user = userEvent.setup()
+    let resolveSave!: (result: { ok: boolean; message: string }) => void
+    vi.mocked(saveWikiPageAction).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor node={node} revision={revision} canManage />
+      </WikiEditModeProvider>
+    )
+    await user.click(screen.getByTestId("blocknote-view"))
+    await user.click(screen.getByRole("button", { name: "Save Changes" }))
+    blockNoteState.document = [
+      { type: "paragraph", content: "More changes during save" },
+    ]
+    resolveSave({ ok: true, message: "Saved." })
+    expect(
+      await screen.findByRole("button", { name: "Save Changes" })
+    ).toBeEnabled()
+    expect(screen.getByText("Unsaved changes")).toBeVisible()
   })
 
   it("prevents a second save while the first save is pending", async () => {

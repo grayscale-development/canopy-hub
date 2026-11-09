@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { WikiEditModeProvider } from "@/components/wiki/wiki-edit-mode"
 import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar"
 import type { WikiNodeRow } from "@/lib/wiki"
 
@@ -172,10 +173,8 @@ function renderSidebar(
 }
 
 function expectBefore(leftLabel: string, rightLabel: string) {
-  const left = screen.getByRole("button", { name: `Collapse ${leftLabel}` })
-  const right = screen.getByRole("button", {
-    name: `Collapse ${rightLabel}`,
-  })
+  const left = screen.getByRole("link", { name: leftLabel })
+  const right = screen.getByRole("link", { name: rightLabel })
 
   expect(
     left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -198,13 +197,16 @@ describe("WikiRepositorySidebar", () => {
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull()
   })
 
-  it("keeps sections ordered and toggles them from the title or chevron", async () => {
+  it("keeps sections ordered and toggles them from the chevron", async () => {
     const user = userEvent.setup()
     const view = renderSidebar("canopy-wiki")
 
     expectBefore("Hub", "Operations")
 
-    expect(screen.queryByRole("link", { name: "Operations" })).toBeNull()
+    expect(screen.getByRole("link", { name: "Operations" })).toHaveAttribute(
+      "href",
+      "/wiki/canopy-wiki/operations"
+    )
 
     const sectionChevron = screen.getByRole("button", {
       name: "Toggle Operations",
@@ -212,7 +214,7 @@ describe("WikiRepositorySidebar", () => {
     expect(sectionChevron).toHaveAttribute("aria-expanded", "true")
     await user.click(sectionChevron)
     expect(
-      screen.getByRole("button", { name: "Expand Operations" })
+      screen.getByRole("button", { name: "Toggle Operations" })
     ).toHaveAttribute("aria-expanded", "false")
 
     view.rerender(
@@ -227,28 +229,22 @@ describe("WikiRepositorySidebar", () => {
     )
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: "Expand Operations" })
+        screen.getByRole("button", { name: "Toggle Operations" })
       ).toHaveAttribute("aria-expanded", "false")
     })
     view.unmount()
   })
 
-  it("expands groups from the title without navigating to a folder page", async () => {
+  it("links group titles and expands them using the chevron", async () => {
     const user = userEvent.setup()
     renderSidebar("canopy-wiki")
-
-    expect(screen.queryByRole("link", { name: "Closing" })).toBeNull()
-
-    const groupTitle = screen.getByRole("button", { name: "Expand Closing" })
-    expect(groupTitle).toHaveAttribute("aria-expanded", "false")
-    await user.click(groupTitle)
-    expect(
-      screen.getByRole("button", { name: "Collapse Closing" })
-    ).toHaveAttribute("aria-expanded", "true")
-    expect(screen.getByRole("link", { name: "Final Review" })).toHaveAttribute(
+    const groupTitle = screen.getByRole("link", { name: "Closing" })
+    expect(groupTitle).toHaveAttribute(
       "href",
-      "/wiki/canopy-wiki/operations/closing/final-review"
+      "/wiki/canopy-wiki/operations/closing"
     )
+    await user.click(screen.getByRole("button", { name: "Toggle Closing" }))
+    expect(screen.getByRole("link", { name: "Final Review" })).toBeVisible()
     expect(
       window.localStorage.getItem("wiki-sidebar:group:closing-group")
     ).toBe("open")
@@ -259,13 +255,13 @@ describe("WikiRepositorySidebar", () => {
     const user = userEvent.setup()
     renderSidebar("canopy-wiki")
 
-    await user.click(screen.getByRole("button", { name: "Expand Closing" }))
+    await user.click(screen.getByRole("button", { name: "Toggle Closing" }))
 
     expect(
-      screen.getByRole("button", { name: "Collapse Operations" }).parentElement
+      screen.getByRole("link", { name: "Operations" }).parentElement
     ).toHaveClass("min-h-8")
     expect(
-      screen.getByRole("button", { name: "Collapse Closing" }).parentElement
+      screen.getByRole("link", { name: "Closing" }).parentElement
     ).toHaveClass("min-h-8")
     expect(screen.getByRole("link", { name: "Final Review" })).toHaveClass(
       "min-h-8"
@@ -324,6 +320,49 @@ describe("WikiRepositorySidebar", () => {
         screen.getByRole("menuitem", { name: label }).querySelector("svg")
       ).toHaveClass("size-4")
     }
+  })
+
+  it.each([true, false])(
+    "hides editing controls with Editor Mode off (manager: %s)",
+    (manager) => {
+      render(
+        <WikiEditModeProvider canManageWiki={manager}>
+          <TooltipProvider>
+            <WikiRepositorySidebar
+              nodes={nodes}
+              activePath="canopy-wiki"
+              selectedRepositorySlug="canopy-wiki"
+              canManageWiki={manager}
+            />
+          </TooltipProvider>
+        </WikiEditModeProvider>
+      )
+      for (const name of [
+        "Create Section",
+        "Add to Operations",
+        "Add to Closing",
+        "Edit Operations",
+        "Edit Closing",
+      ]) {
+        expect(screen.queryByRole("button", { name })).not.toBeInTheDocument()
+      }
+      expect(
+        screen.getByRole("switch", { name: "Toggle wiki editor mode" })
+      ).toBeInTheDocument()
+    }
+  )
+
+  it("explains the draft indicator", async () => {
+    const user = userEvent.setup()
+    const draftNodes = nodes.map((item) =>
+      item.id === "closing-page" ? { ...item, status: "draft" } : item
+    ) as WikiNodeRow[]
+    renderSidebar("canopy-wiki", "canopy-wiki", draftNodes)
+    await user.click(screen.getByRole("button", { name: "Toggle Closing" }))
+    expect(screen.getByRole("img", { name: "Draft" })).toHaveAttribute(
+      "title",
+      "Draft - only editors can see this"
+    )
   })
 
   it("does not offer creation controls to a viewer", () => {

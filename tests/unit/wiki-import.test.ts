@@ -276,8 +276,11 @@ describe("Wiki import core", () => {
       },
       {
         type: "table",
+        props: { textColor: "default" },
+        children: [],
         content: {
           type: "tableContent",
+          columnWidths: [undefined, undefined],
           headerRows: 1,
           rows: [
             { cells: ["Section", "Items"] },

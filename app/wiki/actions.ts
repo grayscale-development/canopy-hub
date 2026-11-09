@@ -19,6 +19,7 @@ import {
   fetchWikiAssetsForNode,
   fetchCurrentRevision,
   fetchWikiNodes,
+  formatWikiRestoreChangeNote,
   isPublishedWikiBranch,
   normalizeWikiTags,
   syncWikiPageTags,
@@ -730,6 +731,52 @@ export async function updateWikiNodeStatusAction(
   }
 }
 
+export async function getWikiRevisionComparisonAction({
+  node_id,
+  revision_id,
+}: {
+  node_id: string
+  revision_id: string
+}) {
+  try {
+    const { supabase } = await getWikiManagerClient()
+    if (!node_id || !revision_id)
+      return { ok: false as const, message: "Page and version are required." }
+    const { data: node, error: nodeError } = await supabase
+      .from("wiki_nodes")
+      .select("id,type,current_revision_id")
+      .eq("id", node_id)
+      .maybeSingle()
+    if (nodeError || !node || node.type !== "page" || !node.current_revision_id)
+      return { ok: false as const, message: "Wiki page not found." }
+    const load = async (id: string) =>
+      supabase
+        .from("wiki_page_revisions")
+        .select("id,plain_text,blocks,created_at")
+        .eq("id", id)
+        .eq("node_id", node_id)
+        .maybeSingle()
+    const [current, selected] = await Promise.all([
+      load(node.current_revision_id),
+      load(revision_id),
+    ])
+    if (current.error || selected.error || !current.data || !selected.data)
+      return {
+        ok: false as const,
+        message: "Could not load this version. Please try again.",
+      }
+    return { ok: true as const, current: current.data, selected: selected.data }
+  } catch (error) {
+    return {
+      ok: false as const,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not load this version. Please try again.",
+    }
+  }
+}
+
 export async function restoreWikiRevisionAction(
   formData: FormData
 ): Promise<WikiActionResult> {
@@ -742,16 +789,75 @@ export async function restoreWikiRevisionAction(
       return { ok: false, message: "Page and revision are required." }
     }
 
-    const { error } = await supabase
+    const { data: node, error: nodeError } = await supabase
+      .from("wiki_nodes")
+      .select("id,type,current_revision_id")
+      .eq("id", nodeId)
+      .maybeSingle()
+
+    if (nodeError) {
+      return { ok: false, message: nodeError.message }
+    }
+    if (!node || node.type !== "page") {
+      return { ok: false, message: "Wiki page not found." }
+    }
+    if (node.current_revision_id === revisionId) {
+      return {
+        ok: false,
+        message: "That version is already the current page.",
+      }
+    }
+
+    const { data: sourceRevision, error: revisionError } = await supabase
+      .from("wiki_page_revisions")
+      .select("id,node_id,blocks,plain_text,created_at")
+      .eq("id", revisionId)
+      .eq("node_id", nodeId)
+      .maybeSingle()
+
+    if (revisionError) {
+      return { ok: false, message: revisionError.message }
+    }
+    if (!sourceRevision) {
+      return {
+        ok: false,
+        message: "That version could not be found on this page.",
+      }
+    }
+
+    const { data: createdRevision, error: insertError } = await supabase
+      .from("wiki_page_revisions")
+      .insert({
+        node_id: nodeId,
+        blocks: sourceRevision.blocks,
+        plain_text: sourceRevision.plain_text,
+        change_note: formatWikiRestoreChangeNote(sourceRevision.created_at),
+        created_by: user.id,
+      })
+      .select("id")
+      .single()
+
+    if (
+      insertError ||
+      !createdRevision?.id ||
+      createdRevision.id === revisionId
+    ) {
+      return {
+        ok: false,
+        message: insertError?.message ?? "Unable to save the restored version.",
+      }
+    }
+
+    const { error: updateError } = await supabase
       .from("wiki_nodes")
       .update({
-        current_revision_id: revisionId,
+        current_revision_id: createdRevision.id,
         updated_by: user.id,
       })
       .eq("id", nodeId)
 
-    if (error) {
-      return { ok: false, message: error.message }
+    if (updateError) {
+      return { ok: false, message: updateError.message }
     }
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })

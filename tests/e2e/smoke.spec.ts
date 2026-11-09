@@ -73,40 +73,66 @@ test("Wiki repository page renders seeded content @wiki @smoke", async ({
   await expect(page.getByText("Operations").first()).toBeVisible()
 })
 
-test("Wiki folder URLs open the first published page @wiki @smoke", async ({
+test("Wiki folder URLs show their landing contents @wiki @smoke", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
 
   await page.goto("/wiki/canopy-wiki")
-  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/home-dashboard$/)
+  await expect(page).toHaveURL(/\/wiki\/canopy-wiki$/)
+  const main = page.getByRole("main")
+  const landingCards = main.locator("div.grid")
+  await expect(
+    landingCards.getByRole("link", { name: "Hub", exact: true })
+  ).toHaveAttribute("href", "/wiki/canopy-wiki/hub")
 
   await page.goto("/wiki/canopy-wiki/hub")
-  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub\/[^/]+$/)
+  await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub$/)
+  await expect(
+    landingCards.getByRole("link", { name: "Home Dashboard", exact: true })
+  ).toHaveAttribute("href", "/wiki/canopy-wiki/hub/home-dashboard")
+  await expect(
+    landingCards.getByRole("link", { name: "File Viewer" })
+  ).toBeVisible()
+  await expect(main.getByText("Filter by tag", { exact: true })).toHaveCount(0)
 })
 
-test("Wiki sidebar titles toggle without navigation and manager edit opens folder-only Move @wiki", async ({
+test("Wiki sidebar chevrons toggle without navigation and manager edit opens folder-only Move @wiki", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
   await page.goto("/wiki/canopy-wiki/hub/home-dashboard")
 
   const wikiSidebar = page.locator("[data-wiki-sidebar-scroll]")
-  const operationsTitle = wikiSidebar.getByRole("button", {
-    name: "Collapse Operations",
+  await expect(
+    page.getByRole("button", { name: "Create Section" })
+  ).toHaveCount(0)
+  await expect(
+    wikiSidebar.getByRole("button", { name: "Edit Operations" })
+  ).toHaveCount(0)
+  await expect(
+    wikiSidebar.getByRole("button", { name: "Add to Operations" })
+  ).toHaveCount(0)
+  await page.getByRole("switch", { name: "Toggle wiki editor mode" }).check()
+  await expect(
+    page.getByRole("button", { name: "Create Section" })
+  ).toBeVisible()
+  await expect(
+    wikiSidebar.getByRole("button", { name: "Add to Operations" })
+  ).toBeAttached()
+  const operationsToggle = wikiSidebar.getByRole("button", {
+    name: "Toggle Operations",
   })
   const initialUrl = page.url()
 
-  await operationsTitle.click()
-  await expect(
-    wikiSidebar.getByRole("button", { name: "Expand Operations" })
-  ).toBeVisible()
+  await expect(operationsToggle).toHaveAttribute("aria-expanded", "true")
+  await operationsToggle.click()
+  await expect(operationsToggle).toHaveAttribute("aria-expanded", "false")
   await expect(page).toHaveURL(initialUrl)
 
-  await wikiSidebar.getByRole("button", { name: "Expand Operations" }).click()
-  const operationsRow = wikiSidebar
-    .getByRole("button", { name: "Collapse Operations" })
-    .locator("..")
+  await operationsToggle.click()
+  await expect(operationsToggle).toHaveAttribute("aria-expanded", "true")
+  const operationsRow = operationsToggle.locator("..")
   await operationsRow.hover()
   await wikiSidebar.getByRole("button", { name: "Edit Operations" }).click()
 

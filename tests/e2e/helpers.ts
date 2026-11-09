@@ -7,8 +7,16 @@ export async function signInAsLocalDev(page: Page) {
 }
 
 export async function openWikiAiCreate(page: Page) {
-  await page.getByRole("button", { name: "Add to Hub" }).click()
-  await page.getByRole("menuitem", { name: "AI Create" }).click()
+  const editMode = page.getByRole("switch", { name: "Toggle wiki editor mode" })
+  if (!(await editMode.isChecked())) await editMode.check()
+  const trigger = page.getByRole("button", { name: "Add to Hub" })
+  const item = page.getByRole("menuitem", { name: "AI Create" })
+  await expect(trigger).toBeVisible()
+  await expect(async () => {
+    if (!(await item.isVisible())) await trigger.click()
+    await expect(item).toBeVisible()
+  }).toPass()
+  await item.click()
 }
 
 export async function mockMiloChatApi(page: Page) {

@@ -78,6 +78,20 @@ export interface WikiRevisionRow {
   created_at: string
 }
 
+export function formatWikiRestoreChangeNote(createdAt: string) {
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) {
+    return `Restored from ${createdAt}`
+  }
+
+  const timestamp = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(date)
+  return `Restored from ${timestamp} UTC`
+}
+
 export interface WikiTagRow {
   id: string
   name: string
@@ -552,6 +566,23 @@ export async function fetchWikiPageData(
   }
 }
 
+function tableContentToText(value: unknown): string {
+  if (!value || typeof value !== "object") return ""
+  const rows = (value as { rows?: unknown }).rows
+  if (!Array.isArray(rows)) return ""
+  return rows
+    .map((row) => {
+      const cells = (row as { cells?: unknown }).cells
+      if (!Array.isArray(cells)) return ""
+      return cells
+        .map((cell) => inlineContentToText(cell))
+        .filter(Boolean)
+        .join(" | ")
+    })
+    .filter(Boolean)
+    .join("\n")
+}
+
 function inlineContentToText(value: unknown): string {
   if (typeof value === "string") {
     return value
@@ -577,7 +608,10 @@ function blockToText(block: unknown): string {
   }
 
   const record = block as Record<string, unknown>
-  const content = inlineContentToText(record.content)
+  const content =
+    record.type === "table"
+      ? tableContentToText(record.content)
+      : inlineContentToText(record.content)
   const children = Array.isArray(record.children)
     ? record.children.map(blockToText).filter(Boolean).join("\n")
     : ""
@@ -649,4 +683,12 @@ export function formatBytes(bytes: number) {
   }
 
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`
+}
+
+export interface WikiRevisionMetadata {
+  id: string
+  created_at: string
+  change_note: string | null
+  created_by: string | null
+  author: string
 }

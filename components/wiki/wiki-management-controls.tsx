@@ -2,8 +2,17 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   ArchiveIcon,
+  MoreHorizontalIcon,
   FilePlusIcon,
   FolderPlusIcon,
   PlusIcon,
@@ -29,6 +38,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
+import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
 import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
 import {
   wikiFolderPath,
@@ -430,11 +440,14 @@ export function WikiNodeActionsMenu({
   availableTags?: string[]
 }) {
   const router = useRouter()
+  const { canEditWiki } = useWikiEditMode()
   const [open, setOpen] = React.useState(false)
   const [pending, startTransition] = React.useTransition()
   const [state, setState] = React.useState<WikiActionResult | null>(null)
   const [archiveState, setArchiveState] =
     React.useState<WikiActionResult | null>(null)
+  const [archiveOpen, setArchiveOpen] = React.useState(false)
+  const [mergePickerOpen, setMergePickerOpen] = React.useState(false)
   const [moveOpen, setMoveOpen] = React.useState(false)
   const [movePending, startMoveTransition] = React.useTransition()
   const [moveState, setMoveState] = React.useState<WikiActionResult | null>(
@@ -445,8 +458,31 @@ export function WikiNodeActionsMenu({
   )
   const [mergeConfirmOpen, setMergeConfirmOpen] = React.useState(false)
   const [mergePending, setMergePending] = React.useState(false)
+  const [mergePreviewPending, setMergePreviewPending] = React.useState(false)
+  const [mergeError, setMergeError] = React.useState("")
+  const [mergePreview, setMergePreview] = React.useState<{
+    beforeText: string
+    afterText: string
+    blocks: unknown[]
+    beforeBlocks: unknown
+    baseRevisionId: string | null
+    signedPreview: string
+    previewSignature: string
+  } | null>(null)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
-  const tagInputRef = React.useRef<HTMLInputElement>(null)
+  const titleInputRef = React.useRef<HTMLInputElement>(null)
+  const [tagPickerOpen, setTagPickerOpen] = React.useState(false)
+  const parent = nodes.find((item) => item.id === node.parent_id)
+  const itemType =
+    node.type === "page"
+      ? "page"
+      : parent
+        ? parent.parent_id
+          ? "group"
+          : "section"
+        : node.parent_id
+          ? "group"
+          : "section"
   const cannotArchive = node.type === "folder" && hasChildren
   const selectedTarget = nodes.find((item) => item.id === selectedTargetId)
   const selectedPath = selectedTarget
@@ -488,28 +524,21 @@ export function WikiNodeActionsMenu({
   }
 
   function handleArchive() {
-    if (cannotArchive) {
-      window.alert(
-        "Archive or move the items inside this section or group first."
-      )
-      return
-    }
-
+    if (cannotArchive) return
     const formData = new FormData()
     formData.set("id", node.id)
     setArchiveState(null)
-    if (!window.confirm(`Archive "${node.title}"?`)) {
-      return
-    }
     startTransition(async () => {
       const result = await archiveWikiNodeAction(formData)
       setArchiveState(result)
       if (result.ok) {
+        setArchiveOpen(false)
         setOpen(false)
+        toast.success(
+          `${itemType === "page" ? "Page" : itemType === "section" ? "Section" : "Group"} archived.`
+        )
         router.push(result.path ?? "/wiki")
         router.refresh()
-      } else {
-        window.alert(result.message)
       }
     })
   }
@@ -539,14 +568,82 @@ export function WikiNodeActionsMenu({
     })
   }
 
-  async function handleMerge() {
+  function resetMergePreview() {
+    setMergePreview(null)
+    setMergeError("")
+    setMergePreviewPending(false)
+    setMergePending(false)
+  }
+
+  async function openMergePreview() {
     if (!selectedTarget || selectedTarget.type !== "page") return
-    setMergePending(true)
+    setMergeConfirmOpen(true)
+    setMergePreview(null)
+    setMergeError("")
+    setMergePreviewPending(true)
     try {
       const formData = new FormData()
       formData.set("target_page_id", selectedTarget.id)
       formData.set("source_page_id", node.id)
       formData.set("mode", "update")
+      formData.set("preview", "1")
+      const response = await fetch("/api/wiki/import", {
+        method: "POST",
+        body: formData,
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+        preview?: boolean
+        beforeText?: string
+        afterText?: string
+        blocks?: unknown[]
+        beforeBlocks?: unknown
+        baseRevisionId?: string | null
+        signedPreview?: string
+        previewSignature?: string
+      } | null
+      if (
+        !response.ok ||
+        !payload?.preview ||
+        !Array.isArray(payload.blocks) ||
+        !payload.signedPreview ||
+        !payload.previewSignature
+      ) {
+        setMergeError(payload?.error ?? "Unable to compare these pages.")
+        return
+      }
+      setMergePreview({
+        beforeText: payload.beforeText ?? "",
+        afterText: payload.afterText ?? "",
+        blocks: payload.blocks,
+        beforeBlocks: payload.beforeBlocks ?? [],
+        baseRevisionId:
+          typeof payload.baseRevisionId === "string"
+            ? payload.baseRevisionId
+            : null,
+        signedPreview: payload.signedPreview ?? "",
+        previewSignature: payload.previewSignature ?? "",
+      })
+    } catch {
+      setMergeError("Unable to compare these pages.")
+    } finally {
+      setMergePreviewPending(false)
+    }
+  }
+
+  async function handleMerge() {
+    if (!selectedTarget || selectedTarget.type !== "page" || !mergePreview)
+      return
+    setMergePending(true)
+    setMergeError("")
+    try {
+      const formData = new FormData()
+      formData.set("apply_preview", "1")
+      formData.set("target_page_id", selectedTarget.id)
+      formData.set("source_page_id", node.id)
+      formData.set("mode", "update")
+      formData.set("signed_preview", mergePreview.signedPreview)
+      formData.set("preview_signature", mergePreview.previewSignature)
       const response = await fetch("/api/wiki/import", {
         method: "POST",
         body: formData,
@@ -555,20 +652,30 @@ export function WikiNodeActionsMenu({
         error?: string
         path?: string
       } | null
+      if (response.status === 409) {
+        setMergePreview(null)
+        setMergeError(
+          payload?.error ??
+            "This page changed after you looked at it. Look again before saving."
+        )
+        return
+      }
       if (!response.ok || !payload?.path) {
-        setMoveState({
-          ok: false,
-          message: payload?.error ?? "Unable to merge these pages.",
-        })
+        setMergeError(payload?.error ?? "Unable to merge these pages.")
         return
       }
       setMergeConfirmOpen(false)
+      setMergePickerOpen(false)
       setMoveOpen(false)
       setOpen(false)
+      resetMergePreview()
+      toast.success(
+        `Merged into “${selectedTarget.title}”. “${node.title}” is archived.`
+      )
       router.push(payload.path)
       router.refresh()
     } catch {
-      setMoveState({ ok: false, message: "Unable to merge these pages." })
+      setMergeError("Unable to merge these pages.")
     } finally {
       setMergePending(false)
     }
@@ -576,18 +683,56 @@ export function WikiNodeActionsMenu({
 
   return (
     <>
+      {node.type === "page" && canEditWiki ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="More actions for this page"
+            >
+              <MoreHorizontalIcon />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onSelect={openEditDialog}>
+              Edit details
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={openMoveDialog}>
+              Move to...
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                setSelectedTargetId(null)
+                setMergePickerOpen(true)
+              }}
+            >
+              Merge into another page...
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => {
+                setArchiveState(null)
+                setArchiveOpen(true)
+              }}
+            >
+              Archive page
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           aria-describedby={undefined}
           onOpenAutoFocus={(event) => {
-            if (node.type === "page") {
-              event.preventDefault()
-              tagInputRef.current?.focus()
-            }
+            event.preventDefault()
+            titleInputRef.current?.focus()
           }}
         >
           <DialogHeader>
-            <DialogTitle>Edit Wiki Item</DialogTitle>
+            <DialogTitle>Edit {itemType}</DialogTitle>
           </DialogHeader>
           <form action={handleSubmit} className="grid gap-4">
             <input type="hidden" name="id" value={node.id} />
@@ -597,20 +742,33 @@ export function WikiNodeActionsMenu({
               </label>
               <Input
                 id="wiki-edit-title"
+                ref={titleInputRef}
                 name="title"
                 defaultValue={node.title}
                 required
               />
             </div>
             {node.type === "page" ? (
-              <WikiTagPicker
-                availableTags={availableTags}
-                selectedTags={selectedTags}
-                onSelectedTagsChange={setSelectedTags}
-                open={open}
-                inputRef={tagInputRef}
-                inputId="wiki-edit-tags"
-              />
+              <div
+                className={
+                  tagPickerOpen
+                    ? undefined
+                    : "[&_[aria-label='Available_tags']]:hidden"
+                }
+                onFocus={() => setTagPickerOpen(true)}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget))
+                    setTagPickerOpen(false)
+                }}
+              >
+                <WikiTagPicker
+                  availableTags={availableTags}
+                  selectedTags={selectedTags}
+                  onSelectedTagsChange={setSelectedTags}
+                  open={tagPickerOpen}
+                  inputId="wiki-edit-tags"
+                />
+              </div>
             ) : null}
             <StatusMessage state={state} />
             <DialogFooter className="justify-between border-t pt-4">
@@ -635,8 +793,11 @@ export function WikiNodeActionsMenu({
                 type="button"
                 size="sm"
                 variant="destructive"
-                disabled={pending || cannotArchive}
-                onClick={handleArchive}
+                disabled={pending}
+                onClick={() => {
+                  setArchiveState(null)
+                  setArchiveOpen(true)
+                }}
               >
                 <ArchiveIcon />
                 Archive
@@ -653,7 +814,7 @@ export function WikiNodeActionsMenu({
       </Dialog>
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent
-          className="sm:max-w-[960px]"
+          className="w-[min(92vw,60rem)] sm:max-w-none"
           aria-describedby={undefined}
         >
           <DialogHeader>
@@ -676,15 +837,6 @@ export function WikiNodeActionsMenu({
             <StatusMessage state={moveState} />
           </div>
           <DialogFooter>
-            {false && node.type === "page" && selectedTarget?.type === "page" ? (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setMergeConfirmOpen(true)}
-              >
-                AI Merge into this page
-              </Button>
-            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -707,29 +859,131 @@ export function WikiNodeActionsMenu({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={mergeConfirmOpen} onOpenChange={setMergeConfirmOpen}>
-        <DialogContent aria-describedby={undefined}>
+      <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <DialogContent showCloseButton={!cannotArchive}>
           <DialogHeader>
-            <DialogTitle>Merge pages?</DialogTitle>
+            <DialogTitle>
+              {cannotArchive
+                ? `Cannot archive this ${itemType}`
+                : `Archive this ${itemType}?`}
+            </DialogTitle>
+            <DialogDescription>
+              {cannotArchive
+                ? "Move or archive what is inside first."
+                : "It disappears from the wiki for everyone. You can ask an admin to bring it back."}
+            </DialogDescription>
+          </DialogHeader>
+          <StatusMessage state={archiveState} />
+          <DialogFooter>
+            {cannotArchive ? (
+              <Button onClick={() => setArchiveOpen(false)}>OK</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setArchiveOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={pending}
+                  onClick={handleArchive}
+                >
+                  {pending ? "Archiving..." : "Archive"}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={mergePickerOpen} onOpenChange={setMergePickerOpen}>
+        <DialogContent
+          className="w-[min(92vw,60rem)] sm:max-w-none"
+          aria-describedby={undefined}
+        >
+          <DialogHeader>
+            <DialogTitle>Merge into another page</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This merges content into {selectedTarget?.title} and deletes{" "}
-            {node.title}.
+            Choose the page to merge into
           </p>
+          <WikiMovePicker
+            nodes={nodes}
+            selectedTargetId={selectedTargetId}
+            onSelectedTargetChange={setSelectedTargetId}
+            excludedNodeId={node.id}
+            initialOpenFolderId={node.parent_id}
+            includePages
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMergePickerOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={selectedTarget?.type !== "page"}
+              onClick={() => {
+                setMergePickerOpen(false)
+                void openMergePreview()
+              }}
+            >
+              Review merge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={mergeConfirmOpen}
+        onOpenChange={(nextOpen) => {
+          setMergeConfirmOpen(nextOpen)
+          if (!nextOpen) resetMergePreview()
+        }}
+      >
+        <DialogContent
+          aria-describedby={undefined}
+          className="max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
+        >
+          <DialogHeader>
+            <DialogTitle>Review merge</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-foreground">
+            This adds the words from “{node.title}” to “{selectedTarget?.title}
+            ”, then archives “{node.title}” once “{selectedTarget?.title}” is
+            saved.
+          </p>
+          {mergePreviewPending ? (
+            <p className="text-sm text-foreground">Comparing the two pages…</p>
+          ) : null}
+          {mergePreview ? (
+            <WikiPlainDiff
+              beforeText={mergePreview.beforeText}
+              afterText={mergePreview.afterText}
+              beforeBlocks={mergePreview.beforeBlocks}
+              afterBlocks={mergePreview.blocks}
+              beforeTitle={`${selectedTarget?.title ?? "The other page"} now`}
+              afterTitle="After the merge"
+            />
+          ) : null}
+          {mergeError ? (
+            <p className="text-sm text-destructive">{mergeError}</p>
+          ) : null}
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
+              className="cursor-pointer"
               onClick={() => setMergeConfirmOpen(false)}
             >
               Cancel
             </Button>
             <Button
               type="button"
-              disabled={mergePending}
+              className="cursor-pointer"
+              disabled={mergePending || mergePreviewPending || !mergePreview}
               onClick={() => void handleMerge()}
             >
-              {mergePending ? "Merging..." : "AI Merge and delete"}
+              {mergePending
+                ? "Merging..."
+                : mergePreviewPending
+                  ? "Comparing the two pages…"
+                  : "Merge and archive this page"}
             </Button>
           </DialogFooter>
         </DialogContent>
