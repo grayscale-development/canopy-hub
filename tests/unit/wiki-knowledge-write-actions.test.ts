@@ -15,16 +15,28 @@ const mocks = vi.hoisted(() => {
     status: "draft",
   }
   const query = {
-    insert: vi.fn(() => query),
+    operation: null as "insert" | "update" | null,
+    savedRevisionId: "revision",
+    insert: vi.fn(() => {
+      query.operation = "insert"
+      return query
+    }),
     select: vi.fn(() => query),
-    update: vi.fn(() => query),
-    eq: vi.fn(() => ({
-      maybeSingle: query.maybeSingle,
-      then: (resolve: (value: { error: null }) => unknown) =>
-        resolve({ error: null }),
+    update: vi.fn(() => {
+      query.operation = "update"
+      return query
+    }),
+    eq: vi.fn(() => query),
+    single: vi.fn(async () => ({
+      data:
+        query.operation === "update"
+          ? { current_revision_id: query.savedRevisionId }
+          : revision,
+      error: null,
     })),
-    single: vi.fn(async () => ({ data: revision, error: null })),
     maybeSingle: vi.fn(async () => ({ data: { type: "page" }, error: null })),
+    then: (resolve: (value: { error: null }) => unknown) =>
+      resolve({ error: null }),
   }
   const userClient = {
     auth: {
@@ -38,6 +50,7 @@ const mocks = vi.hoisted(() => {
     revision,
     userClient,
     indexClient,
+    query,
     permission: vi.fn(async () => true),
     admin: vi.fn(() => indexClient),
     index: vi.fn(async () => "source"),
@@ -73,6 +86,8 @@ describe("authorized Wiki knowledge writes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.permission.mockResolvedValue(true)
+    mocks.query.operation = null
+    mocks.query.savedRevisionId = mocks.revision.id
   })
 
   it("indexes a saved draft with a server index client after permission checks", async () => {
@@ -111,6 +126,50 @@ describe("authorized Wiki knowledge writes", () => {
     expect((await saveWikiPageAction(form)).ok).toBe(false)
     expect(mocks.admin).not.toHaveBeenCalled()
     expect(mocks.userClient.from).not.toHaveBeenCalled()
+    expect(mocks.index).not.toHaveBeenCalled()
+  })
+
+  it("persists repeated short saves as the current revision", async () => {
+    for (const text of ["First short update", "Second short update"]) {
+      const form = new FormData()
+      form.set("node_id", "draft")
+      form.set("blocks", JSON.stringify([{ type: "paragraph", content: text }]))
+      expect((await saveWikiPageAction(form)).ok).toBe(true)
+    }
+
+    expect(mocks.query.insert).toHaveBeenCalledTimes(2)
+    expect(mocks.query.update).toHaveBeenCalledTimes(2)
+    expect(mocks.query.select).toHaveBeenCalledWith("current_revision_id")
+  })
+
+  it("accepts a complete document above the former 1MB action limit", async () => {
+    const blocks = JSON.stringify([
+      { type: "paragraph", content: "x".repeat(1024 * 1024 + 1) },
+    ])
+    expect(new TextEncoder().encode(blocks).byteLength).toBeGreaterThan(
+      1024 * 1024
+    )
+
+    const form = new FormData()
+    form.set("node_id", "draft")
+    form.set("blocks", blocks)
+
+    expect((await saveWikiPageAction(form)).ok).toBe(true)
+    expect(mocks.query.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ blocks: expect.any(Array) })
+    )
+  })
+
+  it("does not report success when the current revision was not persisted", async () => {
+    mocks.query.savedRevisionId = "another-revision"
+    const form = new FormData()
+    form.set("node_id", "draft")
+    form.set("blocks", "[]")
+
+    await expect(saveWikiPageAction(form)).resolves.toEqual({
+      ok: false,
+      message: "Wiki page content could not be confirmed as saved.",
+    })
     expect(mocks.index).not.toHaveBeenCalled()
   })
 })
