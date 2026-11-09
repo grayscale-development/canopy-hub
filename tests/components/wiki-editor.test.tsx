@@ -9,6 +9,7 @@ import {
   WikiEditModeProvider,
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
+import { toast } from "sonner"
 import { saveWikiPageAction } from "@/app/wiki/actions"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import type { WikiNodeRow } from "@/lib/wiki"
@@ -288,6 +289,54 @@ describe("WikiEditor", () => {
       "data-editable",
       "true"
     )
+  })
+
+  it("warns before leaving a dirty page and confirms a successful save", async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor node={node} revision={revision} canManage />
+      </WikiEditModeProvider>
+    )
+    await user.click(screen.getByTestId("blocknote-view"))
+    expect(screen.getByText("Unsaved changes")).toBeVisible()
+    const dirtyEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(dirtyEvent)
+    expect(dirtyEvent.defaultPrevented).toBe(true)
+    await user.click(screen.getByRole("button", { name: "Save Changes" }))
+    await screen.findByTestId("blocknote-view")
+    expect(toast.success).toHaveBeenCalledWith("Saved")
+    const cleanEvent = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(cleanEvent)
+    expect(cleanEvent.defaultPrevented).toBe(false)
+  })
+
+  it("keeps edits made while a save is in flight", async () => {
+    const user = userEvent.setup()
+    let resolveSave!: (result: { ok: boolean; message: string }) => void
+    vi.mocked(saveWikiPageAction).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor node={node} revision={revision} canManage />
+      </WikiEditModeProvider>
+    )
+    await user.click(screen.getByTestId("blocknote-view"))
+    await user.click(screen.getByRole("button", { name: "Save Changes" }))
+    blockNoteState.document = [
+      { type: "paragraph", content: "More changes during save" },
+    ]
+    resolveSave({ ok: true, message: "Saved." })
+    expect(
+      await screen.findByRole("button", { name: "Save Changes" })
+    ).toBeEnabled()
+    expect(screen.getByText("Unsaved changes")).toBeVisible()
   })
 
   it("prevents a second save while the first save is pending", async () => {

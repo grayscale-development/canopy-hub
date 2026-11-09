@@ -38,22 +38,27 @@ export function WikiMovePicker({
   onSelectedTargetChange,
   excludedNodeId,
   includePages = false,
+  initialOpenFolderId = null,
 }: {
   nodes: WikiNodeRow[]
   selectedTargetId: string | null
   onSelectedTargetChange: (targetId: string) => void
   excludedNodeId?: string
   includePages?: boolean
+  initialOpenFolderId?: string | null
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const selectedPath = wikiFolderPath(nodes, selectedTargetId)
   const [openFolderIds, setOpenFolderIds] = React.useState<string[]>(() =>
-    selectedPath.map((node) => node.id)
+    (selectedTargetId
+      ? selectedPath
+      : wikiFolderPath(nodes, initialOpenFolderId)
+    ).map((node) => node.id)
   )
 
   React.useEffect(() => {
     const element = scrollRef.current
-    if (!element) return
+    if (!element || element.scrollWidth <= element.clientWidth) return
 
     if (typeof element.scrollTo === "function") {
       element.scrollTo({ left: element.scrollWidth, behavior: "smooth" })

@@ -72,7 +72,7 @@ describe("WikiNodeActionsMenu", () => {
     )
 
     await user.click(screen.getByRole("button", { name: "Group" }))
-    const dialog = await screen.findByRole("dialog", { name: "Edit Wiki Item" })
+    const dialog = await screen.findByRole("dialog", { name: "Edit group" })
     const move = within(dialog).getByRole("button", { name: "Move" })
     const cancel = within(dialog).getByRole("button", { name: "Cancel" })
     const save = within(dialog).getByRole("button", { name: "Save" })
@@ -106,12 +106,14 @@ describe("WikiNodeActionsMenu", () => {
     const archiveButton = within(dialog).getByRole("button", {
       name: "Archive",
     })
-    expect(archiveButton).toBeDisabled()
+    await user.click(archiveButton)
+    const guard = await screen.findByRole("dialog", {
+      name: "Cannot archive this group",
+    })
     expect(
-      within(dialog).getByText(
-        "Move or archive the items inside this section or group first."
-      )
+      within(guard).getByText("Move or archive what is inside first.")
     ).toBeVisible()
+    expect(within(guard).getByRole("button", { name: "OK" })).toBeVisible()
   })
 
   it("starts the move picker with real top-level folders, not a synthetic Hub entry", async () => {
@@ -128,7 +130,7 @@ describe("WikiNodeActionsMenu", () => {
 
     await user.click(screen.getByRole("button", { name: "Group" }))
     const editDialog = await screen.findByRole("dialog", {
-      name: "Edit Wiki Item",
+      name: "Edit group",
     })
     await user.click(within(editDialog).getByRole("button", { name: "Move" }))
 
@@ -142,6 +144,53 @@ describe("WikiNodeActionsMenu", () => {
     expect(
       within(moveDialog).queryByRole("button", { name: /AI Merge/i })
     ).not.toBeInTheDocument()
+  })
+
+  it("focuses the title when opening page details", async () => {
+    const user = userEvent.setup()
+    const page = { ...emptyGroup, type: "page" as const }
+    render(
+      <WikiNodeActionsMenu
+        nodes={[page]}
+        node={page}
+        availableTags={["Credit"]}
+      />
+    )
+    await user.click(
+      screen.getByRole("button", { name: "More actions for this page" })
+    )
+    await user.click(screen.getByRole("menuitem", { name: "Edit details" }))
+    const dialog = await screen.findByRole("dialog", { name: "Edit page" })
+    expect(within(dialog).getByRole("textbox", { name: "Title" })).toHaveFocus()
+    const tags = within(dialog).getByLabelText("Available tags")
+    expect(tags.parentElement?.parentElement?.parentElement).toHaveClass(
+      "[&_[aria-label='Available_tags']]:hidden"
+    )
+    await user.click(
+      within(dialog).getByRole("textbox", { name: "Search or create a tag" })
+    )
+    expect(tags.parentElement?.parentElement?.parentElement).not.toHaveClass(
+      "[&_[aria-label='Available_tags']]:hidden"
+    )
+  })
+
+  it("confirms page archive in a dialog", async () => {
+    const user = userEvent.setup()
+    const page = { ...emptyGroup, type: "page" as const }
+    const confirm = vi.spyOn(window, "confirm")
+    render(<WikiNodeActionsMenu nodes={[page]} node={page} />)
+    await user.click(
+      screen.getByRole("button", { name: "More actions for this page" })
+    )
+    await user.click(screen.getByRole("menuitem", { name: "Archive page" }))
+    const dialog = await screen.findByRole("dialog", {
+      name: "Archive this page?",
+    })
+    expect(
+      within(dialog).getByRole("button", { name: "Archive" })
+    ).toBeVisible()
+    expect(confirm).not.toHaveBeenCalled()
+    confirm.mockRestore()
   })
 
   it("previews an AI merge and archives the source page instead of deleting it", async () => {
@@ -198,26 +247,34 @@ describe("WikiNodeActionsMenu", () => {
       </>
     )
 
-    await user.click(screen.getByRole("button", { name: "Escrow notes" }))
-    const editDialog = await screen.findByRole("dialog", {
-      name: "Edit Wiki Item",
-    })
-    await user.click(within(editDialog).getByRole("button", { name: "Move" }))
-    const moveDialog = await screen.findByRole("dialog", {
-      name: "Move Escrow notes",
-    })
     await user.click(
-      within(moveDialog).getByRole("button", { name: "Funding checklist" })
+      screen.getByRole("button", { name: "More actions for this page" })
+    )
+    expect(screen.getByRole("menuitem", { name: "Edit details" })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Move to..." })).toBeVisible()
+    expect(screen.getByRole("menuitem", { name: "Archive page" })).toBeVisible()
+    await user.click(
+      screen.getByRole("menuitem", { name: "Merge into another page..." })
+    )
+    const picker = await screen.findByRole("dialog", {
+      name: "Merge into another page",
+    })
+    expect(
+      within(picker).getByRole("button", { name: "Review merge" })
+    ).toBeDisabled()
+    await user.click(
+      within(picker).getByRole("button", { name: "Canopy Wiki" })
     )
     await user.click(
-      within(moveDialog).getByRole("button", {
-        name: "AI Merge into this page",
-      })
+      within(picker).getByRole("button", { name: "Funding checklist" })
+    )
+    await user.click(
+      within(picker).getByRole("button", { name: "Review merge" })
     )
 
-    const confirm = await screen.findByRole("dialog", { name: "Merge pages?" })
+    const confirm = await screen.findByRole("dialog", { name: "Review merge" })
     expect(confirm).toHaveTextContent(
-      "This merges “Escrow notes” into “Funding checklist” and archives “Escrow notes”."
+      "This adds the words from “Escrow notes” to “Funding checklist”, then archives “Escrow notes” once “Funding checklist” is saved."
     )
     expect(confirm).not.toHaveTextContent(/delete/i)
     expect(
@@ -229,7 +286,9 @@ describe("WikiNodeActionsMenu", () => {
     ).toBeGreaterThan(0)
 
     await user.click(
-      within(confirm).getByRole("button", { name: "AI Merge and archive" })
+      within(confirm).getByRole("button", {
+        name: "Merge and archive this page",
+      })
     )
 
     await waitFor(() => {

@@ -1,5 +1,6 @@
 "use client"
 
+import { WikiLastUpdated } from "@/components/wiki/wiki-revisions"
 import { WikiEditableTitle } from "@/components/wiki/wiki-management-controls"
 import * as React from "react"
 import type { Block } from "@blocknote/core"
@@ -68,7 +69,8 @@ export function WikiEditor({
   node,
   revision,
   canManage,
-  lastUpdatedLabel,
+  lastUpdatedAt,
+  lastUpdatedBy,
   showStatusControl = false,
   headerActions,
   createAction,
@@ -78,7 +80,8 @@ export function WikiEditor({
   node: WikiNodeRow
   revision: WikiRevisionRow | null
   canManage: boolean
-  lastUpdatedLabel?: string | null
+  lastUpdatedAt?: string | null
+  lastUpdatedBy?: string
   showStatusControl?: boolean
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
@@ -100,7 +103,8 @@ export function WikiEditor({
       node={node}
       revision={revision}
       canManage={canManage}
-      lastUpdatedLabel={lastUpdatedLabel}
+      lastUpdatedAt={lastUpdatedAt}
+      lastUpdatedBy={lastUpdatedBy}
       showStatusControl={showStatusControl}
       headerActions={headerActions}
       createAction={createAction}
@@ -114,7 +118,8 @@ function WikiEditorMounted({
   node,
   revision,
   canManage,
-  lastUpdatedLabel,
+  lastUpdatedAt,
+  lastUpdatedBy,
   showStatusControl = false,
   headerActions,
   createAction,
@@ -124,7 +129,8 @@ function WikiEditorMounted({
   node: WikiNodeRow
   revision: WikiRevisionRow | null
   canManage: boolean
-  lastUpdatedLabel?: string | null
+  lastUpdatedAt?: string | null
+  lastUpdatedBy?: string
   showStatusControl?: boolean
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
@@ -183,6 +189,16 @@ function WikiEditorMounted({
     resolveFileUrl: async (url) => url,
   })
 
+  React.useEffect(() => {
+    if (!isDirty) return
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", warn)
+    return () => window.removeEventListener("beforeunload", warn)
+  }, [isDirty])
+
   function save() {
     if (saveInFlight.current) {
       return
@@ -192,15 +208,20 @@ function WikiEditorMounted({
     const formData = new FormData()
     setState(null)
     formData.set("node_id", node.id)
-    formData.set("blocks", JSON.stringify(blocks))
+    const savedBlocks = JSON.stringify(blocks)
+    formData.set("blocks", savedBlocks)
 
     startTransition(async () => {
       try {
         const result = await saveWikiPageAction(formData)
         setState(result)
         if (result.ok) {
-          setIsDirty(false)
-          router.refresh()
+          changeBaseline.current = savedBlocks
+          const changedDuringSave =
+            JSON.stringify(editor.document) !== savedBlocks
+          setIsDirty(changedDuringSave)
+          toast.success("Saved")
+          if (!changedDuringSave) router.refresh()
         }
       } catch {
         setState({
@@ -320,20 +341,23 @@ function WikiEditorMounted({
         </div>
         {versionHistory ?? (
           <p className="w-full text-center text-xs text-muted-foreground/70">
-            {lastUpdatedLabel ?? null}
+            <WikiLastUpdated timestamp={lastUpdatedAt} author={lastUpdatedBy} />
           </p>
         )}
       </div>
       {canEditPage && isDirty ? (
-        <Button
-          type="button"
-          className="fixed right-6 bottom-6 z-40 h-12 bg-emerald-600 px-6 text-base text-white shadow-xl hover:bg-emerald-700"
-          disabled={pending}
-          onClick={save}
-        >
-          <SaveIcon />
-          {pending ? "Saving..." : "Save Changes"}
-        </Button>
+        <div className="fixed right-6 bottom-6 z-40 flex items-center gap-3 rounded-lg bg-background p-2 shadow-xl">
+          <span className="text-sm text-muted-foreground">Unsaved changes</span>
+          <Button
+            type="button"
+            className="h-12 px-6 text-base"
+            disabled={pending}
+            onClick={save}
+          >
+            <SaveIcon />
+            {pending ? "Saving..." : "Save Changes"}
+          </Button>
+        </div>
       ) : null}
       {state && !state.ok ? (
         <p className="mt-2 text-sm text-destructive">{state.message}</p>

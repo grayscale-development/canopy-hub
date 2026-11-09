@@ -10,6 +10,8 @@ const state = vi.hoisted(() => ({
   redirect: vi.fn(),
   pageData: null as unknown,
   revisions: [] as Array<Record<string, unknown>>,
+  select: vi.fn(),
+  limit: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({ redirect: state.redirect }))
@@ -40,8 +42,8 @@ vi.mock("@/components/wiki/wiki-editor", () => ({
   ),
 }))
 vi.mock("@/components/wiki/wiki-folder-contents", () => ({
-  WikiFolderContents: ({ emptyLabel }: { emptyLabel?: string }) => (
-    <div>{emptyLabel}</div>
+  WikiFolderContents: ({ items }: { items: unknown[] }) => (
+    <div>{items.length ? "Folder items" : "Nothing here yet."}</div>
   ),
 }))
 vi.mock("@/components/wiki/wiki-management-controls", () => ({
@@ -58,10 +60,22 @@ vi.mock("@/components/wiki/wiki-import-wizard", () => ({
   }) => <button type="button">{triggerLabel}</button>,
 }))
 vi.mock("@/components/wiki/wiki-revisions", () => ({
-  WikiRevisionSelector: ({ canRestore }: { canRestore: boolean }) => (
+  WikiRevisionSelector: ({
+    canRestore,
+    revisions,
+    hasMore,
+  }: {
+    canRestore: boolean
+    revisions: Array<{ author: string }>
+    hasMore: boolean
+  }) => (
     <div>
       Revision history
       {canRestore ? <span>Can restore</span> : null}
+      {revisions.map((revision, index) => (
+        <span key={index}>{revision.author}</span>
+      ))}
+      {hasMore ? <span>More versions</span> : null}
     </div>
   ),
 }))
@@ -80,14 +94,24 @@ vi.mock("@/lib/supabase/server", () => ({
         data: { user: { id: "wiki-manager", email: "manager@canopy.test" } },
       }),
     },
+    rpc: async () => ({
+      data: [{ user_id: "other", full_name: "Another Author", email: null }],
+      error: null,
+    }),
     from: () => ({
-      select: () => ({
-        eq: () => ({
-          order: () => ({
-            limit: async () => ({ data: state.revisions, error: null }),
+      select: (...args: unknown[]) => {
+        state.select(...args)
+        return {
+          eq: () => ({
+            order: () => ({
+              limit: async (value: number) => {
+                state.limit(value)
+                return { data: state.revisions, count: 31, error: null }
+              },
+            }),
           }),
-        }),
-      }),
+        }
+      },
     }),
   }),
 }))
@@ -131,7 +155,7 @@ describe("Wiki landing page", () => {
       screen.getByRole("heading", { name: "Welcome to the Wiki" })
     ).toBeVisible()
     expect(screen.getByRole("button", { name: "Add Section" })).toBeVisible()
-    expect(screen.getByText("No wikis yet.")).toBeVisible()
+    expect(screen.getByText("Nothing here yet.")).toBeVisible()
     expect(state.redirect).not.toHaveBeenCalled()
   })
 
@@ -170,7 +194,7 @@ describe("Wiki landing page", () => {
       })
     )
     expect(screen.getByRole("heading", { name: "Operations" })).toBeVisible()
-    expect(screen.getByText("This area is empty.")).toBeVisible()
+    expect(screen.getByText("Nothing here yet.")).toBeVisible()
     expect(state.redirect).not.toHaveBeenCalled()
   })
 
@@ -203,7 +227,8 @@ describe("Wiki landing page", () => {
     state.revisions = [
       {
         id: "rev-current",
-        plain_text: "Current words",
+        created_by: "other",
+        change_note: null,
         created_at: "2026-11-04T00:00:00.000Z",
       },
     ]
@@ -222,6 +247,13 @@ describe("Wiki landing page", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByText("Revision history")).toBeVisible()
     expect(screen.getByText("Can restore")).toBeVisible()
+    expect(screen.getByText("Another Author")).toBeVisible()
+    expect(screen.getByText("More versions")).toBeVisible()
+    expect(state.select).toHaveBeenCalledWith(
+      "id,created_at,change_note,created_by",
+      { count: "exact" }
+    )
+    expect(state.limit).toHaveBeenCalledWith(30)
     expect(screen.getByRole("button", { name: "AI Update" })).toBeVisible()
   })
 

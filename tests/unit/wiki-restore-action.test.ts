@@ -113,7 +113,10 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => createClient(),
 }))
 
-import { restoreWikiRevisionAction } from "@/app/wiki/actions"
+import {
+  getWikiRevisionComparisonAction,
+  restoreWikiRevisionAction,
+} from "@/app/wiki/actions"
 
 describe("restoreWikiRevisionAction", () => {
   beforeEach(() => {
@@ -204,5 +207,51 @@ describe("restoreWikiRevisionAction", () => {
     })
     expect(state.inserted).toEqual([])
     expect(state.updates).toEqual([])
+  })
+})
+
+describe("getWikiRevisionComparisonAction", () => {
+  beforeEach(() => {
+    state.user = { id: "manager" }
+    state.canManage = true
+    state.node.current_revision_id = "old-revision"
+    state.revision.node_id = "page-1"
+  })
+  it("returns the selected and current content for a manager", async () => {
+    const result = await getWikiRevisionComparisonAction({
+      node_id: "page-1",
+      revision_id: "old-revision",
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      current: {
+        id: "old-revision",
+        plain_text: state.revision.plain_text,
+        blocks: state.revision.blocks,
+      },
+      selected: { id: "old-revision", created_at: state.revision.created_at },
+    })
+  })
+  it("rejects unauthorized users and versions on other pages", async () => {
+    state.canManage = false
+    expect(
+      await getWikiRevisionComparisonAction({
+        node_id: "page-1",
+        revision_id: "old-revision",
+      })
+    ).toMatchObject({
+      ok: false,
+      message: "You do not have permission to manage the Wiki.",
+    })
+    state.canManage = true
+    state.revision.node_id = "other-page"
+    expect(
+      (
+        await getWikiRevisionComparisonAction({
+          node_id: "page-1",
+          revision_id: "old-revision",
+        })
+      ).ok
+    ).toBe(false)
   })
 })

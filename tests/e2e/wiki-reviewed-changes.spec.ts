@@ -69,12 +69,12 @@ test("a reader cannot open unpublished wiki history @wiki-reviewed", async ({
   ).toBeVisible()
   await expect(page.getByText("READER-CURRENT")).toBeVisible()
   await expect(page.getByText("READER-OLD")).toHaveCount(0)
-  const date = page.getByText(/Last updated at/)
+  const date = page.getByText(/Last updated/)
   await date.scrollIntoViewIfNeeded()
   await expect(date).toBeVisible()
-  await expect(
-    page.getByRole("button", { name: /Last updated at/ })
-  ).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /Last updated/ })).toHaveCount(
+    0
+  )
   await page.screenshot({
     path: `${screenshotDir}/footer-date-reader.png`,
     fullPage: true,
@@ -124,18 +124,18 @@ test("editor mode opens history only from the footer date and restore appends a 
   })
   await signInAsLocalDev(page)
   await page.goto(reviewed.path)
-  const plainDate = page.getByText(/Last updated at/)
+  const plainDate = page.getByText(/Last updated/)
   await plainDate.scrollIntoViewIfNeeded()
-  await expect(
-    page.getByRole("button", { name: /Last updated at/ })
-  ).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /Last updated/ })).toHaveCount(
+    0
+  )
   await page.screenshot({
     path: `${screenshotDir}/footer-date-view-mode.png`,
     fullPage: true,
   })
 
   await enableEditorMode(page)
-  const dateButton = page.getByRole("button", { name: /Last updated at/ })
+  const dateButton = page.getByRole("button", { name: /Last updated/ })
   await dateButton.scrollIntoViewIfNeeded()
   await dateButton.click()
   const versionMenu = page.getByRole("menu")
@@ -152,7 +152,7 @@ test("editor mode opens history only from the footer date and restore appends a 
   const before = await revisionTexts(reviewed.id)
   await page.getByRole("menuitem", { name: /Initial draft/ }).click()
   await expect(page.getByText("1 change", { exact: true })).toBeVisible()
-  const dialog = page.getByRole("dialog", { name: /Older version from/ })
+  const dialog = page.getByRole("dialog", { name: /Version from/ })
   await expect(dialog.locator("mark.line-through")).not.toHaveCount(0)
   await expect(dialog.locator("mark.underline")).not.toHaveCount(0)
   await expect(dialog).toBeVisible()
@@ -195,13 +195,13 @@ test("a long reviewed replacement shows non-text changes and persists after relo
   await signInAsLocalDev(page)
   await page.goto(reviewed.path)
   await openUpdate(page)
-  await page.getByRole("switch", { name: "Replace existing content" }).click()
+  await page.getByRole("radio", { name: "Replace this page" }).click()
   await page
-    .getByLabel("Or paste text")
+    .getByLabel("Paste text")
     .fill(
       `${changedLines.join("\n\n")}\n\n[Send the file](https://example.com/new-guide)\n\n![Reviewed chart](https://example.com/chart.png)\n\n| Fee | Amount |\n| --- | --- |\n| Review | 125 |`
     )
-  await page.getByRole("button", { name: "See what will change" }).click()
+  await page.getByRole("button", { name: "Review changes" }).click()
   const dialog = page.getByRole("dialog")
   await expect(dialog.getByText("LONGPAGE-TOKEN")).toBeVisible()
   await expect(dialog.getByText("Fee")).toBeVisible()
@@ -219,7 +219,7 @@ test("a long reviewed replacement shows non-text changes and persists after relo
       response.request().method() === "POST" &&
       (response.request().postData() ?? "").includes("apply_preview")
   )
-  await dialog.getByRole("button", { name: "Replace page" }).click()
+  await dialog.getByRole("button", { name: "Save as new version" }).click()
   expect((await savedResponse).status()).toBe(200)
   await expect(dialog).toBeHidden()
   await expect(page.getByText("LONGPAGE-TOKEN").first()).toBeVisible()
@@ -257,14 +257,12 @@ test("cancel leaves the revision untouched and a reviewed file save persists @wi
   await signInAsLocalDev(page)
   await page.goto(reviewed.path)
   await openUpdate(page)
-  await page
-    .getByLabel("Or paste text")
-    .fill("Cancelled sentence CANCEL-TOKEN.")
-  await page.getByRole("button", { name: "See what will change" }).click()
+  await page.getByLabel("Paste text").fill("Cancelled sentence CANCEL-TOKEN.")
+  await page.getByRole("button", { name: "Review changes" }).click()
   await expect(page.getByText("CANCEL-TOKEN")).toBeVisible()
   await page.getByRole("button", { name: "Back" }).click()
   await expect(
-    page.getByRole("button", { name: "See what will change" })
+    page.getByRole("button", { name: "Review changes" })
   ).toBeVisible()
   await page.reload()
   expect(await currentRevisionId(reviewed.id)).toBe(reviewed.revisionId)
@@ -276,10 +274,10 @@ test("cancel leaves the revision untouched and a reviewed file save persists @wi
     mimeType: "text/plain",
     buffer: Buffer.from("Reviewed file sentence FILE-TOKEN."),
   })
-  await page.getByRole("button", { name: "See what will change" }).click()
+  await page.getByRole("button", { name: "Review changes" }).click()
   await expect(page.getByText("FILE-TOKEN")).toBeVisible()
   const savedFile = waitForAppliedPreview(page)
-  await page.getByRole("button", { name: "Update page" }).click()
+  await page.getByRole("button", { name: "Save as new version" }).click()
   expect((await savedFile).status()).toBe(200)
   await expect(page.getByRole("dialog")).toBeHidden()
   await expect(page.getByText("FILE-TOKEN").first()).toBeVisible()
@@ -322,8 +320,8 @@ test("a stale or tampered preview is refused without a new revision @wiki-review
       response.url().includes("/api/wiki/import") &&
       response.request().method() === "POST"
   )
-  await page.getByLabel("Or paste text").fill("Tampered sentence TAMPER-TOKEN.")
-  await page.getByRole("button", { name: "See what will change" }).click()
+  await page.getByLabel("Paste text").fill("Tampered sentence TAMPER-TOKEN.")
+  await page.getByRole("button", { name: "Review changes" }).click()
   const payload = await (await previewResponse).json()
   const tampered = String(payload.signedPreview).replace("Tampered", "Swapped")
   const refused = await page.request.post("/api/wiki/import", {
@@ -357,7 +355,7 @@ test("a stale or tampered preview is refused without a new revision @wiki-review
   if (pointerError) throw pointerError
 
   const staleSave = waitForAppliedPreview(page)
-  await page.getByRole("button", { name: "Update page" }).click()
+  await page.getByRole("button", { name: "Save as new version" }).click()
   expect((await staleSave).status()).toBe(409)
   await expect(page.getByText(/changed after you looked at it/i)).toBeVisible()
   await page.reload()
@@ -409,11 +407,12 @@ test("AI merge archives the source only after the target save and keeps its hist
   await signInAsLocalDev(page)
   await page.goto(source.path)
   await enableEditorMode(page)
-  await page.getByRole("button", { name: `Merge Source ${stamp}` }).click()
-  const editDialog = page.getByRole("dialog", { name: "Edit Wiki Item" })
-  await editDialog.getByRole("button", { name: "Move" }).click()
+  await page.getByRole("button", { name: "More actions for this page" }).click()
+  await page
+    .getByRole("menuitem", { name: "Merge into another page..." })
+    .click()
   const moveDialog = page.getByRole("dialog", {
-    name: `Move Merge Source ${stamp}`,
+    name: "Merge into another page",
   })
   await moveDialog.getByRole("button", { name: "Canopy Wiki" }).click()
   await moveDialog.getByRole("button", { name: "Operations" }).click()
@@ -421,10 +420,8 @@ test("AI merge archives the source only after the target save and keeps its hist
   await moveDialog
     .getByRole("button", { name: `Merge Target ${stamp}` })
     .click()
-  await moveDialog
-    .getByRole("button", { name: "AI Merge into this page" })
-    .click()
-  const confirm = page.getByRole("dialog", { name: "Merge pages?" })
+  await moveDialog.getByRole("button", { name: "Review merge" }).click()
+  const confirm = page.getByRole("dialog", { name: "Review merge" })
   await expect(confirm).toContainText("archives")
   await expect(confirm).not.toContainText(/delete/i)
   await expect(confirm.getByText("SAMPLE-MERGE")).toBeVisible()
@@ -442,14 +439,22 @@ test("AI merge archives the source only after the target save and keeps its hist
   expect(stillPublished?.status).toBe("published")
   expect(await currentRevisionId(target.id)).toBe(target.revisionId)
 
-  await moveDialog
-    .getByRole("button", { name: "AI Merge into this page" })
+  await page.getByRole("button", { name: "More actions for this page" }).click()
+  await page
+    .getByRole("menuitem", { name: "Merge into another page..." })
     .click()
-  const confirmAgain = page.getByRole("dialog", { name: "Merge pages?" })
+  await moveDialog.getByRole("button", { name: "Canopy Wiki" }).click()
+  await moveDialog.getByRole("button", { name: "Operations" }).click()
+  await moveDialog.getByRole("button", { name: "Closing" }).click()
+  await moveDialog
+    .getByRole("button", { name: `Merge Target ${stamp}` })
+    .click()
+  await moveDialog.getByRole("button", { name: "Review merge" }).click()
+  const confirmAgain = page.getByRole("dialog", { name: "Review merge" })
   await expect(confirmAgain.getByText("SAMPLE-MERGE")).toBeVisible()
   const merged = waitForAppliedPreview(page)
   await confirmAgain
-    .getByRole("button", { name: "AI Merge and archive" })
+    .getByRole("button", { name: "Merge and archive this page" })
     .click()
   expect((await merged).status()).toBe(200)
   await expect(confirmAgain).toBeHidden()

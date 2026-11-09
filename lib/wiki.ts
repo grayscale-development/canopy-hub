@@ -684,3 +684,11 @@ export function formatBytes(bytes: number) {
 
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`
 }
+
+export interface WikiRevisionMetadata {
+  id: string
+  created_at: string
+  change_note: string | null
+  created_by: string | null
+  author: string
+}

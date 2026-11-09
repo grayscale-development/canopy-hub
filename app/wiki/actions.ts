@@ -731,6 +731,52 @@ export async function updateWikiNodeStatusAction(
   }
 }
 
+export async function getWikiRevisionComparisonAction({
+  node_id,
+  revision_id,
+}: {
+  node_id: string
+  revision_id: string
+}) {
+  try {
+    const { supabase } = await getWikiManagerClient()
+    if (!node_id || !revision_id)
+      return { ok: false as const, message: "Page and version are required." }
+    const { data: node, error: nodeError } = await supabase
+      .from("wiki_nodes")
+      .select("id,type,current_revision_id")
+      .eq("id", node_id)
+      .maybeSingle()
+    if (nodeError || !node || node.type !== "page" || !node.current_revision_id)
+      return { ok: false as const, message: "Wiki page not found." }
+    const load = async (id: string) =>
+      supabase
+        .from("wiki_page_revisions")
+        .select("id,plain_text,blocks,created_at")
+        .eq("id", id)
+        .eq("node_id", node_id)
+        .maybeSingle()
+    const [current, selected] = await Promise.all([
+      load(node.current_revision_id),
+      load(revision_id),
+    ])
+    if (current.error || selected.error || !current.data || !selected.data)
+      return {
+        ok: false as const,
+        message: "Could not load this version. Please try again.",
+      }
+    return { ok: true as const, current: current.data, selected: selected.data }
+  } catch (error) {
+    return {
+      ok: false as const,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not load this version. Please try again.",
+    }
+  }
+}
+
 export async function restoreWikiRevisionAction(
   formData: FormData
 ): Promise<WikiActionResult> {
