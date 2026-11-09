@@ -7,6 +7,7 @@ import {
 } from "@/components/wiki/wiki-edit-mode"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
+import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
 import {
   WikiCreateWizardDialog,
   WikiNodeActionsMenu,
@@ -34,7 +35,7 @@ import {
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeRow,
-  type WikiRevisionRow,
+  type WikiRevisionMetadata,
 } from "@/lib/wiki"
 
 export const metadata = {
@@ -65,16 +66,6 @@ function getAuthUserDisplayName(user: {
   )
 }
 
-function formatWikiUpdatedAt(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value))
-}
-
 function DirectoryView({
   title,
   items,
@@ -82,7 +73,7 @@ function DirectoryView({
   canManageWiki,
   parentId,
   showCreateControl = false,
-  emptyLabel,
+  headingLevel = 2,
 }: {
   title?: string
   items: WikiNodeRow[]
@@ -90,13 +81,18 @@ function DirectoryView({
   canManageWiki: boolean
   parentId: string | null
   showCreateControl?: boolean
-  emptyLabel?: string
+  headingLevel?: 1 | 2
 }) {
+  const folder = nodes.find((node) => node.id === parentId)
+  const parent = nodes.find((node) => node.id === folder?.parent_id)
   return (
     <div className="space-y-4">
       {title || (canManageWiki && showCreateControl) ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {title ? <h2 className="text-xl font-semibold">{title}</h2> : null}
+          {title ? headingLevel === 1 ? (
+            <WikiViewModeTitleSpacing><h1 className="text-4xl leading-tight font-bold">{title}</h1></WikiViewModeTitleSpacing>
+          ) : <h2 className="text-xl font-semibold">{title}</h2> : null}
+          {folder && parent ? <WikiAddMenu folder={folder} nodes={nodes} allowGroups={parent.parent_id === null} /> : null}
           {canManageWiki && showCreateControl ? (
             items.length ? (
               <WikiEditModeGate>
@@ -128,7 +124,7 @@ function DirectoryView({
         key={parentId ?? "root"}
         items={items}
         nodes={nodes}
-        emptyLabel={emptyLabel}
+        parentId={parentId}
       />
     </div>
   )
@@ -236,19 +232,19 @@ export default async function WikiPage({
     path.length ? fetchWikiPageData(supabase, path) : null,
     fetchWikiTags(supabase),
   ])
-  const revisions =
+  const revisionResult =
     canManageWiki && pageData?.node.type === "page"
-      ? (((
-          await supabase
-            .from("wiki_page_revisions")
-            .select(
-              "id,node_id,blocks,plain_text,change_note,created_by,created_at"
-            )
-            .eq("node_id", pageData.node.id)
-            .order("created_at", { ascending: false })
-            .limit(10)
-        ).data ?? []) as WikiRevisionRow[])
-      : []
+      ? await supabase
+          .from("wiki_page_revisions")
+          .select("id,created_at,change_note,created_by", { count: "exact" })
+          .eq("node_id", pageData.node.id)
+          .order("created_at", { ascending: false })
+          .limit(30)
+      : null
+  const revisionRows = (revisionResult?.data ?? []) as Omit<
+    WikiRevisionMetadata,
+    "author"
+  >[]
   const missingRepositoryPage =
     !pageData && path.length === 1 ? getWikiRepositoryBySlug(path[0]) : null
   const isTagsDirectory = path.length === 1 && path[0] === "tags"
@@ -257,40 +253,32 @@ export default async function WikiPage({
     redirect("/wiki")
   }
 
-  let lastUpdatedBy = "Unknown"
-  if (pageData?.node.updated_by) {
-    if (pageData.node.updated_by === user.id) {
-      lastUpdatedBy = getAuthUserDisplayName(user)
-    } else {
-      try {
-        const { data, error } = await supabase.rpc(
-          "list_permission_directory_users"
-        )
-
-        if (!error) {
-          const updatedByUser = (
-            (data ?? []) as Array<{
-              user_id: string
-              email: string | null
-              full_name: string | null
-            }>
-          ).find((directoryUser) => {
-            return directoryUser.user_id === pageData.node.updated_by
-          })
-
-          lastUpdatedBy =
-            updatedByUser?.full_name ??
-            updatedByUser?.email?.split("@")[0] ??
-            lastUpdatedBy
-        }
-      } catch {
-        lastUpdatedBy = "Unknown"
-      }
+  let directoryUsers: Array<{
+    user_id: string
+    email: string | null
+    full_name: string | null
+  }> = []
+  if (pageData?.node.updated_by || revisionRows.length) {
+    try {
+      const { data, error } = await supabase.rpc(
+        "list_permission_directory_users"
+      )
+      if (!error) directoryUsers = data ?? []
+    } catch {
+      // Names are optional; history remains usable if the directory is unavailable.
     }
   }
-  const lastUpdatedAt = pageData
-    ? formatWikiUpdatedAt(pageData.node.updated_at)
-    : null
+  const displayName = (id: string | null) => {
+    if (id === user.id) return getAuthUserDisplayName(user)
+    const person = directoryUsers.find((entry) => entry.user_id === id)
+    return person?.full_name || person?.email?.split("@")[0] || "Unknown"
+  }
+  const lastUpdatedBy = displayName(pageData?.node.updated_by ?? null)
+  const lastUpdatedAt = pageData?.node.updated_at ?? null
+  const revisions: WikiRevisionMetadata[] = revisionRows.map((revision) => ({
+    ...revision,
+    author: displayName(revision.created_by),
+  }))
 
   const rootChildren = nodes
     .filter((node) => node.parent_id === null)
@@ -349,17 +337,13 @@ export default async function WikiPage({
                 <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
                   {pageData?.node.type === "folder" ? (
                     <>
-                      <WikiViewModeTitleSpacing>
-                        <h1 className="text-4xl leading-tight font-bold">
-                          {displayedNode.title}
-                        </h1>
-                      </WikiViewModeTitleSpacing>
                       <DirectoryView
+                        title={displayedNode.title}
+                        headingLevel={1}
                         items={displayedChildren}
                         nodes={nodes}
                         canManageWiki={canManageWiki}
                         parentId={displayedNode.id}
-                        emptyLabel="This area is empty."
                       />
                     </>
                   ) : pageData ? (
@@ -370,11 +354,8 @@ export default async function WikiPage({
                         revision={pageData.revision ?? null}
                         availableTags={wikiTags.map((tag) => tag.name)}
                         canManage={canManageWiki}
-                        lastUpdatedLabel={
-                          lastUpdatedAt
-                            ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
-                            : null
-                        }
+                        lastUpdatedAt={lastUpdatedAt}
+                        lastUpdatedBy={lastUpdatedBy}
                         versionHistory={
                           canManageWiki && pageData.node.type === "page" ? (
                             <WikiRevisionSelector
@@ -384,11 +365,9 @@ export default async function WikiPage({
                               }
                               revisions={revisions}
                               canRestore
-                              lastUpdatedLabel={
-                                lastUpdatedAt
-                                  ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
-                                  : null
-                              }
+                              lastUpdatedAt={lastUpdatedAt}
+                              lastUpdatedBy={lastUpdatedBy}
+                              hasMore={(revisionResult?.count ?? 0) > 30}
                             />
                           ) : null
                         }
@@ -439,7 +418,6 @@ export default async function WikiPage({
                   canManageWiki={canManageWiki}
                   parentId={null}
                   showCreateControl
-                  emptyLabel="No wikis yet."
                 />
               </section>
             )}

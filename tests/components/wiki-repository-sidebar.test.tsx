@@ -352,6 +352,19 @@ describe("WikiRepositorySidebar", () => {
     }
   )
 
+  it("explains the draft indicator", async () => {
+    const user = userEvent.setup()
+    const draftNodes = nodes.map((item) =>
+      item.id === "closing-page" ? { ...item, status: "draft" } : item
+    ) as WikiNodeRow[]
+    renderSidebar("canopy-wiki", "canopy-wiki", draftNodes)
+    await user.click(screen.getByRole("button", { name: "Toggle Closing" }))
+    expect(screen.getByRole("img", { name: "Draft" })).toHaveAttribute(
+      "title",
+      "Draft - only editors can see this"
+    )
+  })
+
   it("does not offer creation controls to a viewer", () => {
     renderSidebar("canopy-wiki", "canopy-wiki", nodes, false)
 

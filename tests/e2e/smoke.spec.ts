@@ -94,9 +94,7 @@ test("Wiki folder URLs show their landing contents @wiki @smoke", async ({
   await expect(
     landingCards.getByRole("link", { name: "File Viewer" })
   ).toBeVisible()
-  await expect(
-    main.getByRole("combobox", { name: "Filter by tag" })
-  ).toHaveCount(0)
+  await expect(main.getByText("Filter by tag", { exact: true })).toHaveCount(0)
 })
 
 test("Wiki sidebar chevrons toggle without navigation and manager edit opens folder-only Move @wiki", async ({

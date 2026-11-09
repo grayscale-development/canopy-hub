@@ -2,23 +2,9 @@
 
 import * as React from "react"
 import Link from "next/link"
-import {
-  ChevronRightIcon,
-  FileTextIcon,
-  FolderIcon,
-  PencilIcon,
-  PlusIcon,
-  SparklesIcon,
-  TagsIcon,
-} from "lucide-react"
+import { ChevronRightIcon, PencilIcon, TagsIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -29,7 +15,7 @@ import {
   WikiCreateWizardDialog,
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
-import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
+import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
 import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 import {
   getDefaultWikiRepository,
@@ -178,6 +164,7 @@ function SidebarPageLink({
         <span
           role="img"
           aria-label="Draft"
+          title="Draft - only editors can see this"
           className="ml-auto size-2 shrink-0 rounded-full bg-muted-foreground/50"
         />
       ) : null}
@@ -284,7 +271,12 @@ function SidebarNestedFolder({
           <SidebarFolderEditButton folder={folder} nodes={nodes} />
         ) : null}
         {canManage ? (
-          <SidebarNestedFolderAddMenu folder={folder} nodes={nodes} />
+          <WikiAddMenu
+            folder={folder}
+            nodes={nodes}
+            allowGroups={false}
+            variant="icon"
+          />
         ) : null}
       </div>
       <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
@@ -308,137 +300,6 @@ function SidebarNestedFolder({
         )}
       </div>
     </div>
-  )
-}
-
-function SidebarNestedFolderAddMenu({
-  folder,
-  nodes,
-}: {
-  folder: WikiNodeRow
-  nodes: WikiNodeRow[]
-}) {
-  const [dialog, setDialog] = React.useState<"page" | "ai-create" | null>(null)
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            className="size-8 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
-            aria-label={`Add to ${folder.title}`}
-            title={`Add to ${folder.title}`}
-          >
-            <PlusIcon />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-32">
-          <DropdownMenuItem onSelect={() => setDialog("page")}>
-            <FileTextIcon className="size-4" />
-            Page
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setDialog("ai-create")}>
-            <SparklesIcon className="size-4" />
-            AI Create
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <WikiCreateWizardDialog
-        nodes={nodes}
-        parentId={folder.id}
-        defaultType="page"
-        allowedTypes={["page"]}
-        labels={{ page: "Page" }}
-        dialogTitle="Add Page"
-        open={dialog === "page"}
-        onOpenChange={(open) => setDialog(open ? "page" : null)}
-        showTrigger={false}
-      />
-      <WikiImportWizardDialog
-        nodes={nodes}
-        parentId={folder.id}
-        open={dialog === "ai-create"}
-        onOpenChange={(open) => setDialog(open ? "ai-create" : null)}
-        showTrigger={false}
-      />
-    </>
-  )
-}
-
-function SidebarSectionAddMenu({
-  section,
-  nodes,
-}: {
-  section: WikiNodeRow
-  nodes: WikiNodeRow[]
-}) {
-  const [dialog, setDialog] = React.useState<
-    "page" | "folder" | "ai-create" | null
-  >(null)
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            className="size-8 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 hover:text-sidebar-foreground"
-            aria-label={`Add to ${section.title}`}
-            title={`Add to ${section.title}`}
-          >
-            <PlusIcon />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-32">
-          <DropdownMenuItem onSelect={() => setDialog("page")}>
-            <FileTextIcon className="size-4" />
-            Page
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setDialog("folder")}>
-            <FolderIcon className="size-4" />
-            Group
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setDialog("ai-create")}>
-            <SparklesIcon className="size-4" />
-            AI Create
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <WikiCreateWizardDialog
-        nodes={nodes}
-        parentId={section.id}
-        defaultType="page"
-        allowedTypes={["page"]}
-        labels={{ page: "Page" }}
-        dialogTitle="Add Page"
-        open={dialog === "page"}
-        onOpenChange={(open) => setDialog(open ? "page" : null)}
-        showTrigger={false}
-      />
-      <WikiCreateWizardDialog
-        nodes={nodes}
-        parentId={section.id}
-        defaultType="folder"
-        allowedTypes={["folder"]}
-        labels={{ folder: "Group" }}
-        dialogTitle="Add Group"
-        open={dialog === "folder"}
-        onOpenChange={(open) => setDialog(open ? "folder" : null)}
-        showTrigger={false}
-      />
-      <WikiImportWizardDialog
-        nodes={nodes}
-        parentId={section.id}
-        open={dialog === "ai-create"}
-        onOpenChange={(open) => setDialog(open ? "ai-create" : null)}
-        showTrigger={false}
-      />
-    </>
   )
 }
 
@@ -501,7 +362,12 @@ function SidebarSection({
           <SidebarFolderEditButton folder={section} nodes={nodes} />
         ) : null}
         {canManage ? (
-          <SidebarSectionAddMenu section={section} nodes={nodes} />
+          <WikiAddMenu
+            folder={section}
+            nodes={nodes}
+            allowGroups
+            variant="icon"
+          />
         ) : null}
       </div>
       <div id={contentId} hidden={!isOpen} className="space-y-1">
