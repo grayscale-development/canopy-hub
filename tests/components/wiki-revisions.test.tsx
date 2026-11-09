@@ -8,7 +8,10 @@ import {
   WikiEditModeProvider,
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
-import { WikiRevisionSelector } from "@/components/wiki/wiki-revisions"
+import {
+  formatRevisionNote,
+  WikiRevisionSelector,
+} from "@/components/wiki/wiki-revisions"
 import type { WikiRevisionRow } from "@/lib/wiki"
 
 const router = vi.hoisted(() => ({
@@ -201,5 +204,29 @@ describe("WikiRevisionSelector", () => {
       screen.queryByRole("button", { name: "Restore this version" })
     ).not.toBeInTheDocument()
     expect(screen.getByText("1 change")).toBeVisible()
+  })
+})
+
+describe("formatRevisionNote", () => {
+  it("shows a restore time in the reader's own time zone", () => {
+    const expected = new Date("Nov 9, 2026, 7:59 PM UTC").toLocaleString(
+      undefined,
+      { dateStyle: "medium", timeStyle: "short" }
+    )
+
+    expect(formatRevisionNote("Restored from Nov 9, 2026, 7:59 PM UTC")).toBe(
+      `Restored from ${expected}`
+    )
+    expect(
+      formatRevisionNote("Restored from Nov 9, 2026, 7:59 PM UTC")
+    ).not.toContain("UTC")
+  })
+
+  it("leaves other notes alone", () => {
+    expect(formatRevisionNote("Initial page")).toBe("Initial page")
+    expect(formatRevisionNote("Restored from sometime UTC")).toBe(
+      "Restored from sometime UTC"
+    )
+    expect(formatRevisionNote(null)).toBe("")
   })
 })

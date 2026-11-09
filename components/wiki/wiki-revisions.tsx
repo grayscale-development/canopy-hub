@@ -23,6 +23,26 @@ import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
 import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
 import type { WikiRevisionRow } from "@/lib/wiki"
 
+// Restore notes are stored with a UTC time, but every other time in this menu
+// is shown in the reader's own time zone. Show that time the same way so one
+// version never appears with two different clock times.
+export function formatRevisionNote(note: string | null) {
+  if (!note) {
+    return ""
+  }
+  const restored = note.match(/^Restored from (.+) UTC$/)
+  if (restored) {
+    const date = new Date(`${restored[1]} UTC`)
+    if (!Number.isNaN(date.getTime())) {
+      return `Restored from ${date.toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })}`
+    }
+  }
+  return note
+}
+
 export function WikiRevisionSelector({
   nodeId,
   currentRevisionId,
@@ -123,7 +143,7 @@ export function WikiRevisionSelector({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="center" className="w-80">
             {revisions.map((revision) => {
-              const label = `${revision.id === currentRevisionId ? "Current - " : ""}${new Date(revision.created_at).toLocaleString()}${revision.change_note ? ` - ${revision.change_note}` : ""}`
+              const label = `${revision.id === currentRevisionId ? "Current - " : ""}${new Date(revision.created_at).toLocaleString()}${revision.change_note ? ` - ${formatRevisionNote(revision.change_note)}` : ""}`
               return (
                 <DropdownMenuItem
                   key={revision.id}
