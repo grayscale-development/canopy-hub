@@ -81,43 +81,44 @@ test("Wiki folder URLs show their landing contents @wiki @smoke", async ({
   await page.goto("/wiki/canopy-wiki")
   await expect(page).toHaveURL(/\/wiki\/canopy-wiki$/)
   const main = page.getByRole("main")
+  const landingCards = main.locator("div.grid")
   await expect(
-    main.getByRole("link", { name: "Hub", exact: true })
+    landingCards.getByRole("link", { name: "Hub", exact: true })
   ).toHaveAttribute("href", "/wiki/canopy-wiki/hub")
 
   await page.goto("/wiki/canopy-wiki/hub")
   await expect(page).toHaveURL(/\/wiki\/canopy-wiki\/hub$/)
   await expect(
-    main.getByRole("link", { name: "Home Dashboard", exact: true })
+    landingCards.getByRole("link", { name: "Home Dashboard", exact: true })
   ).toHaveAttribute("href", "/wiki/canopy-wiki/hub/home-dashboard")
-  await expect(main.getByRole("link", { name: "File Viewer" })).toBeVisible()
+  await expect(
+    landingCards.getByRole("link", { name: "File Viewer" })
+  ).toBeVisible()
   await expect(
     main.getByRole("combobox", { name: "Filter by tag" })
   ).toHaveCount(0)
 })
 
-test("Wiki sidebar titles toggle without navigation and manager edit opens folder-only Move @wiki", async ({
+test("Wiki sidebar chevrons toggle without navigation and manager edit opens folder-only Move @wiki", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
   await page.goto("/wiki/canopy-wiki/hub/home-dashboard")
 
   const wikiSidebar = page.locator("[data-wiki-sidebar-scroll]")
-  const operationsTitle = wikiSidebar.getByRole("button", {
-    name: "Collapse Operations",
+  const operationsToggle = wikiSidebar.getByRole("button", {
+    name: "Toggle Operations",
   })
   const initialUrl = page.url()
 
-  await operationsTitle.click()
-  await expect(
-    wikiSidebar.getByRole("button", { name: "Expand Operations" })
-  ).toBeVisible()
+  await expect(operationsToggle).toHaveAttribute("aria-expanded", "true")
+  await operationsToggle.click()
+  await expect(operationsToggle).toHaveAttribute("aria-expanded", "false")
   await expect(page).toHaveURL(initialUrl)
 
-  await wikiSidebar.getByRole("button", { name: "Expand Operations" }).click()
-  const operationsRow = wikiSidebar
-    .getByRole("button", { name: "Collapse Operations" })
-    .locator("..")
+  await operationsToggle.click()
+  await expect(operationsToggle).toHaveAttribute("aria-expanded", "true")
+  const operationsRow = operationsToggle.locator("..")
   await operationsRow.hover()
   await wikiSidebar.getByRole("button", { name: "Edit Operations" }).click()
 
