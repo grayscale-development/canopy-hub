@@ -106,18 +106,20 @@ function DirectoryView({
                 </div>
               </WikiEditModeGate>
             ) : (
-              <div className="flex items-center gap-2">
-                <WikiCreateWizardDialog
-                  parentId={parentId}
-                  nodes={nodes}
-                  defaultType="folder"
-                  allowedTypes={["folder"]}
-                  triggerLabel="Add Section"
-                  triggerAriaLabel="Add Section"
-                  triggerTitle="Add Section"
-                  labels={{ folder: "Section" }}
-                />
-              </div>
+              <WikiEditModeGate>
+                <div className="flex items-center gap-2">
+                  <WikiCreateWizardDialog
+                    parentId={parentId}
+                    nodes={nodes}
+                    defaultType="folder"
+                    allowedTypes={["folder"]}
+                    triggerLabel="Add Section"
+                    triggerAriaLabel="Add Section"
+                    triggerTitle="Add Section"
+                    labels={{ folder: "Section" }}
+                  />
+                </div>
+              </WikiEditModeGate>
             )
           ) : null}
         </div>
@@ -217,10 +219,10 @@ export default async function WikiPage({
     code: WIKI_MANAGE_PERMISSION,
   })
 
-  const [
-    { path = [] },
-    { revision: selectedRevisionParam = "", tag: highlightedTag = "" },
-  ] = await Promise.all([params, searchParams])
+  const [{ path = [] }, { tag: highlightedTag = "" }] = await Promise.all([
+    params,
+    searchParams,
+  ])
   let nodes: WikiNodeRow[]
   try {
     nodes = await fetchWikiNodes(supabase)
@@ -247,20 +249,6 @@ export default async function WikiPage({
             .limit(10)
         ).data ?? []) as WikiRevisionRow[])
       : []
-  const requestedRevision = revisions.find(
-    (revision) => revision.id === selectedRevisionParam
-  )
-  const selectedRevisionId =
-    canManageWiki && requestedRevision && pageData?.node.type === "page"
-      ? selectedRevisionParam
-      : null
-  const selectedHistoricalRevision =
-    selectedRevisionId &&
-    selectedRevisionId !== pageData?.node.current_revision_id
-      ? (requestedRevision ?? null)
-      : null
-  const displayedRevision = selectedHistoricalRevision ?? pageData?.revision
-  const isHistoricalRevision = Boolean(selectedHistoricalRevision)
   const missingRepositoryPage =
     !pageData && path.length === 1 ? getWikiRepositoryBySlug(path[0]) : null
   const isTagsDirectory = path.length === 1 && path[0] === "tags"
@@ -376,20 +364,12 @@ export default async function WikiPage({
                     </>
                   ) : pageData ? (
                     <div className="flex min-w-0 flex-1 flex-col gap-6">
-                      {isHistoricalRevision ? (
-                        <WikiEditModeGate>
-                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-                            You are looking at an older version of this page.
-                          </div>
-                        </WikiEditModeGate>
-                      ) : null}
                       <WikiEditor
-                        key={displayedRevision?.id ?? pageData.node.id}
+                        key={pageData.revision?.id ?? pageData.node.id}
                         node={pageData.node}
-                        revision={displayedRevision ?? null}
+                        revision={pageData.revision ?? null}
                         availableTags={wikiTags.map((tag) => tag.name)}
                         canManage={canManageWiki}
-                        isHistorical={isHistoricalRevision}
                         lastUpdatedLabel={
                           lastUpdatedAt
                             ? `Last updated at ${lastUpdatedAt} by ${lastUpdatedBy}`
@@ -400,10 +380,6 @@ export default async function WikiPage({
                             <WikiRevisionSelector
                               nodeId={pageData.node.id}
                               currentRevisionId={
-                                pageData.node.current_revision_id
-                              }
-                              selectedRevisionId={
-                                selectedRevisionId ??
                                 pageData.node.current_revision_id
                               }
                               revisions={revisions}
@@ -418,9 +394,7 @@ export default async function WikiPage({
                         }
                         showStatusControl
                         createAction={
-                          canManageWiki &&
-                          pageData.node.type === "page" &&
-                          !isHistoricalRevision ? (
+                          canManageWiki && pageData.node.type === "page" ? (
                             <WikiEditModeGate>
                               <WikiImportWizardDialog
                                 nodes={nodes}

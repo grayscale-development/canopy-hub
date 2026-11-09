@@ -46,14 +46,12 @@ export function formatRevisionNote(note: string | null) {
 export function WikiRevisionSelector({
   nodeId,
   currentRevisionId,
-  selectedRevisionId,
   revisions,
   canRestore,
   lastUpdatedLabel = "Last updated",
 }: {
   nodeId: string
   currentRevisionId: string | null
-  selectedRevisionId: string | null
   revisions: WikiRevisionRow[]
   canRestore: boolean
   lastUpdatedLabel?: string | null
@@ -63,26 +61,21 @@ export function WikiRevisionSelector({
   const searchParams = useSearchParams()
   const { canEditWiki } = useWikiEditMode()
   const [pending, setPending] = React.useState(false)
-  const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [selectedRevisionId, setSelectedRevisionId] = React.useState<
+    string | null
+  >(null)
   const [menuOpen, setMenuOpen] = React.useState(false)
   const [error, setError] = React.useState("")
-  const isHistorical =
-    Boolean(selectedRevisionId) && selectedRevisionId !== currentRevisionId
-  const allowRestore = canRestore && canEditWiki
   const currentRevision =
     revisions.find((revision) => revision.id === currentRevisionId) ?? null
   const selectedRevision =
     revisions.find((revision) => revision.id === selectedRevisionId) ?? null
 
   function selectRevision(revisionId: string) {
-    const params = new URLSearchParams(searchParams)
-    if (!revisionId || revisionId === currentRevisionId) {
-      params.delete("revision")
-    } else {
-      params.set("revision", revisionId)
+    if (revisionId !== currentRevisionId) {
+      setError("")
+      setSelectedRevisionId(revisionId)
     }
-    const query = params.toString()
-    router.push(query ? `${pathname}?${query}` : pathname)
   }
 
   async function restoreSelected() {
@@ -95,29 +88,34 @@ export function WikiRevisionSelector({
     formData.set("revision_id", selectedRevisionId)
     setPending(true)
     setError("")
-    const result = await restoreWikiRevisionAction(formData)
-    setPending(false)
-    if (!result.ok) {
-      setError(result.message)
-      return
+    try {
+      const result = await restoreWikiRevisionAction(formData)
+      if (!result.ok) {
+        setError(result.message)
+        return
+      }
+      setSelectedRevisionId(null)
+      router.refresh()
+    } catch {
+      setError("Could not restore this version. Please try again.")
+    } finally {
+      setPending(false)
     }
-    setConfirmOpen(false)
-    const params = new URLSearchParams(searchParams)
-    params.delete("revision")
-    const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : pathname)
-    router.refresh()
   }
 
   React.useEffect(() => {
-    if (canEditWiki || !searchParams.get("revision")) {
+    if (!searchParams.has("revision")) {
       return
     }
     const params = new URLSearchParams(searchParams)
     params.delete("revision")
     const query = params.toString()
     router.replace(query ? `${pathname}?${query}` : pathname)
-  }, [canEditWiki, pathname, router, searchParams])
+  }, [pathname, router, searchParams])
+
+  React.useEffect(() => {
+    if (!canEditWiki) setSelectedRevisionId(null)
+  }, [canEditWiki])
 
   const dateText = lastUpdatedLabel ?? ""
 
@@ -155,43 +153,29 @@ export function WikiRevisionSelector({
             })}
           </DropdownMenuContent>
         </DropdownMenu>
-        {isHistorical && allowRestore ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="cursor-pointer"
-            onClick={() => {
-              setError("")
-              setConfirmOpen(true)
-            }}
-          >
-            <RotateCcwIcon />
-            Restore this version
-          </Button>
-        ) : null}
       </div>
-      {isHistorical ? (
-        <WikiPlainDiff
-          beforeText={currentRevision?.plain_text ?? ""}
-          afterText={selectedRevision?.plain_text ?? ""}
-          beforeBlocks={currentRevision?.blocks}
-          afterBlocks={selectedRevision?.blocks}
-          beforeTitle="This page now"
-          afterTitle="Page after restore"
-        />
-      ) : null}
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      {/* The current page stays mounted, so closing the preview needs no rollback. */}
+      <Dialog
+        open={Boolean(selectedRevision) && canEditWiki}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRevisionId(null)
+        }}
+      >
         <DialogContent
           aria-describedby={undefined}
           className="max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
         >
           <DialogHeader>
-            <DialogTitle>Restore this version?</DialogTitle>
+            <DialogTitle>
+              Older version from{" "}
+              {selectedRevision
+                ? new Date(selectedRevision.created_at).toLocaleString()
+                : ""}
+            </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-foreground">
-            This saves a new copy of the older version and makes that copy the
-            current page.
+            Restoring saves a new copy of this version and makes it the current
+            page. The older versions stay in the history.
           </p>
           <WikiPlainDiff
             beforeText={currentRevision?.plain_text ?? ""}
@@ -207,14 +191,14 @@ export function WikiRevisionSelector({
               type="button"
               variant="outline"
               className="cursor-pointer"
-              onClick={() => setConfirmOpen(false)}
+              onClick={() => setSelectedRevisionId(null)}
             >
-              Cancel
+              Close
             </Button>
             <Button
               type="button"
               className="cursor-pointer"
-              disabled={pending}
+              disabled={pending || !canRestore}
               onClick={() => void restoreSelected()}
             >
               <RotateCcwIcon />

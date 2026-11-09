@@ -73,65 +73,73 @@ describe("WikiRevisionSelector", () => {
     })
   })
 
-  it("previews a restore as a new copy and reports a failure", async () => {
+  async function openOldVersion(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "Last updated" }))
+    await user.click(screen.getByRole("menuitem", { name: /Initial page/ }))
+    return screen.findByRole("dialog", { name: /Older version from/ })
+  }
+
+  it("previews the diff in a dialog and closes without restoring", async () => {
+    const user = userEvent.setup()
+    render(
+      <WikiRevisionSelector
+        nodeId="page-1"
+        currentRevisionId="current-revision"
+        revisions={revisions}
+        canRestore
+      />
+    )
+    expect(screen.queryByText("1 change")).not.toBeInTheDocument()
+    const dialog = await openOldVersion(user)
+    expect(within(dialog).getByText("1 change")).toBeVisible()
+    expect(
+      within(dialog).getByRole("heading", { name: "Page after restore" })
+    ).toBeVisible()
+    expect(dialog.querySelector("mark.line-through")).toBeInTheDocument()
+    expect(dialog.querySelector("mark.underline")).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText(/words are taken out/i)
+    ).not.toBeInTheDocument()
+    await user.click(
+      within(dialog).getAllByRole("button", { name: "Close" })[0]
+    )
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(restoreWikiRevisionAction).not.toHaveBeenCalled()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it("restores once and closes, or displays a failure", async () => {
     const user = userEvent.setup()
     restoreWikiRevisionAction.mockResolvedValueOnce({
       ok: false,
-      message: "That version could not be found on this page.",
+      message: "Restore failed",
     })
     render(
       <WikiRevisionSelector
         nodeId="page-1"
         currentRevisionId="current-revision"
-        selectedRevisionId="old-revision"
         revisions={revisions}
         canRestore
       />
     )
-
-    const dateButton = screen.getByRole("button", { name: "Last updated" })
-    expect(dateButton).toHaveAttribute("aria-expanded", "false")
-    expect(
-      screen.queryByRole("combobox", { name: "Page versions" })
-    ).not.toBeInTheDocument()
-    dateButton.focus()
-    await user.keyboard("{Enter}")
-    expect(screen.getByRole("menu")).toBeVisible()
-    await user.keyboard("{Escape}")
-    expect(screen.getByText("1 change")).toBeVisible()
-    expect(screen.queryByText(/words are taken out/i)).not.toBeInTheDocument()
-    expect(
-      screen.getAllByRole("heading", { name: "Page after restore" }).length
-    ).toBeGreaterThan(0)
-
-    await user.click(
-      screen.getByRole("button", { name: "Restore this version" })
-    )
-    const dialog = await screen.findByRole("dialog", {
-      name: "Restore this version?",
-    })
-    expect(dialog).toHaveTextContent(
-      "This saves a new copy of the older version and makes that copy the current page."
-    )
-    expect(
-      within(dialog).getByRole("heading", { name: "Page after restore" })
-    ).toBeVisible()
-
+    const dialog = await openOldVersion(user)
     await user.click(
       within(dialog).getByRole("button", { name: "Restore this version" })
     )
-
-    expect(restoreWikiRevisionAction).toHaveBeenCalledTimes(1)
-    const formData = restoreWikiRevisionAction.mock.calls[0][0]
-    expect(formData.get("node_id")).toBe("page-1")
-    expect(formData.get("revision_id")).toBe("old-revision")
-    expect(
-      await screen.findByText("That version could not be found on this page.")
-    ).toBeVisible()
-    expect(router.refresh).not.toHaveBeenCalled()
+    expect(await within(dialog).findByText("Restore failed")).toBeVisible()
+    await user.click(
+      within(dialog).getByRole("button", { name: "Restore this version" })
+    )
+    expect(restoreWikiRevisionAction).toHaveBeenCalledTimes(2)
+    expect(restoreWikiRevisionAction.mock.calls[1][0].get("revision_id")).toBe(
+      "old-revision"
+    )
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(router.refresh).toHaveBeenCalledOnce()
   })
 
-  it("hides the version menu until Editor Mode is on", async () => {
+  it("shows history only in Editor Mode and closes it when mode is off", async () => {
+    window.localStorage.clear()
     const user = userEvent.setup()
     render(
       <WikiEditModeProvider canManageWiki>
@@ -139,71 +147,43 @@ describe("WikiRevisionSelector", () => {
         <WikiRevisionSelector
           nodeId="page-1"
           currentRevisionId="current-revision"
-          selectedRevisionId="old-revision"
           revisions={revisions}
           canRestore
         />
       </WikiEditModeProvider>
     )
-
-    expect(screen.getByText("Last updated").tagName).toBe("P")
     expect(
       screen.queryByRole("button", { name: "Last updated" })
     ).not.toBeInTheDocument()
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Restore this version" })
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText("1 change")).not.toBeInTheDocument()
-
+    expect(router.replace).toHaveBeenCalledWith("/wiki/canopy-wiki/escrow")
     await user.click(
       screen.getByRole("switch", { name: "Toggle wiki editor mode" })
     )
-
-    expect(screen.getByRole("button", { name: "Last updated" })).toBeVisible()
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Restore this version" })
-    ).toBeVisible()
-    expect(screen.getByText("1 change")).toBeVisible()
+    const dialog = await openOldVersion(user)
+    expect(dialog).toBeVisible()
+    // Radix makes the background inert while the dialog is open.
+    await user.keyboard("{Escape}")
+    await user.click(
+      screen.getByRole("switch", { name: "Toggle wiki editor mode" })
+    )
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
-  it("hides the version menu from readers even if edit mode was saved", () => {
+  it("keeps history hidden from readers", () => {
     window.localStorage.setItem("wiki-edit-mode", "edit")
     render(
       <WikiEditModeProvider canManageWiki={false}>
         <WikiRevisionSelector
           nodeId="page-1"
           currentRevisionId="current-revision"
-          selectedRevisionId="old-revision"
           revisions={revisions}
           canRestore={false}
         />
       </WikiEditModeProvider>
     )
-
-    expect(screen.getByText("Last updated").tagName).toBe("P")
     expect(
       screen.queryByRole("button", { name: "Last updated" })
     ).not.toBeInTheDocument()
-    expect(router.replace).toHaveBeenCalledWith("/wiki/canopy-wiki/escrow")
-  })
-
-  it("hides restore when the person cannot manage the wiki", () => {
-    render(
-      <WikiRevisionSelector
-        nodeId="page-1"
-        currentRevisionId="current-revision"
-        selectedRevisionId="old-revision"
-        revisions={revisions}
-        canRestore={false}
-      />
-    )
-
-    expect(
-      screen.queryByRole("button", { name: "Restore this version" })
-    ).not.toBeInTheDocument()
-    expect(screen.getByText("1 change")).toBeVisible()
   })
 })
 

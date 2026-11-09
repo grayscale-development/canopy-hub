@@ -150,6 +150,12 @@ describe("WikiEditor", () => {
       "false"
     )
 
+    expect(
+      screen.queryByRole("button", { name: "Edit page tags" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Draft" })
+    ).not.toBeInTheDocument()
     await user.click(
       screen.getByRole("switch", { name: "Toggle wiki editor mode" })
     )
@@ -186,26 +192,6 @@ describe("WikiEditor", () => {
       "data-editable",
       "false"
     )
-  })
-
-  it("hides status controls on historical revisions", () => {
-    render(
-      <WikiEditor
-        node={node}
-        revision={revision}
-        canManage
-        isHistorical
-        showStatusControl
-        headerActions={<button type="button">Page actions</button>}
-      />
-    )
-
-    expect(
-      screen.queryByRole("button", { name: "Draft" })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Page actions" })
-    ).toBeInTheDocument()
   })
 
   it("places the AI Update control immediately before the page status", () => {

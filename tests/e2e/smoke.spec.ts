@@ -106,6 +106,22 @@ test("Wiki sidebar chevrons toggle without navigation and manager edit opens fol
   await page.goto("/wiki/canopy-wiki/hub/home-dashboard")
 
   const wikiSidebar = page.locator("[data-wiki-sidebar-scroll]")
+  await expect(
+    page.getByRole("button", { name: "Create Section" })
+  ).toHaveCount(0)
+  await expect(
+    wikiSidebar.getByRole("button", { name: "Edit Operations" })
+  ).toHaveCount(0)
+  await expect(
+    wikiSidebar.getByRole("button", { name: "Add to Operations" })
+  ).toHaveCount(0)
+  await page.getByRole("switch", { name: "Toggle wiki editor mode" }).check()
+  await expect(
+    page.getByRole("button", { name: "Create Section" })
+  ).toBeVisible()
+  await expect(
+    wikiSidebar.getByRole("button", { name: "Add to Operations" })
+  ).toBeAttached()
   const operationsToggle = wikiSidebar.getByRole("button", {
     name: "Toggle Operations",
   })

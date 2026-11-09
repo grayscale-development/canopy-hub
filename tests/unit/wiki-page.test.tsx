@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 const state = vi.hoisted(() => ({
   canManage: true,
+  editMode: true,
   redirect: vi.fn(),
   pageData: null as unknown,
   revisions: [] as Array<Record<string, unknown>>,
@@ -13,7 +14,8 @@ const state = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({ redirect: state.redirect }))
 vi.mock("@/components/wiki/wiki-edit-mode", () => ({
-  WikiEditModeGate: ({ children }: { children: React.ReactNode }) => children,
+  WikiEditModeGate: ({ children }: { children: React.ReactNode }) =>
+    state.editMode ? children : null,
   WikiVisibleNodeGate: ({ children }: { children: React.ReactNode }) =>
     children,
   WikiViewModeTitleSpacing: ({ children }: { children: React.ReactNode }) =>
@@ -22,16 +24,16 @@ vi.mock("@/components/wiki/wiki-edit-mode", () => ({
 vi.mock("@/components/wiki/wiki-editor", () => ({
   WikiEditor: ({
     createAction,
-    isHistorical,
+    revision,
     versionHistory,
   }: {
     createAction?: React.ReactNode
-    isHistorical?: boolean
+    revision?: { plain_text?: string } | null
     versionHistory?: React.ReactNode
   }) => (
     <div>
       Wiki editor
-      {isHistorical ? <span>Historical page</span> : null}
+      <span>{revision?.plain_text}</span>
       {versionHistory}
       {createAction}
     </div>
@@ -108,6 +110,7 @@ vi.mock("@/lib/wiki-repositories", () => ({
 afterEach(() => {
   cleanup()
   state.canManage = true
+  state.editMode = true
   state.pageData = null
   state.revisions = []
   vi.clearAllMocks()
@@ -130,6 +133,20 @@ describe("Wiki landing page", () => {
     expect(screen.getByRole("button", { name: "Add Section" })).toBeVisible()
     expect(screen.getByText("No wikis yet.")).toBeVisible()
     expect(state.redirect).not.toHaveBeenCalled()
+  })
+
+  it("hides creation on an empty landing when Editor Mode is off", async () => {
+    state.editMode = false
+    const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
+    render(
+      await WikiPage({
+        params: Promise.resolve({ path: [] }),
+        searchParams: Promise.resolve({}),
+      })
+    )
+    expect(
+      screen.queryByRole("button", { name: /Add Section|Create|Import/ })
+    ).not.toBeInTheDocument()
   })
 
   it("renders a folder landing instead of redirecting to a page", async () => {
@@ -195,10 +212,14 @@ describe("Wiki landing page", () => {
     render(
       await WikiPage({
         params: Promise.resolve({ path: ["canopy-wiki", "welcome"] }),
-        searchParams: Promise.resolve({}),
+        searchParams: Promise.resolve({ revision: "rev-old" }),
       })
     )
 
+    expect(screen.getByText("Current words")).toBeVisible()
+    expect(
+      screen.queryByText(/You are looking at an older version/)
+    ).not.toBeInTheDocument()
     expect(screen.getByText("Revision history")).toBeVisible()
     expect(screen.getByText("Can restore")).toBeVisible()
     expect(screen.getByRole("button", { name: "AI Update" })).toBeVisible()

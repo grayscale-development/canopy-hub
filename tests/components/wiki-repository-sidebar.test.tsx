@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { WikiEditModeProvider } from "@/components/wiki/wiki-edit-mode"
 import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar"
 import type { WikiNodeRow } from "@/lib/wiki"
 
@@ -320,6 +321,36 @@ describe("WikiRepositorySidebar", () => {
       ).toHaveClass("size-4")
     }
   })
+
+  it.each([true, false])(
+    "hides editing controls with Editor Mode off (manager: %s)",
+    (manager) => {
+      render(
+        <WikiEditModeProvider canManageWiki={manager}>
+          <TooltipProvider>
+            <WikiRepositorySidebar
+              nodes={nodes}
+              activePath="canopy-wiki"
+              selectedRepositorySlug="canopy-wiki"
+              canManageWiki={manager}
+            />
+          </TooltipProvider>
+        </WikiEditModeProvider>
+      )
+      for (const name of [
+        "Create Section",
+        "Add to Operations",
+        "Add to Closing",
+        "Edit Operations",
+        "Edit Closing",
+      ]) {
+        expect(screen.queryByRole("button", { name })).not.toBeInTheDocument()
+      }
+      expect(
+        screen.getByRole("switch", { name: "Toggle wiki editor mode" })
+      ).toBeInTheDocument()
+    }
+  )
 
   it("does not offer creation controls to a viewer", () => {
     renderSidebar("canopy-wiki", "canopy-wiki", nodes, false)

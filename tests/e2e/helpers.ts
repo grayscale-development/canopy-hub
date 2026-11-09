@@ -7,6 +7,8 @@ export async function signInAsLocalDev(page: Page) {
 }
 
 export async function openWikiAiCreate(page: Page) {
+  const editMode = page.getByRole("switch", { name: "Toggle wiki editor mode" })
+  if (!(await editMode.isChecked())) await editMode.check()
   const trigger = page.getByRole("button", { name: "Add to Hub" })
   const item = page.getByRole("menuitem", { name: "AI Create" })
   await expect(trigger).toBeVisible()

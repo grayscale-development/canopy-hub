@@ -68,7 +68,6 @@ export function WikiEditor({
   node,
   revision,
   canManage,
-  isHistorical = false,
   lastUpdatedLabel,
   showStatusControl = false,
   headerActions,
@@ -79,7 +78,6 @@ export function WikiEditor({
   node: WikiNodeRow
   revision: WikiRevisionRow | null
   canManage: boolean
-  isHistorical?: boolean
   lastUpdatedLabel?: string | null
   showStatusControl?: boolean
   headerActions?: React.ReactNode
@@ -102,7 +100,6 @@ export function WikiEditor({
       node={node}
       revision={revision}
       canManage={canManage}
-      isHistorical={isHistorical}
       lastUpdatedLabel={lastUpdatedLabel}
       showStatusControl={showStatusControl}
       headerActions={headerActions}
@@ -117,7 +114,6 @@ function WikiEditorMounted({
   node,
   revision,
   canManage,
-  isHistorical = false,
   lastUpdatedLabel,
   showStatusControl = false,
   headerActions,
@@ -128,7 +124,6 @@ function WikiEditorMounted({
   node: WikiNodeRow
   revision: WikiRevisionRow | null
   canManage: boolean
-  isHistorical?: boolean
   lastUpdatedLabel?: string | null
   showStatusControl?: boolean
   headerActions?: React.ReactNode
@@ -150,7 +145,7 @@ function WikiEditorMounted({
   const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
   const [selectedTags, setSelectedTags] = React.useState<string[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
-  const showEditorControls = canEditPage && !isHistorical && showStatusControl
+  const showEditorControls = canEditPage && showStatusControl
 
   async function uploadWikiFile(file: File) {
     const uploadPayload = await prepareDirectWikiUpload({
@@ -277,7 +272,7 @@ function WikiEditorMounted({
         <BlockNoteView
           editor={editor}
           theme={resolvedTheme === "dark" ? "dark" : "light"}
-          editable={canEditPage && !isHistorical}
+          editable={canEditPage}
           onChange={() => {
             const next = JSON.stringify(editor.document)
             setBlocks(editor.document)
@@ -298,15 +293,19 @@ function WikiEditorMounted({
       </div>
       <div className="mt-auto flex min-h-11 flex-col items-center justify-center gap-3 pt-3 pb-4">
         <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
-          <button
-            type="button"
-            className="cursor-pointer text-xs font-medium tracking-wide transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
-            onClick={openTagDialog}
-            disabled={!canEditPage || isHistorical}
-            aria-label="Edit page tags"
-          >
-            Tags
-          </button>
+          {canEditPage ? (
+            <button
+              type="button"
+              className="cursor-pointer text-xs font-medium tracking-wide transition-colors hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+              onClick={openTagDialog}
+              disabled={!canEditPage}
+              aria-label="Edit page tags"
+            >
+              Tags
+            </button>
+          ) : (
+            <span className="text-xs font-medium tracking-wide">Tags</span>
+          )}
           {node.tags?.length
             ? node.tags.map((tag) => (
                 <Link
@@ -325,7 +324,7 @@ function WikiEditorMounted({
           </p>
         )}
       </div>
-      {canEditPage && !isHistorical && isDirty ? (
+      {canEditPage && isDirty ? (
         <Button
           type="button"
           className="fixed right-6 bottom-6 z-40 h-12 bg-emerald-600 px-6 text-base text-white shadow-xl hover:bg-emerald-700"
@@ -339,36 +338,38 @@ function WikiEditorMounted({
       {state && !state.ok ? (
         <p className="mt-2 text-sm text-destructive">{state.message}</p>
       ) : null}
-      <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
-        <DialogContent
-          onOpenAutoFocus={(event) => {
-            event.preventDefault()
-            tagInputRef.current?.focus()
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Page tags</DialogTitle>
-            <DialogDescription className="sr-only">
-              Search existing tags or create a new one for this page.
-            </DialogDescription>
-          </DialogHeader>
-          <form action={saveTags} className="grid gap-4">
-            <WikiTagPicker
-              availableTags={availableTags}
-              selectedTags={selectedTags}
-              onSelectedTagsChange={setSelectedTags}
-              open={tagDialogOpen}
-              inputRef={tagInputRef}
-              inputId="wiki-page-tags"
-            />
-            <DialogFooter>
-              <Button type="submit" disabled={pending}>
-                {pending ? "Saving..." : "Save tags"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {canEditPage ? (
+        <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
+          <DialogContent
+            onOpenAutoFocus={(event) => {
+              event.preventDefault()
+              tagInputRef.current?.focus()
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Page tags</DialogTitle>
+              <DialogDescription className="sr-only">
+                Search existing tags or create a new one for this page.
+              </DialogDescription>
+            </DialogHeader>
+            <form action={saveTags} className="grid gap-4">
+              <WikiTagPicker
+                availableTags={availableTags}
+                selectedTags={selectedTags}
+                onSelectedTagsChange={setSelectedTags}
+                open={tagDialogOpen}
+                inputRef={tagInputRef}
+                inputId="wiki-page-tags"
+              />
+              <DialogFooter>
+                <Button type="submit" disabled={pending}>
+                  {pending ? "Saving..." : "Save tags"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   )
 }

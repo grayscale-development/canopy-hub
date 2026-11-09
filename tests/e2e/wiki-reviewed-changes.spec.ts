@@ -152,8 +152,9 @@ test("editor mode opens history only from the footer date and restore appends a 
   const before = await revisionTexts(reviewed.id)
   await page.getByRole("menuitem", { name: /Initial draft/ }).click()
   await expect(page.getByText("1 change", { exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Restore this version" }).click()
-  const dialog = page.getByRole("dialog", { name: "Restore this version?" })
+  const dialog = page.getByRole("dialog", { name: /Older version from/ })
+  await expect(dialog.locator("mark.line-through")).not.toHaveCount(0)
+  await expect(dialog.locator("mark.underline")).not.toHaveCount(0)
   await expect(dialog).toBeVisible()
   await settle(dialog)
   await page.screenshot({

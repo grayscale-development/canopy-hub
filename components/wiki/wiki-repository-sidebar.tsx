@@ -12,7 +12,6 @@ import {
   TagsIcon,
 } from "lucide-react"
 
-import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -601,24 +600,6 @@ export function WikiRepositorySidebar({
             triggerVariant="ghost"
             triggerClassName="size-8 shrink-0 cursor-pointer px-0"
           />
-        ) : !canManageWiki ? (
-          <PermissionRequestGate
-            hasPermission={canManageWiki}
-            permissionCode="wiki.manage"
-            permissionName="Edit Wiki"
-            className="shrink-0"
-            popupClassName="right-0 left-auto"
-          >
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Create Section"
-              title="Create Section"
-            >
-              <PlusIcon />
-            </Button>
-          </PermissionRequestGate>
         ) : null}
       </div>
 
@@ -634,7 +615,7 @@ export function WikiRepositorySidebar({
                 section={section}
                 nodes={visibleNodes}
                 activePath={activePath}
-                canManage={canManageWiki}
+                canManage={canEditSidebar}
               />
             )
           })
