@@ -27,7 +27,6 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
   buildWikiPath,
   compareWikiNodes,
-  findFirstPublishedWikiPagePath,
   fetchWikiNodes,
   fetchWikiPageData,
   fetchWikiTags,
@@ -123,7 +122,12 @@ function DirectoryView({
           ) : null}
         </div>
       ) : null}
-      <WikiFolderContents items={items} nodes={nodes} emptyLabel={emptyLabel} />
+      <WikiFolderContents
+        key={parentId ?? "root"}
+        items={items}
+        nodes={nodes}
+        emptyLabel={emptyLabel}
+      />
     </div>
   )
 }
@@ -328,22 +332,8 @@ export default async function WikiPage({
   const displayedNode = pageData?.node ?? null
   const displayedChildren = pageData?.children ?? []
 
-  if (
-    !isNanoWiki &&
-    (missingRepositoryPage || pageData?.node.type === "folder")
-  ) {
-    if (!pageData) {
-      if (path.length) {
-        redirect("/wiki")
-      }
-    }
-    if (pageData?.node.type === "folder") {
-      const firstPagePath = findFirstPublishedWikiPagePath(nodes, pageData.node)
-      if (firstPagePath) {
-        redirect(`/wiki/${firstPagePath}`)
-      }
-      redirect("/wiki")
-    }
+  if (!isNanoWiki && missingRepositoryPage) {
+    redirect("/wiki")
   }
 
   return (
@@ -369,7 +359,22 @@ export default async function WikiPage({
                 fallback={<HiddenDraftView title={displayedNode.title} />}
               >
                 <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
-                  {pageData ? (
+                  {pageData?.node.type === "folder" ? (
+                    <>
+                      <WikiViewModeTitleSpacing>
+                        <h1 className="text-4xl leading-tight font-bold">
+                          {displayedNode.title}
+                        </h1>
+                      </WikiViewModeTitleSpacing>
+                      <DirectoryView
+                        items={displayedChildren}
+                        nodes={nodes}
+                        canManageWiki={canManageWiki}
+                        parentId={displayedNode.id}
+                        emptyLabel="This area is empty."
+                      />
+                    </>
+                  ) : pageData ? (
                     <div className="flex min-w-0 flex-1 flex-col gap-6">
                       {isHistoricalRevision ? (
                         <WikiEditModeGate>

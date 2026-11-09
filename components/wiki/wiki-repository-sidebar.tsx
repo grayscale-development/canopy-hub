@@ -243,7 +243,8 @@ function SidebarNestedFolder({
     false,
     activePath.startsWith(`${folderPath}/`)
   )
-  const isActive = activePath.startsWith(`${folderPath}/`)
+  const isActive =
+    activePath === folderPath || activePath.startsWith(`${folderPath}/`)
   const contentId = `wiki-sidebar-group-${folder.id}`
 
   return (
@@ -273,20 +274,13 @@ function SidebarNestedFolder({
             )}
           />
         </button>
-        <button
-          type="button"
-          aria-label={`${isOpen ? "Collapse" : "Expand"} ${folder.title}`}
-          aria-expanded={isOpen}
-          aria-controls={contentId}
-          className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={(event) =>
-            toggleExpansionWithoutScrollJump(event, () =>
-              setPersistedOpen((current) => !current)
-            )
-          }
+        <Link
+          href={`/wiki/${folderPath}`}
+          aria-current={activePath === folderPath ? "page" : undefined}
+          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <TruncatedTitle title={folder.title} />
-        </button>
+        </Link>
         {canManage ? (
           <SidebarFolderEditButton folder={folder} nodes={nodes} />
         ) : null}
@@ -466,7 +460,8 @@ function SidebarSection({
     true,
     activePath.startsWith(`${sectionPath}/`)
   )
-  const isActive = activePath.startsWith(`${sectionPath}/`)
+  const isActive =
+    activePath === sectionPath || activePath.startsWith(`${sectionPath}/`)
   const contentId = `wiki-sidebar-section-${section.id}`
 
   return (
@@ -496,20 +491,13 @@ function SidebarSection({
             )}
           />
         </button>
-        <button
-          type="button"
-          aria-label={`${isOpen ? "Collapse" : "Expand"} ${section.title}`}
-          aria-expanded={isOpen}
-          aria-controls={contentId}
-          className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center rounded-md py-1 pr-2 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={(event) =>
-            toggleExpansionWithoutScrollJump(event, () =>
-              setPersistedOpen((current) => !current)
-            )
-          }
+        <Link
+          href={`/wiki/${sectionPath}`}
+          aria-current={activePath === sectionPath ? "page" : undefined}
+          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <TruncatedTitle title={section.title} />
-        </button>
+        </Link>
         {canManage ? (
           <SidebarFolderEditButton folder={section} nodes={nodes} />
         ) : null}

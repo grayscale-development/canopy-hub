@@ -16,7 +16,8 @@ vi.mock("@/components/wiki/wiki-edit-mode", () => ({
   WikiEditModeGate: ({ children }: { children: React.ReactNode }) => children,
   WikiVisibleNodeGate: ({ children }: { children: React.ReactNode }) =>
     children,
-  WikiViewModeTitleSpacing: () => null,
+  WikiViewModeTitleSpacing: ({ children }: { children: React.ReactNode }) =>
+    children,
 }))
 vi.mock("@/components/wiki/wiki-editor", () => ({
   WikiEditor: ({
@@ -128,6 +129,31 @@ describe("Wiki landing page", () => {
     ).toBeVisible()
     expect(screen.getByRole("button", { name: "Add Section" })).toBeVisible()
     expect(screen.getByText("No wikis yet.")).toBeVisible()
+    expect(state.redirect).not.toHaveBeenCalled()
+  })
+
+  it("renders a folder landing instead of redirecting to a page", async () => {
+    state.pageData = {
+      node: {
+        id: "folder",
+        type: "folder",
+        title: "Operations",
+        updated_at: "2026-11-04T00:00:00Z",
+        updated_by: null,
+      },
+      breadcrumbs: [],
+      children: [],
+      revision: null,
+    }
+    const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
+    render(
+      await WikiPage({
+        params: Promise.resolve({ path: ["canopy-wiki", "operations"] }),
+        searchParams: Promise.resolve({}),
+      })
+    )
+    expect(screen.getByRole("heading", { name: "Operations" })).toBeVisible()
+    expect(screen.getByText("This area is empty.")).toBeVisible()
     expect(state.redirect).not.toHaveBeenCalled()
   })
 

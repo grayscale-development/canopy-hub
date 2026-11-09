@@ -6,8 +6,19 @@ import { ChevronRightIcon, FileTextIcon, FolderIcon } from "lucide-react"
 
 import { useVisibleWikiNodes } from "@/components/wiki/wiki-edit-mode"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
-import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
-import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  buildWikiBreadcrumbs,
+  buildWikiPath,
+  compareWikiNodes,
+  type WikiNodeRow,
+} from "@/lib/wiki"
 
 export function WikiFolderContents({
   items,
@@ -23,24 +34,35 @@ export function WikiFolderContents({
   const visibleItems = items
     .filter((node) => visibleNodeIds.has(node.id))
     .sort(compareWikiNodes)
-  const availableTags = Array.from(
-    new Set(
-      visibleItems.flatMap((node) =>
-        node.type === "page" ? (node.tags ?? []) : []
-      )
-    )
-  ).sort((left, right) => left.localeCompare(right))
-  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
-  const selectedTag = selectedTags[0] ?? ""
-  const filteredItems = visibleItems.filter(
+  const descendantPages = visibleNodes.filter(
     (node) =>
-      node.type === "folder" ||
+      node.type === "page" &&
+      visibleItems.some((item) =>
+        buildWikiBreadcrumbs(visibleNodes, node).some(
+          (ancestor) => ancestor.id === item.id
+        )
+      )
+  )
+  const availableTags = Array.from(
+    new Set(descendantPages.flatMap((node) => node.tags ?? []))
+  ).sort((left, right) => left.localeCompare(right))
+  const [selectedTag, setSelectedTag] = React.useState("")
+  const matchingPages = descendantPages.filter(
+    (page) =>
       !selectedTag ||
-      !node.tags?.length ||
-      (node.tags ?? []).some(
+      page.tags?.some(
         (tag) => tag.toLocaleLowerCase() === selectedTag.toLocaleLowerCase()
       )
   )
+  const filteredItems = selectedTag
+    ? visibleItems.filter((item) =>
+        matchingPages.some((page) =>
+          buildWikiBreadcrumbs(visibleNodes, page).some(
+            (ancestor) => ancestor.id === item.id
+          )
+        )
+      )
+    : visibleItems
 
   if (!visibleItems.length) {
     return (
@@ -53,28 +75,30 @@ export function WikiFolderContents({
   return (
     <div className="space-y-3">
       {availableTags.length ? (
-        <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
-          Filter by tag
-          <div className="w-full max-w-xs font-normal">
-            <WikiTagPicker
-              availableTags={availableTags}
-              selectedTags={selectedTags}
-              onSelectedTagsChange={(nextTags) =>
-                setSelectedTags((currentTags) => {
-                  const resolvedTags =
-                    typeof nextTags === "function"
-                      ? nextTags(currentTags)
-                      : nextTags
-                  return resolvedTags.slice(-1)
-                })
-              }
-              open
-              inputId="wiki-folder-tag-filter"
-              allowCreate={false}
-              name="wiki-folder-tag-filter"
-            />
-          </div>
-        </label>
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+          <label htmlFor="wiki-folder-tag-filter">Filter by tag</label>
+          <Select
+            value={selectedTag ? `tag:${selectedTag}` : "all"}
+            onValueChange={(value) =>
+              setSelectedTag(value === "all" ? "" : value.slice(4))
+            }
+          >
+            <SelectTrigger
+              id="wiki-folder-tag-filter"
+              className="w-full max-w-xs font-normal"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All tags</SelectItem>
+              {availableTags.map((tag) => (
+                <SelectItem key={tag} value={`tag:${tag}`}>
+                  {tag}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       ) : null}
       {filteredItems.length ? (
         <div className="grid gap-3 sm:grid-cols-2">
