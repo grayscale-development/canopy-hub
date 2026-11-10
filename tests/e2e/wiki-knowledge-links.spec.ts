@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test"
 
 import { signInAsSeededUser } from "./wiki-reviewed-helpers"
 
-test("opens a current Wiki citation from an old indexed URL", async ({
+test("opens a current Wiki citation from an old indexed URL @smoke", async ({
   page,
 }) => {
   await signInAsSeededUser(page, "wiki-manager@canopy.test")
