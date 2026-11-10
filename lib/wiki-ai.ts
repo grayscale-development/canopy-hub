@@ -91,8 +91,10 @@ interface ChatCitation {
   snippet: string
 }
 
-export async function embedTexts(texts: string[]) {
-  return createEmbeddingsWithOpenAI(texts)
+export async function embedTexts(texts: string[], signal?: AbortSignal) {
+  return signal
+    ? createEmbeddingsWithOpenAI(texts, signal)
+    : createEmbeddingsWithOpenAI(texts)
 }
 
 async function createEmbeddingsIfConfigured(texts: string[]) {
