@@ -4,6 +4,21 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
 import {
+  answerMiloSourceQuestion,
+  confirmed,
+  editIntent,
+  extractMiloFacts,
+  formatMiloExtraction,
+  splitSource,
+  type MiloEditState,
+} from "@/lib/milo/source-workflow"
+import {
+  MILO_FILE_MAX_BYTES,
+  MILO_SOURCE_MAX_CHARS,
+} from "@/lib/milo/source-limits"
+import { extractWikiDocumentText } from "@/lib/wiki-extract"
+import PostalMime from "postal-mime"
+import {
   cardEvents,
   cardsFromMetadata,
   miloCardSchema,
@@ -230,6 +245,29 @@ export async function GET(request: Request) {
   })
 }
 
+async function readSourceFile(file: File) {
+  if (file.name.toLowerCase().endsWith(".eml")) {
+    const email = await PostalMime.parse(await file.arrayBuffer())
+    let body = email.text ?? ""
+    if (!body && email.html) {
+      // The repository uses jsdom on the server without bundled declarations.
+      // @ts-expect-error jsdom does not publish TypeScript declarations.
+      const { JSDOM } = await import("jsdom")
+      body = new JSDOM(email.html).window.document.body.textContent ?? ""
+    }
+    return [
+      `From: ${email.from?.name ?? ""} ${email.from?.address ?? ""}`.trim(),
+      `Date: ${email.date ?? ""}`,
+      `Subject: ${email.subject ?? ""}`,
+      "",
+      body,
+    ]
+      .join("\n")
+      .trim()
+  }
+  return extractWikiDocumentText(file)
+}
+
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -250,21 +288,70 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const payload = (await request
-    .json()
-    .catch(() => null)) as ChatRequestBody | null
+  let payload: ChatRequestBody | null = null
+  let file: File | null = null
+  if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+    const form = await request.formData().catch(() => null)
+    const entry = form?.get("file")
+    file = entry instanceof File ? entry : null
+    payload = { message: form?.get("message"), threadId: form?.get("threadId") }
+  } else {
+    payload = (await request.json().catch(() => null)) as ChatRequestBody | null
+  }
   const message =
     typeof payload?.message === "string" ? payload.message.trim() : ""
   let threadId =
     typeof payload?.threadId === "string" ? payload.threadId.trim() : ""
-
-  if (!message) {
+  if (!message && !file) {
     return NextResponse.json({ error: "Message is required." }, { status: 400 })
   }
-
-  if (message.length > 4000) {
-    return NextResponse.json({ error: "Message is too long." }, { status: 400 })
+  if (message.length > MILO_SOURCE_MAX_CHARS) {
+    return NextResponse.json(
+      { error: "Text is too long. Use 100,000 characters or fewer." },
+      { status: 400 }
+    )
   }
+  let fileText = ""
+  if (file) {
+    if (!/\.(?:eml|txt|pdf|docx)$/i.test(file.name)) {
+      return NextResponse.json(
+        { error: "Choose an .eml, .txt, .pdf, or .docx file." },
+        { status: 400 }
+      )
+    }
+    if (file.size > MILO_FILE_MAX_BYTES) {
+      return NextResponse.json(
+        { error: "File is too large. Choose a file under 5 MB." },
+        { status: 400 }
+      )
+    }
+    try {
+      fileText = await readSourceFile(file)
+    } catch {
+      return NextResponse.json(
+        {
+          error: "Couldn't read this file. Try another file or paste the text.",
+        },
+        { status: 400 }
+      )
+    }
+    if (!fileText.trim()) {
+      return NextResponse.json(
+        { error: "No readable text found in this file." },
+        { status: 400 }
+      )
+    }
+    if (message.length + fileText.length > MILO_SOURCE_MAX_CHARS) {
+      return NextResponse.json(
+        { error: "Text is too long. Use 100,000 characters or fewer." },
+        { status: 400 }
+      )
+    }
+  }
+  const storedMessage = file
+    ? [message, fileText].filter(Boolean).join("\n\n")
+    : message
+  let previousState: MiloEditState | undefined
 
   if (threadId) {
     const { data: thread, error: threadError } = await supabase
@@ -281,12 +368,21 @@ export async function POST(request: Request) {
     if (!thread) {
       return NextResponse.json({ error: "Chat not found." }, { status: 404 })
     }
+    const { data: previous } = await supabase
+      .from("ai_chat_messages")
+      .select("metadata")
+      .eq("thread_id", threadId)
+      .eq("role", "assistant")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    previousState = previous?.metadata?.miloEdit as MiloEditState | undefined
   } else {
     const { data: thread, error: createThreadError } = await supabase
       .from("ai_chat_threads")
       .insert({
         user_id: user.id,
-        title: message.slice(0, 80),
+        title: (message || file?.name || "Source material").slice(0, 80),
       })
       .select("id")
       .single()
@@ -307,7 +403,8 @@ export async function POST(request: Request) {
       thread_id: threadId,
       user_id: user.id,
       role: "user",
-      content: message,
+      content: storedMessage,
+      metadata: file ? { sourceFileName: file.name } : {},
     })
     .select("id")
     .single()
@@ -326,11 +423,158 @@ export async function POST(request: Request) {
     .eq("user_id", user.id)
 
   try {
-    const result = await answerKnowledgeQuestion({
-      supabase,
-      question: message,
-      userContext: await getMiloUserContext(supabase, user),
-    })
+    const userContext = await getMiloUserContext(supabase, user)
+    const sourceParts = splitSource(message, Boolean(file))
+    const hasSource = sourceParts.hasSource || Boolean(file)
+    const instruction = sourceParts.instruction || (!hasSource ? message : "")
+    const intent =
+      editIntent(instruction) &&
+      !/^(?:how|what|where|why|when|who)\b/i.test(instruction)
+    let state: MiloEditState | undefined
+    let workflowAnswer = ""
+    const canManage = userContext.capabilities["wiki.manage"]
+    const managerNames = userContext.wikiManagers?.join(", ")
+    const sourceQuestion =
+      hasSource && sourceParts.instruction.includes("?") && !intent
+    if (sourceQuestion) {
+      workflowAnswer = await answerMiloSourceQuestion(
+        file ? fileText : sourceParts.source,
+        sourceParts.instruction
+      )
+    } else if (!canManage && hasSource && !intent) {
+      state = {
+        stage: "awaiting_source_question",
+        sourceMessageId: userMessage.id,
+      }
+      workflowAnswer = "What would you like to know about this source?"
+    } else if (
+      !canManage &&
+      (hasSource ||
+        previousState?.stage === "awaiting_source" ||
+        previousState?.stage === "awaiting_intent" ||
+        previousState?.stage === "awaiting_confirmation")
+    ) {
+      workflowAnswer = `You don't have permission to edit the wiki. ${managerNames ? `Please contact ${managerNames}.` : "Please contact a Wiki manager."}`
+    } else if (
+      canManage &&
+      !hasSource &&
+      previousState?.stage === "awaiting_confirmation" &&
+      confirmed(message) &&
+      previousState.extraction.facts.length &&
+      !previousState.extraction.unclear.length
+    ) {
+      state = { ...previousState, stage: "ready_to_find_page" }
+      workflowAnswer =
+        "Thanks, the changes are confirmed. Next: find the page. Page matching isn't available yet."
+    } else if (
+      canManage &&
+      !hasSource &&
+      previousState?.stage === "awaiting_confirmation"
+    ) {
+      if (confirmed(message)) {
+        state = previousState
+        workflowAnswer = previousState.extraction.unclear.length
+          ? `Please clarify: ${previousState.extraction.unclear.join(" ")}`
+          : "Please provide a change to add before confirming."
+      } else if (/^(?:no|nope|not quite)[.!\s]*$/i.test(message)) {
+        state = previousState
+        workflowAnswer = "What should I change or clarify in the list?"
+      } else {
+        const { data: original } = await supabase
+          .from("ai_chat_messages")
+          .select("content")
+          .eq("thread_id", threadId)
+          .eq("id", previousState.sourceMessageId)
+          .maybeSingle()
+        if (!original?.content) throw new Error("Source message not found.")
+        const extraction = await extractMiloFacts(original.content, message)
+        state = {
+          stage: "awaiting_confirmation",
+          sourceMessageId: previousState.sourceMessageId,
+          extraction,
+        }
+        workflowAnswer = formatMiloExtraction(extraction)
+      }
+    } else if (
+      !hasSource &&
+      ((canManage && previousState?.stage === "awaiting_intent") ||
+        previousState?.stage === "awaiting_source_question")
+    ) {
+      if (!canManage && intent) {
+        workflowAnswer = `You don't have permission to edit the wiki. ${managerNames ? `Please contact ${managerNames}.` : "Please contact a Wiki manager."}`
+      } else if (/^(?:no|nope)[.!\s]*$/i.test(message)) {
+        state = {
+          stage: "awaiting_source_question",
+          sourceMessageId: previousState.sourceMessageId,
+        }
+        workflowAnswer = "Okay. What would you like to know about the source?"
+      } else {
+        const { data: original } = await supabase
+          .from("ai_chat_messages")
+          .select("content")
+          .eq("thread_id", threadId)
+          .eq("id", previousState.sourceMessageId)
+          .maybeSingle()
+        if (!original?.content) throw new Error("Source message not found.")
+        if (
+          intent ||
+          (previousState.stage === "awaiting_intent" && confirmed(message))
+        ) {
+          const extraction = await extractMiloFacts(original.content)
+          state = {
+            stage: "awaiting_confirmation",
+            sourceMessageId: previousState.sourceMessageId,
+            extraction,
+          }
+          workflowAnswer = formatMiloExtraction(extraction)
+        } else {
+          workflowAnswer = await answerMiloSourceQuestion(
+            original.content,
+            message
+          )
+        }
+      }
+    } else if (
+      canManage &&
+      (hasSource || previousState?.stage === "awaiting_source")
+    ) {
+      if (intent || previousState?.stage === "awaiting_source") {
+        const extraction = await extractMiloFacts(
+          file ? fileText : sourceParts.source
+        )
+        state = {
+          stage: "awaiting_confirmation",
+          sourceMessageId: userMessage.id,
+          extraction,
+        }
+        workflowAnswer = formatMiloExtraction(extraction)
+      } else {
+        state = { stage: "awaiting_intent", sourceMessageId: userMessage.id }
+        workflowAnswer =
+          "Would you like me to extract changes from this for the wiki?"
+      }
+    } else if (
+      canManage &&
+      intent &&
+      !hasSource &&
+      /\b(?:wiki|this|it)\b/i.test(message)
+    ) {
+      state = { stage: "awaiting_source" }
+      workflowAnswer =
+        "Paste the source text or attach a file, and I'll extract the changes."
+    }
+    const result = workflowAnswer
+      ? {
+          answer: workflowAnswer,
+          model: "milo-edit-workflow",
+          citations: [],
+          metadata: state ? { miloEdit: state } : {},
+        }
+      : await answerKnowledgeQuestion({
+          supabase,
+          question: message,
+          userContext,
+        })
     // Future server-side workflows can populate these cards; model text and
     // model/tool metadata are never interpreted as actionable cards.
     const cards: MiloCard[] = []
@@ -400,7 +644,10 @@ export async function POST(request: Request) {
       },
     ])
   } catch (error) {
-    const answer = getChatErrorMessage(error)
+    const answer =
+      file || message.includes("\n") || previousState
+        ? "Couldn't process the source. Please try again."
+        : getChatErrorMessage(error)
     const cards: MiloCard[] = [
       miloCardSchema.parse({ type: "error", id: "error", message: answer }),
     ]

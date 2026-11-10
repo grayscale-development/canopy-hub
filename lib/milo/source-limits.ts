@@ -1,0 +1,2 @@
+export const MILO_SOURCE_MAX_CHARS = 100_000
+export const MILO_FILE_MAX_BYTES = 5 * 1024 * 1024

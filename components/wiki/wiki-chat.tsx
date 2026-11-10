@@ -2,10 +2,13 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Loader2Icon, SendIcon } from "lucide-react"
+import { Loader2Icon, PaperclipIcon, SendIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import {
+  MILO_FILE_MAX_BYTES,
+  MILO_SOURCE_MAX_CHARS,
+} from "@/lib/milo/source-limits"
 import { WikiChatCard } from "@/components/wiki/wiki-chat-card"
 import {
   cardEventSchema,
@@ -74,17 +77,22 @@ function ResourceLink({
 export function WikiChat({
   className,
   queuedPrompt,
+  initialDraft = "",
   onQueuedPromptConsumed,
   onNavigate,
 }: {
   className?: string
   queuedPrompt?: string | null
+  initialDraft?: string
   onQueuedPromptConsumed?: () => void
   onNavigate?: () => void
 }) {
   const [threadId, setThreadId] = React.useState<string | null>(null)
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
-  const [input, setInput] = React.useState("")
+  const [input, setInput] = React.useState(initialDraft)
+  const [file, setFile] = React.useState<File | null>(null)
+  const [fileError, setFileError] = React.useState("")
+  const fileInput = React.useRef<HTMLInputElement>(null)
   const [pending, setPending] = React.useState(false)
   const [loadingHistory, setLoadingHistory] = React.useState(true)
   const consumedPromptRef = React.useRef<string | null>(null)
@@ -141,16 +149,20 @@ export function WikiChat({
   }, [])
 
   const sendQuestion = React.useCallback(
-    async (questionValue: string) => {
+    async (questionValue: string, attachment?: File | null) => {
       const question = questionValue.trim()
-      if (!question || pending) {
+      if (
+        (!question && !attachment) ||
+        pending ||
+        question.length > MILO_SOURCE_MAX_CHARS
+      ) {
         return
       }
 
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
-        content: question,
+        content: question || attachment?.name || "",
       }
       const assistantId = crypto.randomUUID()
       setMessages((current) => [
@@ -158,14 +170,23 @@ export function WikiChat({
         userMessage,
         { id: assistantId, role: "assistant", content: "" },
       ])
-      setInput("")
       setPending(true)
 
       try {
+        const form = attachment ? new FormData() : null
+        if (form && attachment) {
+          form.set("message", question)
+          if (threadId) form.set("threadId", threadId)
+          form.set("file", attachment)
+        }
         const response = await fetch("/api/wiki/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ threadId, message: question }),
+          ...(form
+            ? { body: form }
+            : {
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ threadId, message: question }),
+              }),
         })
 
         if (!response.ok || !response.body) {
@@ -175,6 +196,10 @@ export function WikiChat({
           throw new Error(payload?.error ?? "Chat request failed.")
         }
 
+        setInput("")
+        setFile(null)
+        setFileError("")
+        if (fileInput.current) fileInput.current.value = ""
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ""
@@ -297,7 +322,7 @@ export function WikiChat({
 
   function askQuestion(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    void sendQuestion(input)
+    void sendQuestion(input, file)
   }
 
   const answers = messages.filter((message) => message.role === "assistant")
@@ -363,31 +388,98 @@ export function WikiChat({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Ask a question to get started.
+            Ask a question, or paste or attach source material to extract wiki
+            changes.
           </p>
         )}
       </div>
 
       <form onSubmit={askQuestion} className="border-t p-4">
-        <div className="flex gap-2">
-          <Input
+        {file ? (
+          <div className="mb-2 flex items-center gap-2 text-sm">
+            <span className="min-w-0 truncate">{file.name}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setFile(null)
+                if (fileInput.current) fileInput.current.value = ""
+              }}
+            >
+              Remove
+            </Button>
+          </div>
+        ) : null}
+        <div className="flex items-end gap-2">
+          <input
+            ref={fileInput}
+            type="file"
+            className="sr-only"
+            tabIndex={-1}
+            accept=".eml,.txt,.pdf,.docx"
+            onChange={(event) => {
+              const selected = event.currentTarget.files?.[0] ?? null
+              if (selected && !/\.(?:eml|txt|pdf|docx)$/i.test(selected.name)) {
+                setFileError("Choose an .eml, .txt, .pdf, or .docx file.")
+                setFile(null)
+              } else if (selected && selected.size > MILO_FILE_MAX_BYTES) {
+                setFileError("File is too large. Choose a file under 5 MB.")
+                setFile(null)
+              } else {
+                setFileError("")
+                setFile(selected)
+              }
+              event.currentTarget.value = ""
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            disabled={pending || loadingHistory}
+            onClick={() => fileInput.current?.click()}
+            aria-label="Attach a file"
+          >
+            <PaperclipIcon />
+          </Button>
+          <textarea
             value={input}
             onChange={(event) => setInput(event.currentTarget.value)}
-            placeholder="Ask a follow-up"
+            rows={Math.min(8, Math.max(1, input.split("\n").length))}
+            placeholder="Ask a question or paste source text"
             aria-label="Ask a follow-up"
             disabled={pending || loadingHistory}
-            className="h-10 cursor-text"
+            className="field-sizing-content max-h-40 min-h-10 min-w-0 flex-1 resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           />
           <Button
             type="submit"
             size="sm"
-            disabled={pending || loadingHistory || !input.trim()}
+            disabled={
+              pending ||
+              loadingHistory ||
+              (!input.trim() && !file) ||
+              input.length > MILO_SOURCE_MAX_CHARS
+            }
             className="cursor-pointer"
           >
             <SendIcon />
             <span className="sr-only">Send follow-up</span>
           </Button>
         </div>
+        {input.length > MILO_SOURCE_MAX_CHARS ? (
+          <p role="alert" className="mt-2 text-sm text-destructive">
+            Text is too long. Use 100,000 characters or fewer.
+          </p>
+        ) : null}
+        {fileError ? (
+          <p role="alert" className="mt-2 text-sm text-destructive">
+            {fileError}
+          </p>
+        ) : null}
+        <p className="mt-2 text-xs text-muted-foreground">
+          Attach .eml, .txt, .pdf, or .docx (up to 5 MB).
+        </p>
       </form>
     </div>
   )
