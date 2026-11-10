@@ -142,7 +142,6 @@ describe("WikiChat", () => {
     })
     render(<WikiChat />)
     expect(await screen.findByText("Applied: Policy")).toBeVisible()
-    expect(screen.getByRole("button", { name: "Applied" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled()
   })
 })

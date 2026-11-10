@@ -27,16 +27,33 @@ both `settings.access` and `permissions.access`.
 The chat server derives the caller's Beta, Wiki management, Settings and
 permission-directory capabilities from their authenticated session. Milo receives
 these facts in its instructions, and `my_capabilities` checks the live session
-again. Client and model inputs cannot grant permissions. Milo is read-only: it
-can help find a page and draft proposed text, but cannot save changes. If the
-caller cannot manage Wiki, it directs them to a Wiki manager. Manager names are
-included only when the caller can access the permission assignments RPC;
-otherwise Milo suggests contacting a Wiki manager without naming one.
+again. Client and model inputs cannot grant permissions. Milo can draft an edit, but
+only the user can approve it. A caller without Wiki management permission is
+directed to a Wiki manager; manager names are included only if the caller can
+access the permission assignments RPC.
 
-Existing Wiki saves independently check both `beta.1` and `wiki.manage` on the
-server and remain subject to database policies. Any future Milo edit workflow
-must recheck those permissions server-side for each write, regardless of the
-model's statements or a previously returned capability.
+### Reviewed writes
+
+Pasted sources and model output are untrusted data, not instructions or authority.
+The user confirms facts and the target page and reviews the proposed diff. The
+server retains the generated proposal and confirmed node in a service-only table;
+chat message metadata is user-writable and never grants authority. Approval
+requires the stored proposal and displayed metadata to match. Adjustments use the
+server-held target and state, so changing a message's node or blocks cannot
+redirect a write. The server limits proposal size and database writes per user.
+
+The authenticated action and database function independently recheck Beta and
+`wiki.manage`, thread and message ownership, and page/ancestor availability.
+The database transaction applies the stored blocks through
+`apply_wiki_reviewed_revision` with the stored base, records user, thread,
+message, node and revision IDs in the manager-readable audit, and updates the
+card together. A stale base changes nothing; the user can regenerate against the
+current revision. Undo copies the prior revision into a new reviewed revision,
+using the applied revision as its base, so it cannot overwrite a later edit.
+Neither operation changes publication status. The existing indexing path updates
+search after the transaction; if indexing fails the card reports that explicitly.
+This protects against forged metadata and stale writes, but it does not make
+model-generated facts trustworthy: the manager must review the proposal.
 
 ## Source access audit
 

@@ -31,6 +31,8 @@ const testState = vi.hoisted(() => ({
   wikiUrls: new Map<string, string>(),
   editablePages: new Set<string>(),
   candidates: [] as Array<{ id: string; title: string }>,
+  proposals: {} as Record<string, Record<string, unknown>>,
+  rpcCalls: 0,
 }))
 
 vi.mock("@/lib/milo/proposed-edit", () => ({
@@ -51,6 +53,45 @@ vi.mock("@/lib/milo/proposed-edit", () => ({
   })),
 }))
 
+vi.mock("@/lib/milo/proposal-store", () => ({
+  getMiloProposal: async (
+    threadId: string,
+    messageId: string,
+    userId: string
+  ) => {
+    const proposal = testState.proposals[messageId]
+    return proposal?.thread_id === threadId && proposal.user_id === userId
+      ? proposal
+      : null
+  },
+  saveMiloProposal: async ({
+    threadId,
+    messageId,
+    userId,
+    card,
+    state,
+  }: {
+    threadId: string
+    messageId: string
+    userId: string
+    card: { pageId: string }
+    state: unknown
+  }) => {
+    testState.proposals[messageId] = {
+      thread_id: threadId,
+      user_id: userId,
+      node_id: card.pageId,
+      card,
+      edit_state: state,
+      applied_revision_id: null,
+    }
+  },
+}))
+vi.mock("@/lib/milo/page-index", () => ({
+  miloPagePath: async () => ({ path: "1/2" }),
+  indexMiloPage: async () => {},
+}))
+
 vi.mock("@/lib/milo/find-page", () => ({
   findPageCandidates: async () => testState.candidates,
   isEditablePage: async (_client: unknown, id: string) =>
@@ -64,6 +105,31 @@ vi.mock("@/lib/supabase/server", () => ({
     },
     from: (table: keyof typeof testState.tables) =>
       new FakeSupabaseQuery(table),
+    rpc: async (_name: string, args: { p_message_id: string }) => {
+      testState.rpcCalls++
+      const stored = testState.proposals[args.p_message_id]
+      const message = testState.tables.ai_chat_messages.find(
+        (row) => row.id === args.p_message_id
+      )
+      const metadata = message?.metadata as { cards?: unknown[] } | undefined
+      if (
+        !stored ||
+        !metadata?.cards?.some(
+          (card) => JSON.stringify(card) === JSON.stringify(stored.card)
+        )
+      )
+        return { data: null, error: { message: "proposal_changed" } }
+      return {
+        data: {
+          type: "applied-edit",
+          id: "proposed-edit",
+          pageTitle: "Policy",
+          url: "/wiki/1/2",
+          undoAvailable: true,
+        },
+        error: null,
+      }
+    },
   }),
 }))
 
@@ -231,6 +297,8 @@ describe("/api/wiki/chat route", () => {
   beforeEach(() => {
     testState.user = null
     testState.nextId = 1
+    testState.proposals = {}
+    testState.rpcCalls = 0
     testState.wikiUrls = new Map()
     testState.candidates = [{ id: "page", title: "Policy" }]
     testState.editablePages = new Set(["page", "page-2"])
@@ -855,7 +923,12 @@ describe("/api/wiki/chat route", () => {
     )
     const body = await response.json()
     expect(body.messages[0].cards).toEqual([
-      { type: "applied-edit", id: "edit", pageTitle: "Policy" },
+      {
+        type: "applied-edit",
+        id: "edit",
+        pageTitle: "Policy",
+        undoAvailable: false,
+      },
       {
         type: "unknown",
         text: JSON.stringify({
@@ -988,6 +1061,15 @@ describe("/api/wiki/chat route", () => {
         },
       },
     ]
+    testState.proposals.message = {
+      thread_id: "thread",
+      user_id: "user-1",
+      node_id: "page",
+      edit_state: (
+        testState.tables.ai_chat_messages[0].metadata as { miloEdit: unknown }
+      ).miloEdit,
+      applied_revision_id: null,
+    }
     const { POST } = await import("@/app/api/wiki/chat/route")
     const { prepareMiloProposal } = await import("@/lib/milo/proposed-edit")
     vi.mocked(prepareMiloProposal).mockClear()
@@ -1027,7 +1109,7 @@ describe("/api/wiki/chat route", () => {
     )
   })
 
-  it("continues conversations confirmed before proposals were introduced", async () => {
+  it("does not trust a legacy confirmation without a retained proposal", async () => {
     testState.user = { id: "user-1" }
     testState.tables.user_permissions.push({
       user_id: "user-1",
@@ -1067,11 +1149,9 @@ describe("/api/wiki/chat route", () => {
           event.type === "card" &&
           (event.card as MiloCard).type === "proposed-edit"
       )
-    ).toBe(true)
+    ).toBe(false)
     const latest = testState.tables.ai_chat_messages.at(-1)!
-    expect(latest.metadata).toMatchObject({
-      miloEdit: { baseRevisionId: "revision-1", rounds: 0 },
-    })
+    expect(latest.metadata).not.toHaveProperty("miloEdit")
   })
 
   it("records the create fallback without selecting a page", async () => {
@@ -1125,5 +1205,61 @@ describe("/api/wiki/chat route", () => {
       miloEdit: { stage: "ready_to_find_page" },
       cards: [{ outcome: "create" }],
     })
+  })
+  it("rejects forged owners, nodes and blocks on approval", async () => {
+    testState.user = { id: "user-1" }
+    testState.tables.user_permissions.push({
+      user_id: "user-1",
+      permission_id: "permission-wiki",
+    })
+    testState.tables.ai_chat_threads = [{ id: "thread", user_id: "user-1" }]
+    const card = {
+      type: "proposed-edit",
+      id: "proposed-edit",
+      pageId: "page",
+      pageTitle: "Policy",
+      before: "Old",
+      after: "New",
+      blocks: [{ type: "paragraph", content: "New" }],
+      plain_text: "New",
+    }
+    testState.tables.ai_chat_messages = [
+      {
+        id: "message",
+        thread_id: "thread",
+        user_id: "user-1",
+        role: "assistant",
+        metadata: { cards: [card] },
+      },
+    ]
+    testState.proposals.message = {
+      thread_id: "thread",
+      user_id: "user-1",
+      node_id: "page",
+      card,
+      applied_revision_id: null,
+    }
+    const { POST } = await import("@/app/api/wiki/chat/card-action/route")
+    const request = () =>
+      new Request("http://test.local/api/wiki/chat/card-action", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "approve",
+          threadId: "thread",
+          messageId: "message",
+          cardId: "proposed-edit",
+        }),
+      })
+    testState.tables.ai_chat_messages[0].user_id = "other"
+    expect((await POST(request())).status).toBe(404)
+    testState.tables.ai_chat_messages[0].user_id = "user-1"
+    for (const forged of [
+      { ...card, pageId: "page-2" },
+      { ...card, blocks: [{ type: "paragraph", content: "Forged" }] },
+    ]) {
+      testState.tables.ai_chat_messages[0].metadata = { cards: [forged] }
+      expect((await POST(request())).status).toBe(409)
+    }
+    expect(testState.rpcCalls).toBe(2)
   })
 })

@@ -10,7 +10,7 @@ import { displayCard, type DisplayCard } from "@/lib/milo/chat-cards"
 type Action =
   | { action: "select-page"; candidateId: string }
   | { action: "next-page" | "create-page" }
-  | { action: "approve" }
+  | { action: "approve" | "regenerate" }
   | { action: "undo" }
 
 export function WikiChatCard({
@@ -28,6 +28,7 @@ export function WikiChatCard({
   const [proposal, setProposal] = React.useState<DisplayCard | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [notice, setNotice] = React.useState("")
+  const [stale, setStale] = React.useState(false)
 
   async function act(action: Action) {
     if (!threadId || !messageId || card.type === "unknown") return
@@ -47,10 +48,12 @@ export function WikiChatCard({
       const result = await response.json()
       if (response.ok && result.status === "ok") {
         setCard(displayCard(result.card))
+        setStale(false)
         setNotice(result.notice ?? "")
         if (result.proposal) setProposal(displayCard(result.proposal))
         return
       }
+      if (result.stale) setStale(true)
       setNotice(
         response.ok && result.status === "not-implemented"
           ? "This action isn't available yet."
@@ -162,9 +165,7 @@ export function WikiChatCard({
               </Button>
             </div>
           )}
-          {card.outcome === "confirmed" && (
-            <p>Page confirmed. No changes have been made.</p>
-          )}
+          {card.outcome === "confirmed" && <p>Page confirmed.</p>}
           {card.outcome === "create" && (
             <p>
               Open the{" "}
@@ -213,33 +214,72 @@ export function WikiChatCard({
               </ul>
             </div>
           ) : null}
-          <p className="text-muted-foreground">
-            Ask Milo in chat if you would like an adjustment. No changes have
-            been made.
-          </p>
-          <Button
-            type="button"
-            disabled={busy || !threadId || !messageId}
-            onClick={() => void act({ action: "approve" })}
-          >
-            Approve
-          </Button>
+          {!stale && (
+            <p className="text-muted-foreground">
+              Ask Milo in chat if you would like an adjustment. No changes have
+              been made.
+            </p>
+          )}
+          {stale && notice && (
+            <p role="status" className="text-muted-foreground">
+              {notice}
+            </p>
+          )}
+          {stale ? (
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => void act({ action: "regenerate" })}
+            >
+              Redo proposal
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              disabled={busy || !threadId || !messageId}
+              onClick={() => void act({ action: "approve" })}
+            >
+              Approve
+            </Button>
+          )}
         </>
       )}
       {card.type === "applied-edit" && (
         <>
-          <p className="font-medium">Applied: {card.pageTitle}</p>
-          <div className="flex gap-2">
-            <Button type="button" disabled>
-              Applied
-            </Button>
-            <Button type="button" variant="outline" disabled>
-              Undo
-            </Button>
-          </div>
-          <p className="text-muted-foreground">
-            Undo isn&apos;t available yet.
+          <p className="font-medium">
+            Applied:{" "}
+            {card.url ? (
+              <Link
+                href={card.url}
+                onClick={onNavigate}
+                className="underline underline-offset-4"
+              >
+                {card.pageTitle}
+              </Link>
+            ) : (
+              card.pageTitle
+            )}
           </p>
+          {card.summary && <p>{card.summary}</p>}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={
+              busy || !threadId || !messageId || !card.undoAvailable || stale
+            }
+            onClick={() => void act({ action: "undo" })}
+          >
+            Undo
+          </Button>
+          {card.undone ? (
+            <p className="text-muted-foreground">Previous version restored.</p>
+          ) : (
+            (!card.undoAvailable || stale) && (
+              <p className="text-muted-foreground">
+                This page changed again, so Undo is unavailable.
+              </p>
+            )
+          )}
         </>
       )}
       {card.type === "error" && (
@@ -256,11 +296,13 @@ export function WikiChatCard({
           onNavigate={onNavigate}
         />
       )}
-      {notice && !(card.type === "page-candidates" && card.outcome) && (
-        <p role="status" className="text-muted-foreground">
-          {notice}
-        </p>
-      )}
+      {notice &&
+        !(card.type === "page-candidates" && card.outcome) &&
+        !(card.type === "proposed-edit" && stale) && (
+          <p role="status" className="text-muted-foreground">
+            {notice}
+          </p>
+        )}
     </section>
   )
 }

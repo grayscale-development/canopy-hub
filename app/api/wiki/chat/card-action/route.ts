@@ -3,6 +3,8 @@ import { NextResponse } from "next/server"
 import { cardActionSchema, miloCardSchema } from "@/lib/milo/chat-cards"
 import { isEditablePage } from "@/lib/milo/find-page"
 import { prepareMiloProposal } from "@/lib/milo/proposed-edit"
+import { getMiloProposal, saveMiloProposal } from "@/lib/milo/proposal-store"
+import { indexMiloPage, miloPagePath } from "@/lib/milo/page-index"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -74,7 +76,8 @@ export async function POST(request: Request) {
       )) ||
     ((action.action === "next-page" || action.action === "create-page") &&
       card.data.type === "page-candidates") ||
-    (action.action === "approve" && card.data.type === "proposed-edit") ||
+    ((action.action === "approve" || action.action === "regenerate") &&
+      card.data.type === "proposed-edit") ||
     (action.action === "undo" && card.data.type === "applied-edit")
   if (!matches)
     return NextResponse.json(
@@ -83,17 +86,112 @@ export async function POST(request: Request) {
     )
 
   if (card.data.type !== "page-candidates") {
-    if (
-      card.data.type === "proposed-edit" &&
-      card.data.pageId &&
-      !(await isEditablePage(supabase, card.data.pageId))
-    ) {
+    const stored = await getMiloProposal(thread.id, action.messageId, user.id)
+    if (!stored || !(await isEditablePage(supabase, stored.node_id))) {
       return NextResponse.json(
-        { error: "This page is no longer available to edit." },
+        { error: "This page or proposal is no longer available." },
         { status: 403 }
       )
     }
-    return NextResponse.json({ status: "not-implemented" as const })
+    if (action.action === "regenerate" && card.data.type === "proposed-edit") {
+      if (stored.applied_revision_id)
+        return NextResponse.json(
+          { error: "This proposal was already applied." },
+          { status: 409 }
+        )
+      try {
+        const state = stored.edit_state
+        const prepared = await prepareMiloProposal({
+          supabase,
+          pageId: stored.node_id,
+          extraction: state.extraction,
+          feedback: state.feedback ?? [],
+        })
+        const nextState = { ...state, baseRevisionId: prepared.baseRevisionId }
+        await saveMiloProposal({
+          threadId: thread.id,
+          messageId: action.messageId,
+          userId: user.id,
+          card: prepared.card,
+          state: nextState,
+          replace: true,
+        })
+        const updatedCards = cards.map((value) => {
+          const parsed = miloCardSchema.safeParse(value)
+          return parsed.success && parsed.data.id === action.cardId
+            ? prepared.card
+            : value
+        })
+        const { error } = await supabase
+          .from("ai_chat_messages")
+          .update({
+            metadata: {
+              ...message.metadata,
+              miloEdit: nextState,
+              cards: updatedCards,
+            },
+          })
+          .eq("id", action.messageId)
+          .eq("thread_id", thread.id)
+          .eq("user_id", user.id)
+        if (error) throw error
+        return NextResponse.json({
+          status: "ok",
+          card: prepared.card,
+          notice: "Proposal updated. Review it before approving.",
+        })
+      } catch {
+        return NextResponse.json(
+          { error: "Couldn't redo the proposal. Please try again." },
+          { status: 400 }
+        )
+      }
+    }
+    if (action.action !== "approve" && action.action !== "undo") {
+      return NextResponse.json(
+        { error: "Action is not available for this card." },
+        { status: 400 }
+      )
+    }
+    const { path } = await miloPagePath(supabase, stored.node_id)
+    const { data: applied, error } = await supabase.rpc("apply_milo_edit", {
+      p_thread_id: thread.id,
+      p_message_id: action.messageId,
+      p_card_id: action.cardId,
+      p_action: action.action,
+      p_page_url: `/wiki/${path}`,
+    })
+    if (error) {
+      if (error.message.includes("stale_revision")) {
+        return NextResponse.json(
+          {
+            error:
+              action.action === "approve"
+                ? "This page changed since the proposal. Want me to redo it?"
+                : "This page changed again, so Undo is unavailable.",
+            stale: true,
+          },
+          { status: 409 }
+        )
+      }
+      if (error.message.includes("rate_limited"))
+        return NextResponse.json(
+          { error: "Too many edits. Please wait a minute and try again." },
+          { status: 429 }
+        )
+      return NextResponse.json(
+        { error: "This proposal is no longer available. Please start again." },
+        { status: 409 }
+      )
+    }
+    let notice =
+      action.action === "undo" ? "Previous version restored." : "Edit applied."
+    try {
+      await indexMiloPage(supabase, stored.node_id)
+    } catch {
+      notice += " Search indexing couldn't finish; please reindex this page."
+    }
+    return NextResponse.json({ status: "ok", card: applied, notice })
   }
 
   // Message metadata is user-writable: neither the card nor its IDs grant access.
@@ -155,6 +253,13 @@ export async function POST(request: Request) {
         rounds: 0,
         feedback: [],
       }
+      await saveMiloProposal({
+        threadId: thread.id,
+        messageId: action.messageId,
+        userId: user.id,
+        card: prepared.card,
+        state: nextState,
+      })
       notice = "Page confirmed. No changes have been made."
     } catch {
       return NextResponse.json(
