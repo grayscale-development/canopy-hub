@@ -4,6 +4,8 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { wikiTagDirectoryUrl, type WikiTagRow } from "@/lib/wiki"
+import { matchSemanticWikiTags } from "@/lib/wiki-tag-embeddings"
+import { rankWikiTags } from "@/lib/wiki-tag-similarity"
 
 export const runtime = "nodejs"
 
@@ -116,15 +118,23 @@ export async function GET(request: NextRequest) {
     snippet: compactSnippet(row.content),
   }))
 
-  const { data: tagData } = canAccessBeta1
-    ? await supabase
+  const candidates: WikiTagRow[] = []
+  let semantic: WikiTagRow[] = []
+  if (canAccessBeta1) {
+    const semanticPromise = matchSemanticWikiTags(supabase, query)
+    const pageSize = 1000
+    for (let offset = 0; ; offset += pageSize) {
+      const { data: page, error: tagError } = await supabase
         .from("wiki_tags")
         .select("id,name,scope,section_id")
-        .ilike("name", `%${query}%`)
-        .order("name")
-    : { data: [] }
-
-  const candidates = (tagData ?? []) as WikiTagRow[]
+        .order("id")
+        .range(offset, offset + pageSize - 1)
+      if (tagError) break
+      candidates.push(...((page ?? []) as WikiTagRow[]))
+      if (!page || page.length < pageSize) break
+    }
+    semantic = await semanticPromise
+  }
   const sectionIds = [
     ...new Set(
       candidates.flatMap((tag) => (tag.section_id ? [tag.section_id] : []))
@@ -141,21 +151,29 @@ export async function GET(request: NextRequest) {
   const sectionNames = new Map(
     (sections ?? []).map((section) => [section.id, section.title])
   )
-  const tagResults = candidates
-    .filter(
-      (tag) =>
-        tag.scope === "global" ||
-        (tag.section_id && sectionNames.has(tag.section_id))
-    )
+  const visible = candidates.filter(
+    (tag) =>
+      tag.scope === "global" ||
+      (tag.section_id && sectionNames.has(tag.section_id))
+  )
+  const semanticCandidates = semantic.flatMap((tag) => {
+    const candidate = visible.find((item) => item.id === tag.id)
+    return candidate ? [candidate] : []
+  })
+  const tagResults = rankWikiTags(query, visible, semanticCandidates)
     .slice(0, 5)
-    .map((tag) => ({
+    .map(({ tag, reason }) => ({
       id: `wiki-tag-${tag.id}`,
       title: tag.name,
       url: wikiTagDirectoryUrl(tag),
       type: "wiki_tag",
       typeLabel: "Tag",
-      snippet:
+      snippet: [
         tag.scope === "global" ? "Global" : sectionNames.get(tag.section_id!),
+        reason,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     }))
 
   return NextResponse.json({

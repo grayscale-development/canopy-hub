@@ -1,7 +1,40 @@
 import "server-only"
 
 import { embedTexts } from "@/lib/wiki-ai"
-import type { SupabaseWikiClient } from "@/lib/wiki"
+import type { SupabaseWikiClient, WikiTagRow } from "@/lib/wiki"
+
+export async function matchSemanticWikiTags(
+  supabase: SupabaseWikiClient,
+  name: string
+) {
+  if (!process.env.OPENAI_EMBEDDING_MODEL?.trim() || name.length > 60) return []
+  try {
+    const [embedding] = await embedTexts([name], AbortSignal.timeout(3000))
+    if (
+      !embedding ||
+      embedding.length !== 1536 ||
+      !embedding.some((value) => value !== 0)
+    )
+      return []
+    const configured = Number(
+      process.env.WIKI_TAG_SIMILARITY_THRESHOLD ?? "0.80"
+    )
+    const threshold =
+      Number.isFinite(configured) && configured >= 0 && configured <= 1
+        ? configured
+        : 0.8
+    const { data, error } = await supabase.rpc("match_wiki_tags", {
+      query_embedding: embedding,
+      match_threshold: threshold,
+      match_count: 10,
+    })
+    return error
+      ? []
+      : ((data ?? []) as (WikiTagRow & { section_name: string | null })[])
+  } catch {
+    return []
+  }
+}
 
 // Bounded, opportunistic backfill after tag changes. A failed provider never
 // affects the save; a later tag change retries rows still missing embeddings.

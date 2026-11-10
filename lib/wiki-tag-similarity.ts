@@ -88,3 +88,43 @@ export function findSimilarWikiTags<T extends { name: string }>(
     return reason ? [{ tag, reason }] : []
   })
 }
+
+// Semantic candidates must be references from candidates, in similarity order.
+export function rankWikiTags<T extends { name: string }>(
+  query: string,
+  candidates: T[],
+  semantic: T[] = []
+) {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return []
+  const ranked = candidates.flatMap((tag) => {
+    const name = tag.name.toLowerCase()
+    let rank: number
+    let reason: string | null = null
+    if (name === needle) rank = 0
+    else if (name.startsWith(needle)) rank = 1
+    else if (words(tag.name).some((word) => word.startsWith(needle))) rank = 2
+    else if (name.includes(needle)) rank = 3
+    else {
+      const match = matchWikiTagName(query, tag.name)
+      if (!match) return []
+      rank = 4
+      reason =
+        match === "abbreviation of"
+          ? "abbreviation"
+          : match === "similar spelling"
+            ? "close spelling"
+            : "similar word"
+    }
+    return [{ tag, rank, reason }]
+  })
+  ranked.sort((a, b) => a.rank - b.rank || a.tag.name.localeCompare(b.tag.name))
+  const seen = new Set(ranked.map(({ tag }) => tag))
+  for (const tag of semantic) {
+    if (!seen.has(tag)) {
+      ranked.push({ tag, rank: 5, reason: "similar meaning" })
+      seen.add(tag)
+    }
+  }
+  return ranked
+}

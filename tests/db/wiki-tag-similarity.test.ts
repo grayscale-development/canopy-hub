@@ -56,7 +56,9 @@ dbDescribe("tag similarity on local Supabase", { timeout: 30_000 }, () => {
           expect.objectContaining({ id: tag.data!.id, name }),
         ])
       )
-      expect((await viewer.rpc("match_wiki_tags", args)).data).toEqual([])
+      expect((await viewer.rpc("match_wiki_tags", args)).data).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: tag.data!.id })])
+      )
       expect(
         (await anonymous.rpc("match_wiki_tags", args)).error
       ).not.toBeNull()

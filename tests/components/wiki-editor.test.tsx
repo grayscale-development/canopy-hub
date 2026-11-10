@@ -242,16 +242,15 @@ describe("WikiEditor", () => {
     expect(screen.getByRole("button", { name: "Assets" })).toBeVisible()
 
     await user.type(searchInput, "cred")
-    expect(screen.getByRole("button", { name: "Credit" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Credit, Global" })).toBeVisible()
     expect(
       screen.queryByRole("button", { name: "Assets" })
     ).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: "Credit" }))
-    expect(screen.getByRole("button", { name: "Credit" })).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    )
+    await user.click(screen.getByRole("button", { name: "Credit, Global" }))
+    expect(
+      screen.getByRole("button", { name: "Credit, Global" })
+    ).toHaveAttribute("aria-pressed", "true")
     expect(
       screen.getByRole("button", { name: "Remove Credit, global tag" })
     ).toBeVisible()

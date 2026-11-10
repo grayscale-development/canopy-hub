@@ -1,21 +1,42 @@
 import { NextRequest } from "next/server"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const state = vi.hoisted(() => ({ canAccess: true }))
+const state = vi.hoisted(() => ({
+  canAccess: true,
+  calls: [] as { name: string; args: Record<string, unknown> }[],
+}))
+vi.mock("@/lib/wiki-ai", async () => {
+  const provider = await import("@/lib/ai/provider")
+  return { embedTexts: provider.createEmbeddingsWithOpenAI }
+})
 vi.mock("@/lib/permissions", () => ({
   userHasPermissionCode: async () => state.canAccess,
 }))
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
     auth: { getUser: async () => ({ data: { user: { id: "reader" } } }) },
-    rpc: async () => ({ data: [], error: null }),
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      state.calls.push({ name, args })
+      return {
+        data:
+          name === "match_wiki_tags" ? [{ id: "semantic" }, { id: "h" }] : [],
+        error: null,
+      }
+    },
     from: (table: string) => ({
       select: () =>
         table === "wiki_tags"
           ? {
-              ilike: () => ({
-                order: async () => ({
+              order: () => ({
+                range: async () => ({
                   data: [
+                    {
+                      id: "semantic",
+                      name: "Settlement",
+                      scope: "global",
+                      section_id: null,
+                    },
+                    { id: "mi", name: "MI", scope: "global", section_id: null },
                     {
                       id: "g",
                       name: "Closing",
@@ -35,6 +56,7 @@ vi.mock("@/lib/supabase/server", () => ({
                       section_id: "hidden",
                     },
                   ],
+                  error: null,
                 }),
               }),
             }
@@ -48,6 +70,12 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }))
 import { GET } from "@/app/api/wiki/search/route"
+
+beforeEach(() => {
+  state.calls = []
+  vi.stubEnv("OPENAI_EMBEDDING_MODEL", "fake-embedding")
+})
+afterEach(() => vi.unstubAllEnvs())
 
 describe("wiki tag search", () => {
   it("labels levels, links to the correct section, and hides inaccessible sections", async () => {
@@ -65,6 +93,47 @@ describe("wiki tag search", () => {
         title: "Closing",
         snippet: "Operations",
         url: "/wiki/tags?tag=Closing&section=visible#tag-closing-visible",
+      }),
+      expect.objectContaining({
+        title: "Settlement",
+        snippet: "Global · similar meaning",
+      }),
+    ])
+  })
+  it("matches abbreviations through the fake embedding path and falls back when unavailable", async () => {
+    const search = async (q: string) =>
+      (
+        await (
+          await GET(
+            new NextRequest(
+              `http://localhost/api/wiki/search?q=${encodeURIComponent(q)}`
+            )
+          )
+        ).json()
+      ).results
+    expect(await search("mortgage insurance")).toEqual([
+      expect.objectContaining({
+        title: "MI",
+        snippet: "Global · abbreviation",
+      }),
+      expect.objectContaining({
+        title: "Settlement",
+        snippet: "Global · similar meaning",
+      }),
+    ])
+    expect(
+      state.calls.find((call) => call.name === "match_wiki_tags")?.args
+        .query_embedding
+    ).toHaveLength(1536)
+    vi.stubEnv("OPENAI_EMBEDDING_MODEL", "")
+    expect(await search("closng")).toEqual([
+      expect.objectContaining({
+        title: "Closing",
+        snippet: "Global · close spelling",
+      }),
+      expect.objectContaining({
+        title: "Closing",
+        snippet: "Operations · close spelling",
       }),
     ])
   })

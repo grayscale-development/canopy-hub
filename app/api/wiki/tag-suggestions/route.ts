@@ -4,8 +4,30 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { WIKI_MANAGE_PERMISSION, type WikiTagRow } from "@/lib/wiki"
-import { embedTexts } from "@/lib/wiki-ai"
+import { matchSemanticWikiTags } from "@/lib/wiki-tag-embeddings"
 import { findSimilarWikiTags } from "@/lib/wiki-tag-similarity"
+
+export async function GET(request: Request) {
+  const name = new URL(request.url).searchParams.get("q")?.trim() ?? ""
+  if (name.length < 2 || name.length > 60)
+    return NextResponse.json({ results: [] })
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ results: [] }, { status: 401 })
+  if (
+    !(await userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: BETA_1_PERMISSION,
+    }))
+  )
+    return NextResponse.json({ results: [] }, { status: 403 })
+  return NextResponse.json({
+    results: await matchSemanticWikiTags(supabase, name),
+  })
+}
 
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
@@ -73,40 +95,9 @@ export async function POST(request: Request) {
     const sectionName = tag.section_id ? names.get(tag.section_id) : undefined
     return sectionName ? [{ ...tag, section_name: sectionName, reason }] : []
   })
-  if (!process.env.OPENAI_EMBEDDING_MODEL?.trim())
-    return NextResponse.json({ results: lexical.slice(0, 3) })
-  try {
-    const [embedding] = await embedTexts([name], AbortSignal.timeout(3000))
-    if (
-      !embedding ||
-      embedding.length !== 1536 ||
-      !embedding.some((value) => value !== 0)
-    )
-      return NextResponse.json({ results: lexical.slice(0, 3) })
-    const configured = Number(
-      process.env.WIKI_TAG_SIMILARITY_THRESHOLD ?? "0.80"
-    )
-    const threshold =
-      Number.isFinite(configured) && configured >= 0 && configured <= 1
-        ? configured
-        : 0.8
-    const { data, error } = await supabase.rpc("match_wiki_tags", {
-      query_embedding: embedding,
-      match_threshold: threshold,
-      match_count: 10,
-    })
-    const semantic = error
-      ? []
-      : (data ?? []).map(
-          (tag: WikiTagRow & { section_name: string | null }) => ({
-            ...tag,
-            reason: "similar meaning",
-          })
-        )
-    return NextResponse.json({
-      results: [...lexical, ...semantic].slice(0, 10),
-    })
-  } catch {
-    return NextResponse.json({ results: lexical.slice(0, 3) })
-  }
+  const semantic = (await matchSemanticWikiTags(supabase, name)).map((tag) => ({
+    ...tag,
+    reason: "similar meaning",
+  }))
+  return NextResponse.json({ results: [...lexical, ...semantic].slice(0, 10) })
 }
