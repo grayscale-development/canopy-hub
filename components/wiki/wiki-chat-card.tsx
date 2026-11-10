@@ -1,24 +1,29 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
-import type { DisplayCard } from "@/lib/milo/chat-cards"
+import { displayCard, type DisplayCard } from "@/lib/milo/chat-cards"
 
 type Action =
   | { action: "select-page"; candidateId: string }
+  | { action: "next-page" | "create-page" }
   | { action: "approve" }
   | { action: "undo" }
 
 export function WikiChatCard({
-  card,
+  card: initialCard,
   threadId,
   messageId,
+  onNavigate,
 }: {
   card: DisplayCard
   threadId: string | null
   messageId?: string
+  onNavigate?: () => void
 }) {
+  const [card, setCard] = React.useState(initialCard)
   const [busy, setBusy] = React.useState(false)
   const [notice, setNotice] = React.useState("")
 
@@ -38,6 +43,11 @@ export function WikiChatCard({
         }),
       })
       const result = await response.json()
+      if (response.ok && result.status === "ok") {
+        setCard(displayCard(result.card))
+        setNotice(result.notice ?? "")
+        return
+      }
       setNotice(
         response.ok && result.status === "not-implemented"
           ? "This action isn't available yet."
@@ -68,22 +78,107 @@ export function WikiChatCard({
       {card.type === "page-candidates" && (
         <>
           <p className="font-medium">{card.title}</p>
-          <div className="flex flex-col items-start gap-2">
-            {card.candidates.map((candidate) => (
+          {card.candidates[card.current ?? 0] &&
+            (() => {
+              const candidate = card.candidates[card.current ?? 0]
+              const date = candidate.updatedAt
+                ? new Date(candidate.updatedAt)
+                : null
+              return (
+                <div className="space-y-1">
+                  {candidate.url ? (
+                    <Link
+                      href={candidate.url}
+                      onClick={onNavigate}
+                      className="font-medium underline underline-offset-4"
+                    >
+                      {candidate.title}
+                    </Link>
+                  ) : (
+                    <p className="font-medium">{candidate.title}</p>
+                  )}
+                  {candidate.breadcrumb && (
+                    <p className="text-muted-foreground">
+                      {candidate.breadcrumb}
+                    </p>
+                  )}
+                  {candidate.updatedAt &&
+                    date &&
+                    !Number.isNaN(date.getTime()) && (
+                      <p className="text-muted-foreground">
+                        Last updated{" "}
+                        {new Intl.DateTimeFormat("en-US", {
+                          dateStyle: "medium",
+                          timeZone: "UTC",
+                        }).format(date)}
+                      </p>
+                    )}
+                  {candidate.snippet && <p>{candidate.snippet}</p>}
+                  {candidate.confidence && (
+                    <p className="text-muted-foreground">
+                      {candidate.confidence} match
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+          {!card.outcome && (
+            <div className="flex flex-wrap gap-2">
+              {card.candidates[card.current ?? 0] && (
+                <Button
+                  type="button"
+                  disabled={busy || !threadId || !messageId}
+                  onClick={() =>
+                    void act({
+                      action: "select-page",
+                      candidateId: card.candidates[card.current ?? 0].id,
+                    })
+                  }
+                >
+                  Yes, this one
+                </Button>
+              )}
+              {card.candidates.length > 1 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || !threadId || !messageId}
+                  onClick={() => void act({ action: "next-page" })}
+                >
+                  Show me another
+                </Button>
+              )}
               <Button
-                key={candidate.id}
                 type="button"
                 variant="outline"
-                className="h-auto min-h-10 max-w-full py-2 text-left whitespace-normal"
+                className="h-auto min-h-10 whitespace-normal"
                 disabled={busy || !threadId || !messageId}
-                onClick={() =>
-                  void act({ action: "select-page", candidateId: candidate.id })
-                }
+                onClick={() => void act({ action: "create-page" })}
               >
-                {candidate.title}
+                None of these - create a new page
               </Button>
-            ))}
-          </div>
+            </div>
+          )}
+          {card.outcome === "confirmed" && (
+            <p>
+              Page confirmed. A future update will let Milo prepare a proposed
+              edit for your review. No changes have been made.
+            </p>
+          )}
+          {card.outcome === "create" && (
+            <p>
+              Open the{" "}
+              <Link
+                href="/wiki"
+                onClick={onNavigate}
+                className="underline underline-offset-4"
+              >
+                Wiki
+              </Link>
+              , turn on editor mode, and choose Add &gt; AI Create. Paste your
+              source there to create a page.
+            </p>
+          )}
         </>
       )}
       {card.type === "proposed-edit" && (
@@ -128,9 +223,11 @@ export function WikiChatCard({
           <p className="whitespace-pre-wrap">{card.message}</p>
         </>
       )}
-      <p role="status" className="text-muted-foreground">
-        {notice}
-      </p>
+      {notice && !(card.type === "page-candidates" && card.outcome) && (
+        <p role="status" className="text-muted-foreground">
+          {notice}
+        </p>
+      )}
     </section>
   )
 }

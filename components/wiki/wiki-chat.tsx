@@ -363,6 +363,7 @@ export function WikiChat({
                       card={card}
                       threadId={threadId}
                       messageId={answer.serverId}
+                      onNavigate={onNavigate}
                     />
                   ))}
                 </div>

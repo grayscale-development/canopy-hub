@@ -6,10 +6,11 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { callMiloMcpTool } from "@/lib/milo/mcp/tools"
 import { indexWikiAsset, indexWikiPage } from "@/lib/wiki-ai"
+import { findPageCandidates, isEditablePage } from "@/lib/milo/find-page"
 
 vi.mock("@/lib/ai/provider", () => ({
   createEmbeddingsWithOpenAI: vi.fn(async (texts: string[]) =>
-    texts.map(() => null)
+    texts.map(() => [1, ...Array<number>(1535).fill(0)])
   ),
 }))
 
@@ -130,6 +131,70 @@ dbDescribe("Milo user permission enforcement", () => {
       pagePath: `${token}/draft`,
       isPagePublished: false,
     })
+  })
+
+  it("rechecks the candidate tree using the caller and current page status", async () => {
+    expect(await isEditablePage(manager, pageId)).toBe(true)
+    expect(await isEditablePage(viewer, pageId)).toBe(false)
+    const candidates = await findPageCandidates(manager, [token])
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: pageId,
+          title: `${token} Draft SOP`,
+          url: expect.stringMatching(/^\/wiki\/\d+\/\d+$/),
+        }),
+      ])
+    )
+    expect(
+      (await findPageCandidates(viewer, [token])).some(
+        (candidate) => candidate.id === pageId
+      )
+    ).toBe(false)
+    const result = await manager.rpc("match_knowledge_chunks_keyword", {
+      search_query: token,
+      match_count: 50,
+      source_types: ["wiki_page"],
+    })
+    expect(result.error).toBeNull()
+    expect(
+      result.data.some(
+        (row: { source_title: string }) =>
+          row.source_title === `${token} Draft SOP`
+      )
+    ).toBe(true)
+    expect(
+      (
+        await admin
+          .from("wiki_nodes")
+          .update({ status: "archived" })
+          .eq("id", pageId)
+      ).error
+    ).toBeNull()
+    try {
+      expect(await isEditablePage(manager, pageId)).toBe(false)
+      const archived = await manager.rpc("match_knowledge_chunks_keyword", {
+        search_query: token,
+        match_count: 50,
+        source_types: ["wiki_page"],
+      })
+      expect(archived.error).toBeNull()
+      expect(
+        archived.data.some(
+          (row: { source_title: string }) =>
+            row.source_title === `${token} Draft SOP`
+        )
+      ).toBe(false)
+    } finally {
+      expect(
+        (
+          await admin
+            .from("wiki_nodes")
+            .update({ status: "draft" })
+            .eq("id", pageId)
+        ).error
+      ).toBeNull()
+    }
   })
 
   it("derives capabilities and visible manager contacts from the current session", async () => {

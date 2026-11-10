@@ -29,6 +29,14 @@ const testState = vi.hoisted(() => ({
   },
   nextId: 1,
   wikiUrls: new Map<string, string>(),
+  editablePages: new Set<string>(),
+  candidates: [] as Array<{ id: string; title: string }>,
+}))
+
+vi.mock("@/lib/milo/find-page", () => ({
+  findPageCandidates: async () => testState.candidates,
+  isEditablePage: async (_client: unknown, id: string) =>
+    testState.editablePages.has(id),
 }))
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -206,6 +214,8 @@ describe("/api/wiki/chat route", () => {
     testState.user = null
     testState.nextId = 1
     testState.wikiUrls = new Map()
+    testState.candidates = [{ id: "page", title: "Policy" }]
+    testState.editablePages = new Set(["page", "page-2"])
     testState.tables.permissions = [
       {
         id: "permission-beta-1",
@@ -358,9 +368,15 @@ describe("/api/wiki/chat route", () => {
       (await readSseEvents(confirmation))
         .map((event) => event.token ?? "")
         .join("")
-    ).toContain("Next: find the page")
+    ).toContain("closest match")
     expect(saved.at(-1)?.metadata).toMatchObject({
       miloEdit: { stage: "ready_to_find_page", sourceMessageId: saved[0].id },
+      cards: [
+        {
+          type: "page-candidates",
+          candidates: [{ id: "page", title: "Policy" }],
+        },
+      ],
     })
     expect(vi.mocked(createAgentResponseWithOpenAI)).toHaveBeenCalledTimes(1)
   })
@@ -863,12 +879,20 @@ describe("/api/wiki/chat route", () => {
         thread_id: "thread",
         role: "assistant",
         metadata: {
+          miloEdit: {
+            stage: "ready_to_find_page",
+            sourceMessageId: "source",
+            extraction: { facts: ["A fact"] },
+          },
           cards: [
             {
               type: "page-candidates",
               id: "card",
               title: "Choose",
-              candidates: [{ id: "page", title: "Policy" }],
+              candidates: [
+                { id: "page", title: "Policy" },
+                { id: "page-2", title: "Other" },
+              ],
             },
           ],
         },
@@ -888,8 +912,76 @@ describe("/api/wiki/chat route", () => {
     expect((await POST(request({ ...action, action: "approve" }))).status).toBe(
       400
     )
-    const response = await POST(request(action))
+    testState.editablePages.delete("page")
+    expect((await POST(request(action))).status).toBe(403)
+    testState.editablePages.add("page")
+    const next = await POST(request({ ...action, action: "next-page" }))
+    expect((await next.json()).card.current).toBe(1)
+    expect((await POST(request(action))).status).toBe(400)
+    const response = await POST(request({ ...action, candidateId: "page-2" }))
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ status: "not-implemented" })
+    expect(await response.json()).toMatchObject({
+      status: "ok",
+      card: { outcome: "confirmed" },
+    })
+    expect(testState.tables.ai_chat_messages[0].metadata).toMatchObject({
+      miloEdit: { stage: "page_confirmed", pageId: "page-2" },
+    })
+    expect(
+      (await POST(request({ ...action, candidateId: "page-2" }))).status
+    ).toBe(409)
+  })
+
+  it("records the create fallback without selecting a page", async () => {
+    testState.user = { id: "user-1" }
+    testState.tables.user_permissions.push({
+      user_id: "user-1",
+      permission_id: "permission-wiki",
+    })
+    testState.tables.ai_chat_threads = [{ id: "thread", user_id: "user-1" }]
+    testState.tables.ai_chat_messages = [
+      {
+        id: "message",
+        thread_id: "thread",
+        user_id: "user-1",
+        role: "assistant",
+        metadata: {
+          miloEdit: {
+            stage: "ready_to_find_page",
+            sourceMessageId: "source",
+            extraction: { facts: ["A fact"] },
+          },
+          cards: [
+            {
+              type: "page-candidates",
+              id: "card",
+              title: "Is this the page you mean?",
+              candidates: [],
+            },
+          ],
+        },
+      },
+    ]
+    const { POST } = await import("@/app/api/wiki/chat/card-action/route")
+    const request = new Request("http://test.local/api/wiki/chat/card-action", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "create-page",
+        threadId: "thread",
+        messageId: "message",
+        cardId: "card",
+      }),
+    })
+    const response = await POST(request)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      status: "ok",
+      card: { outcome: "create" },
+      notice: expect.stringContaining("AI Create"),
+    })
+    expect(testState.tables.ai_chat_messages[0].metadata).toMatchObject({
+      miloEdit: { stage: "ready_to_find_page" },
+      cards: [{ outcome: "create" }],
+    })
   })
 })
