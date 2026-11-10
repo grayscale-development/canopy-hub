@@ -5,6 +5,7 @@ import {
   WikiVisibleNodeGate,
   WikiViewModeTitleSpacing,
 } from "@/components/wiki/wiki-edit-mode"
+import { RestoreWikiButton } from "@/components/wiki/wiki-archive"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
@@ -29,6 +30,9 @@ import {
   buildWikiPath,
   compareWikiNodes,
   fetchWikiNodes,
+  fetchArchivedWikiNodes,
+  buildWikiBreadcrumbs,
+  resolveWikiPath,
   fetchWikiPageData,
   fetchWikiTags,
   isPublishedWikiBranch,
@@ -89,10 +93,22 @@ function DirectoryView({
     <div className="space-y-4">
       {title || (canManageWiki && showCreateControl) ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {title ? headingLevel === 1 ? (
-            <WikiViewModeTitleSpacing><h1 className="text-4xl leading-tight font-bold">{title}</h1></WikiViewModeTitleSpacing>
-          ) : <h2 className="text-xl font-semibold">{title}</h2> : null}
-          {folder && parent ? <WikiAddMenu folder={folder} nodes={nodes} allowGroups={parent.parent_id === null} /> : null}
+          {title ? (
+            headingLevel === 1 ? (
+              <WikiViewModeTitleSpacing>
+                <h1 className="text-4xl leading-tight font-bold">{title}</h1>
+              </WikiViewModeTitleSpacing>
+            ) : (
+              <h2 className="text-xl font-semibold">{title}</h2>
+            )
+          ) : null}
+          {folder && parent ? (
+            <WikiAddMenu
+              folder={folder}
+              nodes={nodes}
+              allowGroups={parent.parent_id === null}
+            />
+          ) : null}
           {canManageWiki && showCreateControl ? (
             items.length ? (
               <WikiEditModeGate>
@@ -227,6 +243,32 @@ export default async function WikiPage({
       return <WikiSetupRequired canManageWiki={canManageWiki} />
     }
     throw error
+  }
+  if (canManageWiki && path.length) {
+    const archived = await fetchArchivedWikiNodes(supabase)
+    const allNodes = [
+      ...nodes.filter((item) => item.status !== "archived"),
+      ...archived,
+    ]
+    const target = resolveWikiPath(allNodes, path)
+    const archivedAncestor =
+      target &&
+      buildWikiBreadcrumbs(allNodes, target).find(
+        (item) => item.status === "archived"
+      )
+    if (archivedAncestor) {
+      return (
+        <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-background">
+          <section className="mx-auto w-full max-w-[864px] space-y-5 px-6 py-10">
+            <h1 className="text-3xl font-semibold">{archivedAncestor.title}</h1>
+            <p className="text-muted-foreground">
+              This item is archived and is not visible in the Wiki.
+            </p>
+            <RestoreWikiButton node={archivedAncestor} />
+          </section>
+        </main>
+      )
+    }
   }
   const [pageData, wikiTags] = await Promise.all([
     path.length ? fetchWikiPageData(supabase, path) : null,

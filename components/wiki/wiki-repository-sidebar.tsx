@@ -15,6 +15,10 @@ import {
   WikiCreateWizardDialog,
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
+import {
+  GlobalWikiArchive,
+  SectionArchive,
+} from "@/components/wiki/wiki-archive"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
 import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 import {
@@ -306,11 +310,15 @@ function SidebarNestedFolder({
 function SidebarSection({
   section,
   nodes,
+  archivedNodes,
+  canManageWiki,
   activePath,
   canManage,
 }: {
   section: WikiNodeRow
   nodes: WikiNodeRow[]
+  archivedNodes: WikiNodeRow[]
+  canManageWiki: boolean
   activePath: string
   canManage: boolean
 }) {
@@ -392,6 +400,13 @@ function SidebarSection({
               />
             )
           )}
+        {canManageWiki ? (
+          <SectionArchive
+            section={section}
+            nodes={[...nodes, ...archivedNodes]}
+            archived={archivedNodes}
+          />
+        ) : null}
       </div>
     </section>
   )
@@ -414,8 +429,10 @@ export function WikiRepositorySidebar({
   activePath,
   selectedRepositorySlug,
   canManageWiki,
+  archivedNodes = [],
 }: {
   nodes: WikiNodeRow[]
+  archivedNodes?: WikiNodeRow[]
   activePath: string
   selectedRepositorySlug: string
   canManageWiki: boolean
@@ -443,7 +460,7 @@ export function WikiRepositorySidebar({
     [repositoryNode, visibleNodes]
   )
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:w-72">
+    <aside className="flex max-h-[50svh] min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:max-h-none lg:w-72">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border px-3">
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {selectedRepository.title}
@@ -480,6 +497,8 @@ export function WikiRepositorySidebar({
                 key={section.id}
                 section={section}
                 nodes={visibleNodes}
+                archivedNodes={archivedNodes}
+                canManageWiki={canManageWiki}
                 activePath={activePath}
                 canManage={canEditSidebar}
               />
@@ -490,6 +509,15 @@ export function WikiRepositorySidebar({
             No sections yet.
           </p>
         )}
+        {canManageWiki ? (
+          <GlobalWikiArchive
+            nodes={[
+              ...nodes.filter((node) => node.status !== "archived"),
+              ...archivedNodes,
+            ]}
+            archived={archivedNodes}
+          />
+        ) : null}
       </div>
       <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
         <div className="-mx-3 -mt-3 border-b border-sidebar-border">

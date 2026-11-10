@@ -5,7 +5,11 @@ import * as React from "react"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { isPublishedWikiBranch, type WikiNodeRow } from "@/lib/wiki"
+import {
+  isPublishedWikiBranch,
+  isUnarchivedWikiBranch,
+  type WikiNodeRow,
+} from "@/lib/wiki"
 import { cn } from "@/lib/utils"
 
 const WIKI_EDIT_MODE_STORAGE_KEY = "wiki-edit-mode"
@@ -125,7 +129,7 @@ export function useVisibleWikiNodes(nodes: WikiNodeRow[]) {
   return React.useMemo(
     () =>
       canManageWiki
-        ? nodes
+        ? nodes.filter((node) => isUnarchivedWikiBranch(nodes, node))
         : nodes.filter((node) => isPublishedWikiBranch(nodes, node)),
     [canManageWiki, nodes]
   )
@@ -144,7 +148,8 @@ export function WikiVisibleNodeGate({
 }) {
   const { canManageWiki } = useWikiEditMode()
 
-  return canManageWiki || isPublishedWikiBranch(nodes, node) ? (
+  return (canManageWiki && isUnarchivedWikiBranch(nodes, node)) ||
+    isPublishedWikiBranch(nodes, node) ? (
     <>{children}</>
   ) : (
     <>{fallback}</>
