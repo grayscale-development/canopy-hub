@@ -24,7 +24,7 @@ const CACHE_TTL_MS = 30_000
 const CACHE_SIZE = 50
 const PAGE_SIZE = 1000
 
-type Passage = { blockId: string; text: string }
+type Passage = { blockId: string; text: string; hashText?: string }
 export type DuplicateHit = {
   pageId: string
   revisionId: string
@@ -37,7 +37,19 @@ export type DuplicateHit = {
 }
 export type DuplicateResult = {
   revisionId: string
-  passages: { blockId: string; common: boolean; matches: DuplicateHit[] }[]
+  passages: {
+    blockId: string
+    passageHash: string
+    text: string
+    common: boolean
+    matches: DuplicateHit[]
+  }[]
+  dismissed?: {
+    blockId: string
+    passageHash: string
+    text: string
+    match: Pick<DuplicateHit, "pageId" | "title" | "path">
+  }[]
 }
 const cache = new Map<string, { expires: number; result: DuplicateResult }>()
 
@@ -49,6 +61,10 @@ export function normalizeDuplicateText(text: string) {
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ")
+}
+
+export function hashDuplicatePassage(text: string) {
+  return createHash("sha256").update(normalizeDuplicateText(text)).digest("hex")
 }
 
 function prepareText(text: string) {
@@ -131,7 +147,11 @@ function selectedPassages(blocks: unknown, selection: string): Passage[] {
         (!found.has(span.blockId) ||
           found.get(span.blockId)!.text.length < part.length)
       )
-        found.set(span.blockId, { blockId: span.blockId, text: part })
+        found.set(span.blockId, {
+          blockId: span.blockId,
+          text: part,
+          hashText: span.text,
+        })
     }
     position = document.indexOf(normalized, position + 1)
   }
@@ -217,7 +237,8 @@ export async function detectWikiDuplicates(
   supabase: SupabaseWikiClient,
   userId: string,
   nodeId: string,
-  selection?: string
+  selection?: string,
+  includeDismissed = false
 ): Promise<DuplicateResult | null> {
   const nodes = await visibleNodes(supabase)
   const byId = new Map(nodes.map((node) => [node.id, node]))
@@ -234,7 +255,13 @@ export async function detectWikiDuplicates(
   if (cached && cached.expires > Date.now()) {
     cache.delete(key)
     cache.set(key, cached)
-    return cached.result
+    return applyDismissals(
+      supabase,
+      nodeId,
+      cached.result,
+      includeDismissed,
+      nodes
+    )
   }
   cache.delete(key)
   const pages = nodes.filter(
@@ -322,6 +349,8 @@ export async function detectWikiDuplicates(
       )
       return {
         blockId: passage.blockId,
+        passageHash: hashDuplicatePassage(passage.hashText ?? passage.text),
+        text: passage.hashText ?? passage.text,
         common: hits.length > COMMON_PAGE_LIMIT,
         matches: hits.length > COMMON_PAGE_LIMIT ? [] : hits,
       }
@@ -398,5 +427,64 @@ export async function detectWikiDuplicates(
     passage.matches.sort((a, b) => b.score - a.score)
   cache.set(key, { expires: Date.now() + CACHE_TTL_MS, result })
   while (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!)
-  return result
+  return applyDismissals(supabase, nodeId, result, includeDismissed, nodes)
+}
+
+async function applyDismissals(
+  supabase: SupabaseWikiClient,
+  nodeId: string,
+  result: DuplicateResult,
+  includeDismissed: boolean,
+  nodes: WikiNodeRow[]
+): Promise<DuplicateResult> {
+  const keys = new Set<string>()
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("wiki_duplicate_dismissals")
+      .select("other_node_id,passage_hash")
+      .eq("node_id", nodeId)
+      .order("other_node_id")
+      .order("passage_hash")
+      .range(offset, offset + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    for (const row of data ?? [])
+      keys.add(`${row.other_node_id}:${row.passage_hash}`)
+    if (!data || data.length < PAGE_SIZE) break
+  }
+  const dismissed: NonNullable<DuplicateResult["dismissed"]> = []
+  if (includeDismissed) {
+    const byId = new Map(nodes.map((node) => [node.id, node]))
+    for (const passage of result.passages) {
+      for (const node of nodes) {
+        if (
+          node.type !== "page" ||
+          !validPath(node, byId) ||
+          !keys.has(`${node.id}:${passage.passageHash}`)
+        )
+          continue
+        dismissed.push({
+          blockId: passage.blockId,
+          passageHash: passage.passageHash,
+          text: passage.text,
+          match: {
+            pageId: node.id,
+            title: node.title,
+            path: `/wiki/${buildNumericWikiPath(nodes, node)}`,
+          },
+        })
+      }
+    }
+  }
+  const passages = result.passages.map((passage) => ({
+    ...passage,
+    matches: passage.matches.filter((match) => {
+      if (!keys.has(`${match.pageId}:${passage.passageHash}`)) return true
+      return false
+    }),
+  }))
+  return {
+    revisionId: result.revisionId,
+    passages,
+    ...(includeDismissed ? { dismissed } : {}),
+  }
 }

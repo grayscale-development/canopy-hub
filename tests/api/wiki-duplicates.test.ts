@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   nodes: [] as Record<string, unknown>[],
   revisions: [] as Record<string, unknown>[],
   vectors: [] as Record<string, unknown>[],
+  dismissals: [] as { other_node_id: string; passage_hash: string }[],
   calls: 0,
   embeddingFails: false,
 }))
@@ -36,15 +37,28 @@ vi.mock("@/lib/supabase/server", () => ({
                 range: async () => ({ data: state.nodes, error: null }),
               }),
             }
-          : {
-              in: async (_column: string, ids: string[]) => ({
-                data: (table === "wiki_nodes"
-                  ? state.nodes
-                  : state.revisions
-                ).filter((r) => ids.includes(r.id as string)),
-                error: null,
-              }),
-            },
+          : table === "wiki_duplicate_dismissals"
+            ? {
+                eq: () => ({
+                  order: () => ({
+                    order: () => ({
+                      range: async () => ({
+                        data: state.dismissals,
+                        error: null,
+                      }),
+                    }),
+                  }),
+                }),
+              }
+            : {
+                in: async (_column: string, ids: string[]) => ({
+                  data: (table === "wiki_nodes"
+                    ? state.nodes
+                    : state.revisions
+                  ).filter((r) => ids.includes(r.id as string)),
+                  error: null,
+                }),
+              },
     }),
     rpc: async (_name: string, args: { query_embedding: number[] }) => {
       expect(args.query_embedding).toHaveLength(1536)
@@ -88,6 +102,7 @@ beforeEach(() => {
     { id: "rev2", node_id: other, blocks: block(text.toUpperCase(), "other") },
   ]
   state.vectors = []
+  state.dismissals = []
   vi.stubEnv("OPENAI_EMBEDDING_MODEL", "fake-embedding")
 })
 afterEach(() => vi.unstubAllEnvs())
@@ -119,6 +134,8 @@ describe("duplicate route", () => {
       passages: [
         {
           blockId: "block",
+          passageHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+          text,
           common: false,
           matches: [
             expect.objectContaining({
@@ -252,6 +269,8 @@ describe("duplicate route", () => {
     const result = await (await POST(request({ nodeId: source }))).json()
     expect(result.passages[0]).toEqual({
       blockId: "block",
+      passageHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      text,
       common: true,
       matches: [],
     })
@@ -260,5 +279,57 @@ describe("duplicate route", () => {
     const lessCommon = await (await POST(request({ nodeId: source }))).json()
     expect(lessCommon.passages[0].common).toBe(false)
     expect(lessCommon.passages[0].matches).toHaveLength(3)
+  })
+  it("applies dismissals to cached results immediately and only includes them when requested", async () => {
+    const first = await (await POST(request({ nodeId: source }))).json()
+    const passageHash = first.passages[0].passageHash
+    state.dismissals = [{ other_node_id: other, passage_hash: passageHash }]
+    const hidden = await (await POST(request({ nodeId: source }))).json()
+    expect(hidden.passages[0].matches).toEqual([])
+    expect(hidden.dismissed).toBeUndefined()
+    const shown = await (
+      await POST(request({ nodeId: source, includeDismissed: true }))
+    ).json()
+    expect(shown.dismissed).toEqual([
+      expect.objectContaining({
+        passageHash,
+        text,
+        match: expect.objectContaining({ pageId: other }),
+      }),
+    ])
+    state.dismissals = []
+    expect(
+      (await (await POST(request({ nodeId: source }))).json()).passages[0]
+        .matches
+    ).toHaveLength(1)
+    expect(state.calls).toBe(1)
+  })
+  it("lists a dismissal even if the other page no longer matches and uses the full block hash for selections", async () => {
+    const first = await (await POST(request({ nodeId: source }))).json()
+    const passageHash = first.passages[0].passageHash
+    const selected = await (
+      await POST(request({ nodeId: source, text: text.slice(0, 70) }))
+    ).json()
+    expect(selected.passages[0].passageHash).toBe(passageHash)
+    state.dismissals = [{ other_node_id: other, passage_hash: passageHash }]
+    state.nodes[1] = node(other, "rev3", 2)
+    state.revisions.push({
+      id: "rev3",
+      node_id: other,
+      blocks: block(
+        "This page now contains a completely different procedure for scheduling vacations."
+      ),
+    })
+    const result = await (
+      await POST(request({ nodeId: source, includeDismissed: true }))
+    ).json()
+    expect(result.passages[0].matches).toEqual([])
+    expect(result.dismissed).toEqual([
+      expect.objectContaining({
+        passageHash,
+        text,
+        match: expect.objectContaining({ pageId: other, title: "Page 2" }),
+      }),
+    ])
   })
 })

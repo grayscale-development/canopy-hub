@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { createEmbeddingsWithOpenAI } from "@/lib/ai/provider"
 import {
   EMBEDDING_THRESHOLD,
+  hashDuplicatePassage,
   NEAR_EXACT_THRESHOLD,
   nearExactScore,
   wikiPassages,
@@ -27,6 +28,14 @@ function cosine(a: number[], b: number[]) {
 }
 
 describe("duplicate matching fixture", () => {
+  it("hashes normalized passage text and changes when the text changes", () => {
+    expect(hashDuplicatePassage("A   passage\nwith text!")).toBe(
+      hashDuplicatePassage("a passage with text")
+    )
+    expect(hashDuplicatePassage("A passage with text")).not.toBe(
+      hashDuplicatePassage("A passage with different text")
+    )
+  })
   it("reports the measured lexical and fake-vector precision and recall", async () => {
     const previous = process.env.OPENAI_EMBEDDING_MODEL
     process.env.OPENAI_EMBEDDING_MODEL = "fake-embedding"
