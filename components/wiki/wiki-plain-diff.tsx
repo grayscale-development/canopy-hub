@@ -124,6 +124,7 @@ export function WikiPlainDiff({
   afterBlocks,
   beforeTitle = "Before",
   afterTitle = "After",
+  comparison = false,
 }: {
   beforeText: string
   afterText: string
@@ -131,6 +132,7 @@ export function WikiPlainDiff({
   afterBlocks?: unknown
   beforeTitle?: string
   afterTitle?: string
+  comparison?: boolean
 }) {
   const diff = React.useMemo(
     () =>
@@ -153,8 +155,16 @@ export function WikiPlainDiff({
         aria-live="polite"
         className="text-lg leading-7 font-semibold text-neutral-950 dark:text-neutral-50"
       >
-        <span>{diff.headline}</span>
-        {/^\d+ changes?$/.test(diff.headline) ? " to review" : null}
+        <span>
+          {comparison
+            ? diff.changeCount
+              ? `${diff.changeCount} ${diff.changeCount === 1 ? "difference" : "differences"}`
+              : "These passages match."
+            : diff.headline}
+        </span>
+        {!comparison && /^\d+ changes?$/.test(diff.headline)
+          ? " to review"
+          : null}
       </p>
       {diff.showMarkup ? (
         <PageBox

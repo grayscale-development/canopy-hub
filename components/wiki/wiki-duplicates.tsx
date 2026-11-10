@@ -5,19 +5,40 @@ import { createPortal } from "react-dom"
 import type { BlockNoteEditor } from "@blocknote/core"
 import { ChevronDownIcon, ChevronUpIcon, XIcon } from "lucide-react"
 import { Popover } from "radix-ui"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
+import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { buildWikiBreadcrumbs, type WikiNodeRow } from "@/lib/wiki"
+import {
+  blockNoteToPlainText,
+  buildWikiBreadcrumbs,
+  type WikiNodeRow,
+} from "@/lib/wiki"
 import type { DuplicateResult } from "@/lib/wiki-duplicates"
+import {
+  duplicateBlockText,
+  replaceDuplicateBlock,
+} from "@/lib/wiki-duplicate-resolution"
 
 type Passage = DuplicateResult["passages"][number]
 type Snapshot = { passage: Passage; content: string }
+type Selection = { passage: Passage; match: Passage["matches"][number] }
 
 function blockContents(
   blocks: readonly {
@@ -47,6 +68,7 @@ function blockContents(
 export function WikiDuplicates({
   nodeId,
   revisionId,
+  savedBlocks,
   nodes,
   editor,
   surface,
@@ -55,12 +77,14 @@ export function WikiDuplicates({
 }: {
   nodeId: string
   revisionId: string | null
+  savedBlocks: unknown
   nodes: WikiNodeRow[]
   editor: BlockNoteEditor
   surface: HTMLDivElement | null
   isDirty: boolean
   blocks: unknown
 }) {
+  const router = useRouter()
   const [results, setResults] = React.useState<Snapshot[] | null>(null)
   const [status, setStatus] = React.useState<"idle" | "loading" | "error">(
     "idle"
@@ -68,6 +92,12 @@ export function WikiDuplicates({
   const [active, setActive] = React.useState<string | null>(null)
   const [lastActive, setLastActive] = React.useState<string | null>(null)
   const [positions, setPositions] = React.useState<Record<string, number>>({})
+  const [selection, setSelection] = React.useState<Selection | null>(null)
+  const [dialog, setDialog] = React.useState<
+    "compare" | "replace" | "update" | null
+  >(null)
+  const [saveError, setSaveError] = React.useState("")
+  const [saving, setSaving] = React.useState(false)
   const request = React.useRef(0)
   const openedFromText = React.useRef(false)
   const contents = React.useMemo(
@@ -78,6 +108,68 @@ export function WikiDuplicates({
     ({ passage, content }) => contents.get(passage.blockId) === content
   )
   const validIds = valid.map(({ passage }) => passage.blockId).join("|")
+  const selectedBlock = selection
+    ? duplicateBlockText(savedBlocks, selection.passage.blockId)
+    : null
+  const passageText = selectedBlock ? blockNoteToPlainText([selectedBlock]) : ""
+  const replacement = selection
+    ? replaceDuplicateBlock(
+        savedBlocks,
+        selection.passage.blockId,
+        selection.match.title,
+        selection.match.path
+      )
+    : null
+
+  function openAction(
+    nextDialog: "compare" | "replace" | "update",
+    nextSelection: Selection
+  ) {
+    setActive(null)
+    setSaveError("")
+    setSelection(nextSelection)
+    setDialog(nextDialog)
+  }
+
+  async function saveReplacement() {
+    if (!selection || !revisionId || !replacement || isDirty || saving) return
+    setSaving(true)
+    setSaveError("")
+    try {
+      const response = await fetch("/api/wiki/duplicates/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodeId,
+          revisionId,
+          blockId: selection.passage.blockId,
+          targetId: selection.match.pageId,
+          targetRevisionId: selection.match.revisionId,
+          targetTitle: selection.match.title,
+          targetPath: selection.match.path,
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        setSaveError(
+          response.status === 409
+            ? `${result.error || "This page changed after you looked at it."} Reload the page and check again.`
+            : result.error || "Could not save. Please try again."
+        )
+        return
+      }
+      setDialog(null)
+      setResults(null)
+      toast.success(
+        "Link saved. To undo, select Last updated below the page and restore an earlier version."
+      )
+      router.refresh()
+    } catch {
+      setSaveError("Could not save. Please try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   React.useEffect(
     () => () => {
@@ -394,7 +486,7 @@ export function WikiDuplicates({
                                 ? "Exact"
                                 : "Similar"}
                             </p>
-                            <div>
+                            <div className="flex flex-wrap gap-2">
                               <Button asChild variant="outline" size="sm">
                                 <a
                                   href={match.path}
@@ -407,11 +499,39 @@ export function WikiDuplicates({
                                   </span>
                                 </a>
                               </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  openAction("compare", { passage, match })
+                                }
+                              >
+                                Compare
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={isDirty}
+                                onClick={() =>
+                                  openAction("replace", { passage, match })
+                                }
+                              >
+                                Replace with a link
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={isDirty}
+                                onClick={() =>
+                                  openAction("update", { passage, match })
+                                }
+                              >
+                                Keep this and update the other page
+                              </Button>
                             </div>
                           </div>
                         )
                       })}
-                      {/* Compare and Dismiss actions can be added alongside Open page. */}
                     </Popover.Content>
                   </Popover.Portal>
                 </Popover.Root>
@@ -420,6 +540,100 @@ export function WikiDuplicates({
             surface
           )
         : null}
+      {selection && dialog === "update" ? (
+        <WikiImportWizardDialog
+          nodes={nodes}
+          targetPageId={selection.match.pageId}
+          targetPageTitle={selection.match.title}
+          duplicateSourceTitle={nodes.find((node) => node.id === nodeId)?.title}
+          initialText={passageText}
+          showTrigger={false}
+          open
+          onOpenChange={(open) => {
+            if (!open) setDialog(null)
+          }}
+        />
+      ) : null}
+      <Dialog
+        open={dialog === "compare" || dialog === "replace"}
+        onOpenChange={(open) => {
+          if (!open && !saving) setDialog(null)
+        }}
+      >
+        <DialogContent
+          className="max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
+          showCloseButton={!saving}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {dialog === "compare"
+                ? "Compare passages"
+                : "Replace with a link"}
+            </DialogTitle>
+            <DialogDescription>
+              {dialog === "compare"
+                ? `Compare this passage with ${selection?.match.title}.`
+                : `Review the change to this page before saving. The link will point to ${selection?.match.title}.`}
+            </DialogDescription>
+          </DialogHeader>
+          {dialog === "compare" && selection ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <section className="rounded-lg border p-3">
+                  <h3 className="font-semibold">This page</h3>
+                  <p className="break-words whitespace-pre-wrap">
+                    {passageText}
+                  </p>
+                </section>
+                <section className="rounded-lg border p-3">
+                  <h3 className="font-semibold">{selection.match.title}</h3>
+                  <p className="break-words whitespace-pre-wrap">
+                    {selection.match.text}
+                  </p>
+                </section>
+              </div>
+              <WikiPlainDiff
+                beforeText={passageText}
+                afterText={selection.match.text}
+                beforeTitle="This page"
+                afterTitle={selection.match.title}
+                comparison
+              />
+            </>
+          ) : dialog === "replace" && replacement ? (
+            <WikiPlainDiff
+              beforeText={blockNoteToPlainText(savedBlocks)}
+              afterText={blockNoteToPlainText(replacement)}
+              beforeBlocks={savedBlocks}
+              afterBlocks={replacement}
+              beforeTitle="This page now"
+              afterTitle="Page after replacing the passage"
+            />
+          ) : null}
+          {saveError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {saveError}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={saving}
+              onClick={() => setDialog(null)}
+            >
+              {dialog === "compare" ? "Done" : "Cancel"}
+            </Button>
+            {dialog === "replace" ? (
+              <Button
+                disabled={saving || isDirty || !replacement}
+                onClick={() => void saveReplacement()}
+              >
+                {saving ? "Saving..." : "Save change"}
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

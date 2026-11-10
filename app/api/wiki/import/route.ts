@@ -1,4 +1,5 @@
 import { buildNumericWikiPath } from "@/lib/wiki-paths"
+import { applyPreparedWikiPreview } from "@/lib/wiki-reviewed-revision"
 import crypto from "node:crypto"
 
 import { revalidatePath } from "next/cache"
@@ -145,6 +146,7 @@ async function completeWikiVideoImport({
   preview,
   supabase,
   userId,
+  consolidationTitle,
 }: {
   assetId: string
   nodeId: string
@@ -153,6 +155,7 @@ async function completeWikiVideoImport({
   preview: boolean
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userId: string
+  consolidationTitle?: string
 }) {
   if (!assetId || !nodeId) {
     return NextResponse.json(
@@ -237,6 +240,7 @@ async function completeWikiVideoImport({
         sourcePageId: null,
         sourceRevisionId: null,
         reviewedFile: null,
+        ...(consolidationTitle ? { consolidationTitle } : {}),
         blocks: content.blocks,
       },
       {
@@ -448,68 +452,6 @@ async function attachReviewedFile({
   return next
 }
 
-async function applyPreparedWikiPreview({
-  supabase,
-  targetPage,
-  sourcePageId,
-  sourceRevisionId,
-  sourceTitle,
-  mode,
-  blocks,
-  fileName,
-}: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-  targetPage: WikiNodeRow
-  sourcePageId: string | null
-  sourceRevisionId: string | null
-  sourceTitle: string
-  mode: WikiAiUpdateMode
-  blocks: unknown[]
-  fileName?: string | null
-}) {
-  const plainText = blockNoteToPlainText(blocks)
-  const changeNote = sourcePageId
-    ? `Merged with AI from ${sourceTitle || "another page"}`
-    : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${fileName || "pasted text"}`
-  const { data: revisionId, error: saveError } = await supabase.rpc(
-    "apply_wiki_reviewed_revision",
-    {
-      p_target_id: targetPage.id,
-      p_base_revision_id: targetPage.current_revision_id,
-      p_blocks: blocks,
-      p_plain_text: plainText,
-      p_change_note: changeNote,
-      p_source_id: sourcePageId,
-      p_source_base_revision_id: sourceRevisionId,
-    }
-  )
-  if (saveError || typeof revisionId !== "string" || !revisionId) {
-    const message = saveError?.message ?? "Unable to save the reviewed page."
-    if (message.includes("stale_revision")) {
-      return NextResponse.json(
-        {
-          error:
-            "This page changed after you looked at it. Look again before saving.",
-        },
-        { status: 409 }
-      )
-    }
-    if (message.includes("forbidden")) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-    return NextResponse.json({ error: message }, { status: 400 })
-  }
-
-  const nodes = await fetchWikiNodes(supabase)
-  const node = nodes.find((item) => item.id === targetPage.id)
-  const path = node ? buildNumericWikiPath(nodes, node) : ""
-  revalidatePath("/wiki")
-  if (path) {
-    revalidatePath(`/wiki/${path}`)
-  }
-  return NextResponse.json({ ok: true, path: `/wiki/${path}` })
-}
-
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -544,6 +486,13 @@ export async function POST(request: Request) {
 
   const fileValue = formData.get("file")
   const pastedValue = formData.get("text")
+  const duplicateSourceTitle = formData.get("duplicate_source_title")
+  if (
+    duplicateSourceTitle !== null &&
+    (typeof duplicateSourceTitle !== "string" || !duplicateSourceTitle.trim())
+  ) {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 })
+  }
   const file = fileValue instanceof File && fileValue.size ? fileValue : null
   let pastedText = typeof pastedValue === "string" ? pastedValue : ""
   const parentIdValue = formData.get("parent_id")
@@ -773,10 +722,12 @@ export async function POST(request: Request) {
       targetPage,
       sourcePageId,
       sourceRevisionId: reviewedClaim.sourceRevisionId,
-      sourceTitle: sourcePageTitle,
-      mode,
+      changeNote: reviewedClaim.consolidationTitle
+        ? `Consolidated duplicate with ${reviewedClaim.consolidationTitle}`
+        : sourcePageId
+          ? `Merged with AI from ${sourcePageTitle || "another page"}`
+          : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${file?.name || "pasted text"}`,
       blocks: reviewedBlocks,
-      fileName: file?.name ?? null,
     })
   }
 
@@ -802,6 +753,10 @@ export async function POST(request: Request) {
       preview: formData.get("preview") === "1",
       supabase,
       userId: user.id,
+      consolidationTitle:
+        typeof duplicateSourceTitle === "string"
+          ? duplicateSourceTitle
+          : undefined,
     })
   }
 
@@ -1219,6 +1174,9 @@ export async function POST(request: Request) {
           sourcePageId,
           sourceRevisionId,
           reviewedFile: file ? await createReviewedFileClaim(file) : null,
+          ...(typeof duplicateSourceTitle === "string"
+            ? { consolidationTitle: duplicateSourceTitle }
+            : {}),
           blocks: content.blocks,
         },
         {

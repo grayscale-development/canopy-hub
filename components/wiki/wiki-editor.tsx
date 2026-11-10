@@ -355,6 +355,7 @@ function WikiEditorMounted({
           key={`${node.id}:${revision?.id}:${duplicateVersion}`}
           nodeId={node.id}
           revisionId={revision?.id ?? null}
+          savedBlocks={revision?.blocks}
           nodes={nodes}
           editor={editor}
           surface={surface}
