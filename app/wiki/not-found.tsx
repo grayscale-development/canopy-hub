@@ -59,7 +59,9 @@ export default function WikiNotFound() {
               placeholder="Enter a page name"
             />
           </div>
-          <Button type="submit">Search</Button>
+          <Button type="submit" className="bg-sidebar-primary">
+            Search
+          </Button>
         </form>
         <div>
           <Button asChild variant="outline">

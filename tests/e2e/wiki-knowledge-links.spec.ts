@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test"
 
 import { signInAsSeededUser } from "./wiki-reviewed-helpers"
 
-test("opens a current Wiki citation from an old indexed URL", async ({
+test("opens a current Wiki citation from an old indexed URL @smoke", async ({
   page,
 }) => {
   await signInAsSeededUser(page, "wiki-manager@canopy.test")
@@ -16,6 +16,8 @@ test("opens a current Wiki citation from an old indexed URL", async ({
       : route.abort()
   })
   await page.goto("/home")
+  const reindex = await page.request.post("/api/wiki/reindex")
+  expect(reindex.ok()).toBe(true)
   const search = await page.evaluate(async () => {
     const response = await fetch("/api/wiki/search?q=funding%20checklist")
     return response.json()

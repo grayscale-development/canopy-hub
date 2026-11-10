@@ -13,7 +13,7 @@ import {
 
 test.use({ trace: "off", screenshot: "off" })
 
-test("numeric wiki navigation survives rename and move @wiki", async ({
+test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
   page,
 }) => {
   test.setTimeout(120_000)
@@ -74,6 +74,8 @@ test("numeric wiki navigation survives rename and move @wiki", async ({
     await editDialog.getByRole("button", { name: "Save", exact: true }).click()
     await expect(page.getByText(renamed, { exact: true }).first()).toBeVisible()
     await expect(page).toHaveURL(new RegExp(`${fixture.path}$`))
+    await page.goto(fixture.path)
+    await expect(page.getByText(renamed, { exact: true }).first()).toBeVisible()
     await page
       .getByRole("button", { name: "More actions for this page" })
       .click()
