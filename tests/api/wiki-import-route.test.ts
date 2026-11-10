@@ -755,6 +755,40 @@ describe("/api/wiki/import route", () => {
     expect(state.deletes).toEqual([])
   })
 
+  it("keeps the consolidation note in the signed review for an AI update", async () => {
+    seedMergePages()
+    const sourceTitle = "Escrow notes ".repeat(20).trim()
+    const body = new FormData()
+    body.set("target_page_id", "target-page")
+    body.set("text", "Add the escrow note.")
+    body.set("duplicate_source_title", sourceTitle)
+    body.set("mode", "update")
+    body.set("preview", "1")
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const preview = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+    expect(preview.status).toBe(200)
+    const payload = await preview.json()
+    const commit = new FormData()
+    commit.set("target_page_id", "target-page")
+    commit.set("mode", "update")
+    commit.set("apply_preview", "1")
+    commit.set("signed_preview", payload.signedPreview)
+    commit.set("preview_signature", payload.previewSignature)
+    const saved = await POST(
+      new Request("http://localhost/api/wiki/import", {
+        method: "POST",
+        body: commit,
+      })
+    )
+    expect(saved.status).toBe(200)
+    expect(state.insertedRevisions[0].change_note).toBe(
+      `Consolidated duplicate with ${sourceTitle}`
+    )
+    expect(state.rpcCalls[0]).toMatchObject({ args: { p_source_id: null } })
+  })
+
   it("archives the source page after a prepared AI merge", async () => {
     seedMergePages()
     const body = new FormData()

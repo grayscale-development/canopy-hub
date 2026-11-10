@@ -27,9 +27,11 @@ const PAGE_SIZE = 1000
 type Passage = { blockId: string; text: string }
 export type DuplicateHit = {
   pageId: string
+  revisionId: string
   title: string
   path: string
   snippet: string
+  text: string
   score: number
   type: "near-exact" | "paraphrase"
 }
@@ -306,9 +308,11 @@ export async function detectWikiDuplicates(
             ? [
                 {
                   pageId: page.id,
+                  revisionId: page.current_revision_id!,
                   title: page.title,
                   path: `/wiki/${buildNumericWikiPath(nodes, page)}`,
                   snippet: best.text.replace(/\s+/g, " ").slice(0, 260),
+                  text: best.text,
                   score: best.score,
                   type: "near-exact",
                 },
@@ -371,12 +375,14 @@ export async function detectWikiDuplicates(
                 continue
               target.matches.push({
                 pageId: candidate.id,
+                revisionId: candidate.current_revision_id!,
                 title: candidate.title,
                 path: `/wiki/${buildNumericWikiPath(nodes, candidate)}`,
                 snippet: String(row.content)
                   .replace(/\s+/g, " ")
                   .trim()
                   .slice(0, 260),
+                text: String(row.content).trim(),
                 score: row.similarity,
                 type: "paraphrase",
               })

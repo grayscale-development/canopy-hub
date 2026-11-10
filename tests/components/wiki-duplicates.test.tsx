@@ -6,6 +6,21 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { WikiDuplicates } from "@/components/wiki/wiki-duplicates"
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock("@/components/wiki/wiki-import-wizard", () => ({
+  WikiImportWizardDialog: ({
+    targetPageId,
+    initialText,
+  }: {
+    targetPageId: string
+    initialText: string
+  }) => (
+    <div role="dialog">
+      Update {targetPageId}: {initialText}
+    </div>
+  ),
+}))
+
 const initial = [
   { id: "block-1", type: "paragraph", content: "A saved passage" },
 ]
@@ -29,6 +44,7 @@ function Harness() {
       <WikiDuplicates
         nodeId="page-1"
         revisionId="rev-1"
+        savedBlocks={initial}
         nodes={[]}
         editor={editor}
         surface={surface}
@@ -58,6 +74,84 @@ afterEach(() => {
 })
 
 describe("duplicate controls", () => {
+  it("offers comparison, reviewed replacement, and an update prefilled for the other page", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          revisionId: "rev-1",
+          passages: [
+            {
+              blockId: "block-1",
+              common: false,
+              matches: [
+                {
+                  pageId: "page-2",
+                  revisionId: "rev-2",
+                  title: "Another page",
+                  path: "/wiki/2",
+                  snippet: "Matching passage",
+                  text: "Matching passage",
+                  score: 1,
+                  type: "near-exact",
+                },
+              ],
+            },
+          ],
+        }),
+      })
+    )
+    render(<Harness />)
+    await user.click(
+      screen.getByRole("button", { name: "Check for duplicates" })
+    )
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Passage also appears in Another page",
+      })
+    )
+    expect(
+      screen.queryByRole("button", { name: "Dismiss" })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Compare" }))
+    expect(
+      await screen.findByRole("dialog", { name: "Compare passages" })
+    ).toHaveTextContent("A saved passage")
+    expect(
+      screen.getByRole("dialog", { name: "Compare passages" })
+    ).toHaveTextContent("Matching passage")
+    expect(
+      screen.getByRole("dialog", { name: "Compare passages" })
+    ).toHaveTextContent("1 difference")
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    await user.click(
+      screen.getByRole("button", {
+        name: "Passage also appears in Another page",
+      })
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Replace with a link" })
+    )
+    expect(
+      await screen.findByRole("dialog", { name: "Replace with a link" })
+    ).toHaveTextContent("See")
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    await user.click(
+      screen.getByRole("button", {
+        name: "Passage also appears in Another page",
+      })
+    )
+    await user.click(
+      screen.getByRole("button", {
+        name: "Keep this and update the other page",
+      })
+    )
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Update page-2: A saved passage"
+    )
+  })
   it("handles loading, empty and error states, and clears a flagged passage when edited", async () => {
     const user = userEvent.setup()
     let resolve!: (response: Response) => void
@@ -81,9 +175,11 @@ describe("duplicate controls", () => {
               matches: [
                 {
                   pageId: "page-2",
+                  revisionId: "rev-2",
                   title: "Another page",
                   path: "/wiki/1/2",
                   snippet: "Matching passage",
+                  text: "Matching passage",
                   score: 1,
                   type: "near-exact",
                 },

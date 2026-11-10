@@ -123,8 +123,10 @@ describe("duplicate route", () => {
           matches: [
             expect.objectContaining({
               pageId: other,
+              revisionId: "rev2",
               title: "Page 2",
               path: "/wiki/2",
+              text: text.toUpperCase(),
               type: "near-exact",
               score: 1,
             }),
@@ -193,6 +195,16 @@ describe("duplicate route", () => {
     expect((await response.json()).passages[0].matches).toContainEqual(
       expect.objectContaining({ pageId: other, type: "near-exact" })
     )
+  })
+  it("returns the complete matching passage for comparison", async () => {
+    const longText = text.repeat(4)
+    state.revisions[0].blocks = block(longText)
+    state.revisions[1].blocks = block(longText, "other")
+    const response = await POST(request({ nodeId: source }))
+    const match = (await response.json()).passages[0].matches[0]
+    expect(match.snippet).toHaveLength(260)
+    expect(match.text).toBe(longText)
+    expect(match.revisionId).toBe("rev2")
   })
   it("maps a selection spanning multiple blocks back to both block IDs", async () => {
     const second =
