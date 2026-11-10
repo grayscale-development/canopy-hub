@@ -16,8 +16,6 @@ test("opens a current Wiki citation from an old indexed URL @smoke", async ({
       : route.abort()
   })
   await page.goto("/home")
-  const reindex = await page.request.post("/api/wiki/reindex")
-  expect(reindex.ok()).toBe(true)
   const search = await page.evaluate(async () => {
     const response = await fetch("/api/wiki/search?q=funding%20checklist")
     return response.json()

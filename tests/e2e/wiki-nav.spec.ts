@@ -72,6 +72,7 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
     const editDialog = page.getByRole("dialog", { name: "Edit page" })
     await editDialog.getByRole("textbox", { name: "Title" }).fill(renamed)
     await editDialog.getByRole("button", { name: "Save", exact: true }).click()
+    await expect(editDialog).toBeHidden()
     await expect(page.getByText(renamed, { exact: true }).first()).toBeVisible()
     await expect(page).toHaveURL(new RegExp(`${fixture.path}$`))
     await page.goto(fixture.path)

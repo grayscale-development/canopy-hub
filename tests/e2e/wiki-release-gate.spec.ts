@@ -230,6 +230,10 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
         .getByRole("textbox", { name: "Title" })
         .fill(`Renamed ${node.title}`)
       await dialog.getByRole("button", { name: "Save", exact: true }).click()
+      await expect(dialog).toBeHidden()
+      await expect(
+        sidebar.getByRole("button", { name: `Toggle Renamed ${node.title}` })
+      ).toBeVisible()
       await page.goto(oldPath)
       await expect(page).toHaveURL(new RegExp(`${oldPath}$`))
       await expect(page.getByRole("main").last()).toContainText(
