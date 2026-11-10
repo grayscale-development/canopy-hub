@@ -19,11 +19,13 @@ import {
   fetchWikiAssetsForNode,
   fetchCurrentRevision,
   fetchWikiNodes,
+  fetchWikiTags,
   formatWikiRestoreChangeNote,
   isPublishedWikiBranch,
   normalizeWikiTags,
   normalizeWikiTagInputs,
   syncWikiPageTags,
+  validateWikiTagsForParent,
   slugifyWikiTitle,
   WIKI_MANAGE_PERMISSION,
   type WikiTagInput,
@@ -42,7 +44,7 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : ""
 }
 
-// The current picker sends names; the future scoped picker can send JSON objects.
+// Keep name-only submissions working for older callers.
 function getSubmittedTags(formData: FormData): WikiTagInput[] {
   let tags: WikiTagInput[]
   if (!formData.has("tags_scoped")) {
@@ -266,6 +268,14 @@ export async function createWikiNodeAction(
       }
     }
 
+    if (type === "page" && tags.length) {
+      const [nodes, catalog] = await Promise.all([
+        fetchWikiNodes(supabase),
+        fetchWikiTags(supabase),
+      ])
+      validateWikiTagsForParent(tags, nodes, parentId, catalog)
+    }
+
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,
@@ -374,6 +384,13 @@ export async function updateWikiNodeAction(
     const parentId = formData.has("parent_id")
       ? submittedParentId
       : existingNode.parent_id
+    if (existingNode.type === "page" && tags.length) {
+      const [nodes, catalog] = await Promise.all([
+        fetchWikiNodes(supabase),
+        fetchWikiTags(supabase),
+      ])
+      validateWikiTagsForParent(tags, nodes, parentId, catalog)
+    }
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,

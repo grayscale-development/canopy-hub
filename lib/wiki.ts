@@ -104,6 +104,8 @@ export type WikiTagInput =
   | { name: string; scope: "global"; section_id?: null }
   | { name: string; scope: "section"; section_id: string }
 
+export type WikiScopedTag = Exclude<WikiTagInput, string>
+
 // Strings are the legacy picker contract: they resolve to a global tag.
 export function normalizeWikiTagInputs(tags: WikiTagInput[]) {
   const seen = new Set<string>()
@@ -338,6 +340,80 @@ export function buildWikiBreadcrumbs(nodes: WikiNodeRow[], node: WikiNodeRow) {
   return breadcrumbs
 }
 
+// Sections are the folders immediately below an area root.
+export function getWikiSectionId(nodes: WikiNodeRow[], nodeId: string | null) {
+  const node = nodes.find((item) => item.id === nodeId)
+  if (!node) return null
+  const breadcrumbs = buildWikiBreadcrumbs(nodes, node)
+  const [root, section] = breadcrumbs
+  return root?.parent_id === null && section?.type === "folder"
+    ? section.id
+    : null
+}
+
+// Check before writing page details; the database still enforces these rules atomically.
+export function validateWikiTagsForParent(
+  tags: WikiTagInput[],
+  nodes: WikiNodeRow[],
+  parentId: string | null,
+  catalog: WikiTagRow[]
+) {
+  const parent = nodes.find((node) => node.id === parentId)
+  const ancestorIds = new Set(
+    parent ? buildWikiBreadcrumbs(nodes, parent).map((node) => node.id) : []
+  )
+  const known = catalog.map((tag) => ({
+    name: tag.name,
+    scope: tag.scope,
+    section_id: tag.section_id,
+  }))
+  for (const tag of normalizeWikiTagInputs(tags)) {
+    if (
+      tag.scope === "section" &&
+      (!tag.section_id || !ancestorIds.has(tag.section_id))
+    ) {
+      throw new Error(
+        "This tag belongs to a different section and cannot be added to this page."
+      )
+    }
+    const sameName = known.filter(
+      (item) => item.name.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
+    )
+    const existing = sameName.some(
+      (item) => item.scope === tag.scope && item.section_id === tag.section_id
+    )
+    if (
+      !existing &&
+      sameName.some(
+        (item) =>
+          tag.scope === "global" ||
+          item.scope === "global" ||
+          item.section_id === tag.section_id
+      )
+    ) {
+      throw new Error(
+        "A tag with this name already exists. Choose another name."
+      )
+    }
+    if (!existing) known.push(tag)
+  }
+}
+
+export async function fetchWikiPageTags(
+  supabase: SupabaseWikiClient,
+  nodeId: string
+) {
+  const { data, error } = await supabase
+    .from("wiki_page_tags")
+    .select("wiki_tags(id,name,scope,section_id)")
+    .eq("node_id", nodeId)
+  if (error) throw new Error(error.message)
+  return (data ?? []).flatMap((row) => {
+    const tag = row.wiki_tags
+    return tag ? [tag as unknown as WikiTagRow] : []
+  })
+}
+
 export function buildWikiPath(nodes: WikiNodeRow[], node: WikiNodeRow) {
   return buildWikiBreadcrumbs(nodes, node)
     .map((item) => item.slug)
@@ -509,7 +585,7 @@ export async function syncWikiPageTags({
   if (error) {
     const messages: Record<string, string> = {
       wiki_tag_name_conflict:
-        "A tag with this name already exists globally or in this section.",
+        "A tag with this name already exists. Choose another name.",
       wiki_tag_out_of_scope:
         "This tag belongs to a different section and cannot be added to this page.",
       wiki_tag_invalid_section: "Choose a valid Wiki section for this tag.",

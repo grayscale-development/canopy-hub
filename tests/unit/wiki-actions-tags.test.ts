@@ -67,4 +67,20 @@ describe("wiki tag action validation", () => {
     })
     expect(state.rpc).not.toHaveBeenCalled()
   })
+  it("returns a friendly message for a name conflict", async () => {
+    state.rpc.mockResolvedValue({
+      error: { message: "wiki_tag_name_conflict" },
+    })
+    const form = new FormData()
+    form.set("node_id", "page")
+    form.set(
+      "tags_scoped",
+      JSON.stringify([{ name: "Closing", scope: "global", section_id: null }])
+    )
+    expect(await updateWikiNodeTagsAction(form)).toEqual({
+      ok: false,
+      message:
+        "A tag with this name already exists. Choose another name.",
+    })
+  })
 })

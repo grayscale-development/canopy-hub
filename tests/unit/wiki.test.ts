@@ -12,6 +12,7 @@ import {
   findFirstPublishedWikiPagePath,
   formatBytes,
   getWikiAssetKind,
+  getWikiSectionId,
   isPublishedWikiBranch,
   normalizeWikiTags,
   normalizeWikiTagInputs,
@@ -20,6 +21,7 @@ import {
   sanitizeWikiFileName,
   slugifyWikiTitle,
   validateWikiUpload,
+  validateWikiTagsForParent,
   type WikiNodeRow,
   type SupabaseWikiClient,
 } from "@/lib/wiki"
@@ -46,6 +48,90 @@ function node(overrides: Partial<WikiNodeRow> & Pick<WikiNodeRow, "id">) {
 }
 
 describe("wiki helpers", () => {
+  it("validates scoped tag ancestry and cross-level names before page writes", () => {
+    const section = "10000000-0000-4000-8000-000000000001"
+    const other = "10000000-0000-4000-8000-000000000002"
+    const nodes = [
+      node({ id: "root", type: "folder" }),
+      node({ id: section, type: "folder", parent_id: "root" }),
+      node({ id: "group", type: "folder", parent_id: section }),
+      node({ id: other, type: "folder", parent_id: "root" }),
+    ]
+    const catalog = [
+      {
+        id: "global",
+        name: "Global Name",
+        scope: "global" as const,
+        section_id: null,
+      },
+      {
+        id: "section",
+        name: "Other Name",
+        scope: "section" as const,
+        section_id: other,
+      },
+    ]
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "New", scope: "section", section_id: section }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).not.toThrow()
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "New", scope: "section", section_id: other }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).toThrow("different section")
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "global name", scope: "section", section_id: section }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).toThrow("already exists")
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "other name", scope: "global", section_id: null }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).toThrow("already exists")
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "Other Name", scope: "section", section_id: section }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).not.toThrow()
+    expect(() =>
+      validateWikiTagsForParent(["Global Name"], nodes, "group", catalog)
+    ).not.toThrow()
+  })
+  it("finds a section from nested page and parent paths, but not area roots or missing ancestors", () => {
+    const nodes = [
+      node({ id: "root", type: "folder" }),
+      node({ id: "section", type: "folder", parent_id: "root" }),
+      node({ id: "group", type: "folder", parent_id: "section" }),
+      node({ id: "page", parent_id: "group" }),
+      node({ id: "root-page", parent_id: "root" }),
+      node({ id: "orphan", type: "folder", parent_id: "missing" }),
+    ]
+    expect(getWikiSectionId(nodes, "page")).toBe("section")
+    expect(getWikiSectionId(nodes, "group")).toBe("section")
+    expect(getWikiSectionId(nodes, "section")).toBe("section")
+    expect(getWikiSectionId(nodes, "root")).toBeNull()
+    expect(getWikiSectionId(nodes, "root-page")).toBeNull()
+    expect(getWikiSectionId(nodes, "orphan")).toBeNull()
+    expect(getWikiSectionId(nodes, "missing")).toBeNull()
+  })
   it("slugifies human titles into safe wiki slugs", () => {
     expect(slugifyWikiTitle("  Borrower's Guide: Nano LOS!  ")).toBe(
       "borrowers-guide-nano-los"
@@ -101,7 +187,7 @@ describe("wiki helpers", () => {
     ).rejects.toThrow("different section")
     await expect(
       syncWikiPageTags({ supabase, nodeId: "page", tags: [] })
-    ).rejects.toThrow("already exists globally")
+    ).rejects.toThrow("already exists")
   })
 
   it("sanitizes uploaded file names without preserving path separators", () => {

@@ -28,7 +28,11 @@ export function WikiFolderContents({
   parentId?: string | null
 }) {
   const visibleNodes = useVisibleWikiNodes(nodes)
-  const { canManageWiki, canEditWiki } = useWikiEditMode()
+  const {
+    canManageWiki,
+    canEditWiki,
+    availableTags: wikiTags,
+  } = useWikiEditMode()
   const visibleNodeIds = new Set(visibleNodes.map((node) => node.id))
   const visibleItems = items
     .filter((node) => visibleNodeIds.has(node.id))
@@ -148,7 +152,18 @@ export function WikiFolderContents({
                     ) : node.tags?.length ? (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {node.tags.map((tag) => (
-                          <WikiTagPill key={tag} className="px-2 py-0.5">
+                          <WikiTagPill
+                            key={tag}
+                            className="px-2 py-0.5"
+                            scope={
+                              wikiTags.find(
+                                (item) =>
+                                  item.scope === "global" &&
+                                  item.name.toLocaleLowerCase() ===
+                                    tag.toLocaleLowerCase()
+                              )?.scope
+                            }
+                          >
                             {tag}
                           </WikiTagPill>
                         ))}

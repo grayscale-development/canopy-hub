@@ -31,6 +31,8 @@ import {
   fetchWikiNodes,
   fetchWikiPageData,
   fetchWikiTags,
+  fetchWikiPageTags,
+  getWikiSectionId,
   isPublishedWikiBranch,
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
@@ -89,10 +91,22 @@ function DirectoryView({
     <div className="space-y-4">
       {title || (canManageWiki && showCreateControl) ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {title ? headingLevel === 1 ? (
-            <WikiViewModeTitleSpacing><h1 className="text-4xl leading-tight font-bold">{title}</h1></WikiViewModeTitleSpacing>
-          ) : <h2 className="text-xl font-semibold">{title}</h2> : null}
-          {folder && parent ? <WikiAddMenu folder={folder} nodes={nodes} allowGroups={parent.parent_id === null} /> : null}
+          {title ? (
+            headingLevel === 1 ? (
+              <WikiViewModeTitleSpacing>
+                <h1 className="text-4xl leading-tight font-bold">{title}</h1>
+              </WikiViewModeTitleSpacing>
+            ) : (
+              <h2 className="text-xl font-semibold">{title}</h2>
+            )
+          ) : null}
+          {folder && parent ? (
+            <WikiAddMenu
+              folder={folder}
+              nodes={nodes}
+              allowGroups={parent.parent_id === null}
+            />
+          ) : null}
           {canManageWiki && showCreateControl ? (
             items.length ? (
               <WikiEditModeGate>
@@ -232,6 +246,10 @@ export default async function WikiPage({
     path.length ? fetchWikiPageData(supabase, path) : null,
     fetchWikiTags(supabase),
   ])
+  const pageTags =
+    pageData?.node.type === "page"
+      ? await fetchWikiPageTags(supabase, pageData.node.id)
+      : []
   const revisionResult =
     canManageWiki && pageData?.node.type === "page"
       ? await supabase
@@ -352,7 +370,9 @@ export default async function WikiPage({
                         key={pageData.revision?.id ?? pageData.node.id}
                         node={pageData.node}
                         revision={pageData.revision ?? null}
-                        availableTags={wikiTags.map((tag) => tag.name)}
+                        availableTags={wikiTags}
+                        pageTags={pageTags}
+                        sectionId={getWikiSectionId(nodes, pageData.node.id)}
                         canManage={canManageWiki}
                         lastUpdatedAt={lastUpdatedAt}
                         lastUpdatedBy={lastUpdatedBy}
@@ -393,7 +413,8 @@ export default async function WikiPage({
                                 nodes={nodes}
                                 node={pageData.node}
                                 hasChildren={displayedChildren.length > 0}
-                                availableTags={wikiTags.map((tag) => tag.name)}
+                                availableTags={wikiTags}
+                                pageTags={pageTags}
                               />
                             </WikiEditModeGate>
                           ) : null
