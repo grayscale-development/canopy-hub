@@ -15,167 +15,112 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { cn } from "@/lib/utils"
 
-interface MiloFlagRow {
-  id: string
-  user_id: string | null
-  assistant_message_id: string
-  reason: string
-  status: string
-  user_message_content: string
-  assistant_message_content: string
-  created_at: string
-}
-
-interface MiloFlagCitationRow {
-  message_id: string
-  title: string
-  url: string | null
-  snippet: string | null
-}
-
-function getReporterName(user: {
-  email?: string
-  user_metadata?: Record<string, unknown>
-}) {
-  const metadata = user.user_metadata ?? {}
-  const name =
-    typeof metadata.full_name === "string"
-      ? metadata.full_name
-      : typeof metadata.name === "string"
-        ? metadata.name
-        : null
-
-  return name?.trim() || user.email || "Unknown user"
-}
-
 async function fetchMiloFlags(): Promise<MiloFlag[]> {
-  const supabase = createSupabaseAdminClient()
-  const { data, error } = await supabase
+  const admin = createSupabaseAdminClient()
+  const viewer = await createSupabaseServerClient()
+  const { data: rows, error } = await admin
     .from("ai_chat_message_flags")
     .select(
-      "id,user_id,assistant_message_id,reason,status,user_message_content,assistant_message_content,created_at"
+      "id,assistant_message_id,reason,status,user_message_content,assistant_message_content,created_at,added_to_eval_set"
     )
+    .eq("acknowledged", true)
     .order("created_at", { ascending: false })
-    .limit(100)
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  const rows = (data ?? []) as MiloFlagRow[]
-  const assistantMessageIds = [
-    ...new Set(rows.map((row) => row.assistant_message_id).filter(Boolean)),
-  ]
-  const userIds = [
-    ...new Set(
-      rows
-        .map((row) => row.user_id)
-        .filter((userId): userId is string => Boolean(userId))
-    ),
-  ]
-  const usersById = new Map<
-    string,
-    { email?: string; user_metadata?: Record<string, unknown> }
-  >()
-  const citationsByMessageId = new Map<
-    string,
-    Array<{ title: string; url: string | null; snippet: string | null }>
-  >()
-
-  await Promise.all([
-    Promise.all(
-      userIds.map(async (userId) => {
-        const { data: userData } = await supabase.auth.admin.getUserById(userId)
-        if (userData.user) {
-          usersById.set(userId, {
-            email: userData.user.email,
-            user_metadata: userData.user.user_metadata,
-          })
-        }
-      })
-    ),
-    assistantMessageIds.length
-      ? supabase
-          .from("ai_chat_citations")
-          .select("message_id,title,url,snippet")
-          .in("message_id", assistantMessageIds)
-          .order("created_at", { ascending: true })
-          .then(({ data: citations, error: citationsError }) => {
-            if (citationsError) {
-              throw new Error(citationsError.message)
-            }
-
-            for (const citation of (citations ?? []) as MiloFlagCitationRow[]) {
-              const existing =
-                citationsByMessageId.get(citation.message_id) ?? []
-              existing.push({
-                title: citation.title,
-                url: citation.url,
-                snippet: citation.snippet,
-              })
-              citationsByMessageId.set(citation.message_id, existing)
-            }
-          })
-      : Promise.resolve(),
+  if (error) throw new Error(error.message)
+  const ids = (rows ?? []).map((row) => row.assistant_message_id)
+  if (!ids.length) return []
+  const [messages, citations] = await Promise.all([
+    admin.from("ai_chat_messages").select("id,metadata").in("id", ids),
+    admin
+      .from("ai_chat_citations")
+      .select("message_id,title,url,knowledge_source_id")
+      .in("message_id", ids)
+      .order("created_at"),
   ])
-
-  return rows.map((row) => {
-    const reporter = row.user_id ? usersById.get(row.user_id) : null
-
-    return {
-      id: row.id,
-      reporterName: reporter ? getReporterName(reporter) : "Unknown user",
-      reporterEmail: reporter?.email ?? null,
-      reason: row.reason,
-      status:
-        row.status === "reviewed" || row.status === "closed"
-          ? row.status
-          : "open",
-      userMessage: row.user_message_content,
-      assistantMessage: row.assistant_message_content,
-      sources: citationsByMessageId.get(row.assistant_message_id) ?? [],
-      createdAt: row.created_at,
-    }
-  })
+  if (messages.error) throw new Error(messages.error.message)
+  if (citations.error) throw new Error(citations.error.message)
+  const urls = await resolveWikiKnowledgeUrls(
+    viewer,
+    (citations.data ?? []).flatMap((c) =>
+      c.knowledge_source_id ? [c.knowledge_source_id] : []
+    )
+  )
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    reason: row.reason,
+    status: row.status as MiloFlag["status"],
+    userMessage: row.user_message_content,
+    assistantMessage: row.assistant_message_content,
+    abstained:
+      messages.data?.find((message) => message.id === row.assistant_message_id)
+        ?.metadata?.abstained === true,
+    addedToEvalSet: row.added_to_eval_set,
+    sources: (citations.data ?? [])
+      .filter((citation) => citation.message_id === row.assistant_message_id)
+      .map((citation) => ({
+        title: citation.title,
+        url:
+          citation.url?.startsWith("/wiki/") &&
+          !citation.url.startsWith("/wiki/tags")
+            ? citation.knowledge_source_id
+              ? (urls.get(citation.knowledge_source_id) ?? null)
+              : null
+            : citation.url,
+      })),
+    createdAt: row.created_at,
+  }))
 }
-
-type AiSettingsTab = "flags" | "index"
-
-const AI_TABS: Array<{ key: AiSettingsTab; label: string }> = [
-  { key: "flags", label: "Flags" },
-  { key: "index", label: "Index" },
-]
 
 export async function MiloFlagsCard({
   activeTab = "flags",
+  canManageWiki,
 }: {
-  activeTab?: AiSettingsTab
+  activeTab?: "flags" | "index"
+  canManageWiki: boolean
 }) {
-  const flags = await fetchMiloFlags()
+  const showFeedback = canManageWiki && activeTab === "flags"
+  const supabase = await createSupabaseServerClient()
+  const [flags, gaps] = showFeedback
+    ? await Promise.all([
+        fetchMiloFlags(),
+        supabase.rpc("milo_gap_counts").then(({ data, error }) => {
+          if (error) throw new Error(error.message)
+          return data as Array<{
+            page_id: string | null
+            page_title: string
+            question_count: number
+          }>
+        }),
+      ])
+    : [[], []]
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>AI</CardTitle>
         <CardDescription>
-          Review flagged Ask Milo responses and manage the knowledge index.
+          Manage Milo feedback and the knowledge index.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex flex-wrap gap-2 border-b pb-4">
-          {AI_TABS.map((tab) => (
+          {[
+            ...(canManageWiki
+              ? [{ key: "flags", label: "Milo feedback" }]
+              : []),
+            { key: "index", label: "Index" },
+          ].map((tab) => (
             <Link
               key={tab.key}
               href={
-                tab.key === "flags"
-                  ? "/settings/ai"
-                  : `/settings/ai?tab=${tab.key}`
+                tab.key === "flags" ? "/settings/ai" : "/settings/ai?tab=index"
               }
               className={cn(
                 "inline-flex h-9 items-center rounded-md px-3 text-sm font-medium transition-colors",
-                activeTab === tab.key
+                (showFeedback ? tab.key === "flags" : tab.key === "index")
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
@@ -184,15 +129,34 @@ export async function MiloFlagsCard({
             </Link>
           ))}
         </div>
-
-        {activeTab === "index" ? (
-          <MiloIndexPanel />
-        ) : flags.length ? (
-          <MiloFlagsTable initialFlags={flags} />
-        ) : (
-          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            No Milo responses have been flagged yet.
+        {showFeedback ? (
+          <div className="space-y-6">
+            <section className="space-y-2">
+              <h2 className="text-lg font-semibold">
+                Questions Milo couldn&apos;t answer
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Counts by a suggested wiki page. Questions are only shown when
+                someone shares them below.
+              </p>
+              {gaps.length ? (
+                <ul className="space-y-1 text-sm">
+                  {gaps.map((gap) => (
+                    <li key={gap.page_id ?? "none"}>
+                      {gap.page_title}: {gap.question_count}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No unanswered questions yet.
+                </p>
+              )}
+            </section>
+            <MiloFlagsTable initialFlags={flags} />
           </div>
+        ) : (
+          <MiloIndexPanel />
         )}
       </CardContent>
     </Card>

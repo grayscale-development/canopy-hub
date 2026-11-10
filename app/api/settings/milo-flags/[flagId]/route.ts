@@ -8,6 +8,7 @@ import {
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { WIKI_MANAGE_PERMISSION } from "@/lib/wiki"
 
 export const runtime = "nodejs"
 
@@ -15,6 +16,7 @@ const VALID_STATUSES = new Set(["open", "reviewed", "closed"])
 
 interface UpdateFlagStatusBody {
   status?: unknown
+  addedToEvalSet?: unknown
 }
 
 export async function PATCH(
@@ -30,7 +32,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const [canViewSettings, canAccessAiSettings, canAccessBeta1] =
+  const [canViewSettings, canAccessAiSettings, canAccessBeta1, canManageWiki] =
     await Promise.all([
       userHasPermissionCode({
         supabase,
@@ -47,9 +49,19 @@ export async function PATCH(
         userId: user.id,
         code: BETA_1_PERMISSION,
       }),
+      userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: WIKI_MANAGE_PERMISSION,
+      }),
     ])
 
-  if (!canViewSettings || !canAccessAiSettings || !canAccessBeta1) {
+  if (
+    !canViewSettings ||
+    !canAccessAiSettings ||
+    !canAccessBeta1 ||
+    !canManageWiki
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
@@ -59,15 +71,26 @@ export async function PATCH(
     .catch(() => null)) as UpdateFlagStatusBody | null
   const status = typeof payload?.status === "string" ? payload.status : ""
 
-  if (!VALID_STATUSES.has(status)) {
+  const addedToEvalSet = payload?.addedToEvalSet
+  if (
+    (!VALID_STATUSES.has(status) && status !== "") ||
+    (addedToEvalSet !== undefined && typeof addedToEvalSet !== "boolean") ||
+    (!status && addedToEvalSet === undefined)
+  ) {
     return NextResponse.json({ error: "Invalid status." }, { status: 400 })
   }
 
   const adminSupabase = createSupabaseAdminClient()
   const { error } = await adminSupabase
     .from("ai_chat_message_flags")
-    .update({ status })
+    .update({
+      ...(status ? { status } : {}),
+      ...(addedToEvalSet !== undefined
+        ? { added_to_eval_set: addedToEvalSet }
+        : {}),
+    })
     .eq("id", flagId)
+    .eq("acknowledged", true)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })

@@ -2,7 +2,14 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Loader2Icon, PaperclipIcon, SendIcon } from "lucide-react"
+import {
+  Loader2Icon,
+  PaperclipIcon,
+  SendIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+} from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -35,6 +42,7 @@ interface ChatMessage {
   serverId?: string
   abstained?: boolean
   flagged?: boolean
+  rating?: "up" | "down"
 }
 
 const activeThreadKey = "milo-active-thread"
@@ -346,29 +354,61 @@ export function WikiChat({
   }
 
   const answers = messages.filter((message) => message.role === "assistant")
-  async function flagGap(answer: ChatMessage) {
-    if (!answer.serverId) return
+  async function flagAnswer(answer: ChatMessage, reason: string) {
+    if (!answer.serverId || flagPending) return
+    setFlagPending(true)
     try {
       const response = await fetch("/api/wiki/chat/flag", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           assistantMessageId: answer.serverId,
-          reason: "Milo could not find an answer in the wiki.",
+          reason,
         }),
       })
       if (!response.ok && response.status !== 409)
-        throw new Error("Could not flag this gap. Please try again.")
+        throw new Error("Could not share feedback. Please try again.")
       setMessages((current) =>
         current.map((item) =>
           item.id === answer.id ? { ...item, flagged: true } : item
         )
       )
+      setShareAnswer(null)
+      setShareReason("")
+      setFlagError("")
     } catch {
-      setFlagError("Could not flag this gap. Please try again.")
+      setFlagError("Could not share feedback. Please try again.")
+    } finally {
+      setFlagPending(false)
     }
   }
   const [flagError, setFlagError] = React.useState("")
+  const [flagPending, setFlagPending] = React.useState(false)
+  const [shareAnswer, setShareAnswer] = React.useState<string | null>(null)
+  const [shareReason, setShareReason] = React.useState("")
+  const [ratingPending, setRatingPending] = React.useState<string | null>(null)
+
+  async function rateAnswer(answer: ChatMessage, rating: "up" | "down") {
+    if (!answer.serverId || ratingPending) return
+    setRatingPending(answer.id)
+    try {
+      const response = await fetch("/api/wiki/chat/rating", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assistantMessageId: answer.serverId, rating }),
+      })
+      if (!response.ok) throw new Error()
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === answer.id ? { ...item, rating } : item
+        )
+      )
+    } catch {
+      toast.error("Could not save feedback. Please try again.")
+    } finally {
+      setRatingPending(null)
+    }
+  }
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
@@ -432,17 +472,141 @@ export function WikiChat({
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={answer.flagged || !answer.serverId}
-                      onClick={() => void flagGap(answer)}
+                      disabled={
+                        answer.flagged || !answer.serverId || flagPending
+                      }
+                      onClick={() =>
+                        void flagAnswer(
+                          answer,
+                          "Milo could not find an answer in the wiki."
+                        )
+                      }
                     >
                       {answer.flagged ? "Gap flagged" : "Flag this gap"}
                     </Button>
+                    {!answer.flagged ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Shares your question and answer with wiki managers.
+                      </p>
+                    ) : null}
                     {flagError ? (
                       <p role="alert" className="mt-2 text-sm text-destructive">
                         {flagError}
                       </p>
                     ) : null}
                   </div>
+                ) : null}
+                {!pending && answer.serverId ? (
+                  <div className="mt-3 flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant={answer.rating === "up" ? "secondary" : "ghost"}
+                      size="icon"
+                      aria-label="Helpful answer"
+                      aria-pressed={answer.rating === "up"}
+                      disabled={ratingPending !== null}
+                      onClick={() => void rateAnswer(answer, "up")}
+                    >
+                      <ThumbsUpIcon />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={answer.rating === "down" ? "secondary" : "ghost"}
+                      size="icon"
+                      aria-label="Unhelpful answer"
+                      aria-pressed={answer.rating === "down"}
+                      disabled={ratingPending !== null}
+                      onClick={() => void rateAnswer(answer, "down")}
+                    >
+                      <ThumbsDownIcon />
+                    </Button>
+                    {answer.rating ? (
+                      <span
+                        className="text-sm text-muted-foreground"
+                        role="status"
+                      >
+                        Thanks for your feedback
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {!pending && answer.rating === "down" && !answer.flagged ? (
+                  <div className="mt-2 space-y-2 text-sm">
+                    <p>Want to tell the wiki managers what went wrong?</p>
+                    {shareAnswer === answer.id ? (
+                      <div className="space-y-2">
+                        <p className="text-muted-foreground">
+                          Sharing sends your question, Milo&apos;s answer, and
+                          your reason to wiki managers.
+                        </p>
+                        <label
+                          htmlFor={`milo-reason-${answer.id}`}
+                          className="font-medium"
+                        >
+                          What went wrong?
+                        </label>
+                        <textarea
+                          id={`milo-reason-${answer.id}`}
+                          value={shareReason}
+                          maxLength={2000}
+                          rows={3}
+                          className="w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+                          onChange={(event) =>
+                            setShareReason(event.target.value)
+                          }
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={!shareReason.trim() || flagPending}
+                            onClick={() =>
+                              void flagAnswer(answer, shareReason.trim())
+                            }
+                          >
+                            Share feedback
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setShareAnswer(null)
+                              setShareReason("")
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        {flagError ? (
+                          <p role="alert" className="text-destructive">
+                            {flagError}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setShareAnswer(answer.id)
+                          setShareReason("")
+                          setFlagError("")
+                        }}
+                      >
+                        Tell managers
+                      </Button>
+                    )}
+                  </div>
+                ) : null}
+                {answer.flagged && !answer.abstained ? (
+                  <p
+                    className="mt-2 text-sm text-muted-foreground"
+                    role="status"
+                  >
+                    Shared with wiki managers
+                  </p>
                 ) : null}
               </section>
             ))}

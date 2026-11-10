@@ -19,6 +19,8 @@ This measures retrieval and source links, not the accuracy of a generated answer
 
 ## Add a case and update the baseline
 
+In Settings → AI → Milo feedback, **Add to eval set** marks a shared flag for review and shows a copyable JSON template. It does not change `golden.json` or submit a case. A developer must replace the placeholders with a synthetic, anonymized question and synthetic page ID, review the case, and paste it into `cases` using the steps below. The marker records the request, not a completed fixture.
+
 1. Edit `tests/fixtures/milo-evals/golden.json`. Add or reuse a synthetic page under `pages`, then add a unique case ID, question, kind, and page IDs under `cases`. Use `answerable` with `expectedPages`, `unanswerable` with an empty list, or `restricted` with an empty expected list and draft IDs in `forbiddenPages`. Keep 30Ã¢â‚¬â€œ50 questions. A restricted question must retrieve its draft for a manager.
 2. For future real questions or `ai_chat_message_flags`, have a person review and anonymize them first. Remove names, loan numbers, confidential text, and other identifiers; adapt the expected source to a synthetic fixture. Never copy production rows or credentials into this set.
 3. Run the evaluation on a fresh local seed, inspect the per-case JSON and markdown report, and investigate changes. Only after reviewing an intentional change, copy the four observed metrics into `tests/fixtures/milo-evals/baseline.json`. The tolerance is an absolute fraction (0.05 means five percentage points), applied independently to each metric. Commit the fixtures and baseline together; never update the baseline merely to silence a regression.

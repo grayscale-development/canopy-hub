@@ -26,6 +26,7 @@ const testState = vi.hoisted(() => ({
     ai_chat_messages: [] as Array<Record<string, unknown>>,
     ai_chat_citations: [] as Array<Record<string, unknown>>,
     ai_chat_message_flags: [] as Array<Record<string, unknown>>,
+    ai_chat_message_ratings: [] as Array<Record<string, unknown>>,
   },
   nextId: 1,
   wikiUrls: new Map<string, string>(),
@@ -322,6 +323,7 @@ describe("/api/wiki/chat route", () => {
     testState.tables.ai_chat_messages = []
     testState.tables.ai_chat_citations = []
     testState.tables.ai_chat_message_flags = []
+    testState.tables.ai_chat_message_ratings = []
     testState.answerError = null
     testState.answer.metadata = {}
   })

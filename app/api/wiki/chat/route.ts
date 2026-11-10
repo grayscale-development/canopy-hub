@@ -242,6 +242,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: flagsError.message }, { status: 400 })
   }
 
+  const { data: ratings, error: ratingsError } = messageIds.length
+    ? await supabase
+        .from("ai_chat_message_ratings")
+        .select("assistant_message_id,rating")
+        .in("assistant_message_id", messageIds)
+    : { data: [], error: null }
+  if (ratingsError) {
+    return NextResponse.json({ error: ratingsError.message }, { status: 400 })
+  }
+  const ratingsByMessage = new Map(
+    (ratings ?? []).map((rating) => [
+      rating.assistant_message_id,
+      rating.rating,
+    ])
+  )
+
   const flaggedMessageIds = new Set<string>()
   for (const flag of flags ?? []) {
     if (flag.user_message_id) {
@@ -284,6 +300,7 @@ export async function GET(request: Request) {
           citations: citationsByMessage.get(message.id) ?? [],
           cards,
           flagged: flaggedMessageIds.has(message.id),
+          rating: ratingsByMessage.get(message.id),
           abstained: message.metadata?.abstained === true,
         }
       })

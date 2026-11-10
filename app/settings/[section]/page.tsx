@@ -37,6 +37,7 @@ import {
 import { userHasPermissionCode } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { WIKI_MANAGE_PERMISSION } from "@/lib/wiki"
 
 const SETTINGS_PAGES = [
   {
@@ -124,6 +125,7 @@ export default async function SettingsSubPage({
     canAccessBeta1,
     canAccessAdvancedSettings,
     canRunDataSyncs,
+    canManageWiki,
   ] = await Promise.all([
     userHasPermissionCode({
       supabase,
@@ -149,6 +151,11 @@ export default async function SettingsSubPage({
       supabase,
       userId: user.id,
       code: DATA_SYNC_RUN_PERMISSION,
+    }),
+    userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: WIKI_MANAGE_PERMISSION,
     }),
   ])
 
@@ -324,7 +331,10 @@ export default async function SettingsSubPage({
             ) : section === "advanced" ? (
               <AdvancedSyncCard canRunDataSyncs={canRunDataSyncs} />
             ) : (
-              <MiloFlagsCard activeTab={activeAiTab} />
+              <MiloFlagsCard
+                activeTab={activeAiTab}
+                canManageWiki={canManageWiki}
+              />
             )}
           </section>
         </div>

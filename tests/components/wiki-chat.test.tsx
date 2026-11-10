@@ -78,6 +78,50 @@ describe("WikiChat", () => {
     )
   })
 
+  it("saves a rating, lets it change, and restores it with the conversation", async () => {
+    fetchMock.mockReset()
+    sessionStorage.setItem("milo-active-thread", "thread-1")
+    const history = (rating?: string) => ({
+      ok: true,
+      json: async () => ({
+        messages: [
+          { id: "answer-1", role: "assistant", content: "An answer", rating },
+        ],
+      }),
+    })
+    fetchMock.mockResolvedValueOnce(history())
+    fetchMock.mockResolvedValueOnce({ ok: true })
+    fetchMock.mockResolvedValueOnce({ ok: true })
+    fetchMock.mockResolvedValueOnce(history("down"))
+    const user = userEvent.setup()
+    const view = render(<WikiChat />)
+    await screen.findByText("An answer")
+    await user.click(screen.getByRole("button", { name: "Helpful answer" }))
+    expect(await screen.findByText("Thanks for your feedback")).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Helpful answer" })
+    ).toHaveAttribute("aria-pressed", "true")
+    await user.click(screen.getByRole("button", { name: "Unhelpful answer" }))
+    expect(
+      screen.getByRole("button", { name: "Unhelpful answer" })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/wiki/chat/rating",
+      expect.objectContaining({
+        body: JSON.stringify({
+          assistantMessageId: "answer-1",
+          rating: "down",
+        }),
+      })
+    )
+    view.unmount()
+    render(<WikiChat />)
+    await screen.findByText("An answer")
+    expect(
+      screen.getByRole("button", { name: "Unhelpful answer" })
+    ).toHaveAttribute("aria-pressed", "true")
+  })
+
   it("renders cards safely, submits actions, and restores applied cards on reload", async () => {
     fetchMock.mockReset()
     fetchMock.mockResolvedValueOnce(
