@@ -14,6 +14,10 @@ import {
   MILO_MCP_TOOLS,
   type MiloSourceCard,
 } from "@/lib/milo/mcp/tools"
+import {
+  miloPermissionInstructions,
+  type MiloUserContext,
+} from "@/lib/milo/user-context"
 
 export interface MiloAgentCitation {
   knowledgeSourceId: string | null
@@ -664,9 +668,11 @@ function toCitations(sources: MiloSourceCard[]): MiloAgentCitation[] {
 export async function answerMiloQuestionWithAgent({
   question,
   supabase,
+  userContext,
 }: {
   question: string
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  userContext: MiloUserContext
 }): Promise<MiloAgentAnswer> {
   const model = getChatModel()
   const initialResearch = await buildInitialResearchBrief(question, supabase)
@@ -685,7 +691,7 @@ export async function answerMiloQuestionWithAgent({
   for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
     response = await createAgentResponseWithOpenAI({
       model,
-      instructions: MILO_AGENT_INSTRUCTIONS,
+      instructions: `${MILO_AGENT_INSTRUCTIONS}\n\n${miloPermissionInstructions(userContext)}`,
       input,
       tools: [MILO_MCP_PROXY_TOOL],
       tool_choice: "auto",

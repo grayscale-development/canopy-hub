@@ -66,6 +66,18 @@ const hubData = vi.hoisted(() => ({
 
 vi.mock("@/lib/hub-data", () => hubData)
 
+const userContext = {
+  capabilities: {
+    "beta.1": true,
+    "wiki.manage": false,
+    "settings.access": false,
+    "permissions.access": false,
+    "advanced-settings.access": false,
+    "ai.settings.access": false,
+  },
+  wikiManagers: null,
+}
+
 describe("wiki AI orchestration", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -92,6 +104,7 @@ describe("wiki AI orchestration", () => {
 
     await expect(
       answerKnowledgeQuestion({
+        userContext,
         supabase: supabase as never,
         question: "hi milo",
       })
@@ -125,6 +138,7 @@ describe("wiki AI orchestration", () => {
 
     await expect(
       answerKnowledgeQuestion({
+        userContext,
         supabase: supabase as never,
         question: "tell me about aaron brown",
       })
@@ -154,6 +168,7 @@ describe("wiki AI orchestration", () => {
 
     await expect(
       answerKnowledgeQuestion({
+        userContext,
         supabase: supabase as never,
         question: "who is aaron brown",
       })
@@ -198,6 +213,7 @@ describe("wiki AI orchestration", () => {
     }
 
     const result = await answerKnowledgeQuestion({
+      userContext,
       supabase: supabase as never,
       question: "tell me about borrower auth",
     })
@@ -229,6 +245,7 @@ describe("wiki AI orchestration", () => {
 
     await expect(
       answerKnowledgeQuestion({
+        userContext,
         supabase: supabase as never,
         question: "what documents are available",
       })
@@ -255,6 +272,16 @@ describe("wiki AI orchestration", () => {
     )
     expect(supabase.rpc).not.toHaveBeenCalled()
     expect(aiProvider.createChatResponseWithOpenAI).not.toHaveBeenCalled()
+    expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instructions: expect.stringContaining('"wiki.manage":false'),
+      })
+    )
+    expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instructions: expect.stringContaining("draft proposed text"),
+      })
+    )
   })
 
   it("preloads procedure questions and only cites final supporting sources", async () => {
@@ -329,6 +356,7 @@ describe("wiki AI orchestration", () => {
     }
 
     const result = await answerKnowledgeQuestion({
+      userContext,
       supabase: supabase as never,
       question:
         "how do i cancel a loan, give me a step by step on how to do it",
@@ -415,6 +443,7 @@ describe("wiki AI orchestration", () => {
 
     await expect(
       answerKnowledgeQuestion({
+        userContext,
         supabase: supabase as never,
         question: "Where is the Wiki?",
       })
@@ -438,6 +467,11 @@ describe("wiki AI orchestration", () => {
       expect.objectContaining({
         model: "fake-chat",
         input: expect.stringContaining("Wiki documentation lives"),
+      })
+    )
+    expect(aiProvider.createChatResponseWithOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.stringContaining('"wiki.manage":false'),
       })
     )
   })

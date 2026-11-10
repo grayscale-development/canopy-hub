@@ -132,6 +132,124 @@ dbDescribe("Milo user permission enforcement", () => {
     })
   })
 
+  it("derives capabilities and visible manager contacts from the current session", async () => {
+    const email = `${token}-manager@canopy.test`
+    const name = `${token} Manager`
+    const { data: created, error: createError } =
+      await admin.auth.admin.createUser({
+        email,
+        password: process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password",
+        email_confirm: true,
+        user_metadata: { full_name: name },
+      })
+    expect(createError).toBeNull()
+    const userId = created.user!.id
+    try {
+      const { data: permissions, error } = await admin
+        .from("permissions")
+        .select("id,code")
+        .in("code", ["beta.1", "wiki.manage"])
+      expect(error).toBeNull()
+      expect(permissions).toHaveLength(2)
+      expect(
+        (
+          await admin.from("user_permissions").insert(
+            permissions!.map((permission) => ({
+              user_id: userId,
+              permission_id: permission.id,
+            }))
+          )
+        ).error
+      ).toBeNull()
+      const client = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { auth: { persistSession: false } }
+      )
+      expect(
+        (
+          await client.auth.signInWithPassword({
+            email,
+            password:
+              process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password",
+          })
+        ).error
+      ).toBeNull()
+
+      const managerResult = await callMiloMcpTool("my_capabilities", {}, client)
+      expect(managerResult).toMatchObject({
+        ok: true,
+        content: {
+          capabilities: { "beta.1": true, "wiki.manage": true },
+          wikiManagers: null,
+        },
+      })
+      const viewerResult = await callMiloMcpTool(
+        "my_capabilities",
+        { userId, capabilities: { "wiki.manage": true } },
+        viewer
+      )
+      expect(viewerResult).toMatchObject({
+        ok: true,
+        content: {
+          capabilities: { "beta.1": true, "wiki.manage": false },
+          wikiManagers: null,
+        },
+      })
+      const outsiderResult = await callMiloMcpTool(
+        "my_capabilities",
+        {},
+        outsider
+      )
+      expect(outsiderResult).toMatchObject({
+        ok: true,
+        content: {
+          capabilities: { "beta.1": false, "wiki.manage": false },
+          wikiManagers: null,
+        },
+      })
+      const directoryResult = await callMiloMcpTool(
+        "my_capabilities",
+        {},
+        settings
+      )
+      expect(directoryResult).toMatchObject({
+        ok: true,
+        content: {
+          capabilities: {
+            "permissions.access": true,
+            "advanced-settings.access": true,
+            "ai.settings.access": true,
+          },
+          wikiManagers: expect.arrayContaining([name]),
+        },
+      })
+
+      const wikiPermission = permissions!.find(
+        (permission) => permission.code === "wiki.manage"
+      )!
+      expect(
+        (
+          await admin
+            .from("user_permissions")
+            .delete()
+            .eq("user_id", userId)
+            .eq("permission_id", wikiPermission.id)
+        ).error
+      ).toBeNull()
+      expect(
+        await callMiloMcpTool("my_capabilities", {}, client)
+      ).toMatchObject({ content: { capabilities: { "wiki.manage": false } } })
+      expect(
+        await callMiloMcpTool("my_capabilities", {}, settings)
+      ).toMatchObject({
+        content: { wikiManagers: expect.not.arrayContaining([name]) },
+      })
+    } finally {
+      await admin.auth.admin.deleteUser(userId)
+    }
+  })
+
   it("returns draft chunks and citations only to managers", async () => {
     const permitted = await callMiloMcpTool(
       "knowledge_search",
