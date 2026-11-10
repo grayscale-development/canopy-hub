@@ -3,6 +3,13 @@ import { NextResponse } from "next/server"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
+import {
+  cardEvents,
+  cardsFromMetadata,
+  miloCardSchema,
+  type MiloCard,
+  type MiloStreamEvent,
+} from "@/lib/milo/chat-cards"
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -26,7 +33,7 @@ function mapCitationRow(row: {
   }
 }
 
-function streamEvents(events: unknown[]) {
+function streamEvents(events: MiloStreamEvent[]) {
   const encoder = new TextEncoder()
 
   return new Response(
@@ -129,7 +136,7 @@ export async function GET(request: Request) {
 
   const { data: messages, error: messagesError } = await supabase
     .from("ai_chat_messages")
-    .select("id,role,content,created_at")
+    .select("id,role,content,created_at,metadata")
     .eq("thread_id", thread.id)
     .order("created_at", { ascending: true })
 
@@ -217,6 +224,7 @@ export async function GET(request: Request) {
         content: message.content,
         createdAt: message.created_at,
         citations: citationsByMessage.get(message.id) ?? [],
+        cards: cardsFromMetadata(message.metadata),
         flagged: flaggedMessageIds.has(message.id),
       })),
   })
@@ -323,6 +331,14 @@ export async function POST(request: Request) {
       question: message,
       userContext: await getMiloUserContext(supabase, user),
     })
+    // Future server-side workflows can populate these cards; model text and
+    // model/tool metadata are never interpreted as actionable cards.
+    const cards: MiloCard[] = []
+    const metadata: Record<string, unknown> =
+      "metadata" in result && result.metadata ? { ...result.metadata } : {}
+    delete metadata.cards
+    if (cards.length)
+      metadata.cards = cards.map((card) => miloCardSchema.parse(card))
     const { data: assistantMessage, error: assistantMessageError } =
       await supabase
         .from("ai_chat_messages")
@@ -332,8 +348,7 @@ export async function POST(request: Request) {
           role: "assistant",
           content: result.answer,
           model: result.model,
-          metadata:
-            "metadata" in result && result.metadata ? result.metadata : {},
+          metadata,
         })
         .select("id")
         .single()
@@ -370,7 +385,8 @@ export async function POST(request: Request) {
     const words = result.answer.split(/(\s+)/).filter(Boolean)
     return streamEvents([
       { type: "meta", threadId },
-      ...words.map((token) => ({ type: "token", token })),
+      ...words.map((token) => ({ type: "token" as const, token })),
+      ...cardEvents(assistantMessage.id, cards),
       {
         type: "done",
         threadId,
@@ -385,6 +401,9 @@ export async function POST(request: Request) {
     ])
   } catch (error) {
     const answer = getChatErrorMessage(error)
+    const cards: MiloCard[] = [
+      miloCardSchema.parse({ type: "error", id: "error", message: answer }),
+    ]
 
     const { data: assistantMessage } = await supabase
       .from("ai_chat_messages")
@@ -393,14 +412,16 @@ export async function POST(request: Request) {
         user_id: user.id,
         role: "assistant",
         content: answer,
-        metadata: { error: true },
+        metadata: { error: true, cards },
       })
       .select("id")
       .single()
 
     return streamEvents([
       { type: "meta", threadId },
-      { type: "token", token: answer },
+      ...(assistantMessage
+        ? cardEvents(assistantMessage.id, cards)
+        : [{ type: "token" as const, token: answer }]),
       {
         type: "done",
         threadId,

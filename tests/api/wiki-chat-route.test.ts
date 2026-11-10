@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { MiloCard } from "@/lib/milo/chat-cards"
 
 const testState = vi.hoisted(() => ({
   user: null as { id: string; email?: string } | null,
   answer: {
     answer: "Open /wiki/1/9/22 for the Wiki.",
     model: "fake-chat",
+    metadata: {} as Record<string, unknown>,
     citations: [
       {
         knowledgeSourceId: "source-1",
@@ -200,6 +202,7 @@ describe("/api/wiki/chat route", () => {
     testState.tables.ai_chat_citations = []
     testState.tables.ai_chat_message_flags = []
     testState.answerError = null
+    testState.answer.metadata = {}
   })
 
   it("rejects unauthenticated requests", async () => {
@@ -332,6 +335,46 @@ describe("/api/wiki/chat route", () => {
     expect(testState.tables.ai_chat_citations).toHaveLength(1)
   })
 
+  it("validates all card event variants and never promotes model metadata to actions", async () => {
+    const { cardEvents } = await import("@/lib/milo/chat-cards")
+    const cards: MiloCard[] = [
+      {
+        type: "page-candidates",
+        id: "one",
+        title: "Choose",
+        candidates: [{ id: "page", title: "Policy" }],
+      },
+      {
+        type: "proposed-edit",
+        id: "two",
+        pageTitle: "Policy",
+        before: "Old",
+        after: "New",
+      },
+      { type: "applied-edit", id: "three", pageTitle: "Policy" },
+      { type: "error", id: "four", message: "Try again" },
+    ]
+    expect(cardEvents("message", [...cards])).toEqual(
+      cards.map((card) => ({ type: "card", messageId: "message", card }))
+    )
+    expect(() =>
+      cardEvents("message", [{ type: "proposed-edit", id: "bad" } as never])
+    ).toThrow()
+    testState.user = { id: "user-1" }
+    testState.answer.metadata = { cards: [cards[1]] }
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: "Hello" }),
+      })
+    )
+    expect(
+      (await readSseEvents(response)).some((event) => event.type === "card")
+    ).toBe(false)
+    expect(testState.tables.ai_chat_messages.at(-1)?.metadata).toEqual({})
+  })
+
   it("resolves saved citations after moves and omits inaccessible or unidentified old Wiki links", async () => {
     testState.user = { id: "user-1" }
     testState.tables.ai_chat_threads = [
@@ -393,15 +436,118 @@ describe("/api/wiki/chat route", () => {
     const events = await readSseEvents(response)
 
     expect(events).toContainEqual({
-      type: "token",
-      token:
-        "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
+      type: "card",
+      messageId: expect.any(String),
+      card: {
+        type: "error",
+        id: "error",
+        message:
+          "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
+      },
     })
     expect(testState.tables.ai_chat_messages.at(-1)).toMatchObject({
       role: "assistant",
       content:
         "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
-      metadata: { error: true },
+      metadata: {
+        error: true,
+        cards: [{ type: "error", id: "error", message: expect.any(String) }],
+      },
     })
+  })
+
+  it("returns persisted cards and safely represents future card types", async () => {
+    testState.user = { id: "user-1" }
+    testState.tables.ai_chat_threads = [{ id: "thread", user_id: "user-1" }]
+    testState.tables.ai_chat_messages = [
+      {
+        id: "message",
+        thread_id: "thread",
+        role: "assistant",
+        content: "",
+        metadata: {
+          cards: [
+            { type: "applied-edit", id: "edit", pageTitle: "Policy" },
+            { type: "future", text: "<img src=x onerror=alert(1)>" },
+          ],
+        },
+      },
+    ]
+    const { GET } = await import("@/app/api/wiki/chat/route")
+    const response = await GET(
+      new Request("http://test.local/api/wiki/chat?threadId=thread")
+    )
+    const body = await response.json()
+    expect(body.messages[0].cards).toEqual([
+      { type: "applied-edit", id: "edit", pageTitle: "Policy" },
+      {
+        type: "unknown",
+        text: JSON.stringify({
+          type: "future",
+          text: "<img src=x onerror=alert(1)>",
+        }),
+      },
+    ])
+  })
+
+  it("authorizes card actions against the owned thread, message, and stored card", async () => {
+    const { POST } = await import("@/app/api/wiki/chat/card-action/route")
+    const request = (body: unknown) =>
+      new Request("http://test.local/api/wiki/chat/card-action", {
+        method: "POST",
+        body: JSON.stringify(body),
+      })
+    const action = {
+      action: "select-page",
+      threadId: "thread",
+      messageId: "message",
+      cardId: "card",
+      candidateId: "page",
+    }
+    expect((await POST(request(action))).status).toBe(401)
+    testState.user = { id: "user-1" }
+    expect((await POST(request(action))).status).toBe(403)
+    testState.tables.user_permissions.push({
+      user_id: "user-1",
+      permission_id: "permission-wiki",
+    })
+    testState.tables.ai_chat_threads = [
+      { id: "thread", user_id: "someone-else" },
+    ]
+    testState.tables.ai_chat_messages = [
+      {
+        id: "message",
+        user_id: "user-1",
+        thread_id: "thread",
+        role: "assistant",
+        metadata: {
+          cards: [
+            {
+              type: "page-candidates",
+              id: "card",
+              title: "Choose",
+              candidates: [{ id: "page", title: "Policy" }],
+            },
+          ],
+        },
+      },
+    ]
+    expect((await POST(request(action))).status).toBe(404)
+    testState.tables.ai_chat_threads[0].user_id = "user-1"
+    expect(
+      (await POST(request({ ...action, messageId: "other" }))).status
+    ).toBe(404)
+    expect((await POST(request({ ...action, cardId: "forged" }))).status).toBe(
+      404
+    )
+    expect(
+      (await POST(request({ ...action, candidateId: "forged" }))).status
+    ).toBe(400)
+    expect((await POST(request({ ...action, action: "approve" }))).status).toBe(
+      400
+    )
+    const response = await POST(request(action))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ status: "not-implemented" })
   })
 })

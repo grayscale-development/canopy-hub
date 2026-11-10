@@ -6,6 +6,13 @@ import { Loader2Icon, SendIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { WikiChatCard } from "@/components/wiki/wiki-chat-card"
+import {
+  cardEventSchema,
+  displayCard,
+  type DisplayCard,
+  type MiloStreamEvent,
+} from "@/lib/milo/chat-cards"
 import { cn } from "@/lib/utils"
 
 interface Citation {
@@ -19,12 +26,11 @@ interface ChatMessage {
   role: "user" | "assistant"
   content: string
   citations?: Citation[]
+  cards?: DisplayCard[]
+  serverId?: string
 }
 
-type StreamEvent =
-  | { type: "meta"; threadId: string }
-  | { type: "token"; token: string }
-  | { type: "done"; threadId: string; citations: Citation[] }
+const activeThreadKey = "milo-active-thread"
 
 function MessageContent({ content }: { content: string }) {
   return <p className="text-sm leading-6 whitespace-pre-wrap">{content}</p>
@@ -39,9 +45,11 @@ function ResourceLink({
 }) {
   const content = (
     <>
-      <span className="block font-medium text-foreground">{citation.title}</span>
+      <span className="block font-medium text-foreground">
+        {citation.title}
+      </span>
       {citation.snippet ? (
-        <span className="mt-0.5 block line-clamp-2 text-xs leading-5 text-muted-foreground">
+        <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-muted-foreground">
           {citation.snippet}
         </span>
       ) : null}
@@ -78,6 +86,7 @@ export function WikiChat({
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
   const [input, setInput] = React.useState("")
   const [pending, setPending] = React.useState(false)
+  const [loadingHistory, setLoadingHistory] = React.useState(true)
   const consumedPromptRef = React.useRef<string | null>(null)
   const isMountedRef = React.useRef(false)
 
@@ -85,6 +94,49 @@ export function WikiChat({
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
+    }
+  }, [])
+
+  React.useEffect(() => {
+    let active = true
+    async function restoreThread() {
+      try {
+        const saved = sessionStorage.getItem(activeThreadKey)
+        if (!saved) return
+        const response = await fetch(
+          `/api/wiki/chat?threadId=${encodeURIComponent(saved)}`
+        )
+        if (!response.ok) {
+          sessionStorage.removeItem(activeThreadKey)
+          return
+        }
+        const data = await response.json()
+        if (active && Array.isArray(data.messages)) {
+          setThreadId(saved)
+          setMessages(
+            data.messages
+              .filter(
+                (message: ChatMessage) =>
+                  message.role === "user" || message.role === "assistant"
+              )
+              .map((message: ChatMessage) => ({
+                ...message,
+                serverId: message.id,
+                cards: Array.isArray(message.cards)
+                  ? message.cards.map(displayCard)
+                  : [],
+              }))
+          )
+        }
+      } catch {
+        // A failed restore should not prevent a new conversation.
+      } finally {
+        if (active) setLoadingHistory(false)
+      }
+    }
+    void restoreThread()
+    return () => {
+      active = false
     }
   }, [])
 
@@ -143,9 +195,33 @@ export function WikiChat({
               continue
             }
 
-            const data = JSON.parse(line.slice(6)) as StreamEvent
+            const data = JSON.parse(line.slice(6)) as MiloStreamEvent
             if (data.type === "meta") {
               setThreadId(data.threadId)
+              try {
+                sessionStorage.setItem(activeThreadKey, data.threadId)
+              } catch {
+                /* Storage is optional. */
+              }
+            }
+            if (data.type === "card") {
+              const event = cardEventSchema.safeParse(data)
+              if (event.success) {
+                setMessages((current) =>
+                  current.map((message) =>
+                    message.id === assistantId
+                      ? {
+                          ...message,
+                          serverId: event.data.messageId,
+                          cards: [
+                            ...(message.cards ?? []),
+                            displayCard(event.data.card),
+                          ],
+                        }
+                      : message
+                  )
+                )
+              }
             }
             if (data.type === "token") {
               setMessages((current) =>
@@ -161,7 +237,11 @@ export function WikiChat({
               setMessages((current) =>
                 current.map((message) =>
                   message.id === assistantId
-                    ? { ...message, citations: data.citations }
+                    ? {
+                        ...message,
+                        citations: data.citations,
+                        serverId: data.assistantMessageId ?? message.serverId,
+                      }
                     : message
                 )
               )
@@ -195,14 +275,25 @@ export function WikiChat({
 
   React.useEffect(() => {
     const prompt = queuedPrompt?.trim()
-    if (!prompt || pending || consumedPromptRef.current === prompt) {
+    if (
+      !prompt ||
+      pending ||
+      loadingHistory ||
+      consumedPromptRef.current === prompt
+    ) {
       return
     }
 
     consumedPromptRef.current = prompt
     onQueuedPromptConsumed?.()
     void sendQuestion(prompt)
-  }, [onQueuedPromptConsumed, pending, queuedPrompt, sendQuestion])
+  }, [
+    loadingHistory,
+    onQueuedPromptConsumed,
+    pending,
+    queuedPrompt,
+    sendQuestion,
+  ])
 
   function askQuestion(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -222,7 +313,7 @@ export function WikiChat({
                 <h3 className="mb-2 text-sm font-medium text-muted-foreground">
                   {index ? "Follow-up answer" : "Answer"}
                 </h3>
-                {pending && !answer.content ? (
+                {pending && !answer.content && !answer.cards?.length ? (
                   <div
                     className="flex h-12 items-center"
                     aria-label="Milo is thinking"
@@ -230,9 +321,26 @@ export function WikiChat({
                     <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
                     <span className="sr-only">Loading answer</span>
                   </div>
-                ) : (
+                ) : answer.content &&
+                  !answer.cards?.some(
+                    (card) =>
+                      card.type === "error" && card.message === answer.content
+                  ) ? (
                   <MessageContent content={answer.content} />
-                )}
+                ) : null}
+                <div
+                  aria-live="polite"
+                  className={cn(answer.cards?.length && "mt-3 space-y-3")}
+                >
+                  {answer.cards?.map((card, cardIndex) => (
+                    <WikiChatCard
+                      key={cardIndex}
+                      card={card}
+                      threadId={threadId}
+                      messageId={answer.serverId}
+                    />
+                  ))}
+                </div>
               </section>
             ))}
 
@@ -254,7 +362,9 @@ export function WikiChat({
             ) : null}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Ask a question to get started.</p>
+          <p className="text-sm text-muted-foreground">
+            Ask a question to get started.
+          </p>
         )}
       </div>
 
@@ -265,13 +375,13 @@ export function WikiChat({
             onChange={(event) => setInput(event.currentTarget.value)}
             placeholder="Ask a follow-up"
             aria-label="Ask a follow-up"
-            disabled={pending}
+            disabled={pending || loadingHistory}
             className="h-10 cursor-text"
           />
           <Button
             type="submit"
             size="sm"
-            disabled={pending || !input.trim()}
+            disabled={pending || loadingHistory || !input.trim()}
             className="cursor-pointer"
           >
             <SendIcon />

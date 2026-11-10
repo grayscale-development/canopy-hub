@@ -18,6 +18,7 @@ interface WikiChatModalContextValue {
 
 const WikiChatModalContext =
   React.createContext<WikiChatModalContextValue | null>(null)
+const openChatKey = "milo-chat-open"
 
 export function useWikiChatModal() {
   const context = React.useContext(WikiChatModalContext)
@@ -38,9 +39,29 @@ export function WikiChatModalProvider({
   const [isOpen, setIsOpen] = React.useState(false)
   const [queuedPrompt, setQueuedPrompt] = React.useState<string | null>(null)
 
+  React.useEffect(() => {
+    let active = true
+    void Promise.resolve().then(() => {
+      try {
+        if (active && sessionStorage.getItem(openChatKey) === "true")
+          setIsOpen(true)
+      } catch {
+        // The chat still works without browser storage.
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
   const close = React.useCallback(() => {
     setIsOpen(false)
     setQueuedPrompt(null)
+    try {
+      sessionStorage.removeItem(openChatKey)
+    } catch {
+      /* Storage is optional. */
+    }
   }, [])
 
   const openWithPrompt = React.useCallback((prompt: string) => {
@@ -51,6 +72,11 @@ export function WikiChatModalProvider({
 
     setQueuedPrompt(trimmedPrompt)
     setIsOpen(true)
+    try {
+      sessionStorage.setItem(openChatKey, "true")
+    } catch {
+      /* Storage is optional. */
+    }
   }, [])
 
   const value = React.useMemo(
