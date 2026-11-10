@@ -8,6 +8,7 @@ import { WikiMovePicker } from "@/components/wiki/wiki-move-picker"
 import type { WikiNodeRow } from "@/lib/wiki"
 
 const baseNode = {
+  short_id: 1,
   status: "published",
   sort_order: 0,
   current_revision_id: null,

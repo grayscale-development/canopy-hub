@@ -84,6 +84,7 @@ vi.mock("@/app/wiki/actions", () => ({
 }))
 
 const node: WikiNodeRow = {
+  short_id: 1,
   id: "node-1",
   parent_id: null,
   type: "page",

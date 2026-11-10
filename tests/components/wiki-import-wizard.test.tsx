@@ -192,6 +192,7 @@ describe("WikiImportWizardDialog", () => {
         nodes={[
           {
             id: "reports",
+            short_id: 1,
             parent_id: null,
             type: "folder",
             slug: "reports",

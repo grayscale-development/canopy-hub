@@ -32,6 +32,7 @@ vi.mock("@/components/wiki/wiki-import-wizard", () => ({
   }) => (open ? <div>AI Create for {parentId}</div> : null),
 }))
 const folder = {
+  short_id: 1,
   id: "section",
   title: "Section",
   type: "folder",

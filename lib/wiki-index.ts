@@ -18,7 +18,7 @@ async function fetchWikiNodesForIndex(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,short_id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .order("sort_order", { ascending: true })
     .order("title", { ascending: true })
