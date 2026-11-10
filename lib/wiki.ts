@@ -99,6 +99,67 @@ export interface WikiTagRow {
   section_id: string | null
 }
 
+export interface WikiTagAssignment {
+  node_id: string
+  tag_id: string
+}
+
+export async function fetchWikiTagAssignments(supabase: SupabaseWikiClient) {
+  const assignments: WikiTagAssignment[] = []
+  const pageSize = 1000
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("wiki_page_tags")
+      .select("node_id,tag_id")
+      .order("node_id")
+      .order("tag_id")
+      .range(offset, offset + pageSize - 1)
+    if (error) throw new Error(error.message)
+    assignments.push(...(data ?? []))
+    if ((data ?? []).length < pageSize) return assignments
+  }
+}
+
+// Preserve old name-only links while allowing duplicate section names to resolve.
+export function wikiTagAnchor(
+  tag: Pick<WikiTagRow, "name" | "scope" | "section_id">
+) {
+  const anchor = tag.name
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return `tag-${anchor}${tag.scope === "section" && tag.section_id ? `-${tag.section_id}` : ""}`
+}
+
+export function wikiTagDirectoryUrl(
+  tag: Pick<WikiTagRow, "name" | "scope" | "section_id">
+) {
+  const section =
+    tag.scope === "section" && tag.section_id
+      ? `&section=${encodeURIComponent(tag.section_id)}`
+      : ""
+  return `/wiki/tags?tag=${encodeURIComponent(tag.name)}${section}#${wikiTagAnchor(tag)}`
+}
+
+export function getWikiLandingTags(
+  tags: WikiTagRow[],
+  sectionId: string | null,
+  pageIds: string[],
+  assignments: WikiTagAssignment[]
+) {
+  const pages = new Set(pageIds)
+  const used = new Set(
+    assignments
+      .filter((assignment) => pages.has(assignment.node_id))
+      .map((assignment) => assignment.tag_id)
+  )
+  return tags.filter(
+    (tag) =>
+      (tag.scope === "global" || tag.section_id === sectionId) &&
+      used.has(tag.id)
+  )
+}
+
 export type WikiTagInput =
   | string
   | { name: string; scope: "global"; section_id?: null }

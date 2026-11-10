@@ -34,6 +34,10 @@ const node = (
     created_at: "2026-01-01",
     updated_at: "2026-01-01",
   }) as WikiNodeRow
+const tags = [
+  { id: "loans", name: "Loans", scope: "global" as const, section_id: null },
+]
+const assignments = [{ node_id: "Tagged", tag_id: "loans" }]
 const nodes = [
   node("root", null, "folder"),
   node("section", "root", "folder"),
@@ -53,11 +57,14 @@ describe("Wiki folder contents", () => {
   it("toggles tag chips and clears a filter", async () => {
     const user = userEvent.setup()
     render(
-      <WikiFolderContents
-        nodes={nodes}
-        items={nodes.filter((n) => n.parent_id === "group")}
-        parentId="group"
-      />
+      <WikiEditModeProvider canManageWiki availableTags={tags}>
+        <WikiFolderContents
+          nodes={nodes}
+          items={nodes.filter((n) => n.parent_id === "group")}
+          parentId="group"
+          assignments={assignments}
+        />
+      </WikiEditModeProvider>
     )
     const chip = screen.getByRole("button", { name: "Loans" })
     expect(chip).toHaveAttribute("aria-pressed", "false")
@@ -76,16 +83,26 @@ describe("Wiki folder contents", () => {
     const user = userEvent.setup()
     const items = nodes.filter((n) => n.parent_id === "group")
     const view = render(
-      <WikiFolderContents nodes={nodes} items={items} parentId="group" />
+      <WikiEditModeProvider canManageWiki availableTags={tags}>
+        <WikiFolderContents
+          nodes={nodes}
+          items={items}
+          parentId="group"
+          assignments={assignments}
+        />
+      </WikiEditModeProvider>
     )
     await user.click(screen.getByRole("button", { name: "Loans" }))
     const remaining = nodes.filter((n) => n.id !== "Tagged")
     view.rerender(
-      <WikiFolderContents
-        nodes={remaining}
-        items={items.filter((n) => n.id !== "Tagged")}
-        parentId="group"
-      />
+      <WikiEditModeProvider canManageWiki availableTags={tags}>
+        <WikiFolderContents
+          nodes={remaining}
+          items={items.filter((n) => n.id !== "Tagged")}
+          parentId="group"
+          assignments={assignments}
+        />
+      </WikiEditModeProvider>
     )
     expect(screen.getByText("No pages are tagged Loans here.")).toBeVisible()
     await user.click(
