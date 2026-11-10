@@ -22,9 +22,11 @@ import {
   formatWikiRestoreChangeNote,
   isPublishedWikiBranch,
   normalizeWikiTags,
+  normalizeWikiTagInputs,
   syncWikiPageTags,
   slugifyWikiTitle,
   WIKI_MANAGE_PERMISSION,
+  type WikiTagInput,
   type WikiNodeStatus,
   type WikiNodeType,
 } from "@/lib/wiki"
@@ -38,6 +40,25 @@ export interface WikiActionResult {
 function getString(formData: FormData, key: string) {
   const value = formData.get(key)
   return typeof value === "string" ? value.trim() : ""
+}
+
+// The current picker sends names; the future scoped picker can send JSON objects.
+function getSubmittedTags(formData: FormData): WikiTagInput[] {
+  let tags: WikiTagInput[]
+  if (!formData.has("tags_scoped")) {
+    tags = normalizeWikiTags(getString(formData, "tags"))
+  } else {
+    try {
+      const parsed: unknown = JSON.parse(getString(formData, "tags_scoped"))
+      if (!Array.isArray(parsed)) throw new Error()
+      tags = parsed as WikiTagInput[]
+    } catch {
+      throw new Error("Choose a valid tag and section.")
+    }
+  }
+  if (normalizeWikiTagInputs(tags).length > 12)
+    throw new Error("A page can have at most 12 tags.")
+  return tags
 }
 
 async function getWikiManagerClient() {
@@ -199,8 +220,7 @@ export async function createWikiNodeAction(
       type === "page"
         ? parseNodeStatus(getString(formData, "status"), type)
         : "published"
-    const tags =
-      type === "page" ? normalizeWikiTags(getString(formData, "tags")) : []
+    const tags = type === "page" ? getSubmittedTags(formData) : []
 
     if (!title) {
       return { ok: false, message: "Title is required." }
@@ -260,7 +280,6 @@ export async function createWikiNodeAction(
         title,
         slug,
         status,
-        tags,
         created_by: user.id,
         updated_by: user.id,
       })
@@ -350,6 +369,8 @@ export async function updateWikiNodeAction(
       return { ok: false, message: "Wiki item not found." }
     }
 
+    const tags = existingNode.type === "page" ? getSubmittedTags(formData) : []
+
     const parentId = formData.has("parent_id")
       ? submittedParentId
       : existingNode.parent_id
@@ -366,11 +387,6 @@ export async function updateWikiNodeAction(
         title,
         slug,
         parent_id: parentId,
-        ...(existingNode.type === "page"
-          ? {
-              tags: normalizeWikiTags(getString(formData, "tags")),
-            }
-          : {}),
         updated_by: user.id,
       })
       .eq("id", id)
@@ -383,7 +399,7 @@ export async function updateWikiNodeAction(
       await syncWikiPageTags({
         supabase,
         nodeId: id,
-        tags: normalizeWikiTags(getString(formData, "tags")),
+        tags,
       })
     }
 
@@ -478,7 +494,7 @@ export async function updateWikiNodeTagsAction(
   formData: FormData
 ): Promise<WikiActionResult> {
   try {
-    const { supabase, user } = await getWikiManagerClient()
+    const { supabase } = await getWikiManagerClient()
     const nodeId = getString(formData, "node_id")
 
     if (!nodeId) {
@@ -499,22 +515,10 @@ export async function updateWikiNodeTagsAction(
       return { ok: false, message: "Wiki page not found." }
     }
 
-    const { error } = await supabase
-      .from("wiki_nodes")
-      .update({
-        tags: normalizeWikiTags(getString(formData, "tags")),
-        updated_by: user.id,
-      })
-      .eq("id", nodeId)
-
-    if (error) {
-      return { ok: false, message: error.message }
-    }
-
     await syncWikiPageTags({
       supabase,
       nodeId,
-      tags: normalizeWikiTags(getString(formData, "tags")),
+      tags: getSubmittedTags(formData),
     })
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })

@@ -147,6 +147,9 @@ vi.mock("@/lib/supabase/server", () => ({
     from: (table: string) => new Query(table),
     rpc: async (fn: string, args: Record<string, unknown>) => {
       state.rpcCalls.push({ fn, args })
+      if (fn === "sync_wiki_page_tags") {
+        return { data: null, error: null }
+      }
       if (fn !== "apply_wiki_reviewed_revision") {
         return { data: null, error: { message: "unknown_function" } }
       }

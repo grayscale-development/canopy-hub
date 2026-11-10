@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
   const { data: tagData } = canAccessBeta1
     ? await supabase
         .from("wiki_tags")
-        .select("id,name")
+        .select("id,name,scope,section_id")
         .ilike("name", `%${query}%`)
         .order("name")
         .limit(5)

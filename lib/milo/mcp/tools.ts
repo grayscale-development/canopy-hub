@@ -840,7 +840,7 @@ async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
 
   const { data: allTags, error: tagsError } = await supabase
     .from("wiki_tags")
-    .select("id,name")
+    .select("id,name,scope,section_id")
     .order("name")
 
   if (tagsError) {

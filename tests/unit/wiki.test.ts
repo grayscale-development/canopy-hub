@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   blockNoteToPlainText,
@@ -14,11 +14,14 @@ import {
   getWikiAssetKind,
   isPublishedWikiBranch,
   normalizeWikiTags,
+  normalizeWikiTagInputs,
+  syncWikiPageTags,
   resolveWikiPath,
   sanitizeWikiFileName,
   slugifyWikiTitle,
   validateWikiUpload,
   type WikiNodeRow,
+  type SupabaseWikiClient,
 } from "@/lib/wiki"
 
 const baseNode = {
@@ -59,6 +62,46 @@ describe("wiki helpers", () => {
     expect(
       normalizeWikiTags(["Loan Setup", "", "Loan Setup", " Fees "])
     ).toEqual(["Loan Setup", "Fees"])
+  })
+
+  it("normalizes scoped tags separately and keeps name-only inputs global", () => {
+    const section = "10000000-0000-4000-8000-000000000002"
+    expect(
+      normalizeWikiTagInputs([
+        "  Closing  ",
+        "closing",
+        { name: "  Closing ", scope: "section", section_id: section },
+        { name: "closing", scope: "section", section_id: section },
+      ])
+    ).toEqual([
+      { name: "Closing", scope: "global", section_id: null },
+      { name: "Closing", scope: "section", section_id: section },
+    ])
+    expect(() =>
+      normalizeWikiTagInputs([
+        { name: "Tag", scope: "section", section_id: "bad" },
+      ])
+    ).toThrow("Choose a valid tag and section.")
+  })
+
+  it("sends one atomic sync and translates scope and collision errors", async () => {
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ error: null })
+      .mockResolvedValueOnce({ error: { message: "wiki_tag_out_of_scope" } })
+      .mockResolvedValueOnce({ error: { message: "wiki_tag_name_conflict" } })
+    const supabase = { rpc } as unknown as SupabaseWikiClient
+    await syncWikiPageTags({ supabase, nodeId: "page", tags: [" Tag "] })
+    expect(rpc).toHaveBeenCalledWith("sync_wiki_page_tags", {
+      p_node_id: "page",
+      p_tags: [{ name: "Tag", scope: "global", section_id: null }],
+    })
+    await expect(
+      syncWikiPageTags({ supabase, nodeId: "page", tags: [] })
+    ).rejects.toThrow("different section")
+    await expect(
+      syncWikiPageTags({ supabase, nodeId: "page", tags: [] })
+    ).rejects.toThrow("already exists globally")
   })
 
   it("sanitizes uploaded file names without preserving path separators", () => {

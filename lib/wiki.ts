@@ -95,6 +95,44 @@ export function formatWikiRestoreChangeNote(createdAt: string) {
 export interface WikiTagRow {
   id: string
   name: string
+  scope: "global" | "section"
+  section_id: string | null
+}
+
+export type WikiTagInput =
+  | string
+  | { name: string; scope: "global"; section_id?: null }
+  | { name: string; scope: "section"; section_id: string }
+
+// Strings are the legacy picker contract: they resolve to a global tag.
+export function normalizeWikiTagInputs(tags: WikiTagInput[]) {
+  const seen = new Set<string>()
+  return tags.flatMap((tag) => {
+    const input =
+      typeof tag === "string"
+        ? { name: tag, scope: "global" as const, section_id: null }
+        : tag
+    if (
+      !input ||
+      typeof input.name !== "string" ||
+      !["global", "section"].includes(input.scope) ||
+      (input.scope === "section" &&
+        (typeof input.section_id !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            input.section_id
+          ))) ||
+      (input.scope === "global" && input.section_id != null)
+    ) {
+      throw new Error("Choose a valid tag and section.")
+    }
+    const name = input.name.trim().replace(/\s+/g, " ").slice(0, 60)
+    if (!name) return []
+    const section_id = input.section_id ?? null
+    const key = `${input.scope}:${section_id ?? ""}:${name.toLocaleLowerCase()}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [{ name, scope: input.scope, section_id }]
+  })
 }
 
 export interface WikiAssetRow {
@@ -442,7 +480,7 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
 export async function fetchWikiTags(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_tags")
-    .select("id,name")
+    .select("id,name,scope,section_id")
     .order("name", { ascending: true })
 
   if (error) {
@@ -459,41 +497,26 @@ export async function syncWikiPageTags({
 }: {
   supabase: SupabaseWikiClient
   nodeId: string
-  tags: string[]
+  tags: WikiTagInput[]
 }) {
-  const { error: removeError } = await supabase
-    .from("wiki_page_tags")
-    .delete()
-    .eq("node_id", nodeId)
-
-  if (removeError) {
-    throw new Error(removeError.message)
-  }
-
-  if (!tags.length) {
-    return
-  }
-
-  const tagIds: string[] = []
-  for (const name of tags) {
-    const { data: tag, error: tagError } = await supabase
-      .from("wiki_tags")
-      .upsert({ name }, { onConflict: "name" })
-      .select("id")
-      .single()
-
-    if (tagError) {
-      throw new Error(tagError.message)
+  const normalized = normalizeWikiTagInputs(tags)
+  if (normalized.length > 12)
+    throw new Error("A page can have at most 12 tags.")
+  const { error } = await supabase.rpc("sync_wiki_page_tags", {
+    p_node_id: nodeId,
+    p_tags: normalized,
+  })
+  if (error) {
+    const messages: Record<string, string> = {
+      wiki_tag_name_conflict:
+        "A tag with this name already exists globally or in this section.",
+      wiki_tag_out_of_scope:
+        "This tag belongs to a different section and cannot be added to this page.",
+      wiki_tag_invalid_section: "Choose a valid Wiki section for this tag.",
+      wiki_tag_invalid: "Choose a valid tag and section.",
+      wiki_tag_limit: "A page can have at most 12 tags.",
     }
-    tagIds.push(tag.id)
-  }
-
-  const { error: insertError } = await supabase
-    .from("wiki_page_tags")
-    .insert(tagIds.map((tagId) => ({ node_id: nodeId, tag_id: tagId })))
-
-  if (insertError) {
-    throw new Error(insertError.message)
+    throw new Error(messages[error.message] ?? error.message)
   }
 }
 

@@ -1294,7 +1294,6 @@ export async function POST(request: Request) {
         title: draft.title,
         slug,
         status: "draft",
-        tags: draft.tags,
         import_content_hash: contentHash,
         created_by: user.id,
         updated_by: user.id,
