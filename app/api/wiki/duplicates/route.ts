@@ -33,6 +33,8 @@ export async function POST(request: Request) {
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       body.nodeId
     ) ||
+    (body.includeDismissed !== undefined &&
+      typeof body.includeDismissed !== "boolean") ||
     (body.text !== undefined &&
       (typeof body.text !== "string" || body.text.length > 5000))
   )
@@ -42,7 +44,8 @@ export async function POST(request: Request) {
       supabase,
       user.id,
       body.nodeId,
-      body.text
+      body.text,
+      body.includeDismissed
     )
     return result
       ? NextResponse.json(result)

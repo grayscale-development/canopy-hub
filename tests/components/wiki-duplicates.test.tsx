@@ -74,6 +74,83 @@ afterEach(() => {
 })
 
 describe("duplicate controls", () => {
+  it("dismisses a match and restores it from Show dismissed", async () => {
+    const user = userEvent.setup()
+    let dismissed = false
+    const match = {
+      pageId: "page-2",
+      revisionId: "rev-2",
+      title: "Another page",
+      path: "/wiki/2",
+      snippet: "Matching passage",
+      text: "Matching passage",
+      score: 1,
+      type: "near-exact",
+    }
+    const passage = {
+      blockId: "block-1",
+      passageHash: "a".repeat(64),
+      text: "A saved passage",
+      common: false,
+      matches: [match],
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, options: RequestInit) => {
+        if (url.endsWith("/dismissals")) {
+          dismissed = options.method === "POST"
+          return { ok: true }
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            revisionId: "rev-1",
+            passages: [{ ...passage, matches: dismissed ? [] : [match] }],
+            dismissed: dismissed
+              ? [
+                  {
+                    blockId: passage.blockId,
+                    passageHash: passage.passageHash,
+                    text: passage.text,
+                    match,
+                  },
+                ]
+              : [],
+          }),
+        }
+      })
+    )
+    render(<Harness />)
+    await user.click(
+      screen.getByRole("button", { name: "Check for duplicates" })
+    )
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Passage also appears in Another page",
+      })
+    )
+    await user.click(
+      screen.getByRole("button", { name: "This is intentional" })
+    )
+    expect(
+      screen.queryByRole("button", {
+        name: "Passage also appears in Another page",
+      })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Show dismissed" }))
+    expect(
+      await screen.findByRole("region", { name: "Dismissed duplicates" })
+    ).toHaveTextContent("A saved passage")
+    await user.click(screen.getByRole("button", { name: "Undo" }))
+    expect(
+      await screen.findByRole("button", {
+        name: "Passage also appears in Another page",
+      })
+    ).toBeVisible()
+    expect(
+      screen.getByText("No dismissed duplicates for this page.")
+    ).toBeVisible()
+  })
   it("offers comparison, reviewed replacement, and an update prefilled for the other page", async () => {
     const user = userEvent.setup()
     vi.stubGlobal(

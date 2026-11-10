@@ -98,6 +98,11 @@ export function WikiDuplicates({
   >(null)
   const [saveError, setSaveError] = React.useState("")
   const [saving, setSaving] = React.useState(false)
+  const [showDismissed, setShowDismissed] = React.useState(false)
+  const [dismissed, setDismissed] = React.useState<
+    NonNullable<DuplicateResult["dismissed"]>
+  >([])
+  const checkButton = React.useRef<HTMLButtonElement>(null)
   const request = React.useRef(0)
   const openedFromText = React.useRef(false)
   const contents = React.useMemo(
@@ -188,6 +193,8 @@ export function WikiDuplicates({
         )
         return previous.length && !remaining.length ? null : remaining
       })
+      setDismissed([])
+      setShowDismissed(false)
     })
   }, [editor])
 
@@ -282,7 +289,7 @@ export function WikiDuplicates({
     return () => surface.removeEventListener("click", onClick)
   }, [surface, validIds])
 
-  async function check() {
+  async function check(includeDismissed = showDismissed) {
     const id = ++request.current
     const snapshot = JSON.stringify(editor.document)
     const savedContents = blockContents(editor.document)
@@ -293,7 +300,7 @@ export function WikiDuplicates({
       const response = await fetch("/api/wiki/duplicates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nodeId }),
+        body: JSON.stringify({ nodeId, includeDismissed }),
       })
       if (!response.ok) throw new Error("Check failed")
       const data: DuplicateResult = await response.json()
@@ -303,6 +310,7 @@ export function WikiDuplicates({
         return
       }
       if (data.revisionId !== revisionId) throw new Error("Revision changed")
+      setDismissed(data.dismissed ?? [])
       setResults(
         data.passages
           .filter(
@@ -322,18 +330,80 @@ export function WikiDuplicates({
     }
   }
 
+  async function changeDismissal(
+    passageHash: string,
+    otherNodeId: string,
+    dismiss: boolean
+  ) {
+    if (saving || isDirty) return
+    setSaving(true)
+    try {
+      const response = await fetch("/api/wiki/duplicates/dismissals", {
+        method: dismiss ? "POST" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodeId, otherNodeId, passageHash }),
+      })
+      if (!response.ok) throw new Error("Dismissal failed")
+      if (dismiss) {
+        setActive(null)
+        setResults(
+          (previous) =>
+            previous
+              ?.map((item) => ({
+                ...item,
+                passage:
+                  item.passage.passageHash === passageHash
+                    ? {
+                        ...item.passage,
+                        matches: item.passage.matches.filter(
+                          (match) => match.pageId !== otherNodeId
+                        ),
+                      }
+                    : item.passage,
+              }))
+              .filter((item) => item.passage.matches.length) ?? null
+        )
+        toast.success(
+          "Marked as intentional. You can undo this in Show dismissed."
+        )
+        checkButton.current?.focus()
+      } else {
+        toast.success("Dismissal undone.")
+      }
+      if (!dismiss || showDismissed) await check(true)
+    } catch {
+      toast.error("Could not update dismissal. Please try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button
+          ref={checkButton}
           variant="outline"
           size="sm"
-          onClick={check}
-          disabled={isDirty || !revisionId || status === "loading"}
+          onClick={() => void check()}
+          disabled={isDirty || !revisionId || status === "loading" || saving}
         >
           {status === "loading"
             ? "Checking for duplicates..."
             : "Check for duplicates"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-expanded={showDismissed}
+          disabled={isDirty || !revisionId || status === "loading" || saving}
+          onClick={() => {
+            const next = !showDismissed
+            setShowDismissed(next)
+            if (next) void check(true)
+          }}
+        >
+          {showDismissed ? "Hide dismissed" : "Show dismissed"}
         </Button>
         {isDirty || !revisionId ? (
           <span className="text-sm text-muted-foreground">
@@ -393,6 +463,44 @@ export function WikiDuplicates({
           </TooltipProvider>
         ) : null}
       </div>
+      {showDismissed && !isDirty ? (
+        <section aria-label="Dismissed duplicates" className="mb-4 grid gap-2">
+          {status === "loading" ||
+          status === "error" ? null : dismissed.length ? (
+            dismissed.map((item) => (
+              <div
+                key={`${item.blockId}:${item.match.pageId}`}
+                className="flex flex-wrap items-start gap-2 rounded-lg border p-3 text-sm"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">Also on {item.match.title}</p>
+                  <p className="break-words text-muted-foreground">
+                    {item.text}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() =>
+                    void changeDismissal(
+                      item.passageHash,
+                      item.match.pageId,
+                      false
+                    )
+                  }
+                >
+                  Undo
+                </Button>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No dismissed duplicates for this page.
+            </p>
+          )}
+        </section>
+      ) : null}
       {surface && valid.length
         ? createPortal(
             valid.map(({ passage }) => {
@@ -527,6 +635,20 @@ export function WikiDuplicates({
                                 }
                               >
                                 Keep this and update the other page
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={isDirty || saving}
+                                onClick={() =>
+                                  void changeDismissal(
+                                    passage.passageHash,
+                                    match.pageId,
+                                    true
+                                  )
+                                }
+                              >
+                                This is intentional
                               </Button>
                             </div>
                           </div>
