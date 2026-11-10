@@ -28,6 +28,12 @@ export type MiloEditState =
       sourceMessageId: string
       extraction: MiloExtraction
     }
+  | {
+      stage: "page_confirmed"
+      sourceMessageId: string
+      extraction: MiloExtraction
+      pageId: string
+    }
 
 export function editIntent(input: string): boolean {
   return /\b(?:update|add|put|apply|change|edit)\b.{0,60}\b(?:wiki|this|it|page)\b|\b(?:wiki|page)\b.{0,40}\b(?:update|change|edit)\b|\bthis (?:has )?changed\b/i.test(

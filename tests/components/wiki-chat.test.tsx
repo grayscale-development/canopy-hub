@@ -110,7 +110,7 @@ describe("WikiChat", () => {
     ).toBeVisible()
     expect(document.querySelector("img")).toBeNull()
     expect(screen.getByText("Old")).toBeVisible()
-    await user.click(screen.getByRole("button", { name: "Policy" }))
+    await user.click(screen.getByRole("button", { name: "Yes, this one" }))
     expect(
       await screen.findByText("This action isn't available yet.")
     ).toBeVisible()

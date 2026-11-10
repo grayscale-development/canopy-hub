@@ -9,9 +9,23 @@ export const miloCardSchema = z.discriminatedUnion("type", [
     id,
     title: text,
     candidates: z
-      .array(z.object({ id, title: text }))
-      .min(1)
-      .max(20),
+      .array(
+        z.object({
+          id,
+          title: text,
+          breadcrumb: z.string().max(1000).optional(),
+          updatedAt: z.string().optional(),
+          snippet: z.string().max(300).optional(),
+          confidence: z.enum(["High", "Possible"]).optional(),
+          url: z
+            .string()
+            .regex(/^\/wiki\/\d+(?:\/\d+)*$/)
+            .optional(),
+        })
+      )
+      .max(3),
+    current: z.number().int().nonnegative().max(2).optional(),
+    outcome: z.enum(["confirmed", "create"]).optional(),
   }),
   z.object({
     type: z.literal("proposed-edit"),
@@ -91,6 +105,12 @@ export const cardActionSchema = z.discriminatedUnion("action", [
     messageId: id,
     cardId: id,
     candidateId: id,
+  }),
+  z.object({
+    action: z.enum(["next-page", "create-page"]),
+    threadId: id,
+    messageId: id,
+    cardId: id,
   }),
   z.object({
     action: z.literal("approve"),

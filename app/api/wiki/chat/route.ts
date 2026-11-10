@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
+import { findPageCandidates } from "@/lib/milo/find-page"
 import {
   answerMiloSourceQuestion,
   confirmed,
@@ -432,6 +433,7 @@ export async function POST(request: Request) {
       !/^(?:how|what|where|why|when|who)\b/i.test(instruction)
     let state: MiloEditState | undefined
     let workflowAnswer = ""
+    const cards: MiloCard[] = []
     const canManage = userContext.capabilities["wiki.manage"]
     const managerNames = userContext.wikiManagers?.join(", ")
     const sourceQuestion =
@@ -464,8 +466,40 @@ export async function POST(request: Request) {
       !previousState.extraction.unclear.length
     ) {
       state = { ...previousState, stage: "ready_to_find_page" }
-      workflowAnswer =
-        "Thanks, the changes are confirmed. Next: find the page. Page matching isn't available yet."
+      const candidates = await findPageCandidates(
+        supabase,
+        previousState.extraction.facts
+      )
+      cards.push({
+        type: "page-candidates",
+        id: "page-candidates",
+        title: "Is this the page you mean?",
+        candidates,
+        current: 0,
+      })
+      workflowAnswer = candidates.length
+        ? "Here is the closest match I found."
+        : "I couldn't find an editable matching page."
+    } else if (
+      canManage &&
+      !hasSource &&
+      previousState?.stage === "ready_to_find_page"
+    ) {
+      state = previousState
+      const candidates = await findPageCandidates(
+        supabase,
+        previousState.extraction.facts
+      )
+      cards.push({
+        type: "page-candidates",
+        id: "page-candidates",
+        title: "Is this the page you mean?",
+        candidates,
+        current: 0,
+      })
+      workflowAnswer = candidates.length
+        ? "Here is the closest match I found."
+        : "I couldn't find an editable matching page."
     } else if (
       canManage &&
       !hasSource &&
@@ -575,9 +609,7 @@ export async function POST(request: Request) {
           question: message,
           userContext,
         })
-    // Future server-side workflows can populate these cards; model text and
-    // model/tool metadata are never interpreted as actionable cards.
-    const cards: MiloCard[] = []
+    // Model text and model/tool metadata are never interpreted as actionable cards.
     const metadata: Record<string, unknown> =
       "metadata" in result && result.metadata ? { ...result.metadata } : {}
     delete metadata.cards
