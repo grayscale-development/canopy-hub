@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import { cn } from "@/lib/utils"
 import type { WikiScopedTag, WikiTagRow } from "@/lib/wiki"
-import { findSimilarWikiTags } from "@/lib/wiki-tag-similarity"
+import { findSimilarWikiTags, rankWikiTags } from "@/lib/wiki-tag-similarity"
 
 const TAG_ROW_HEIGHT = 30
 const TAG_LIST_HEIGHT = 224
@@ -35,7 +35,7 @@ function recordSuggestion(event: "shown" | "accepted" | "ignored") {
 type TagListRow =
   | { type: "heading"; value: string }
   | { type: "empty"; value: string }
-  | { type: "tag"; value: WikiScopedTag }
+  | { type: "tag"; value: WikiScopedTag; reason?: string | null }
 
 function normalizeTag(value: string) {
   return value.trim().replace(/\s+/g, " ").slice(0, 60)
@@ -89,8 +89,13 @@ export function WikiTagPicker({
     sectionId: string | null
     results: Suggestion[]
   } | null>(null)
+  const [semantic, setSemantic] = React.useState<{
+    query: string
+    tags: WikiScopedTag[]
+  } | null>(null)
   const shownQuery = React.useRef("")
   const scrollElementRef = React.useRef<HTMLDivElement>(null)
+  const normalizedQuery = normalizeTag(query)
 
   React.useEffect(() => {
     if (open) {
@@ -99,7 +104,6 @@ export function WikiTagPicker({
     }
   }, [open])
 
-  const normalizedQuery = normalizeTag(query)
   const scopedTags = availableTags.filter(
     (tag) => tag.scope === "global" || tag.section_id === sectionId
   )
@@ -133,6 +137,36 @@ export function WikiTagPicker({
     )
     .slice(0, 3)
   const hasSuggestions = suggestions.length > 0
+
+  React.useEffect(() => {
+    if (
+      !open ||
+      normalizedQuery.length < 2 ||
+      (canManage && allowCreate && !exactMatch) ||
+      typeof fetch === "undefined"
+    )
+      return
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      void fetch(
+        `/api/wiki/tag-suggestions?q=${encodeURIComponent(normalizedQuery)}`,
+        { signal: controller.signal }
+      )
+        .then((response) => (response.ok ? response.json() : { results: [] }))
+        .then((data) => {
+          if (!controller.signal.aborted && Array.isArray(data.results))
+            setSemantic({
+              query: normalizedQuery,
+              tags: data.results.map(toScopedTag),
+            })
+        })
+        .catch(() => {})
+    }, 300)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [open, normalizedQuery, canManage, allowCreate, exactMatch])
 
   React.useEffect(() => {
     if (
@@ -192,6 +226,28 @@ export function WikiTagPicker({
     return () => clearTimeout(timer)
   }, [open, hasSuggestions, normalizedQuery, sectionId, canManage])
   const rows: TagListRow[] = (() => {
+    if (normalizedQuery) {
+      const remoteTags =
+        canManage && allowCreate && !exactMatch
+          ? remoteSuggestions.map(({ tag }) => tag)
+          : semantic?.query === normalizedQuery
+            ? semantic.tags
+            : []
+      const semanticTags = remoteTags.flatMap((tag) => {
+        const candidate = allTags.find((item) =>
+          showLevels ? sameTag(item, tag) : tagMatches(item.name, tag.name)
+        )
+        return candidate ? [candidate] : []
+      })
+      const ranked = rankWikiTags(normalizedQuery, allTags, semanticTags)
+      return ranked.length
+        ? ranked.map(({ tag, reason }) => ({
+            type: "tag" as const,
+            value: tag,
+            reason,
+          }))
+        : [{ type: "empty", value: "all" }]
+    }
     const matching = allTags.filter((tag) =>
       tag.name.toLocaleLowerCase().includes(normalizedQuery.toLocaleLowerCase())
     )
@@ -421,6 +477,18 @@ export function WikiTagPicker({
                     type="button"
                     style={style}
                     aria-pressed={selected}
+                    aria-label={[
+                      row.value.name,
+                      outOfScope ? "different section" : null,
+                      row.reason,
+                      showLevels && normalizedQuery && !outOfScope
+                        ? row.value.scope === "global"
+                          ? "Global"
+                          : "This section"
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
                     disabled={!selected && limitReached}
                     onClick={() => toggleTag(row.value)}
                     className={cn(
@@ -432,6 +500,18 @@ export function WikiTagPicker({
                       {row.value.name}
                       {outOfScope ? " (different section)" : ""}
                     </span>
+                    {row.reason ? (
+                      <span className="text-xs text-muted-foreground">
+                        {row.reason}
+                      </span>
+                    ) : null}
+                    {showLevels && normalizedQuery && !outOfScope ? (
+                      <span className="text-xs text-muted-foreground">
+                        {row.value.scope === "global"
+                          ? "Global"
+                          : "This section"}
+                      </span>
+                    ) : null}
                     {normalizedQuery &&
                     tagMatches(row.value.name, normalizedQuery) &&
                     !selected ? (

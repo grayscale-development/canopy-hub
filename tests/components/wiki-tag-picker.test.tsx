@@ -119,6 +119,53 @@ describe("WikiTagPicker", () => {
     expect(screen.queryByText("Global tag:")).not.toBeInTheDocument()
   })
 
+  it("matches semantic section tags in the flat directory filter", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ results: [sectionTag("Credit")] }),
+      }))
+    )
+    function DirectoryFilter() {
+      const [selected, setSelected] = React.useState<WikiScopedTag[]>([])
+      return (
+        <WikiTagPicker
+          availableTags={[globalTag("Credit")]}
+          selectedTags={selected}
+          onSelectedTagsChange={setSelected}
+          sectionId={null}
+          canManage={false}
+          open
+          inputId="directory-semantic"
+          allowCreate={false}
+          showLevels={false}
+        />
+      )
+    }
+    render(<DirectoryFilter />)
+    await user.type(screen.getByRole("textbox"), "borrowing")
+    expect(
+      await screen.findByRole("button", { name: "Credit, similar meaning" })
+    ).toBeVisible()
+    vi.unstubAllGlobals()
+  })
+
+  it("labels a selected tag from another section accurately in search", async () => {
+    const user = userEvent.setup()
+    render(
+      <Harness initial={[sectionTag("Closing", otherId)]} canManage={false} />
+    )
+    await user.type(screen.getByRole("textbox"), "closng")
+    expect(
+      screen.getByRole("button", {
+        name: "Closing, different section, close spelling",
+      })
+    ).toBeVisible()
+    expect(screen.queryByText("This section")).not.toBeInTheDocument()
+  })
+
   it("groups matching tags by level, with selected first and other sections hidden", async () => {
     const user = userEvent.setup()
     render(<Harness initial={[sectionTag("Credit"), globalTag("Income")]} />)
@@ -131,14 +178,61 @@ describe("WikiTagPicker", () => {
     expect(list.queryByText("Elsewhere")).not.toBeInTheDocument()
     expect(screen.getByText("Global tag:")).toHaveClass("sr-only")
     await user.type(screen.getByRole("textbox"), "ass")
-    expect(list.getByRole("button", { name: "Assets" })).toBeVisible()
+    expect(list.getByRole("button", { name: /Assets/ })).toBeVisible()
     expect(
       list.queryByRole("button", { name: "Credit" })
     ).not.toBeInTheDocument()
     expect(
       list.queryByRole("button", { name: "Income" })
     ).not.toBeInTheDocument()
-    expect(list.getByText("No matching tags")).toBeVisible()
+    expect(list.queryByText("No matching tags")).not.toBeInTheDocument()
+  })
+
+  it("shows lexical results immediately in rank order and appends semantic results", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ results: [globalTag("Settlement")] }),
+      }))
+    )
+    render(
+      <Harness
+        canManage={false}
+        available={[
+          globalTag("Settlement"),
+          globalTag("Closng"),
+          sectionTag("Loan closing"),
+          globalTag("Closing costs"),
+          globalTag("Closing"),
+          globalTag("MI"),
+        ]}
+      />
+    )
+    const input = screen.getByRole("textbox")
+    await user.type(input, "Closing")
+    const list = within(screen.getByLabelText("Available tags"))
+    expect(list.getAllByRole("button").map((item) => item.textContent)).toEqual(
+      [
+        "ClosingGlobalUse existing",
+        "Closing costsGlobal",
+        "Loan closingThis section",
+        "Closngclose spellingGlobal",
+      ]
+    )
+    expect(
+      await list.findByRole("button", { name: /Settlement.*similar meaning/ })
+    ).toBeVisible()
+    await user.clear(input)
+    await user.type(input, "mortgage insurance")
+    expect(list.getByRole("button", { name: /MI.*abbreviation/ })).toBeVisible()
+    await user.clear(input)
+    await user.type(input, "closng")
+    expect(
+      list.getByRole("button", { name: /Closing.*close spelling/ })
+    ).toBeVisible()
+    vi.unstubAllGlobals()
   })
 
   it("defaults to section and lets a manager make the next tag global", async () => {
