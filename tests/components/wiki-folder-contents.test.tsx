@@ -21,6 +21,7 @@ const node = (
 ) =>
   ({
     id,
+    short_id: 1,
     parent_id,
     type,
     slug: id,

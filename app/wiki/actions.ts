@@ -295,7 +295,7 @@ export async function createWikiNodeAction(
         updated_by: user.id,
       })
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,short_id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .single()
 

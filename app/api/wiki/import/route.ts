@@ -711,7 +711,7 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from("wiki_nodes")
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,short_id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .eq("id", targetPageId)
       .eq("type", "page")
@@ -1072,7 +1072,7 @@ export async function POST(request: Request) {
     )
     const duplicateQuery = supabase
       .from("wiki_nodes")
-      .select("id,parent_id,slug,title,status")
+      .select("id,short_id,parent_id,slug,title,status")
       .eq("import_content_hash", contentHash)
       .neq("status", "archived")
     const { data: duplicates, error: duplicateError } = await (parentId
@@ -1136,7 +1136,7 @@ export async function POST(request: Request) {
   if (!targetPage) {
     const duplicateQuery = supabase
       .from("wiki_nodes")
-      .select("id,parent_id,slug,title,status")
+      .select("id,short_id,parent_id,slug,title,status")
       .eq("import_content_hash", contentHash)
       .neq("status", "archived")
     const { data: duplicates, error: duplicateError } = await (parentId

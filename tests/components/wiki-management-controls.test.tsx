@@ -33,6 +33,7 @@ vi.mock("@/app/wiki/actions", () => ({
 }))
 
 const emptyGroup = {
+  short_id: 1,
   id: "wiki-group",
   parent_id: "wiki-repository",
   type: "folder",

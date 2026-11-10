@@ -49,6 +49,7 @@ vi.mock("@/components/wiki/wiki-import-wizard", () => ({
 }))
 
 const baseNode = {
+  short_id: 1,
   status: "published",
   sort_order: 0,
   current_revision_id: null,
