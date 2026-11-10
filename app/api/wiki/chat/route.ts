@@ -4,6 +4,7 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
 import { findPageCandidates } from "@/lib/milo/find-page"
+import { MAX_MILO_TWEAKS, prepareMiloProposal } from "@/lib/milo/proposed-edit"
 import {
   answerMiloSourceQuestion,
   confirmed,
@@ -454,9 +455,39 @@ export async function POST(request: Request) {
       (hasSource ||
         previousState?.stage === "awaiting_source" ||
         previousState?.stage === "awaiting_intent" ||
-        previousState?.stage === "awaiting_confirmation")
+        previousState?.stage === "awaiting_confirmation" ||
+        previousState?.stage === "page_confirmed")
     ) {
       workflowAnswer = `You don't have permission to edit the wiki. ${managerNames ? `Please contact ${managerNames}.` : "Please contact a Wiki manager."}`
+    } else if (
+      canManage &&
+      !hasSource &&
+      previousState?.stage === "page_confirmed"
+    ) {
+      const rounds = previousState.rounds ?? 0
+      if (rounds >= MAX_MILO_TWEAKS) {
+        state = previousState
+        workflowAnswer =
+          "That's the limit for adjustments to this proposal. Start a new chat to make more changes."
+      } else {
+        const feedback = [...(previousState.feedback ?? []), message]
+        const prepared = await prepareMiloProposal({
+          supabase,
+          pageId: previousState.pageId,
+          extraction: previousState.extraction,
+          baseRevisionId: previousState.baseRevisionId,
+          feedback,
+        })
+        state = {
+          ...previousState,
+          baseRevisionId: prepared.baseRevisionId,
+          rounds: previousState.rounds === undefined ? 0 : rounds + 1,
+          feedback,
+        }
+        cards.push(prepared.card)
+        workflowAnswer =
+          "Here's the revised proposal. No changes have been made to the page."
+      }
     } else if (
       canManage &&
       !hasSource &&
@@ -691,7 +722,11 @@ export async function POST(request: Request) {
         user_id: user.id,
         role: "assistant",
         content: answer,
-        metadata: { error: true, cards },
+        metadata: {
+          error: true,
+          cards,
+          ...(previousState ? { miloEdit: previousState } : {}),
+        },
       })
       .select("id")
       .single()
