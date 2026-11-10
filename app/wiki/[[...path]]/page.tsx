@@ -431,6 +431,7 @@ export default async function WikiPage({
                       <WikiEditor
                         key={pageData.revision?.id ?? pageData.node.id}
                         node={pageData.node}
+                        nodes={nodes}
                         revision={pageData.revision ?? null}
                         availableTags={wikiTags}
                         pageTags={pageTags}

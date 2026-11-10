@@ -37,6 +37,7 @@ import {
   WikiViewModeTitleSpacing,
 } from "@/components/wiki/wiki-edit-mode"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
+import { WikiDuplicates } from "@/components/wiki/wiki-duplicates"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import { WikiTagPicker, toScopedTag } from "@/components/wiki/wiki-tag-picker"
 import {
@@ -66,6 +67,7 @@ function normalizeInitialBlocks(value: unknown) {
 
 export function WikiEditor({
   node,
+  nodes = [],
   revision,
   canManage,
   lastUpdatedAt,
@@ -79,6 +81,7 @@ export function WikiEditor({
   sectionId = null,
 }: {
   node: WikiNodeRow
+  nodes?: WikiNodeRow[]
   revision: WikiRevisionRow | null
   canManage: boolean
   lastUpdatedAt?: string | null
@@ -104,6 +107,7 @@ export function WikiEditor({
   return (
     <WikiEditorMounted
       node={node}
+      nodes={nodes}
       revision={revision}
       canManage={canManage}
       lastUpdatedAt={lastUpdatedAt}
@@ -121,6 +125,7 @@ export function WikiEditor({
 
 function WikiEditorMounted({
   node,
+  nodes,
   revision,
   canManage,
   lastUpdatedAt,
@@ -134,6 +139,7 @@ function WikiEditorMounted({
   sectionId,
 }: {
   node: WikiNodeRow
+  nodes: WikiNodeRow[]
   revision: WikiRevisionRow | null
   canManage: boolean
   lastUpdatedAt?: string | null
@@ -154,13 +160,14 @@ function WikiEditorMounted({
   const saveInFlight = React.useRef(false)
   const [state, setState] = React.useState<WikiActionResult | null>(null)
   const [isDirty, setIsDirty] = React.useState(false)
+  const [duplicateVersion, setDuplicateVersion] = React.useState(0)
   const [blocks, setBlocks] = React.useState<unknown>(
     normalizeInitialBlocks(revision?.blocks)
   )
   const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
   const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
-  const surfaceRef = React.useRef<HTMLDivElement>(null)
+  const [surface, setSurface] = React.useState<HTMLDivElement | null>(null)
   const showEditorControls = canEditPage && showStatusControl
 
   async function uploadWikiFile(file: File) {
@@ -200,7 +207,6 @@ function WikiEditorMounted({
   })
 
   React.useEffect(() => {
-    const surface = surfaceRef.current
     if (!surface) return
     let scrolled = false
     const update = () => {
@@ -239,7 +245,7 @@ function WikiEditorMounted({
       observer.disconnect()
       window.removeEventListener("hashchange", hashChange)
     }
-  }, [])
+  }, [surface])
 
   React.useEffect(() => {
     if (!isDirty) return
@@ -257,6 +263,7 @@ function WikiEditorMounted({
     }
 
     saveInFlight.current = true
+    setDuplicateVersion((version) => version + 1)
     const formData = new FormData()
     setState(null)
     formData.set("node_id", node.id)
@@ -343,7 +350,22 @@ function WikiEditorMounted({
           {canEditPage ? headerActions : null}
         </div>
       </WikiViewModeTitleSpacing>
-      <div ref={surfaceRef} className="wiki-blocknote-surface min-w-0 p-0">
+      {canEditPage ? (
+        <WikiDuplicates
+          key={`${node.id}:${revision?.id}:${duplicateVersion}`}
+          nodeId={node.id}
+          revisionId={revision?.id ?? null}
+          nodes={nodes}
+          editor={editor}
+          surface={surface}
+          isDirty={isDirty}
+          blocks={blocks}
+        />
+      ) : null}
+      <div
+        ref={setSurface}
+        className={`wiki-blocknote-surface relative min-w-0 p-0 ${canEditPage ? "pl-4" : ""}`}
+      >
         <BlockNoteView
           editor={editor}
           theme={resolvedTheme === "dark" ? "dark" : "light"}

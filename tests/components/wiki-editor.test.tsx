@@ -15,6 +15,7 @@ import { WikiEditor } from "@/components/wiki/wiki-editor"
 import type { WikiNodeRow } from "@/lib/wiki"
 
 const blockNoteState = vi.hoisted(() => ({
+  onChange: () => () => undefined,
   document: [
     {
       type: "paragraph",
@@ -154,6 +155,9 @@ describe("WikiEditor", () => {
 
     expect(
       screen.queryByRole("button", { name: "Edit page tags" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Check for duplicates" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Draft" })
