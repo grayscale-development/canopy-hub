@@ -470,3 +470,36 @@ Also in the mix
     ).toBe("loan-review-3")
   })
 })
+
+describe("source-grounded updates", () => {
+  it("accepts a supported replacement but keeps unrelated instructions and repeated content", async () => {
+    const { isFaithfulWikiUpdate } = await import("@/lib/wiki-import")
+    const old = "The desk closes at 4 p.m. Mountain time.\nKeep all warnings."
+    const source = "The desk closes at 5 p.m. Mountain time."
+    expect(
+      isFaithfulWikiUpdate(old, `${source}\nKeep all warnings.`, source)
+    ).toBe(true)
+    expect(isFaithfulWikiUpdate(old, source, source)).toBe(false)
+    expect(
+      isFaithfulWikiUpdate(
+        "The desk closes at 4 p.m. Mountain time. Never skip checks.",
+        source,
+        source
+      )
+    ).toBe(false)
+    expect(
+      isFaithfulWikiUpdate(
+        "Keep all warnings.\nKeep all warnings.",
+        "Keep all warnings.",
+        source
+      )
+    ).toBe(false)
+    expect(
+      isFaithfulWikiUpdate(
+        old,
+        "The desk closes at 8 p.m. Mountain time.\nKeep all warnings.",
+        source
+      )
+    ).toBe(false)
+  })
+})

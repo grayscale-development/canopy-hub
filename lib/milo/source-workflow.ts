@@ -3,7 +3,7 @@ import "server-only"
 import { z } from "zod"
 import { createAgentResponseWithOpenAI, getChatModel } from "@/lib/ai/provider"
 
-const extractionSchema = z.object({
+export const extractionSchema = z.object({
   facts: z.array(z.string().min(1).max(500)).max(10),
   chatter: z.string().max(500),
   unclear: z.array(z.string().min(1).max(500)).max(3),
@@ -33,6 +33,9 @@ export type MiloEditState =
       sourceMessageId: string
       extraction: MiloExtraction
       pageId: string
+      baseRevisionId?: string | null
+      rounds?: number
+      feedback?: string[]
     }
 
 export function editIntent(input: string): boolean {

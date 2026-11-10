@@ -1,0 +1,62 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`proposes a source-grounded replacement on a text-only page 1`] = `
+{
+  "changeCount": 1,
+  "headline": "1 change",
+  "revealTakenOut": false,
+  "segments": [
+    {
+      "pieces": [
+        {
+          "kind": "stayed",
+          "text": "The escalation desk now closes at",
+        },
+        {
+          "kind": "removed",
+          "text": "4",
+        },
+        {
+          "kind": "added",
+          "text": "5",
+        },
+        {
+          "kind": "stayed",
+          "text": "p.m. Mountain time.",
+        },
+      ],
+      "type": "text",
+    },
+  ],
+  "showMarkup": true,
+}
+`;
+
+exports[`uses the update provider and preserves the base and complex blocks 1`] = `
+{
+  "changeCount": 1,
+  "headline": "1 change",
+  "revealTakenOut": false,
+  "segments": [
+    {
+      "pieces": [
+        {
+          "kind": "stayed",
+          "text": "The escalation desk now closes at 4 p.m. Mountain time.",
+        },
+      ],
+      "type": "text",
+    },
+    {
+      "pieces": [
+        {
+          "kind": "added",
+          "text": "The escalation desk now closes at 5 p.m. Mountain time.",
+        },
+      ],
+      "type": "text",
+    },
+  ],
+  "showMarkup": true,
+}
+`;

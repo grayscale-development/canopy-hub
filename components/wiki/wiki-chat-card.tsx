@@ -3,6 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 
+import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
 import { Button } from "@/components/ui/button"
 import { displayCard, type DisplayCard } from "@/lib/milo/chat-cards"
 
@@ -24,6 +25,7 @@ export function WikiChatCard({
   onNavigate?: () => void
 }) {
   const [card, setCard] = React.useState(initialCard)
+  const [proposal, setProposal] = React.useState<DisplayCard | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [notice, setNotice] = React.useState("")
 
@@ -46,6 +48,7 @@ export function WikiChatCard({
       if (response.ok && result.status === "ok") {
         setCard(displayCard(result.card))
         setNotice(result.notice ?? "")
+        if (result.proposal) setProposal(displayCard(result.proposal))
         return
       }
       setNotice(
@@ -160,10 +163,7 @@ export function WikiChatCard({
             </div>
           )}
           {card.outcome === "confirmed" && (
-            <p>
-              Page confirmed. A future update will let Milo prepare a proposed
-              edit for your review. No changes have been made.
-            </p>
+            <p>Page confirmed. No changes have been made.</p>
           )}
           {card.outcome === "create" && (
             <p>
@@ -184,14 +184,39 @@ export function WikiChatCard({
       {card.type === "proposed-edit" && (
         <>
           <p className="font-medium">Proposed edit: {card.pageTitle}</p>
-          <div>
-            <p className="font-medium">Before</p>
-            <p className="whitespace-pre-wrap">{card.before || "(empty)"}</p>
-          </div>
-          <div>
-            <p className="font-medium">After</p>
-            <p className="whitespace-pre-wrap">{card.after || "(empty)"}</p>
-          </div>
+          {card.summary && <p>{card.summary}</p>}
+          <WikiPlainDiff
+            beforeText={card.before}
+            afterText={card.after}
+            beforeBlocks={card.beforeBlocks}
+            afterBlocks={card.blocks}
+            beforeTitle="Current page"
+            afterTitle="Proposed page"
+          />
+          {card.nonTextNotes?.length ? (
+            <div>
+              <p className="font-medium">Needs a manual check</p>
+              <ul className="list-inside list-disc">
+                {card.nonTextNotes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {card.notAdded?.length ? (
+            <div>
+              <p className="font-medium">Not added</p>
+              <ul className="list-inside list-disc">
+                {card.notAdded.map((fact) => (
+                  <li key={fact}>{fact}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <p className="text-muted-foreground">
+            Ask Milo in chat if you would like an adjustment. No changes have
+            been made.
+          </p>
           <Button
             type="button"
             disabled={busy || !threadId || !messageId}
@@ -222,6 +247,14 @@ export function WikiChatCard({
           <p className="font-medium">Milo couldn&apos;t answer</p>
           <p className="whitespace-pre-wrap">{card.message}</p>
         </>
+      )}
+      {proposal && (
+        <WikiChatCard
+          card={proposal}
+          threadId={threadId}
+          messageId={messageId}
+          onNavigate={onNavigate}
+        />
       )}
       {notice && !(card.type === "page-candidates" && card.outcome) && (
         <p role="status" className="text-muted-foreground">

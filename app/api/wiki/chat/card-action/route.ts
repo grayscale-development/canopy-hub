@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { cardActionSchema, miloCardSchema } from "@/lib/milo/chat-cards"
 import { isEditablePage } from "@/lib/milo/find-page"
+import { prepareMiloProposal } from "@/lib/milo/proposed-edit"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -81,8 +82,19 @@ export async function POST(request: Request) {
       { status: 400 }
     )
 
-  if (card.data.type !== "page-candidates")
+  if (card.data.type !== "page-candidates") {
+    if (
+      card.data.type === "proposed-edit" &&
+      card.data.pageId &&
+      !(await isEditablePage(supabase, card.data.pageId))
+    ) {
+      return NextResponse.json(
+        { error: "This page is no longer available to edit." },
+        { status: 403 }
+      )
+    }
     return NextResponse.json({ status: "not-implemented" as const })
+  }
 
   // Message metadata is user-writable: neither the card nor its IDs grant access.
   const state = message.metadata?.miloEdit
@@ -118,16 +130,38 @@ export async function POST(request: Request) {
   let updated = card.data
   let nextState = state
   let notice = ""
+  let proposal:
+    | Awaited<ReturnType<typeof prepareMiloProposal>>["card"]
+    | undefined
   if (action.action === "select-page") {
     if (!candidate || candidate.id !== action.candidateId)
       return NextResponse.json(
         { error: "Choose the page currently shown." },
         { status: 400 }
       )
-    updated = { ...updated, outcome: "confirmed" }
-    nextState = { ...state, stage: "page_confirmed", pageId: candidate.id }
-    notice =
-      "Page confirmed. A future update will let Milo prepare a proposed edit for your review. No changes have been made."
+    try {
+      const prepared = await prepareMiloProposal({
+        supabase,
+        pageId: candidate.id,
+        extraction: state.extraction,
+      })
+      proposal = prepared.card
+      updated = { ...updated, outcome: "confirmed" }
+      nextState = {
+        ...state,
+        stage: "page_confirmed",
+        pageId: candidate.id,
+        baseRevisionId: prepared.baseRevisionId,
+        rounds: 0,
+        feedback: [],
+      }
+      notice = "Page confirmed. No changes have been made."
+    } catch {
+      return NextResponse.json(
+        { error: "Couldn't prepare the edit. Please try again." },
+        { status: 400 }
+      )
+    }
   } else if (action.action === "next-page") {
     if (card.data.candidates.length < 2)
       return NextResponse.json(
@@ -160,12 +194,15 @@ export async function POST(request: Request) {
       metadata: {
         ...message.metadata,
         miloEdit: nextState,
-        cards: cards.map((value: unknown) => {
-          const parsed = miloCardSchema.safeParse(value)
-          return parsed.success && parsed.data.id === action.cardId
-            ? updated
-            : value
-        }),
+        cards: [
+          ...cards.map((value: unknown) => {
+            const parsed = miloCardSchema.safeParse(value)
+            return parsed.success && parsed.data.id === action.cardId
+              ? updated
+              : value
+          }),
+          ...(proposal ? [proposal] : []),
+        ],
       },
     })
     .eq("id", action.messageId)
@@ -176,5 +213,5 @@ export async function POST(request: Request) {
       { error: "Unable to save your choice." },
       { status: 400 }
     )
-  return NextResponse.json({ status: "ok", card: updated, notice })
+  return NextResponse.json({ status: "ok", card: updated, proposal, notice })
 }

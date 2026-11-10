@@ -19,11 +19,15 @@ function MarkedText({ pieces }: { pieces: WikiDiffPiece[] }) {
     <>
       {pieces.map((piece, index) => {
         const spacer = index > 0 ? " " : null
+        const keepWordTogether =
+          !/\s/.test(piece.text) && piece.text.length <= 20
+            ? " whitespace-nowrap"
+            : ""
         if (piece.kind === "removed") {
           return (
             <React.Fragment key={`removed-${index}`}>
               {spacer}
-              <mark className={takenOutClass}>
+              <mark className={takenOutClass + keepWordTogether}>
                 <span className="sr-only">Taken out: </span>
                 {piece.text}
               </mark>
@@ -34,7 +38,7 @@ function MarkedText({ pieces }: { pieces: WikiDiffPiece[] }) {
           return (
             <React.Fragment key={`added-${index}`}>
               {spacer}
-              <mark className={putInClass}>
+              <mark className={putInClass + keepWordTogether}>
                 <span className="sr-only">Put in: </span>
                 {piece.text}
               </mark>

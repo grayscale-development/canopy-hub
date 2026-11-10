@@ -360,7 +360,7 @@ Source text:
 ${text}`
 }
 
-function comparableTokens(value: string) {
+function comparableTokens(value: string): string[] {
   // Fidelity is about retaining content, not preserving display casing. This
   // lets all-caps headings be title-cased without triggering the fallback.
   return value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
@@ -390,6 +390,55 @@ export function isFaithfulWikiImportOutput(
   }
 
   return true
+}
+
+/** Accept a replaced line only when the confirmed source supplies a closely
+ * matching replacement. Everything else still has to survive the update. */
+export function isFaithfulWikiUpdate(
+  existing: string,
+  markdown: string,
+  source: string,
+  title = ""
+) {
+  if (isFaithfulWikiImportOutput(existing, markdown, title)) return true
+  const incoming = source
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const retained: string[] = []
+  for (const line of existing
+    .split(/\n+/)
+    .map((value) => value.trim())
+    .filter(Boolean)) {
+    if (isFaithfulWikiImportOutput(line, markdown, title)) {
+      retained.push(line)
+      continue
+    }
+    const oldWords = comparableTokens(line)
+    const replaced = incoming.some((fact) => {
+      const newWords = comparableTokens(fact)
+      const remaining = [...newWords]
+      let common = 0
+      for (const word of oldWords) {
+        const index = remaining.indexOf(word)
+        if (index >= 0) {
+          common++
+          remaining.splice(index, 1)
+        }
+      }
+      const removed = oldWords.length - common
+      return (
+        common >= 3 &&
+        removed > 0 &&
+        removed <= 2 &&
+        remaining.length === removed &&
+        common / Math.max(oldWords.length, newWords.length) >= 0.6 &&
+        isFaithfulWikiImportOutput(fact, markdown, title)
+      )
+    })
+    if (!replaced) return false
+  }
+  return isFaithfulWikiImportOutput(retained.join("\n"), markdown, title)
 }
 
 type WikiImportInlineContent = string | Array<Record<string, unknown>>

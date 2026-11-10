@@ -33,6 +33,24 @@ const testState = vi.hoisted(() => ({
   candidates: [] as Array<{ id: string; title: string }>,
 }))
 
+vi.mock("@/lib/milo/proposed-edit", () => ({
+  MAX_MILO_TWEAKS: 3,
+  prepareMiloProposal: vi.fn(async ({ pageId }: { pageId: string }) => ({
+    baseRevisionId: "revision-1",
+    card: {
+      type: "proposed-edit",
+      id: "proposed-edit",
+      pageId,
+      pageTitle: "Policy",
+      before: "Old",
+      after: "New",
+      baseRevisionId: "revision-1",
+      blocks: [],
+      plain_text: "New",
+    },
+  })),
+}))
+
 vi.mock("@/lib/milo/find-page", () => ({
   findPageCandidates: async () => testState.candidates,
   isEditablePage: async (_client: unknown, id: string) =>
@@ -925,11 +943,135 @@ describe("/api/wiki/chat route", () => {
       card: { outcome: "confirmed" },
     })
     expect(testState.tables.ai_chat_messages[0].metadata).toMatchObject({
-      miloEdit: { stage: "page_confirmed", pageId: "page-2" },
+      miloEdit: {
+        stage: "page_confirmed",
+        pageId: "page-2",
+        baseRevisionId: "revision-1",
+        rounds: 0,
+      },
+      cards: [
+        expect.objectContaining({ outcome: "confirmed" }),
+        expect.objectContaining({
+          type: "proposed-edit",
+          baseRevisionId: "revision-1",
+        }),
+      ],
     })
     expect(
       (await POST(request({ ...action, candidateId: "page-2" }))).status
     ).toBe(409)
+  })
+
+  it("regenerates proposals with the original base and enforces the adjustment limit", async () => {
+    testState.user = { id: "user-1" }
+    testState.tables.user_permissions.push({
+      user_id: "user-1",
+      permission_id: "permission-wiki",
+    })
+    testState.tables.ai_chat_threads = [{ id: "thread", user_id: "user-1" }]
+    testState.tables.ai_chat_messages = [
+      {
+        id: "message",
+        thread_id: "thread",
+        user_id: "user-1",
+        role: "assistant",
+        metadata: {
+          miloEdit: {
+            stage: "page_confirmed",
+            pageId: "page",
+            sourceMessageId: "source",
+            baseRevisionId: "revision-1",
+            rounds: 0,
+            feedback: [],
+            extraction: { facts: ["A fact"] },
+          },
+        },
+      },
+    ]
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const { prepareMiloProposal } = await import("@/lib/milo/proposed-edit")
+    vi.mocked(prepareMiloProposal).mockClear()
+    for (let round = 0; round < 4; round++) {
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            threadId: "thread",
+            message: `Keep phone ${round}`,
+          }),
+        })
+      )
+      const events = await readSseEvents(response)
+      if (round < 3)
+        expect(
+          events.some(
+            (event) =>
+              event.type === "card" &&
+              (event.card as MiloCard).type === "proposed-edit"
+          )
+        ).toBe(true)
+      else
+        expect(
+          events.some(
+            (event) =>
+              typeof event.token === "string" && event.token.includes("limit")
+          )
+        ).toBe(true)
+    }
+    expect(prepareMiloProposal).toHaveBeenCalledTimes(3)
+    expect(prepareMiloProposal).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        baseRevisionId: "revision-1",
+        feedback: ["Keep phone 0", "Keep phone 1", "Keep phone 2"],
+      })
+    )
+  })
+
+  it("continues conversations confirmed before proposals were introduced", async () => {
+    testState.user = { id: "user-1" }
+    testState.tables.user_permissions.push({
+      user_id: "user-1",
+      permission_id: "permission-wiki",
+    })
+    testState.tables.ai_chat_threads = [{ id: "thread", user_id: "user-1" }]
+    testState.tables.ai_chat_messages = [
+      {
+        id: "message",
+        thread_id: "thread",
+        user_id: "user-1",
+        role: "assistant",
+        metadata: {
+          miloEdit: {
+            stage: "page_confirmed",
+            pageId: "page",
+            sourceMessageId: "source",
+            extraction: { facts: ["A fact"] },
+          },
+        },
+      },
+    ]
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          threadId: "thread",
+          message: "Prepare the edit",
+        }),
+      })
+    )
+    const events = await readSseEvents(response)
+    expect(
+      events.some(
+        (event) =>
+          event.type === "card" &&
+          (event.card as MiloCard).type === "proposed-edit"
+      )
+    ).toBe(true)
+    const latest = testState.tables.ai_chat_messages.at(-1)!
+    expect(latest.metadata).toMatchObject({
+      miloEdit: { baseRevisionId: "revision-1", rounds: 0 },
+    })
   })
 
   it("records the create fallback without selecting a page", async () => {
