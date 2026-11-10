@@ -6,11 +6,6 @@ import { PencilIcon, TagsIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
   WIKI_EDIT_NODE_EVENT,
   WikiCreateWizardDialog,
   WikiNodeActionsMenu,
@@ -21,7 +16,8 @@ import {
 } from "@/components/wiki/wiki-archive"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
 import {
-  SidebarExpansionToggle,
+  SidebarAccordionHeader,
+  TruncatedTitle,
   usePersistedSidebarExpansion,
 } from "@/components/wiki/wiki-sidebar-expansion"
 import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
@@ -35,36 +31,6 @@ import {
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
 import { cn } from "@/lib/utils"
-
-const SIDEBAR_TOOLTIP_DELAY_MS = 700
-
-function TruncatedTitle({ title }: { title: string }) {
-  const textRef = React.useRef<HTMLSpanElement>(null)
-  const [open, setOpen] = React.useState(false)
-
-  return (
-    <Tooltip
-      delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}
-      open={open}
-      onOpenChange={(nextOpen) => {
-        const element = textRef.current
-        const isCutOff = Boolean(
-          element && element.scrollWidth > element.clientWidth
-        )
-        setOpen(nextOpen && isCutOff)
-      }}
-    >
-      <TooltipTrigger asChild>
-        <span ref={textRef} className="truncate">
-          {title}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="right" align="start" sideOffset={8}>
-        {title}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
 
 function SidebarPageLink({
   node,
@@ -163,25 +129,16 @@ function SidebarNestedFolder({
 
   return (
     <div>
-      <div
-        className={cn(
-          "group flex min-h-8 w-full items-center rounded-md text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-          isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
-        )}
+      <SidebarAccordionHeader
+        label={folder.title}
+        title={folder.title}
+        contentId={contentId}
+        isOpen={isOpen}
+        setOpen={setPersistedOpen}
+        tone="group"
+        href={`/wiki/${folderPath}`}
+        isActive={isActive}
       >
-        <SidebarExpansionToggle
-          label={folder.title}
-          contentId={contentId}
-          isOpen={isOpen}
-          setOpen={setPersistedOpen}
-        />
-        <Link
-          href={`/wiki/${folderPath}`}
-          aria-current={activePath === folderPath ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <TruncatedTitle title={folder.title} />
-        </Link>
         {canManage ? (
           <SidebarFolderEditButton folder={folder} nodes={nodes} />
         ) : null}
@@ -193,7 +150,7 @@ function SidebarNestedFolder({
             variant="icon"
           />
         ) : null}
-      </div>
+      </SidebarAccordionHeader>
       <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
         {children.map((child) =>
           child.type === "folder" ? (
@@ -245,25 +202,16 @@ function SidebarSection({
 
   return (
     <section className="space-y-1">
-      <div
-        className={cn(
-          "group flex min-h-8 w-full items-center rounded-md text-sm leading-5 font-semibold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-          isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
-        )}
+      <SidebarAccordionHeader
+        label={section.title}
+        title={section.title}
+        contentId={contentId}
+        isOpen={isOpen}
+        setOpen={setPersistedOpen}
+        tone="section"
+        href={`/wiki/${sectionPath}`}
+        isActive={isActive}
       >
-        <SidebarExpansionToggle
-          label={section.title}
-          contentId={contentId}
-          isOpen={isOpen}
-          setOpen={setPersistedOpen}
-        />
-        <Link
-          href={`/wiki/${sectionPath}`}
-          aria-current={activePath === sectionPath ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <TruncatedTitle title={section.title} />
-        </Link>
         {canManage ? (
           <SidebarFolderEditButton folder={section} nodes={nodes} />
         ) : null}
@@ -275,7 +223,7 @@ function SidebarSection({
             variant="icon"
           />
         ) : null}
-      </div>
+      </SidebarAccordionHeader>
       <div id={contentId} hidden={!isOpen} className="space-y-1">
         {nodes
           .filter((node) => node.parent_id === section.id)

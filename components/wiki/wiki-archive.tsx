@@ -9,7 +9,7 @@ import { restoreArchivedWikiNodeAction } from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  SidebarExpansionToggle,
+  SidebarAccordionHeader,
   usePersistedSidebarExpansion,
 } from "@/components/wiki/wiki-sidebar-expansion"
 import {
@@ -45,7 +45,7 @@ export function RestoreWikiButton({
       }}
       aria-label={`Restore ${node.title}`}
     >
-      {pending ? "Restoring…" : "Restore"}
+      {pending ? "Restoring." : "Restore"}
     </Button>
   )
 }
@@ -88,15 +88,16 @@ function ArchiveItems({
   nodes: WikiNodeRow[]
 }) {
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-1">
       {items.map((item) => (
-        <li key={item.id} className="text-sm">
+        <li key={item.id}>
           <Link
-            className="block truncate hover:underline"
+            className="flex min-h-8 w-full items-center rounded-md pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             href={`/wiki/${buildWikiPath(nodes, item)}`}
             title={item.title}
           >
-            {item.title}
+            <span aria-hidden="true" className="size-8 shrink-0" />
+            <span className="truncate">{item.title}</span>
           </Link>
         </li>
       ))}
@@ -126,18 +127,16 @@ export function SectionArchive({
   )
   if (!items.length) return null
   return (
-    <div className="ml-4 text-sm">
-      <div className="flex items-center rounded-md text-muted-foreground hover:bg-sidebar-accent">
-        <SidebarExpansionToggle
-          label="Archived"
-          contentId={contentId}
-          isOpen={isOpen}
-          setOpen={setOpen}
-        >
-          Archived ({items.length})
-        </SidebarExpansionToggle>
-      </div>
-      <div id={contentId} hidden={!isOpen} className="px-8 py-2">
+    <div>
+      <SidebarAccordionHeader
+        label="Archived"
+        title={`Archived (${items.length})`}
+        contentId={contentId}
+        isOpen={isOpen}
+        setOpen={setOpen}
+        tone="group"
+      />
+      <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
         <ArchiveItems items={items} nodes={nodes} />
       </div>
     </div>
@@ -164,32 +163,32 @@ export function GlobalWikiArchive({
     )
   )
   return (
-    <div className="text-sm">
-      <div className="flex items-center rounded-md font-semibold hover:bg-sidebar-accent">
-        <SidebarExpansionToggle
-          label="Archive"
-          contentId={contentId}
-          isOpen={isOpen}
-          setOpen={setOpen}
-        >
-          Archive ({archived.length})
-        </SidebarExpansionToggle>
-      </div>
-      <div id={contentId} hidden={!isOpen} className="space-y-3 px-2 py-2">
-        <Input
-          aria-label="Search archive"
-          placeholder="Search archive"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
+    <section className="space-y-1">
+      <SidebarAccordionHeader
+        label="Archive"
+        title={`Archive (${archived.length})`}
+        contentId={contentId}
+        isOpen={isOpen}
+        setOpen={setOpen}
+        tone="section"
+      />
+      <div id={contentId} hidden={!isOpen} className="space-y-1">
+        <div className="px-2 py-1">
+          <Input
+            aria-label="Search archive"
+            placeholder="Search archive"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
         {items.length ? (
           <ArchiveItems items={items} nodes={nodes} />
         ) : (
-          <p className="text-muted-foreground">
+          <p className="px-2 py-1 text-sm text-muted-foreground">
             {search ? "No archived items match." : "No archived items."}
           </p>
         )}
       </div>
-    </div>
+    </section>
   )
 }

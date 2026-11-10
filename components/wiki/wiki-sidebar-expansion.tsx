@@ -1,8 +1,17 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { ChevronRightIcon } from "lucide-react"
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+
+const SIDEBAR_TOOLTIP_DELAY_MS = 700
 
 function readPersistedExpansion(storageKey: string) {
   if (typeof window === "undefined") {
@@ -84,52 +93,132 @@ function toggleExpansionWithoutScrollJump(
   })
 }
 
+export function TruncatedTitle({ title }: { title: string }) {
+  const textRef = React.useRef<HTMLSpanElement>(null)
+  const [open, setOpen] = React.useState(false)
+
+  return (
+    <Tooltip
+      delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        const element = textRef.current
+        const isCutOff = Boolean(
+          element && element.scrollWidth > element.clientWidth
+        )
+        setOpen(nextOpen && isCutOff)
+      }}
+    >
+      <TooltipTrigger asChild>
+        <span ref={textRef} className="truncate">
+          {title}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right" align="start" sideOffset={8}>
+        {title}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function SidebarExpansionToggle({
   label,
   contentId,
   isOpen,
   setOpen,
-  children,
 }: {
   label: string
   contentId: string
   isOpen: boolean
   setOpen: React.Dispatch<React.SetStateAction<boolean>>
-  children?: React.ReactNode
 }) {
   return (
-    <>
-      <button
-        type="button"
-        aria-label={`Toggle ${label}`}
-        aria-expanded={isOpen}
-        aria-controls={contentId}
-        className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        onClick={(event) =>
-          toggleExpansionWithoutScrollJump(event, () =>
-            setOpen((current) => !current)
-          )
-        }
-      >
-        <ChevronRightIcon
-          className={cn("size-3.5 transition-transform", isOpen && "rotate-90")}
-        />
-      </button>
-      {children ? (
+    <button
+      type="button"
+      aria-label={`Toggle ${label}`}
+      aria-expanded={isOpen}
+      aria-controls={contentId}
+      className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      onClick={(event) =>
+        toggleExpansionWithoutScrollJump(event, () =>
+          setOpen((current) => !current)
+        )
+      }
+    >
+      <ChevronRightIcon
+        className={cn("size-3.5 transition-transform", isOpen && "rotate-90")}
+      />
+    </button>
+  )
+}
+
+export function SidebarAccordionHeader({
+  label,
+  title,
+  contentId,
+  isOpen,
+  setOpen,
+  tone,
+  href,
+  isActive = false,
+  children,
+}: {
+  label: string
+  title: string
+  contentId: string
+  isOpen: boolean
+  setOpen: React.Dispatch<React.SetStateAction<boolean>>
+  tone: "section" | "group"
+  href?: string
+  isActive?: boolean
+  children?: React.ReactNode
+}) {
+  const titleNode = <TruncatedTitle title={title} />
+  const labelClassName = cn(
+    "flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+    tone === "section" && "text-inherit"
+  )
+
+  return (
+    <div
+      className={cn(
+        "group flex min-h-8 w-full items-center rounded-md text-sm leading-5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        tone === "section"
+          ? "font-semibold text-sidebar-foreground"
+          : "text-muted-foreground",
+        isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
+      )}
+    >
+      <SidebarExpansionToggle
+        label={label}
+        contentId={contentId}
+        isOpen={isOpen}
+        setOpen={setOpen}
+      />
+      {href ? (
+        <Link
+          href={href}
+          aria-current={isActive ? "page" : undefined}
+          className={labelClassName}
+        >
+          {titleNode}
+        </Link>
+      ) : (
         <button
           type="button"
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className="min-h-8 flex-1 cursor-pointer text-left"
+          className={cn(labelClassName, "cursor-pointer")}
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setOpen((current) => !current)
             )
           }
         >
-          {children}
+          {titleNode}
         </button>
-      ) : null}
-    </>
+      )}
+      {children}
+    </div>
   )
 }

@@ -165,6 +165,11 @@ test("managers can find and restore archived wiki items while viewers cannot see
       /size-3\.5.*transition-transform/
     )
     await shot("01-section-archived-collapsed")
+    if (shotDir) {
+      await page
+        .locator("[data-wiki-sidebar-scroll]")
+        .screenshot({ path: `${shotDir}/10-alignment-sidebar.png` })
+    }
     await archivedToggle.click()
     await expect(archivedToggle).toHaveAttribute("aria-expanded", "true")
     await expect(archivedToggle.locator("svg")).toHaveClass(/rotate-90/)
@@ -192,6 +197,11 @@ test("managers can find and restore archived wiki items while viewers cannot see
     ).toBeVisible()
     await global.locator("li").last().scrollIntoViewIfNeeded()
     await shot("03-global-archive")
+    if (shotDir) {
+      await page
+        .locator("[data-wiki-sidebar-scroll]")
+        .screenshot({ path: `${shotDir}/11-alignment-global.png` })
+    }
     await global
       .getByRole("textbox", { name: "Search archive" })
       .fill("Compliance")

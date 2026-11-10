@@ -11,6 +11,7 @@ import {
   WikiEditModeProvider,
   useVisibleWikiNodes,
 } from "@/components/wiki/wiki-edit-mode"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import type { WikiNodeRow } from "@/lib/wiki"
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
@@ -103,11 +104,20 @@ describe("wiki archives", () => {
   it("starts collapsed and opens item links with the shared chevron", async () => {
     const user = userEvent.setup()
     render(
-      <SectionArchive section={section} nodes={all} archived={[old, closed]} />
+      <TooltipProvider><SectionArchive section={section} nodes={all} archived={[old, closed]} /></TooltipProvider>
     )
     const toggle = screen.getByRole("button", { name: "Toggle Archived" })
     expect(toggle).toHaveAttribute("aria-expanded", "false")
     expect(toggle).toHaveClass("size-8")
+    expect(toggle.parentElement).toHaveClass(
+      "min-h-8",
+      "w-full",
+      "text-sm",
+      "leading-5",
+      "text-muted-foreground"
+    )
+    expect(toggle.parentElement).not.toHaveClass("ml-4")
+    expect(toggle.parentElement?.parentElement).not.toHaveClass("ml-4")
     expect(toggle.querySelector("svg")).toHaveClass(
       "size-3.5",
       "transition-transform"
@@ -136,9 +146,17 @@ describe("wiki archives", () => {
   })
   it("filters the global archive as the manager types", async () => {
     const user = userEvent.setup()
-    render(<GlobalWikiArchive nodes={all} archived={[old, closed]} />)
+    render(<TooltipProvider><GlobalWikiArchive nodes={all} archived={[old, closed]} /></TooltipProvider>)
     const toggle = screen.getByRole("button", { name: "Toggle Archive" })
     expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(toggle.parentElement).toHaveClass(
+      "min-h-8",
+      "w-full",
+      "text-sm",
+      "leading-5",
+      "font-semibold",
+      "text-sidebar-foreground"
+    )
     expect(toggle.querySelector("svg")).toHaveClass(
       "size-3.5",
       "transition-transform"
