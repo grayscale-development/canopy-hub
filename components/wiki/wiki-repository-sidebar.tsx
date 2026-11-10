@@ -3,9 +3,16 @@
 import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import * as React from "react"
 import Link from "next/link"
-import { ChevronRightIcon, PencilIcon, TagsIcon } from "lucide-react"
+import {
+  ChevronRightIcon,
+  PencilIcon,
+  SearchIcon,
+  TagsIcon,
+  XIcon,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Tooltip,
   TooltipContent,
@@ -29,6 +36,11 @@ import {
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
 import { cn } from "@/lib/utils"
+import {
+  filterWikiSidebar,
+  sidebarHighlightRanges,
+  sidebarQueryWords,
+} from "@/lib/wiki-sidebar-filter"
 
 function readPersistedExpansion(storageKey: string) {
   if (typeof window === "undefined") {
@@ -57,7 +69,8 @@ function writePersistedExpansion(storageKey: string, isOpen: boolean) {
 function usePersistedSidebarExpansion(
   storageKey: string,
   defaultOpen: boolean,
-  autoOpen: boolean
+  autoOpen: boolean,
+  forceOpen: boolean
 ) {
   const hasUserSetPreference = React.useRef(false)
   const [isOpen, setIsOpen] = React.useState(defaultOpen)
@@ -86,7 +99,7 @@ function usePersistedSidebarExpansion(
     [storageKey]
   )
 
-  return [isOpen, setPersistedOpen] as const
+  return [forceOpen || isOpen, setPersistedOpen] as const
 }
 
 function toggleExpansionWithoutScrollJump(
@@ -112,9 +125,27 @@ function toggleExpansionWithoutScrollJump(
 
 const SIDEBAR_TOOLTIP_DELAY_MS = 700
 
-function TruncatedTitle({ title }: { title: string }) {
+function TruncatedTitle({
+  title,
+  query = "",
+}: {
+  title: string
+  query?: string
+}) {
   const textRef = React.useRef<HTMLSpanElement>(null)
   const [open, setOpen] = React.useState(false)
+  const ranges = sidebarHighlightRanges(title, query)
+  const highlighted = ranges.flatMap((range, index) => {
+    return [
+      title.slice(index ? ranges[index - 1].end : 0, range.start),
+      <mark
+        key={range.start}
+        className="rounded-sm bg-yellow-200 text-yellow-950 dark:bg-yellow-700 dark:text-yellow-50"
+      >
+        {title.slice(range.start, range.end)}
+      </mark>,
+    ]
+  })
 
   return (
     <Tooltip
@@ -130,7 +161,8 @@ function TruncatedTitle({ title }: { title: string }) {
     >
       <TooltipTrigger asChild>
         <span ref={textRef} className="truncate">
-          {title}
+          {highlighted}
+          {title.slice(ranges.at(-1)?.end ?? 0)}
         </span>
       </TooltipTrigger>
       <TooltipContent side="right" align="start" sideOffset={8}>
@@ -144,10 +176,14 @@ function SidebarPageLink({
   node,
   nodes,
   activePath,
+  query,
+  matchIds,
 }: {
   node: WikiNodeRow
   nodes: WikiNodeRow[]
   activePath: string
+  query: string
+  matchIds: Set<string>
 }) {
   const path = buildNumericWikiPath(nodes, node)
   const isActive = path === activePath
@@ -155,13 +191,14 @@ function SidebarPageLink({
   return (
     <Link
       href={`/wiki/${path}`}
+      data-wiki-filter-match={matchIds.has(node.id) ? "" : undefined}
       className={cn(
         "flex min-h-8 w-full items-center rounded-md pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
       )}
     >
       <span aria-hidden="true" className="size-8 shrink-0" />
-      <TruncatedTitle title={node.title} />
+      <TruncatedTitle title={node.title} query={query} />
       {node.status === "draft" ? (
         <span
           role="img"
@@ -216,20 +253,29 @@ function SidebarNestedFolder({
   nodes,
   activePath,
   canManage,
+  visibleIds,
+  matchIds,
+  query,
+  filtering,
 }: {
   folder: WikiNodeRow
   nodes: WikiNodeRow[]
   activePath: string
   canManage: boolean
+  visibleIds: Set<string>
+  matchIds: Set<string>
+  query: string
+  filtering: boolean
 }) {
   const children = nodes
-    .filter((node) => node.parent_id === folder.id)
+    .filter((node) => node.parent_id === folder.id && visibleIds.has(node.id))
     .sort(compareWikiNodes)
   const folderPath = buildNumericWikiPath(nodes, folder)
   const [isOpen, setPersistedOpen] = usePersistedSidebarExpansion(
     `wiki-sidebar:group:${folder.id}`,
     false,
-    activePath.startsWith(`${folderPath}/`)
+    activePath.startsWith(`${folderPath}/`),
+    filtering
   )
   const isActive =
     activePath === folderPath || activePath.startsWith(`${folderPath}/`)
@@ -248,7 +294,8 @@ function SidebarNestedFolder({
           aria-label={`Toggle ${folder.title}`}
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          disabled={filtering}
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setPersistedOpen((current) => !current)
@@ -264,10 +311,11 @@ function SidebarNestedFolder({
         </button>
         <Link
           href={`/wiki/${folderPath}`}
+          data-wiki-filter-match={matchIds.has(folder.id) ? "" : undefined}
           aria-current={activePath === folderPath ? "page" : undefined}
           className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
-          <TruncatedTitle title={folder.title} />
+          <TruncatedTitle title={folder.title} query={query} />
         </Link>
         {canManage ? (
           <SidebarFolderEditButton folder={folder} nodes={nodes} />
@@ -290,6 +338,10 @@ function SidebarNestedFolder({
               nodes={nodes}
               activePath={activePath}
               canManage={canManage}
+              visibleIds={visibleIds}
+              matchIds={matchIds}
+              query={query}
+              filtering={filtering}
             />
           ) : (
             <SidebarPageLink
@@ -297,6 +349,8 @@ function SidebarNestedFolder({
               node={child}
               nodes={nodes}
               activePath={activePath}
+              query={query}
+              matchIds={matchIds}
             />
           )
         )}
@@ -310,17 +364,26 @@ function SidebarSection({
   nodes,
   activePath,
   canManage,
+  visibleIds,
+  matchIds,
+  query,
+  filtering,
 }: {
   section: WikiNodeRow
   nodes: WikiNodeRow[]
   activePath: string
   canManage: boolean
+  visibleIds: Set<string>
+  matchIds: Set<string>
+  query: string
+  filtering: boolean
 }) {
   const sectionPath = buildNumericWikiPath(nodes, section)
   const [isOpen, setPersistedOpen] = usePersistedSidebarExpansion(
     `wiki-sidebar:section:${section.id}`,
     true,
-    activePath.startsWith(`${sectionPath}/`)
+    activePath.startsWith(`${sectionPath}/`),
+    filtering
   )
   const isActive =
     activePath === sectionPath || activePath.startsWith(`${sectionPath}/`)
@@ -339,7 +402,8 @@ function SidebarSection({
           aria-label={`Toggle ${section.title}`}
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          disabled={filtering}
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setPersistedOpen((current) => !current)
@@ -355,10 +419,11 @@ function SidebarSection({
         </button>
         <Link
           href={`/wiki/${sectionPath}`}
+          data-wiki-filter-match={matchIds.has(section.id) ? "" : undefined}
           aria-current={activePath === sectionPath ? "page" : undefined}
           className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
-          <TruncatedTitle title={section.title} />
+          <TruncatedTitle title={section.title} query={query} />
         </Link>
         {canManage ? (
           <SidebarFolderEditButton folder={section} nodes={nodes} />
@@ -374,7 +439,9 @@ function SidebarSection({
       </div>
       <div id={contentId} hidden={!isOpen} className="space-y-1">
         {nodes
-          .filter((node) => node.parent_id === section.id)
+          .filter(
+            (node) => node.parent_id === section.id && visibleIds.has(node.id)
+          )
           .sort(compareWikiNodes)
           .map((node) =>
             node.type === "folder" ? (
@@ -384,6 +451,10 @@ function SidebarSection({
                 nodes={nodes}
                 activePath={activePath}
                 canManage={canManage}
+                visibleIds={visibleIds}
+                matchIds={matchIds}
+                query={query}
+                filtering={filtering}
               />
             ) : (
               <SidebarPageLink
@@ -391,6 +462,8 @@ function SidebarSection({
                 node={node}
                 nodes={nodes}
                 activePath={activePath}
+                query={query}
+                matchIds={matchIds}
               />
             )
           )}
@@ -422,9 +495,47 @@ export function WikiRepositorySidebar({
   selectedRepositorySlug: string
   canManageWiki: boolean
 }) {
+  return (
+    <WikiRepositorySidebarArea
+      key={selectedRepositorySlug}
+      nodes={nodes}
+      activePath={activePath}
+      selectedRepositorySlug={selectedRepositorySlug}
+      canManageWiki={canManageWiki}
+    />
+  )
+}
+
+function WikiRepositorySidebarArea({
+  nodes,
+  activePath,
+  selectedRepositorySlug,
+  canManageWiki,
+}: {
+  nodes: WikiNodeRow[]
+  activePath: string
+  selectedRepositorySlug: string
+  canManageWiki: boolean
+}) {
   const { canEditWiki } = useWikiEditMode()
   const canEditSidebar = canManageWiki && canEditWiki
   const visibleNodes = useVisibleWikiNodes(nodes)
+  const [searchOpen, setSearchOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
+  const searchButtonRef = React.useRef<HTMLButtonElement>(null)
+  const restoreFocus = React.useRef(false)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  const focusInput = React.useCallback((element: HTMLInputElement | null) => {
+    inputRef.current = element
+    element?.focus()
+  }, [])
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    if (!searchOpen && restoreFocus.current) {
+      searchButtonRef.current?.focus()
+      restoreFocus.current = false
+    }
+  }, [searchOpen])
   const selectedRepository =
     getWikiRepositoryBySlug(selectedRepositorySlug) ??
     getDefaultWikiRepository()
@@ -448,39 +559,131 @@ export function WikiRepositorySidebar({
         : [],
     [repositoryNode, visibleNodes]
   )
+  const areaNodes = React.useMemo(() => {
+    const children = new Map<string, WikiNodeRow[]>()
+    for (const node of visibleNodes) {
+      if (node.parent_id) {
+        const siblings = children.get(node.parent_id) ?? []
+        siblings.push(node)
+        children.set(node.parent_id, siblings)
+      }
+    }
+    const result = [...sections]
+    for (let index = 0; index < result.length; index++) {
+      result.push(...(children.get(result[index].id) ?? []))
+    }
+    return result
+  }, [sections, visibleNodes])
+  const filtering = sidebarQueryWords(query).length > 0
+  const { matchIds, visibleIds } = React.useMemo(
+    () => filterWikiSidebar(areaNodes, query),
+    [areaNodes, query]
+  )
+  const filteredSections = sections.filter((section) =>
+    visibleIds.has(section.id)
+  )
+  const updateQuery = (value: string) => {
+    setQuery(value)
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
+  }
+  const closeSearch = () => {
+    updateQuery("")
+    restoreFocus.current = true
+    setSearchOpen(false)
+  }
   return (
     <aside className="flex max-h-64 min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:max-h-none lg:w-72">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border px-3">
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {selectedRepository.title}
-        </h2>
-        {canEditSidebar ? (
-          <WikiCreateWizardDialog
-            nodes={visibleNodes}
-            parentId={repositoryNode?.id ?? null}
-            defaultType="folder"
-            allowedTypes={["folder"]}
-            labels={{ folder: "Section" }}
-            dialogTitle="Create Section"
-            repositorySlug={
-              repositoryNode ? undefined : selectedRepository.slug
-            }
-            triggerLabel=""
-            triggerAriaLabel="Create Section"
-            triggerTitle="Create Section"
-            iconOnly
-            triggerVariant="ghost"
-            triggerClassName="size-8 shrink-0 cursor-pointer px-0"
-          />
-        ) : null}
+        {searchOpen ? (
+          <>
+            <Input
+              ref={focusInput}
+              value={query}
+              onChange={(event) => updateQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  if (query) updateQuery("")
+                  else closeSearch()
+                } else if (event.key === "ArrowDown") {
+                  const firstLink =
+                    scrollRef.current?.querySelector<HTMLAnchorElement>(
+                      filtering ? "a[data-wiki-filter-match]" : "a[href]"
+                    )
+                  if (firstLink) {
+                    event.preventDefault()
+                    firstLink.focus()
+                  }
+                }
+              }}
+              aria-label="Filter sections, groups, and pages"
+              placeholder="Filter wiki..."
+              className="h-8 flex-1"
+            />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="size-8 shrink-0"
+              aria-label="Close filter"
+              title="Close filter"
+              onClick={closeSearch}
+            >
+              <XIcon className="size-4" />
+            </Button>
+          </>
+        ) : (
+          <>
+            <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+              {selectedRepository.title}
+            </h2>
+            {canEditSidebar ? (
+              <WikiCreateWizardDialog
+                nodes={visibleNodes}
+                parentId={repositoryNode?.id ?? null}
+                defaultType="folder"
+                allowedTypes={["folder"]}
+                labels={{ folder: "Section" }}
+                dialogTitle="Create Section"
+                repositorySlug={
+                  repositoryNode ? undefined : selectedRepository.slug
+                }
+                triggerLabel=""
+                triggerAriaLabel="Create Section"
+                triggerTitle="Create Section"
+                iconOnly
+                triggerVariant="ghost"
+                triggerClassName="size-8 shrink-0 cursor-pointer px-0"
+              />
+            ) : null}
+            <Button
+              ref={searchButtonRef}
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="size-8 shrink-0"
+              aria-label="Filter wiki navigation"
+              title="Filter wiki navigation"
+              onClick={() => setSearchOpen(true)}
+            >
+              <SearchIcon className="size-4" />
+            </Button>
+          </>
+        )}
       </div>
 
       <div
+        ref={scrollRef}
         data-wiki-sidebar-scroll
         className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 pt-4"
       >
-        {sections.length ? (
-          sections.map((section) => {
+        <p className="sr-only" aria-live="polite">
+          {filtering
+            ? `${matchIds.size} ${matchIds.size === 1 ? "result" : "results"}`
+            : ""}
+        </p>
+        {filteredSections.length ? (
+          filteredSections.map((section) => {
             return (
               <SidebarSection
                 key={section.id}
@@ -488,9 +691,29 @@ export function WikiRepositorySidebar({
                 nodes={visibleNodes}
                 activePath={activePath}
                 canManage={canEditSidebar}
+                visibleIds={visibleIds}
+                matchIds={matchIds}
+                query={query}
+                filtering={filtering}
               />
             )
           })
+        ) : filtering ? (
+          <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+            <p>No pages, sections, or groups match &quot;{query}&quot;</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => {
+                updateQuery("")
+                inputRef.current?.focus()
+              }}
+            >
+              Clear filter
+            </Button>
+          </div>
         ) : (
           <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
             No sections yet.
