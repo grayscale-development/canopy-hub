@@ -51,6 +51,32 @@ afterEach(() => {
   window.localStorage.clear()
 })
 describe("tag directory", () => {
+  it("shows the management link only to managers in editor mode", () => {
+    const view = render(
+      <WikiEditModeProvider canManageWiki={false}>
+        <WikiTagsDirectory entries={entries} sections={sections} />
+      </WikiEditModeProvider>
+    )
+    expect(screen.queryByRole("link", { name: "Manage tags" })).toBeNull()
+    view.unmount()
+    const managerView = render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiTagsDirectory entries={entries} sections={sections} />
+      </WikiEditModeProvider>
+    )
+    expect(screen.queryByRole("link", { name: "Manage tags" })).toBeNull()
+    managerView.unmount()
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiTagsDirectory entries={entries} sections={sections} />
+      </WikiEditModeProvider>
+    )
+    expect(screen.getByRole("link", { name: "Manage tags" })).toHaveAttribute(
+      "href",
+      "/wiki/tags/manage"
+    )
+  })
   it("groups sections by area and counts global pages from both areas", async () => {
     const user = userEvent.setup()
     render(<WikiTagsDirectory entries={entries} sections={sections} />)
