@@ -14,16 +14,21 @@ import {
 } from "@/lib/hub-data"
 import { answerMiloQuestionWithAgent } from "@/lib/milo/agent"
 import {
+  citationSnippet,
+  searchKnowledge,
+  type RetrievedChunk,
+} from "@/lib/milo/knowledge-search"
+import {
   miloPermissionInstructions,
   type MiloUserContext,
 } from "@/lib/milo/user-context"
 import { getFeaturedReports } from "@/lib/reports"
-import { resolveWikiKnowledgeRows } from "@/lib/wiki-knowledge-urls"
 import {
   fetchSupportDirectoryData,
   type SupportDirectorySection,
 } from "@/lib/support-directory-data"
 import {
+  blockNoteToKnowledgeText,
   chunkKnowledgeText,
   estimateTokenCount,
   type SupabaseWikiClient,
@@ -77,17 +82,6 @@ interface IndexKnowledgeSourceInput {
   errorMessage?: string | null
 }
 
-interface RetrievedChunk {
-  chunk_id: string
-  source_id: string
-  source_type: KnowledgeSourceType
-  source_title: string
-  source_url: string | null
-  content: string
-  metadata: Record<string, unknown>
-  similarity: number
-}
-
 interface ChatCitation {
   knowledgeSourceId: string | null
   knowledgeChunkId: string | null
@@ -103,7 +97,11 @@ export async function embedTexts(texts: string[], signal?: AbortSignal) {
 }
 
 async function createEmbeddingsIfConfigured(texts: string[]) {
-  if (!process.env.OPENAI_API_KEY || !texts.length) {
+  if (
+    (process.env.OPENAI_EMBEDDING_MODEL !== "fake-embedding" &&
+      !process.env.OPENAI_API_KEY) ||
+    !texts.length
+  ) {
     return texts.map(() => null)
   }
 
@@ -124,6 +122,7 @@ export async function indexKnowledgeSource(
       content: normalizedContent,
       metadata: input.metadata ?? {},
       status: input.status ?? "active",
+      indexVersion: 2,
     })
   )
 
@@ -151,7 +150,8 @@ export async function indexKnowledgeSource(
         title: input.title,
         url: input.url,
         metadata: input.metadata ?? {},
-        content_hash: contentHash,
+        // A failed chunk write must be retried by the next reindex.
+        content_hash: unchanged ? contentHash : `pending:${contentHash}`,
         status: input.status ?? "active",
         last_indexed_at: new Date().toISOString(),
         error_message: input.errorMessage ?? null,
@@ -183,28 +183,36 @@ export async function indexKnowledgeSource(
   }
 
   const chunks = chunkKnowledgeText(normalizedContent)
-  if (!chunks.length) {
-    return source.id as string
+  if (chunks.length) {
+    const embeddings = await createEmbeddingsIfConfigured(
+      chunks.map((chunk) => chunk.content)
+    )
+    const rows = chunks.map(({ content, headingPath }, index) => ({
+      source_id: source.id,
+      chunk_index: index,
+      content,
+      token_count: estimateTokenCount(content),
+      embedding: embeddings[index],
+      metadata: {
+        ...(input.metadata ?? {}),
+        chunkIndex: index,
+        headingPath,
+      },
+    }))
+
+    const { error: chunkError } = await supabase
+      .from("knowledge_chunks")
+      .insert(rows)
+    if (chunkError) {
+      throw new Error(chunkError.message)
+    }
   }
-
-  const embeddings = await createEmbeddingsIfConfigured(chunks)
-  const rows = chunks.map((content, index) => ({
-    source_id: source.id,
-    chunk_index: index,
-    content,
-    token_count: estimateTokenCount(content),
-    embedding: embeddings[index],
-    metadata: {
-      ...(input.metadata ?? {}),
-      chunkIndex: index,
-    },
-  }))
-
-  const { error: chunkError } = await supabase
-    .from("knowledge_chunks")
-    .insert(rows)
-  if (chunkError) {
-    throw new Error(chunkError.message)
+  const { error: finalizeError } = await supabase
+    .from("knowledge_sources")
+    .update({ content_hash: contentHash })
+    .eq("id", source.id)
+  if (finalizeError) {
+    throw new Error(finalizeError.message)
   }
 
   return source.id as string
@@ -246,7 +254,10 @@ export async function indexWikiPage({
   path: string
   isPublished?: boolean
 }) {
-  const content = revision?.plain_text?.trim() ?? ""
+  const content =
+    blockNoteToKnowledgeText(revision?.blocks) ||
+    revision?.plain_text?.trim() ||
+    ""
   const tagText = node.tags?.length ? `Tags: ${node.tags.join(", ")}` : ""
   return indexKnowledgeSource(supabase, {
     sourceType: "wiki_page",
@@ -603,66 +614,7 @@ export async function retrieveKnowledge(
   question: string,
   matchCount = 12
 ) {
-  const expandedQuestion = expandKnowledgeSearchQuery(question)
-  const keywordMatches = await retrieveKeywordKnowledge(
-    supabase,
-    expandedQuestion,
-    Math.min(matchCount, 8)
-  )
-  const [embedding] = await embedTexts([expandedQuestion])
-  const { data, error } = await supabase.rpc("match_knowledge_chunks", {
-    query_embedding: embedding,
-    match_count: matchCount,
-    source_types: null,
-  })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return resolveWikiKnowledgeRows(
-    supabase,
-    mergeRetrievedChunks([
-      ...keywordMatches,
-      ...((data ?? []) as RetrievedChunk[]),
-    ]).slice(0, matchCount)
-  )
-}
-
-async function retrieveKeywordKnowledge(
-  supabase: SupabaseWikiClient,
-  question: string,
-  matchCount: number
-) {
-  const { data, error } = await supabase.rpc("match_knowledge_chunks_keyword", {
-    search_query: question,
-    match_count: matchCount,
-    source_types: null,
-  })
-
-  if (error) {
-    return []
-  }
-
-  return (data ?? []) as RetrievedChunk[]
-}
-
-function expandKnowledgeSearchQuery(question: string) {
-  const expanded = question.replace(/\bauth\b/gi, "authorization")
-  return expanded === question ? question : `${question} ${expanded}`
-}
-
-function mergeRetrievedChunks(chunks: RetrievedChunk[]) {
-  const byChunkId = new Map<string, RetrievedChunk>()
-
-  for (const chunk of chunks) {
-    const existing = byChunkId.get(chunk.chunk_id)
-    if (!existing || chunk.similarity > existing.similarity) {
-      byChunkId.set(chunk.chunk_id, chunk)
-    }
-  }
-
-  return [...byChunkId.values()]
+  return searchKnowledge(supabase, question, matchCount)
 }
 
 function isSimpleNavigationQuestion(question: string) {
@@ -975,7 +927,7 @@ export async function answerKnowledgeQuestion({
     knowledgeChunkId: chunk.chunk_id,
     title: chunk.source_title,
     url: chunk.source_url,
-    snippet: chunk.content.slice(0, 360),
+    snippet: citationSnippet(chunk.content, chunk.metadata),
   }))
 
   if (!chunks.length) {

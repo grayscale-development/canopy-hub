@@ -65,6 +65,57 @@
       "title": "Manager Draft Compensation",
       "content": "The proposed manager compensation schedule is a confidential draft for management review only.",
       "status": "draft"
+    },
+    {
+      "id": "loan-officer",
+      "title": "Borrower Intake Ownership",
+      "content": "The loan officer owns borrower intake and collects the initial application.",
+      "status": "published"
+    },
+    {
+      "id": "loan-assistant",
+      "title": "Onboarding Checklists",
+      "content": "The loan officer assistant prepares onboarding checklists for new files.",
+      "status": "published"
+    },
+    {
+      "id": "down-payment",
+      "title": "Grant Eligibility",
+      "content": "Down payment assistance grant eligibility requires a qualifying homebuyer education certificate.",
+      "status": "published"
+    },
+    {
+      "id": "mortgage-insurance",
+      "title": "Conventional Insurance Removal",
+      "content": "Mortgage insurance cancellation for conventional loans requires an equity review.",
+      "status": "published"
+    },
+    {
+      "id": "servicing",
+      "title": "Servicing Reference",
+      "content": "# Servicing\n\n## Payment processing\n\nPayments are posted daily.\n\n## Refund status\n\nTrack returned surplus checks in the refund ledger.",
+      "status": "published"
+    },
+    {
+      "id": "protocol-old",
+      "title": "Zephyr Reconciliation Protocol",
+      "content": "Zephyr reconciliation protocol requires a ledger audit.",
+      "status": "published",
+      "updatedAt": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "protocol-new",
+      "title": "Zephyr Reconciliation Protocol",
+      "content": "Zephyr reconciliation protocol requires a ledger audit.",
+      "status": "published",
+      "updatedAt": "2025-01-01T00:00:00Z"
+    },
+    {
+      "id": "protocol-draft",
+      "title": "Zephyr Reconciliation Protocol",
+      "content": "Zephyr reconciliation protocol requires a ledger audit.",
+      "status": "draft",
+      "updatedAt": "2026-01-01T00:00:00Z"
     }
   ],
   "cases": [
@@ -292,6 +343,44 @@
       "kind": "restricted",
       "expectedPages": [],
       "forbiddenPages": ["draft"]
+    },
+    {
+      "id": "abbreviation-lo",
+      "question": "Who is the LO responsible for borrower intake?",
+      "kind": "answerable",
+      "expectedPages": ["loan-officer"]
+    },
+    {
+      "id": "abbreviation-loa",
+      "question": "Where are LOA onboarding checklists?",
+      "kind": "answerable",
+      "expectedPages": ["loan-assistant"]
+    },
+    {
+      "id": "abbreviation-dpa",
+      "question": "Where are DPA grant eligibility requirements?",
+      "kind": "answerable",
+      "expectedPages": ["down-payment"]
+    },
+    {
+      "id": "abbreviation-mi",
+      "question": "How do I remove MI from conventional loans?",
+      "kind": "answerable",
+      "expectedPages": ["mortgage-insurance"]
+    },
+    {
+      "id": "heading-refunds",
+      "question": "Where do I track returned surplus checks?",
+      "kind": "answerable",
+      "expectedPages": ["servicing"],
+      "expectedHeading": ["Servicing", "Refund status"]
+    },
+    {
+      "id": "published-recent-tie",
+      "question": "Zephyr reconciliation protocol ledger audit",
+      "kind": "answerable",
+      "expectedPages": ["protocol-new"],
+      "managerExpectedFirst": "protocol-new"
     }
   ]
 }
