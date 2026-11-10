@@ -16,7 +16,17 @@ import {
   type WikiNodeRow,
   type WikiTagRow,
 } from "@/lib/wiki"
+import type { Viewport } from "next"
 import { redirect } from "next/navigation"
+import { cookies } from "next/headers"
+
+// BlockNote (the wiki editor) asks for this on mobile; scoped to the wiki so the
+// keyboard behavior of other pages is unchanged.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
+}
 
 export default async function WikiLayout({
   children,
@@ -63,7 +73,9 @@ export default async function WikiLayout({
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider
+      defaultOpen={(await cookies()).get("sidebar_state")?.value !== "false"}
+    >
       <WikiEditModeProvider canManageWiki={canManageWiki} availableTags={tags}>
         <AppSidebar activePath="/wiki" />
         <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
