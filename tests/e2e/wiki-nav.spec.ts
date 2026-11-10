@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs"
 import path from "node:path"
 import { expect, test } from "@playwright/test"
 
-import { openWikiPath } from "./helpers"
+import { mockMiloChatApi, openWikiPath } from "./helpers"
 import {
   createReviewedPage,
   enableEditorMode,
@@ -63,7 +63,7 @@ test("numeric wiki navigation survives rename and move @wiki", async ({
         .last()
         .getByText("Local numeric navigation fixture.")
     ).toBeVisible()
-    await screenshot("01-desktop-page.png")
+    await screenshot("01-valid-page-desktop.png")
     await enableEditorMode(page)
     await page
       .getByRole("button", { name: "More actions for this page" })
@@ -90,7 +90,6 @@ test("numeric wiki navigation survives rename and move @wiki", async ({
     await expect(
       page.getByRole("navigation", { name: "breadcrumb" })
     ).toContainText("Hub")
-    await screenshot("02-moved-page.png")
     await openWikiPath(page, "Learning Hub")
     await expect(
       page
@@ -101,7 +100,6 @@ test("numeric wiki navigation survives rename and move @wiki", async ({
     await page.goto("/wiki/tags")
     await expect(page.getByRole("main").last()).toContainText("Tags")
     await page.setViewportSize({ width: 390, height: 844 })
-    await screenshot("03-narrow-tags.png")
     await openWikiPath(page, "Canopy Wiki", "Hub", renamed)
     await expect(
       page.getByRole("navigation", { name: "breadcrumb" })
@@ -112,11 +110,81 @@ test("numeric wiki navigation survives rename and move @wiki", async ({
         .last()
         .getByText("Local numeric navigation fixture.")
     ).toBeVisible()
-    await screenshot("04-narrow-page.png")
-    await page.goto("/wiki/old-slug")
+
+    await screenshot("04-valid-page-narrow.png")
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto("/wiki/old-loan_guide/123/closing")
+    const missingPage = page.getByRole("main").last()
     await expect(
-      page.getByText(/could not be found|404/i).first()
+      missingPage.getByRole("heading", {
+        name: "This link is out of date or the page was removed",
+      })
     ).toBeVisible()
+    await expect(
+      missingPage.getByRole("textbox", { name: "Search with Milo" })
+    ).toHaveValue("old loan guide closing")
+    await expect(
+      page.getByRole("navigation", { name: "breadcrumb" })
+    ).toBeVisible()
+    await expect(page.locator("[data-wiki-sidebar-scroll]")).toBeVisible()
+    await expect(
+      page.locator('meta[name="robots"][content="noindex"]').first()
+    ).toHaveCount(1)
+    await screenshot("02-outdated-link-desktop.png")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await screenshot("03-outdated-link-narrow.png")
+    await mockMiloChatApi(page)
+    const chatRequest = page.waitForRequest(
+      (request) =>
+        request.url().endsWith("/api/wiki/chat") && request.method() === "POST"
+    )
+    await missingPage.getByRole("button", { name: "Search" }).click()
+    const dialog = page.getByRole("dialog", { name: "Ask Milo" })
+    await expect(dialog).toBeVisible()
+    expect((await chatRequest).postDataJSON()).toMatchObject({
+      message: "old loan guide closing",
+    })
+    await expect(dialog.getByRole("heading", { name: "Answer" })).toBeVisible()
+    await dialog.getByRole("button", { name: "Close" }).click()
+    await missingPage.getByRole("link", { name: "Go to wiki home" }).click()
+    await expect(page).toHaveURL(/\/wiki$/)
+
+    const db = serviceWiki()
+    const { error } = await db
+      .from("wiki_nodes")
+      .update({ status: "draft" })
+      .eq("id", fixture.id)
+    if (error) throw error
+    await signInAsSeededUser(page, "standard@canopy.test")
+    await page.goto(movedPath)
+    await expect(
+      page.getByRole("main").last().getByRole("heading", {
+        name: "This link is out of date or the page was removed",
+      })
+    ).toBeVisible()
+    const deniedContent = await page.getByRole("main").last().innerText()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto("/wiki/1/999999999")
+    await expect(page.getByRole("main").last()).toHaveText(deniedContent, {
+      useInnerText: true,
+    })
+    await expect(
+      page
+        .getByRole("main")
+        .last()
+        .getByRole("textbox", { name: "Search with Milo" })
+    ).toHaveValue("")
+    await expect(
+      page.getByRole("navigation", { name: "breadcrumb" })
+    ).toBeVisible()
+    await expect(page.locator("[data-wiki-sidebar-scroll]")).toBeVisible()
+    await expect(
+      page.locator('meta[name="robots"][content="noindex"]').first()
+    ).toHaveCount(1)
+    await screenshot("05-unknown-id-desktop.png")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await screenshot("06-unknown-id-narrow.png")
   } finally {
     const db = serviceWiki()
     await db
