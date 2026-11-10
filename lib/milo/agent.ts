@@ -650,8 +650,8 @@ function toCitations(sources: MiloSourceCard[]): MiloAgentCitation[] {
     }
     seen.add(key)
     citations.push({
-      knowledgeSourceId: null,
-      knowledgeChunkId: null,
+      knowledgeSourceId: source.knowledgeSourceId ?? null,
+      knowledgeChunkId: source.knowledgeChunkId ?? null,
       title: source.title,
       url: source.url,
       snippet: source.snippet,

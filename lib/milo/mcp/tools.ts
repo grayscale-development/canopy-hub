@@ -1,6 +1,11 @@
 import "server-only"
 
 import { wikiTagDirectoryUrl } from "@/lib/wiki"
+import {
+  isWikiKnowledgeSource,
+  resolveWikiKnowledgeRows,
+  resolveWikiKnowledgeUrls,
+} from "@/lib/wiki-knowledge-urls"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
@@ -24,6 +29,8 @@ export interface MiloSourceCard {
   url: string | null
   snippet: string
   sourceType?: string
+  knowledgeSourceId?: string | null
+  knowledgeChunkId?: string | null
 }
 
 export interface MiloMcpToolResult {
@@ -758,6 +765,9 @@ function rowsToSources(
         : null,
       snippet: JSON.stringify(item).slice(0, 360),
       sourceType: getRelationSourceType(relation, item),
+      ...(relation.table === "knowledge_sources"
+        ? { knowledgeSourceId: getString(item.id) || null }
+        : {}),
     }
   })
 }
@@ -787,7 +797,17 @@ async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
     throw new Error(error.message)
   }
 
-  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
+  const rows = await resolveWikiKnowledgeRows(
+    supabase,
+    (data ?? []) as unknown as Array<
+      {
+        source_id: string
+        source_type: string
+        source_url: string | null
+        metadata?: Record<string, unknown> | null
+      } & Record<string, unknown>
+    >
+  )
   return ok(
     "knowledge_search",
     { query, rows },
@@ -796,6 +816,8 @@ async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
       url: getString(row.source_url) || null,
       snippet: getString(row.content).slice(0, 360),
       sourceType: getString(row.source_type) || "knowledge",
+      knowledgeSourceId: getString(row.source_id) || null,
+      knowledgeChunkId: getString(row.chunk_id) || null,
     }))
   )
 }
@@ -936,10 +958,38 @@ async function dbSchema() {
   })
 }
 
+async function resolveKnowledgeSourceRecords(
+  supabase: MiloClient,
+  rows: unknown[]
+) {
+  const records = rows.map(getObject)
+  const wiki = records.filter((row) =>
+    isWikiKnowledgeSource(getString(row.source_type))
+  )
+  const urls = await resolveWikiKnowledgeUrls(
+    supabase,
+    wiki.map((row) => getString(row.id)).filter(Boolean)
+  )
+  return records.flatMap((row) => {
+    if (!isWikiKnowledgeSource(getString(row.source_type))) return [row]
+    const url = urls.get(getString(row.id))
+    if (!url) return []
+    const metadata = getObject(row.metadata)
+    if ("path" in metadata) metadata.path = url.slice(6)
+    if ("pagePath" in metadata) metadata.pagePath = url.slice(6)
+    return [{ ...row, url, ...(row.metadata ? { metadata } : {}) }]
+  })
+}
+
 async function dbSelect(args: JsonObject, supabase: MiloClient) {
   const relation = getRelation(args.relation)
   await assertRelationAccess(relation, supabase)
-  const columns = sanitizeColumns(relation, args.columns)
+  const columns = [...sanitizeColumns(relation, args.columns)]
+  if (relation.table === "knowledge_sources") {
+    for (const column of ["id", "source_type"]) {
+      if (!columns.includes(column)) columns.push(column)
+    }
+  }
   const limit = getLimit(args.limit)
   let query = getRelationClient(relation, supabase)
     .from(getRelationTable(relation))
@@ -959,7 +1009,10 @@ async function dbSelect(args: JsonObject, supabase: MiloClient) {
     throw new Error(error.message)
   }
 
-  const rows = data ?? []
+  const rows =
+    relation.table === "knowledge_sources"
+      ? await resolveKnowledgeSourceRecords(supabase, data ?? [])
+      : (data ?? [])
   return ok(
     "db_select",
     { relation: `${relation.schema}.${relation.table}`, rows },
@@ -1012,7 +1065,10 @@ async function dbSearch(args: JsonObject, supabase: MiloClient) {
       continue
     }
 
-    const rows = data ?? []
+    const rows =
+      relation.table === "knowledge_sources"
+        ? await resolveKnowledgeSourceRecords(supabase, data ?? [])
+        : (data ?? [])
     if (rows.length) {
       results.push({
         relation: `${relation.schema}.${relation.table}`,
