@@ -68,7 +68,14 @@ export type MiloStreamEvent =
       threadId: string
       userMessageId?: string
       assistantMessageId?: string | null
-      citations: Array<{ title: string; url: string | null; snippet: string }>
+      citations: Array<{
+        title: string
+        url: string | null
+        snippet: string
+        updatedAt?: string
+        updatedBy?: string
+      }>
+      abstained?: boolean
     }
 
 // This JSON schema is the wire contract for known card payloads.

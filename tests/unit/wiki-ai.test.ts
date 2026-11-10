@@ -9,6 +9,7 @@ type MockMiloToolResult = {
     url: string | null
     snippet: string
     sourceType?: string
+    knowledgeChunkId?: string
   }>
 }
 
@@ -218,8 +219,8 @@ describe("wiki AI orchestration", () => {
       question: "tell me about borrower auth",
     })
 
-    expect(result.answer).toBe("Use /wiki [1].")
-    expect(result.citations[0]?.url).toBe("/wiki/1/22")
+    expect(result.answer).toContain("Not found in the wiki")
+    expect(result.citations).toEqual([])
     expect(result.answer).not.toContain("People directory")
     expect(hubData.fetchEmployeeDirectoryRows).toHaveBeenCalled()
     expect(supabase.rpc).toHaveBeenCalledWith(
@@ -250,10 +251,13 @@ describe("wiki AI orchestration", () => {
         question: "what documents are available",
       })
     ).resolves.toEqual({
-      answer: "Aaron Brown is listed in People.",
+      answer:
+        "I couldn't find an answer in the wiki. You can ask a manager or flag this gap.",
       model: "fake-chat",
       citations: [],
       metadata: {
+        abstained: true,
+        abstainReason: "low_retrieval_overlap",
         mode: "agentic_mcp",
         toolCalls: [
           { toolName: "knowledge_search", ok: true, error: undefined },
@@ -321,6 +325,7 @@ describe("wiki AI orchestration", () => {
                 url: "/wiki/1/9/22",
                 snippet: "HOW TO CANCEL A LOAN: Step 1...",
                 sourceType: "wiki_page",
+                knowledgeChunkId: "cancel-chunk",
               },
               {
                 title: "Cancel a Loan",
@@ -347,8 +352,7 @@ describe("wiki AI orchestration", () => {
       }
     )
     aiProvider.createAgentResponseWithOpenAI.mockResolvedValueOnce({
-      output_text:
-        "Use the Cancel a Loan wiki page for the cancellation workflow.",
+      output_text: "HOW TO CANCEL A LOAN: Step 1...",
       output: [],
     })
     const supabase = {
@@ -363,7 +367,7 @@ describe("wiki AI orchestration", () => {
     })
 
     expect(result).toMatchObject({
-      answer: "Use the Cancel a Loan wiki page for the cancellation workflow.",
+      answer: "HOW TO CANCEL A LOAN: Step 1... [1]",
       model: "fake-chat",
       citations: [
         {
@@ -401,8 +405,48 @@ describe("wiki AI orchestration", () => {
     expect(supabase.rpc).not.toHaveBeenCalled()
   })
 
+  it("labels an unsupported sentence from the fake agent while citing the supported sentence", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    miloMcp.callMiloMcpTool.mockImplementation(async (toolName: string) => ({
+      ok: true,
+      toolName,
+      content: {},
+      sources:
+        toolName === "knowledge_search"
+          ? [
+              {
+                title: "Refunds",
+                url: "/wiki/1/2",
+                snippet: "Track returned checks in the refund ledger.",
+                sourceType: "wiki_page",
+                knowledgeChunkId: "refund-chunk",
+              },
+            ]
+          : [],
+    }))
+    aiProvider.createAgentResponseWithOpenAI.mockResolvedValueOnce({
+      output_text:
+        "Track returned checks in the refund ledger. The CEO approves every refund.",
+      output: [],
+    })
+    const result = await answerKnowledgeQuestion({
+      userContext,
+      supabase: {} as never,
+      question: "Where are returned checks tracked?",
+    })
+    expect(result.answer).toBe(
+      "Track returned checks in the refund ledger. [1] The CEO approves every refund. (Not found in the wiki.)"
+    )
+    expect(result.citations).toMatchObject([
+      { snippet: "Track returned checks in the refund ledger." },
+    ])
+  })
+
   it("retrieves keyword and vector chunks, calls the fake provider, and returns citations", async () => {
     const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    aiProvider.createChatResponseWithOpenAI.mockResolvedValueOnce({
+      output_text: "Wiki documentation lives at /wiki.",
+    })
     const supabase = {
       rpc: vi.fn(async (name: string) => {
         if (name === "match_knowledge_chunks_keyword") {
@@ -448,7 +492,7 @@ describe("wiki AI orchestration", () => {
         question: "Where is the Wiki?",
       })
     ).resolves.toMatchObject({
-      answer: "Use /wiki [1].",
+      answer: "Wiki documentation lives at /wiki. [1]",
       model: "fake-chat",
       citations: [
         {

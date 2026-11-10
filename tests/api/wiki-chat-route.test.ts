@@ -779,6 +779,68 @@ describe("/api/wiki/chat route", () => {
     expect(testState.tables.ai_chat_citations).toHaveLength(1)
   })
 
+  it("persists abstention and restores citation anchors and update details", async () => {
+    testState.user = { id: "user-1" }
+    const oldAnswer = { ...testState.answer }
+    try {
+      testState.answer.answer =
+        "I couldn't find an answer in the wiki. You can ask a manager or flag this gap."
+      testState.answer.metadata = {
+        abstained: true,
+        abstainReason: "low_retrieval_overlap",
+      }
+      testState.answer.citations = [
+        {
+          knowledgeSourceId: "source-1",
+          knowledgeChunkId: "chunk-1",
+          title: "Policy",
+          url: "/wiki/1/9/22#policy-details",
+          snippet: "Exact quoted line.",
+          updatedAt: "2025-01-01T00:00:00Z",
+          updatedBy: "Pat Example",
+        } as (typeof testState.answer.citations)[number],
+      ]
+      testState.wikiUrls.set("source-1", "/wiki/1/11")
+      const { POST, GET } = await import("@/app/api/wiki/chat/route")
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({ message: "Where is the policy?" }),
+        })
+      )
+      const events = await readSseEvents(response)
+      expect(events.at(-1)).toMatchObject({
+        abstained: true,
+        citations: [
+          { url: "/wiki/1/9/22#policy-details", updatedBy: "Pat Example" },
+        ],
+      })
+      expect(testState.tables.ai_chat_messages.at(-1)?.metadata).toMatchObject({
+        abstained: true,
+        abstainReason: "low_retrieval_overlap",
+      })
+      const history = await GET(
+        new Request(
+          "http://test.local/api/wiki/chat?threadId=ai_chat_threads-1"
+        )
+      )
+      const body = await history.json()
+      expect(body.messages.at(-1)).toMatchObject({
+        abstained: true,
+        citations: [
+          {
+            url: "/wiki/1/11#policy-details",
+            snippet: "Exact quoted line.",
+            updatedAt: "2025-01-01T00:00:00Z",
+            updatedBy: "Pat Example",
+          },
+        ],
+      })
+    } finally {
+      Object.assign(testState.answer, oldAnswer)
+    }
+  })
+
   it("validates all card event variants and never promotes model metadata to actions", async () => {
     const { cardEvents } = await import("@/lib/milo/chat-cards")
     const cards: MiloCard[] = [

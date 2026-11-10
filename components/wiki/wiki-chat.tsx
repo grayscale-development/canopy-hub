@@ -22,6 +22,8 @@ interface Citation {
   title: string
   url: string | null
   snippet: string
+  updatedAt?: string
+  updatedBy?: string
 }
 
 interface ChatMessage {
@@ -31,6 +33,8 @@ interface ChatMessage {
   citations?: Citation[]
   cards?: DisplayCard[]
   serverId?: string
+  abstained?: boolean
+  flagged?: boolean
 }
 
 const activeThreadKey = "milo-active-thread"
@@ -42,18 +46,33 @@ function MessageContent({ content }: { content: string }) {
 function ResourceLink({
   citation,
   onNavigate,
+  number,
 }: {
   citation: Citation
+  number?: number
   onNavigate?: () => void
 }) {
   const content = (
     <>
       <span className="block font-medium text-foreground">
+        {number ? `[${number}] ` : ""}
         {citation.title}
       </span>
       {citation.snippet ? (
-        <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-muted-foreground">
-          {citation.snippet}
+        <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+          “{citation.snippet}”
+        </span>
+      ) : null}
+      {citation.updatedAt && !Number.isNaN(Date.parse(citation.updatedAt)) ? (
+        <span className="mt-1 block text-xs text-muted-foreground">
+          Updated{" "}
+          {new Date(citation.updatedAt).toLocaleDateString(undefined, {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            timeZone: "UTC",
+          })}
+          {citation.updatedBy ? ` by ${citation.updatedBy}` : ""}
         </span>
       ) : null}
     </>
@@ -265,6 +284,7 @@ export function WikiChat({
                     ? {
                         ...message,
                         citations: data.citations,
+                        abstained: data.abstained,
                         serverId: data.assistantMessageId ?? message.serverId,
                       }
                     : message
@@ -326,7 +346,29 @@ export function WikiChat({
   }
 
   const answers = messages.filter((message) => message.role === "assistant")
-  const resources = answers.flatMap((message) => message.citations ?? [])
+  async function flagGap(answer: ChatMessage) {
+    if (!answer.serverId) return
+    try {
+      const response = await fetch("/api/wiki/chat/flag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assistantMessageId: answer.serverId,
+          reason: "Milo could not find an answer in the wiki.",
+        }),
+      })
+      if (!response.ok && response.status !== 409)
+        throw new Error("Could not flag this gap. Please try again.")
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === answer.id ? { ...item, flagged: true } : item
+        )
+      )
+    } catch {
+      setFlagError("Could not flag this gap. Please try again.")
+    }
+  }
+  const [flagError, setFlagError] = React.useState("")
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
@@ -367,25 +409,43 @@ export function WikiChat({
                     />
                   ))}
                 </div>
+                {!pending && answer.citations?.length ? (
+                  <div className="mt-3 space-y-2">
+                    <h4 className="text-sm font-medium text-muted-foreground">
+                      {answer.abstained ? "Closest pages" : "Sources"}
+                    </h4>
+                    {answer.citations.map((citation, citationIndex) => (
+                      <ResourceLink
+                        key={citationIndex}
+                        citation={citation}
+                        number={
+                          answer.abstained ? undefined : citationIndex + 1
+                        }
+                        onNavigate={onNavigate}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {answer.abstained && !pending ? (
+                  <div className="mt-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={answer.flagged || !answer.serverId}
+                      onClick={() => void flagGap(answer)}
+                    >
+                      {answer.flagged ? "Gap flagged" : "Flag this gap"}
+                    </Button>
+                    {flagError ? (
+                      <p role="alert" className="mt-2 text-sm text-destructive">
+                        {flagError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
             ))}
-
-            {!pending && resources.length ? (
-              <section>
-                <h3 className="mb-2 text-sm font-medium text-muted-foreground">
-                  Resources
-                </h3>
-                <div className="space-y-2">
-                  {resources.map((citation, index) => (
-                    <ResourceLink
-                      key={`${citation.title}-${citation.url ?? "source"}-${index}`}
-                      citation={citation}
-                      onNavigate={onNavigate}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">

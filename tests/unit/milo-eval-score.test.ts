@@ -6,7 +6,7 @@ import {
 } from "@/scripts/milo-eval-score"
 
 describe("Milo eval scoring", () => {
-  it("scores ranked page hits, matching citation URLs and empty unanswerable retrievals", () => {
+  it("scores ranked page hits, matching citation URLs and actual abstention decisions", () => {
     const results: EvalResult[] = [
       {
         testCase: {
@@ -16,6 +16,7 @@ describe("Milo eval scoring", () => {
           expectedPages: ["a"],
         },
         expectedUrls: { a: "/wiki/1" },
+        abstained: false,
         rows: [
           { page: "other", title: "Other", url: "/wiki/2" },
           { page: "a", title: "A", url: "/wiki/1" },
@@ -29,6 +30,7 @@ describe("Milo eval scoring", () => {
           expectedPages: ["b"],
         },
         expectedUrls: { b: "/wiki/3" },
+        abstained: false,
         rows: [{ page: "b", title: "B", url: "/stale" }],
       },
       {
@@ -39,6 +41,7 @@ describe("Milo eval scoring", () => {
           expectedPages: [],
         },
         expectedUrls: {},
+        abstained: true,
         rows: [],
       },
       {
@@ -49,6 +52,7 @@ describe("Milo eval scoring", () => {
           expectedPages: [],
         },
         expectedUrls: {},
+        abstained: false,
         rows: [{ page: null, title: "Unrelated", url: null }],
       },
     ]

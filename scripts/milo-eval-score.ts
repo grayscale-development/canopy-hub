@@ -18,6 +18,7 @@ export type EvalResult = {
   testCase: EvalCase
   rows: EvalRow[]
   expectedUrls: Record<string, string>
+  abstained: boolean
 }
 
 export type Metrics = {
@@ -63,7 +64,7 @@ export function scoreResults(results: EvalResult[]): Metrics {
       ? cited.filter(Boolean).length / cited.length
       : 0,
     abstentionRate:
-      unanswerable.filter((result) => result.rows.length === 0).length /
+      unanswerable.filter((result) => result.abstained).length /
       unanswerable.length,
   }
 }
