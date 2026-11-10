@@ -1,5 +1,6 @@
 import "server-only"
 
+import { wikiTagDirectoryUrl } from "@/lib/wiki"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
@@ -799,15 +800,6 @@ async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
   )
 }
 
-function wikiTagDirectoryUrl(tag: string) {
-  const anchor = tag
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-
-  return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
-}
-
 function getTagSearchTerms(query: string) {
   return [
     ...new Set(
@@ -849,7 +841,27 @@ async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
 
   const normalizedQuery = query.toLocaleLowerCase().trim()
   const searchTerms = getTagSearchTerms(query)
+  const sectionIds = [
+    ...new Set(
+      (allTags ?? []).flatMap((tag) => (tag.section_id ? [tag.section_id] : []))
+    ),
+  ]
+  const { data: sections, error: sectionError } = sectionIds.length
+    ? await supabase
+        .from("milo_wiki_nodes")
+        .select("id,title")
+        .in("id", sectionIds)
+    : { data: [], error: null }
+  if (sectionError) throw new Error(sectionError.message)
+  const sectionNames = new Map(
+    (sections ?? []).map((section) => [section.id, section.title])
+  )
   const tags = (allTags ?? [])
+    .filter(
+      (tag) =>
+        tag.scope === "global" ||
+        (tag.section_id && sectionNames.has(tag.section_id))
+    )
     .filter((tag) => {
       const name = tag.name.toLocaleLowerCase()
       return (
@@ -891,7 +903,9 @@ async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
 
   const matches = (tags ?? []).map((tag) => ({
     tag: tag.name,
-    url: wikiTagDirectoryUrl(tag.name),
+    scope: tag.scope,
+    section: tag.section_id ? (sectionNames.get(tag.section_id) ?? null) : null,
+    url: wikiTagDirectoryUrl(tag),
     pages: pagesByTagId.get(tag.id) ?? [],
   }))
 
@@ -899,7 +913,7 @@ async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
     "wiki_tag_search",
     { query, matches },
     matches.map((match) => ({
-      title: `Tag: ${match.tag}`,
+      title: `Tag: ${match.tag} (${match.section ?? "Global"})`,
       url: match.url,
       snippet: match.pages.length
         ? `Accessible pages: ${match.pages.join(", ")}`

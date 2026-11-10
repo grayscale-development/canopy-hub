@@ -39,6 +39,7 @@ import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import { WikiTagPicker, toScopedTag } from "@/components/wiki/wiki-tag-picker"
 import {
+  wikiTagDirectoryUrl,
   type WikiNodeRow,
   type WikiRevisionRow,
   type WikiScopedTag,
@@ -60,14 +61,6 @@ function normalizeInitialBlocks(value: unknown) {
   return Array.isArray(value) && value.length
     ? (value as Block[])
     : EMPTY_CONTENT
-}
-
-function getTagDirectoryHref(tag: string) {
-  const anchor = tag
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-  return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
 }
 
 export function WikiEditor({
@@ -348,7 +341,13 @@ function WikiEditorMounted({
             ? node.tags.map((tag) => (
                 <Link
                   key={tag}
-                  href={getTagDirectoryHref(tag)}
+                  href={wikiTagDirectoryUrl(
+                    pageTags.find((item) => item.name === tag) ?? {
+                      name: tag,
+                      scope: "global",
+                      section_id: null,
+                    }
+                  )}
                   className="cursor-pointer"
                 >
                   <WikiTagPill

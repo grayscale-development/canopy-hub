@@ -15,6 +15,9 @@ import {
   buildWikiBreadcrumbs,
   buildWikiPath,
   compareWikiNodes,
+  getWikiSectionId,
+  getWikiLandingTags,
+  type WikiTagAssignment,
   type WikiNodeRow,
 } from "@/lib/wiki"
 
@@ -22,10 +25,14 @@ export function WikiFolderContents({
   items,
   nodes,
   parentId,
+  assignments = [],
+  initialTag = "",
 }: {
   items: WikiNodeRow[]
   nodes: WikiNodeRow[]
   parentId?: string | null
+  assignments?: WikiTagAssignment[]
+  initialTag?: string
 }) {
   const visibleNodes = useVisibleWikiNodes(nodes)
   const {
@@ -48,15 +55,35 @@ export function WikiFolderContents({
         )
     )
   const descendantPages = visibleItems.flatMap(descendantsOf)
-  const availableTags = Array.from(
-    new Set(descendantPages.flatMap((node) => node.tags ?? []))
-  ).sort((a, b) => a.localeCompare(b))
-  const [selectedTag, setSelectedTag] = React.useState("")
-  const filteredItems = selectedTag
+  const sectionId = getWikiSectionId(nodes, parentId ?? null)
+  const availableTags = getWikiLandingTags(
+    wikiTags,
+    sectionId,
+    descendantPages.map((page) => page.id),
+    assignments
+  )
+  const [selectedTagId, setSelectedTagId] = React.useState(
+    () =>
+      availableTags.find(
+        (tag) => tag.name.toLocaleLowerCase() === initialTag.toLocaleLowerCase()
+      )?.id ?? ""
+  )
+  const selectedTag = wikiTags.find((tag) => tag.id === selectedTagId)
+  function selectTag(id: string) {
+    setSelectedTagId(id)
+    const url = new URL(window.location.href)
+    const tag = availableTags.find((item) => item.id === id)
+    if (tag) url.searchParams.set("tag", tag.name)
+    else url.searchParams.delete("tag")
+    window.history.replaceState(window.history.state, "", url)
+  }
+  const filteredItems = selectedTagId
     ? visibleItems.filter((item) =>
         descendantsOf(item).some((page) =>
-          page.tags?.some(
-            (tag) => tag.toLocaleLowerCase() === selectedTag.toLocaleLowerCase()
+          assignments.some(
+            (assignment) =>
+              assignment.node_id === page.id &&
+              assignment.tag_id === selectedTagId
           )
         )
       )
@@ -64,10 +91,33 @@ export function WikiFolderContents({
   const folder = nodes.find((node) => node.id === parentId)
   const parent = nodes.find((node) => node.id === folder?.parent_id)
   const canAddHere = Boolean(folder && parent)
+  const sectionHasTags = wikiTags.some(
+    (tag) => tag.scope === "section" && tag.section_id === sectionId
+  )
+  const showSectionEmpty = Boolean(
+    sectionId && parentId === sectionId && !sectionHasTags
+  )
+  const addTagHelp = showSectionEmpty ? (
+    <p className="text-sm text-muted-foreground">
+      No section tags yet.
+      {canEditWiki && descendantPages[0] ? (
+        <>
+          {" "}
+          <Link
+            className="underline"
+            href={`/wiki/${buildWikiPath(nodes, descendantPages[0])}`}
+          >
+            Edit a page to add a tag.
+          </Link>
+        </>
+      ) : null}
+    </p>
+  ) : null
 
-  if (!visibleItems.length && !selectedTag) {
+  if (!visibleItems.length && !selectedTagId) {
     return (
       <div className="rounded-lg border bg-card p-6 text-sm">
+        {addTagHelp}
         <p className="font-medium">Nothing here yet.</p>
         <p className="mt-1 text-muted-foreground">
           Pages added here will appear in this space.
@@ -88,29 +138,32 @@ export function WikiFolderContents({
 
   return (
     <div className="space-y-4">
+      {addTagHelp}
       {parentId !== null && availableTags.length ? (
         <div className="space-y-2">
           <p className="text-sm font-medium">Filter by tag</p>
           <div className="flex flex-wrap items-center gap-2">
             {availableTags.map((tag) => (
               <Button
-                key={tag}
+                key={tag.id}
                 type="button"
                 size="sm"
-                variant={selectedTag === tag ? "default" : "outline"}
+                variant={selectedTagId === tag.id ? "default" : "outline"}
                 className="rounded-full"
-                aria-pressed={selectedTag === tag}
-                onClick={() => setSelectedTag(selectedTag === tag ? "" : tag)}
+                aria-pressed={selectedTagId === tag.id}
+                onClick={() =>
+                  selectTag(selectedTagId === tag.id ? "" : tag.id)
+                }
               >
-                {tag}
+                {tag.name}
               </Button>
             ))}
-            {selectedTag ? (
+            {selectedTagId ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setSelectedTag("")}
+                onClick={() => selectTag("")}
               >
                 Clear filter
               </Button>
@@ -158,9 +211,11 @@ export function WikiFolderContents({
                             scope={
                               wikiTags.find(
                                 (item) =>
-                                  item.scope === "global" &&
-                                  item.name.toLocaleLowerCase() ===
-                                    tag.toLocaleLowerCase()
+                                  assignments.some(
+                                    (assignment) =>
+                                      assignment.node_id === node.id &&
+                                      assignment.tag_id === item.id
+                                  ) && item.name === tag
                               )?.scope
                             }
                           >
@@ -178,13 +233,13 @@ export function WikiFolderContents({
         </div>
       ) : (
         <div className="rounded-lg border bg-card p-6 text-sm">
-          <p>No pages are tagged {selectedTag} here.</p>
+          <p>No pages are tagged {selectedTag?.name ?? initialTag} here.</p>
           <Button
             type="button"
             variant="ghost"
             size="sm"
             className="mt-2"
-            onClick={() => setSelectedTag("")}
+            onClick={() => selectTag("")}
           >
             Clear filter
           </Button>

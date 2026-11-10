@@ -17,6 +17,7 @@ import { WikiRevisionSelector } from "@/components/wiki/wiki-revisions"
 import {
   WikiTagsDirectory,
   type WikiTagDirectoryEntry,
+  type WikiTagDirectorySection,
 } from "@/components/wiki/wiki-tags-directory"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -27,6 +28,8 @@ import {
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
   buildWikiPath,
+  buildWikiBreadcrumbs,
+  fetchWikiTagAssignments,
   compareWikiNodes,
   fetchWikiNodes,
   fetchWikiPageData,
@@ -37,6 +40,7 @@ import {
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeRow,
+  type WikiTagAssignment,
   type WikiRevisionMetadata,
 } from "@/lib/wiki"
 
@@ -76,6 +80,8 @@ function DirectoryView({
   parentId,
   showCreateControl = false,
   headingLevel = 2,
+  assignments = [],
+  initialTag = "",
 }: {
   title?: string
   items: WikiNodeRow[]
@@ -84,6 +90,8 @@ function DirectoryView({
   parentId: string | null
   showCreateControl?: boolean
   headingLevel?: 1 | 2
+  assignments?: WikiTagAssignment[]
+  initialTag?: string
 }) {
   const folder = nodes.find((node) => node.id === parentId)
   const parent = nodes.find((node) => node.id === folder?.parent_id)
@@ -139,6 +147,8 @@ function DirectoryView({
         items={items}
         nodes={nodes}
         parentId={parentId}
+        assignments={assignments}
+        initialTag={initialTag}
       />
     </div>
   )
@@ -202,7 +212,7 @@ export default async function WikiPage({
   searchParams,
 }: {
   params: Promise<{ path?: string[] }>
-  searchParams: Promise<{ revision?: string; tag?: string }>
+  searchParams: Promise<{ revision?: string; tag?: string; section?: string }>
 }) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -229,10 +239,10 @@ export default async function WikiPage({
     code: WIKI_MANAGE_PERMISSION,
   })
 
-  const [{ path = [] }, { tag: highlightedTag = "" }] = await Promise.all([
-    params,
-    searchParams,
-  ])
+  const [
+    { path = [] },
+    { tag: highlightedTag = "", section: highlightedSection = "" },
+  ] = await Promise.all([params, searchParams])
   let nodes: WikiNodeRow[]
   try {
     nodes = await fetchWikiNodes(supabase)
@@ -303,26 +313,86 @@ export default async function WikiPage({
     .sort(compareWikiNodes)
   const selectedRepositorySlug = getSelectedRepositorySlug({ path, pageData })
   const isNanoWiki = selectedRepositorySlug === "nano-wiki"
-  const publishedNodes = nodes.filter(
-    (node) => node.type === "page" && isPublishedWikiBranch(nodes, node)
-  )
-  const tagDirectoryEntries: WikiTagDirectoryEntry[] = wikiTags.map((tag) => ({
-    name: tag.name,
-    pages: publishedNodes
+  const eligiblePageIds = new Set(
+    nodes
       .filter(
         (node) =>
           node.type === "page" &&
-          node.tags?.some(
-            (pageTag) =>
-              pageTag.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
-          )
+          (isTagsDirectory ||
+            (pageData?.node.type === "folder" &&
+              buildWikiBreadcrumbs(nodes, node).some(
+                (ancestor) => ancestor.id === pageData.node.id
+              )))
       )
-      .map((page) => ({
-        id: page.id,
-        title: page.title,
-        path: buildWikiPath(nodes, page),
-      })),
-  }))
+      .map((node) => node.id)
+  )
+  const assignments =
+    isTagsDirectory || pageData?.node.type === "folder"
+      ? (await fetchWikiTagAssignments(supabase)).filter((assignment) =>
+          eligiblePageIds.has(assignment.node_id)
+        )
+      : []
+  const pageIdsByTag = new Map<string, Set<string>>()
+  for (const assignment of assignments) {
+    const pageIds = pageIdsByTag.get(assignment.tag_id) ?? new Set<string>()
+    pageIds.add(assignment.node_id)
+    pageIdsByTag.set(assignment.tag_id, pageIds)
+  }
+  const publishedNodes = isTagsDirectory
+    ? nodes.filter(
+        (node) => node.type === "page" && isPublishedWikiBranch(nodes, node)
+      )
+    : []
+  const sections: WikiTagDirectorySection[] = isTagsDirectory
+    ? nodes
+        .filter(
+          (node) =>
+            node.type === "folder" &&
+            node.parent_id &&
+            nodes.some(
+              (root) => root.id === node.parent_id && root.parent_id === null
+            ) &&
+            buildWikiBreadcrumbs(nodes, node).every(
+              (ancestor) => ancestor.status !== "archived"
+            ) &&
+            (canManageWiki || isPublishedWikiBranch(nodes, node))
+        )
+        .map((section) => {
+          const area = nodes.find((node) => node.id === section.parent_id)
+          const example = publishedNodes.find((page) =>
+            buildWikiBreadcrumbs(nodes, page).some(
+              (ancestor) => ancestor.id === section.id
+            )
+          )
+          return {
+            id: section.id,
+            title: section.title,
+            area: area?.title ?? "Wiki",
+            href: `/wiki/${buildWikiPath(nodes, section)}`,
+            examplePageHref: example
+              ? `/wiki/${buildWikiPath(nodes, example)}`
+              : undefined,
+          }
+        })
+    : []
+  const visibleSectionIds = new Set(sections.map((section) => section.id))
+  const tagDirectoryEntries: WikiTagDirectoryEntry[] = wikiTags
+    .filter(
+      (tag) =>
+        tag.scope === "global" ||
+        (tag.section_id && visibleSectionIds.has(tag.section_id))
+    )
+    .map((tag) => ({
+      ...tag,
+      pages: publishedNodes
+        .filter((node) => pageIdsByTag.get(tag.id)?.has(node.id))
+        .map((page) => ({
+          id: page.id,
+          title: page.title,
+          href: `/wiki/${buildWikiPath(nodes, page)}`,
+          area: buildWikiBreadcrumbs(nodes, page)[0]?.title ?? "Wiki",
+        })),
+    }))
   const displayedNode = pageData?.node ?? null
   const displayedChildren = pageData?.children ?? []
 
@@ -343,8 +413,11 @@ export default async function WikiPage({
           <div className="flex min-h-full w-full flex-col">
             {isTagsDirectory ? (
               <WikiTagsDirectory
+                key={`${highlightedTag}:${highlightedSection}`}
                 entries={tagDirectoryEntries}
+                sections={sections}
                 initialSearch={highlightedTag}
+                initialSection={highlightedSection}
               />
             ) : displayedNode ? (
               <WikiVisibleNodeGate
@@ -362,6 +435,8 @@ export default async function WikiPage({
                         nodes={nodes}
                         canManageWiki={canManageWiki}
                         parentId={displayedNode.id}
+                        assignments={assignments}
+                        initialTag={highlightedTag}
                       />
                     </>
                   ) : pageData ? (

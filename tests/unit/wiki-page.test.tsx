@@ -117,6 +117,8 @@ vi.mock("@/lib/supabase/server", () => ({
 }))
 vi.mock("@/lib/wiki", () => ({
   WIKI_MANAGE_PERMISSION: "wiki.manage",
+  buildWikiBreadcrumbs: vi.fn(() => []),
+  fetchWikiTagAssignments: vi.fn(async () => []),
   buildWikiPath: vi.fn(() => "canopy-wiki/welcome"),
   compareWikiNodes: () => 0,
   fetchWikiNodes: vi.fn(async () => []),

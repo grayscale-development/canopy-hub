@@ -36,7 +36,13 @@ describe("Milo wiki tag search", () => {
             }
           return {
             in: async () => ({
-              data: [{ id: "page", title: "Checklist" }],
+              data:
+                table === "milo_wiki_nodes" && columns === "id,title"
+                  ? [
+                      { id: "folder", title: "Operations" },
+                      { id: "page", title: "Checklist" },
+                    ]
+                  : [],
               error: null,
             }),
           }
@@ -55,7 +61,9 @@ describe("Milo wiki tag search", () => {
         matches: [
           {
             tag: "Closing Guide",
-            url: "/wiki/tags?tag=Closing%20Guide#tag-closing-guide",
+            scope: "section",
+            section: "Operations",
+            url: "/wiki/tags?tag=Closing%20Guide&section=folder#tag-closing-guide-folder",
             pages: ["Checklist"],
           },
         ],

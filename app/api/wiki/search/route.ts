@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { wikiTagDirectoryUrl, type WikiTagRow } from "@/lib/wiki"
 
 export const runtime = "nodejs"
 
@@ -26,11 +27,6 @@ interface KnowledgeSearchRow {
   content: string
   metadata: Record<string, unknown> | null
   similarity: number
-}
-
-interface WikiTagRow {
-  id: string
-  name: string
 }
 
 function compactSnippet(value: string) {
@@ -126,20 +122,41 @@ export async function GET(request: NextRequest) {
         .select("id,name,scope,section_id")
         .ilike("name", `%${query}%`)
         .order("name")
-        .limit(5)
     : { data: [] }
 
-  const tagResults = ((tagData ?? []) as WikiTagRow[]).map((tag) => ({
-    id: `wiki-tag-${tag.id}`,
-    title: tag.name,
-    url: `/wiki/tags?tag=${encodeURIComponent(tag.name)}#tag-${tag.name
-      .toLocaleLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")}`,
-    type: "wiki_tag",
-    typeLabel: "Tag",
-    snippet: "Browse Wiki pages with this tag.",
-  }))
+  const candidates = (tagData ?? []) as WikiTagRow[]
+  const sectionIds = [
+    ...new Set(
+      candidates.flatMap((tag) => (tag.section_id ? [tag.section_id] : []))
+    ),
+  ]
+  const { data: sections, error: sectionError } = sectionIds.length
+    ? await supabase
+        .from("milo_wiki_nodes")
+        .select("id,title")
+        .in("id", sectionIds)
+    : { data: [], error: null }
+  if (sectionError)
+    return NextResponse.json({ error: sectionError.message }, { status: 500 })
+  const sectionNames = new Map(
+    (sections ?? []).map((section) => [section.id, section.title])
+  )
+  const tagResults = candidates
+    .filter(
+      (tag) =>
+        tag.scope === "global" ||
+        (tag.section_id && sectionNames.has(tag.section_id))
+    )
+    .slice(0, 5)
+    .map((tag) => ({
+      id: `wiki-tag-${tag.id}`,
+      title: tag.name,
+      url: wikiTagDirectoryUrl(tag),
+      type: "wiki_tag",
+      typeLabel: "Tag",
+      snippet:
+        tag.scope === "global" ? "Global" : sectionNames.get(tag.section_id!),
+    }))
 
   return NextResponse.json({
     results: [...tagResults, ...knowledgeResults].slice(0, 8),
