@@ -18,6 +18,7 @@
     "test:functions": "deno test --no-check --allow-env supabase/functions",
     "test:db:reset": "supabase db reset --local",
     "test:db:seed": "tsx tests/setup/seed-local-supabase.ts",
+    "test:milo-evals": "node scripts/run-milo-evals.mjs",
     "test:db": "pnpm test:db:reset && pnpm test:db:seed && CANOPY_DB_TESTS=1 vitest run tests/db",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
