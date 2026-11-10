@@ -2,7 +2,14 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Loader2Icon, PaperclipIcon, SendIcon } from "lucide-react"
+import {
+  Loader2Icon,
+  PaperclipIcon,
+  SendIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+} from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -35,6 +42,7 @@ interface ChatMessage {
   serverId?: string
   abstained?: boolean
   flagged?: boolean
+  rating?: "up" | "down"
 }
 
 const activeThreadKey = "milo-active-thread"
@@ -369,6 +377,29 @@ export function WikiChat({
     }
   }
   const [flagError, setFlagError] = React.useState("")
+  const [ratingPending, setRatingPending] = React.useState<string | null>(null)
+
+  async function rateAnswer(answer: ChatMessage, rating: "up" | "down") {
+    if (!answer.serverId || ratingPending) return
+    setRatingPending(answer.id)
+    try {
+      const response = await fetch("/api/wiki/chat/rating", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assistantMessageId: answer.serverId, rating }),
+      })
+      if (!response.ok) throw new Error()
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === answer.id ? { ...item, rating } : item
+        )
+      )
+    } catch {
+      toast.error("Could not save feedback. Please try again.")
+    } finally {
+      setRatingPending(null)
+    }
+  }
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
@@ -441,6 +472,40 @@ export function WikiChat({
                       <p role="alert" className="mt-2 text-sm text-destructive">
                         {flagError}
                       </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {!pending && answer.serverId ? (
+                  <div className="mt-3 flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant={answer.rating === "up" ? "secondary" : "ghost"}
+                      size="icon"
+                      aria-label="Helpful answer"
+                      aria-pressed={answer.rating === "up"}
+                      disabled={ratingPending !== null}
+                      onClick={() => void rateAnswer(answer, "up")}
+                    >
+                      <ThumbsUpIcon />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={answer.rating === "down" ? "secondary" : "ghost"}
+                      size="icon"
+                      aria-label="Unhelpful answer"
+                      aria-pressed={answer.rating === "down"}
+                      disabled={ratingPending !== null}
+                      onClick={() => void rateAnswer(answer, "down")}
+                    >
+                      <ThumbsDownIcon />
+                    </Button>
+                    {answer.rating ? (
+                      <span
+                        className="text-sm text-muted-foreground"
+                        role="status"
+                      >
+                        Thanks for your feedback
+                      </span>
                     ) : null}
                   </div>
                 ) : null}
