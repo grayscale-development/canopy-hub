@@ -141,12 +141,17 @@ export function WikiRepositoryNavigation({
     return null
   }
 
-  return (
+  const navigation = (
     <WikiRepositorySidebar
       nodes={nodes}
       activePath={path.join("/")}
       selectedRepositorySlug={selectedRepositorySlug}
       canManageWiki={canManageWiki}
     />
+  )
+  return pathname === "/wiki/tags/manage" ? (
+    <div className="hidden lg:contents">{navigation}</div>
+  ) : (
+    navigation
   )
 }

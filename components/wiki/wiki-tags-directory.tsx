@@ -111,6 +111,14 @@ export function WikiTagsDirectory({
         <p className="mt-3 text-sm text-muted-foreground">
           Browse tags and the published Wiki pages that use them.
         </p>
+        {canEditWiki ? (
+          <Link
+            href="/wiki/tags/manage"
+            className="mt-3 inline-block text-sm font-medium underline"
+          >
+            Manage tags
+          </Link>
+        ) : null}
         <div className="mt-4 max-w-xs">
           <label htmlFor="wiki-tags-directory-filter" className="sr-only">
             Search tags
