@@ -13,6 +13,10 @@ import {
   type EmployeeDirectoryRow,
 } from "@/lib/hub-data"
 import { answerMiloQuestionWithAgent } from "@/lib/milo/agent"
+import {
+  miloPermissionInstructions,
+  type MiloUserContext,
+} from "@/lib/milo/user-context"
 import { getFeaturedReports } from "@/lib/reports"
 import { resolveWikiKnowledgeRows } from "@/lib/wiki-knowledge-urls"
 import {
@@ -895,7 +899,11 @@ function selectAnswerChunks(question: string, chunks: RetrievedChunk[]) {
     .slice(0, citationLimit)
 }
 
-function buildChatPrompt(question: string, chunks: RetrievedChunk[]) {
+function buildChatPrompt(
+  question: string,
+  chunks: RetrievedChunk[],
+  userContext: MiloUserContext
+) {
   const context = chunks
     .map(
       (chunk, index) =>
@@ -905,7 +913,7 @@ function buildChatPrompt(question: string, chunks: RetrievedChunk[]) {
     )
     .join("\n\n")
 
-  return `You are Canopy Hub's internal knowledge assistant. Answer only from the supplied context. If the context does not contain enough information, say that the knowledge base does not have enough information and suggest where to look in Canopy Hub. Keep answers concise and cite sources using bracket numbers like [1]. Use the smallest number of citations needed; for simple navigation or factual lookup questions, usually cite only one source. Do not list every related source unless the user asks for options, all links, or a list. When the question asks for a page, document, newsletter, employee, branch, email, or phone number, include the exact value and the relevant Hub URL from the context when available.\n\nContext:\n${context || "No retrieved context."}\n\nQuestion:\n${question}`
+  return `You are Canopy Hub's internal knowledge assistant. Answer only from the supplied context. If the context does not contain enough information, say that the knowledge base does not have enough information and suggest where to look in Canopy Hub. Keep answers concise and cite sources using bracket numbers like [1]. Use the smallest number of citations needed; for simple navigation or factual lookup questions, usually cite only one source. Do not list every related source unless the user asks for options, all links, or a list. When the question asks for a page, document, newsletter, employee, branch, email, or phone number, include the exact value and the relevant Hub URL from the context when available.\n\n${miloPermissionInstructions(userContext)}\n\nContext:\n${context || "No retrieved context."}\n\nQuestion:\n${question}`
 }
 
 function getResponseText(response: unknown) {
@@ -924,9 +932,11 @@ function getResponseText(response: unknown) {
 export async function answerKnowledgeQuestion({
   supabase,
   question,
+  userContext,
 }: {
   supabase: SupabaseWikiClient
   question: string
+  userContext: MiloUserContext
 }) {
   const conversationalReply = getConversationalReply(question)
 
@@ -949,7 +959,11 @@ export async function answerKnowledgeQuestion({
   }
 
   try {
-    return await answerMiloQuestionWithAgent({ question, supabase })
+    return await answerMiloQuestionWithAgent({
+      question,
+      supabase,
+      userContext,
+    })
   } catch {
     // Keep the existing RAG path as a reliable fallback if the agent/tool loop fails.
   }
@@ -976,7 +990,7 @@ export async function answerKnowledgeQuestion({
   const model = getChatModel()
   const response = await createChatResponseWithOpenAI({
     model,
-    input: buildChatPrompt(question, answerChunks),
+    input: buildChatPrompt(question, answerChunks, userContext),
   })
 
   return {

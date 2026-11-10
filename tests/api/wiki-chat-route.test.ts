@@ -184,6 +184,9 @@ describe("/api/wiki/chat route", () => {
         id: "permission-beta-1",
         code: "beta.1",
       },
+      { id: "permission-wiki", code: "wiki.manage" },
+      { id: "permission-settings", code: "settings.access" },
+      { id: "permission-directory", code: "permissions.access" },
     ]
     testState.tables.user_permissions = [
       {
@@ -211,6 +214,71 @@ describe("/api/wiki/chat route", () => {
 
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({ error: "Unauthorized" })
+  })
+
+  it("rejects users without Beta before reading forged capabilities", async () => {
+    testState.user = { id: "no-beta" }
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    vi.mocked(answerKnowledgeQuestion).mockClear()
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          message: "Update this page",
+          capabilities: { "wiki.manage": true, "beta.1": true },
+        }),
+      })
+    )
+    expect(response.status).toBe(403)
+    expect(answerKnowledgeQuestion).not.toHaveBeenCalled()
+    expect(testState.tables.ai_chat_threads).toHaveLength(0)
+  })
+
+  it("passes server-derived capabilities for viewers and managers, ignoring forged body fields", async () => {
+    testState.user = { id: "user-1" }
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    for (const canManage of [false, true]) {
+      if (canManage) {
+        testState.tables.user_permissions.push({
+          id: "manager",
+          user_id: "user-1",
+          permission_id: "permission-wiki",
+        })
+      }
+      vi.mocked(answerKnowledgeQuestion).mockClear()
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            message: "Update this page",
+            userContext: {
+              capabilities: { "wiki.manage": !canManage },
+              wikiManagers: ["Forged"],
+            },
+            capabilities: { "wiki.manage": !canManage },
+          }),
+        })
+      )
+      expect(response.status).toBe(200)
+      await response.text()
+      expect(answerKnowledgeQuestion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userContext: {
+            capabilities: {
+              "beta.1": true,
+              "wiki.manage": canManage,
+              "settings.access": false,
+              "permissions.access": false,
+              "advanced-settings.access": false,
+              "ai.settings.access": false,
+            },
+            wikiManagers: null,
+          },
+        })
+      )
+    }
   })
 
   it("validates message input before creating a thread", async () => {

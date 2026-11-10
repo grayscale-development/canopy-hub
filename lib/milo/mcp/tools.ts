@@ -7,6 +7,7 @@ import {
   resolveWikiKnowledgeUrls,
 } from "@/lib/wiki-knowledge-urls"
 import { userHasPermissionCode } from "@/lib/permissions"
+import { getMiloUserContext } from "@/lib/milo/user-context"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 type MiloClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -14,6 +15,7 @@ type MiloClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 type JsonObject = Record<string, unknown>
 
 export type MiloMcpToolName =
+  | "my_capabilities"
   | "knowledge_search"
   | "wiki_tag_search"
   | "db_schema"
@@ -409,6 +411,16 @@ const RELATION_BY_KEY = new Map(
 )
 
 export const MILO_MCP_TOOLS = [
+  {
+    name: "my_capabilities",
+    description:
+      "Check the current user's permissions and visible Wiki manager contacts.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
   {
     name: "knowledge_search",
     description:
@@ -1287,6 +1299,18 @@ export async function callMiloMcpTool(
       if (error || !user) throw new Error("Authenticated user is required")
     }
     switch (normalizedToolName) {
+      case "my_capabilities": {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser()
+        if (error || !user) throw new Error("Authenticated user is required")
+        return {
+          ok: true,
+          toolName: normalizedToolName,
+          content: await getMiloUserContext(supabase, user),
+        }
+      }
       case "knowledge_search":
         return await knowledgeSearch(objectArgs, supabase)
       case "wiki_tag_search":

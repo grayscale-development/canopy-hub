@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
+import { getMiloUserContext } from "@/lib/milo/user-context"
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -320,6 +321,7 @@ export async function POST(request: Request) {
     const result = await answerKnowledgeQuestion({
       supabase,
       question: message,
+      userContext: await getMiloUserContext(supabase, user),
     })
     const { data: assistantMessage, error: assistantMessageError } =
       await supabase

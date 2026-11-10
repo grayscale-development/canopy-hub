@@ -22,14 +22,30 @@ Settings URLs require the app's existing section access permissions. Upload/edit
 permissions do not grant unrelated read access. Permission metadata tools require
 both `settings.access` and `permissions.access`.
 
+## Edit access
+
+The chat server derives the caller's Beta, Wiki management, Settings and
+permission-directory capabilities from their authenticated session. Milo receives
+these facts in its instructions, and `my_capabilities` checks the live session
+again. Client and model inputs cannot grant permissions. Milo is read-only: it
+can help find a page and draft proposed text, but cannot save changes. If the
+caller cannot manage Wiki, it directs them to a Wiki manager. Manager names are
+included only when the caller can access the permission assignments RPC;
+otherwise Milo suggests contacting a Wiki manager without naming one.
+
+Existing Wiki saves independently check both `beta.1` and `wiki.manage` on the
+server and remain subject to database policies. Any future Milo edit workflow
+must recheck those permissions server-side for each write, regardless of the
+model's statements or a previously returned capability.
+
 ## Source access audit
 
-| Source class | Existing app read rule | Evidence |
-| --- | --- | --- |
-| Reports | Signed-in users; no report permission gate | `app/reports/page.tsx`, every current `app/reports/*/page.tsx`, `lib/reports.ts`; data grants in `202607270001_source_neutral_data_sync_refactor.sql` |
-| Employee | Signed-in users; directory and profile are unscoped by caller | `app/people/page.tsx`, `app/employee/[employeeId]/page.tsx`, `lib/hub-data.ts`; `data.employee_directory_rows` and data schema grants in the same migration |
-| Branch | Signed-in users; directory and profile are unscoped by caller | `app/branches/page.tsx`, `app/branch/[branchId]/page.tsx`, `lib/hub-data.ts`; `data.branches_directory_rows` and data schema grants in the same migration |
-| Site | Current curated public routes require sign-in; Wiki requires Beta; Settings requires its existing section permissions | Catalog in `indexCuratedSiteKnowledge`; `app/wiki/[[...path]]/page.tsx`, `app/settings/page.tsx`, `app/settings/[section]/page.tsx` |
+| Source class | Existing app read rule                                                                                                | Evidence                                                                                                                                                    |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reports      | Signed-in users; no report permission gate                                                                            | `app/reports/page.tsx`, every current `app/reports/*/page.tsx`, `lib/reports.ts`; data grants in `202607270001_source_neutral_data_sync_refactor.sql`       |
+| Employee     | Signed-in users; directory and profile are unscoped by caller                                                         | `app/people/page.tsx`, `app/employee/[employeeId]/page.tsx`, `lib/hub-data.ts`; `data.employee_directory_rows` and data schema grants in the same migration |
+| Branch       | Signed-in users; directory and profile are unscoped by caller                                                         | `app/branches/page.tsx`, `app/branch/[branchId]/page.tsx`, `lib/hub-data.ts`; `data.branches_directory_rows` and data schema grants in the same migration   |
+| Site         | Current curated public routes require sign-in; Wiki requires Beta; Settings requires its existing section permissions | Catalog in `indexCuratedSiteKnowledge`; `app/wiki/[[...path]]/page.tsx`, `app/settings/page.tsx`, `app/settings/[section]/page.tsx`                         |
 
 Only the current curated site routes and known Settings sections are accepted;
 unknown site routes are denied. Report/employee/branch index records are trusted
