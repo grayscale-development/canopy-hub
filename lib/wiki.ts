@@ -325,6 +325,7 @@ export function validateWikiUpload(file: File) {
   return null
 }
 
+/** @deprecated Use buildNumericWikiTree when the wiki routes switch to numeric paths. */
 export function buildWikiTree(nodes: WikiNodeRow[]) {
   const nodeMap = new Map<string, WikiTreeNode>()
   const roots: WikiTreeNode[] = []
@@ -367,6 +368,7 @@ export function compareWikiNodes(left: WikiNodeRow, right: WikiNodeRow) {
   })
 }
 
+/** @deprecated Use resolveNumericWikiPath when the wiki routes switch to numeric paths. */
 export function resolveWikiPath(nodes: WikiNodeRow[], segments: string[]) {
   let parentId: string | null = null
   let current: WikiNodeRow | null = null
@@ -476,12 +478,14 @@ export async function fetchWikiPageTags(
   })
 }
 
+/** @deprecated Use buildNumericWikiPath when the wiki routes switch to numeric paths. */
 export function buildWikiPath(nodes: WikiNodeRow[], node: WikiNodeRow) {
   return buildWikiBreadcrumbs(nodes, node)
     .map((item) => item.slug)
     .join("/")
 }
 
+/** @deprecated Use findDefaultNumericWikiPagePath when routes switch to numeric paths. */
 export function findDefaultWikiPagePath(
   nodes: WikiNodeRow[],
   repositorySlug: string
@@ -529,6 +533,7 @@ export function findDefaultWikiPagePath(
   return null
 }
 
+/** @deprecated Use findFirstPublishedNumericWikiPagePath when routes switch to numeric paths. */
 export function findFirstPublishedWikiPagePath(
   nodes: WikiNodeRow[],
   folder: WikiNodeRow
