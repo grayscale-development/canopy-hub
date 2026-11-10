@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { rewriteWikiLinks, buildLinkReport } from "@/lib/wiki-link-rewrite"
-import type { WikiNodeRow } from "@/lib/wiki"
+import type { WikiNodeRow, WikiRevisionRow } from "@/lib/wiki"
+import {
+  createReport,
+  readData,
+  resolutionGuards,
+} from "../../scripts/wiki-link-audit"
 
 const nodes = [
   {
@@ -119,5 +124,109 @@ describe("wiki link rewrite", () => {
     ])
     expect(report.changes).toHaveLength(1)
     expect(report.changes[0].plain_text).toBe("Link text")
+  })
+  it("fingerprints link-bearing revisions and guards each lookup, ignoring unrelated records", () => {
+    const revision = {
+      id: "revision",
+      node_id: "page",
+      blocks: [link("/wiki/wiki/closing/guide")],
+      plain_text: "Link text",
+      change_note: null,
+      created_by: null,
+      created_at: "",
+    } as WikiRevisionRow
+    const data = { nodes, revisions: [revision], documents: [] }
+    const original = createReport(data, "hub.example")
+    const other = {
+      ...nodes[2],
+      id: "other",
+      slug: "other",
+      current_revision_id: "other-revision",
+    }
+    const withUnrelated = createReport(
+      {
+        ...data,
+        nodes: [...nodes, other],
+        revisions: [
+          ...data.revisions,
+          { ...revision, id: "other-revision", node_id: "other", blocks: [] },
+        ],
+      },
+      "hub.example"
+    )
+    expect(withUnrelated.digest).toBe(original.digest)
+    expect(withUnrelated.rows).toEqual(original.rows)
+    expect(withUnrelated.changes).toEqual(original.changes)
+    expect(
+      createReport(
+        {
+          ...data,
+          revisions: [
+            { ...revision, blocks: [link("/wiki/wiki/closing/guide#edited")] },
+          ],
+        },
+        "hub.example"
+      ).digest
+    ).not.toBe(original.digest)
+    const changedTarget = createReport(
+      {
+        ...data,
+        nodes: nodes.map((node) =>
+          node.id === "page" ? { ...node, short_id: 99 } : node
+        ),
+      },
+      "hub.example"
+    )
+    expect(changedTarget.changes).not.toEqual(original.changes)
+    expect(resolutionGuards(original.rows, nodes)).toEqual([
+      { parent_id: null, slug: "wiki", matches: [{ id: "root", short_id: 1 }] },
+      {
+        parent_id: "root",
+        slug: "closing",
+        matches: [{ id: "section", short_id: 2 }],
+      },
+      {
+        parent_id: "section",
+        slug: "guide",
+        matches: [{ id: "page", short_id: 3 }],
+      },
+    ])
+    const missing = createReport(
+      {
+        ...data,
+        revisions: [
+          { ...revision, blocks: [link("/wiki/wiki/closing/missing")] },
+        ],
+      },
+      "hub.example"
+    )
+    expect(resolutionGuards(missing.rows, nodes).at(-1)).toEqual({
+      parent_id: "section",
+      slug: "missing",
+      matches: [],
+    })
+  })
+  it("retries when a concurrent write splits the node and revision reads", async () => {
+    let revisionReads = 0
+    const db = {
+      from: (table: string) => ({
+        select: () => ({
+          order: () => ({
+            range: async () => ({
+              data:
+                table === "wiki_nodes"
+                  ? nodes
+                  : ++revisionReads === 1
+                    ? []
+                    : [{ id: "revision", node_id: "page", blocks: [] }],
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    } as unknown as Parameters<typeof readData>[0]
+    const result = await readData(db)
+    expect(revisionReads).toBe(2)
+    expect(result.revisions).toHaveLength(1)
   })
 })

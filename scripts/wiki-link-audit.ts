@@ -32,17 +32,7 @@ export async function readData(db: SupabaseClient): Promise<AuditData> {
       if (data.length < 1000) return rows
     }
   }
-  const [nodes, revisions, files] = await Promise.all([
-    read(
-      "wiki_nodes",
-      "id,short_id,parent_id,type,slug,title,status,sort_order,current_revision_id,created_by,updated_by,created_at,updated_at"
-    ),
-    read(
-      "wiki_page_revisions",
-      "id,node_id,blocks,plain_text,change_note,created_by,created_at"
-    ),
-    readdir("docs/releases"),
-  ])
+  const files = await readdir("docs/releases")
   const documents = await Promise.all(
     files
       .filter((file) => file.endsWith(".md"))
@@ -52,19 +42,105 @@ export async function readData(db: SupabaseClient): Promise<AuditData> {
         content: await readFile(`docs/releases/${file}`, "utf8"),
       }))
   )
-  return { nodes, revisions, documents } as AuditData
+  // Separate paginated reads can straddle another transaction. Retry an
+  // inconsistent node/revision snapshot instead of rejecting a harmless write.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const [nodes, revisions] = (await Promise.all([
+      read(
+        "wiki_nodes",
+        "id,short_id,parent_id,type,slug,title,status,sort_order,current_revision_id,created_by,updated_by,created_at,updated_at"
+      ),
+      read(
+        "wiki_page_revisions",
+        "id,node_id,blocks,plain_text,change_note,created_by,created_at"
+      ),
+    ])) as [AuditData["nodes"], AuditData["revisions"]]
+    const nodeIds = new Set(nodes.map((node) => node.id))
+    const revisionById = new Map(
+      revisions.map((revision) => [revision.id, revision])
+    )
+    if (
+      revisions.every((revision) => nodeIds.has(revision.node_id)) &&
+      nodes.every(
+        (node) =>
+          !node.current_revision_id ||
+          revisionById.get(node.current_revision_id)?.node_id === node.id
+      )
+    )
+      return { nodes, revisions, documents }
+  }
+  throw new Error("Could not read a consistent wiki snapshot; retry the scan")
 }
 
 export function createReport(data: AuditData, siteHost: string) {
-  const digest = createHash("sha256").update(JSON.stringify(data)).digest("hex")
+  const result = buildLinkReport(data, siteHost)
+  const linkedRevisions = new Set(
+    result.rows
+      .filter((row) => row.location === "wiki")
+      .map((row) => row.revision)
+  )
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        revisions: data.revisions.filter((revision) =>
+          linkedRevisions.has(revision.id)
+        ),
+        documents: data.documents,
+      })
+    )
+    .digest("hex")
   return {
-    version: 1,
+    version: 2,
     siteHost,
     digest,
     pageCount: data.nodes.filter((n) => n.type === "page").length,
     revisionCount: data.revisions.length,
-    ...buildLinkReport(data, siteHost),
+    ...result,
   }
+}
+
+// Protect every slug lookup (including the first missing segment) between the
+// last scan and the locked transaction, without freezing unrelated tree nodes.
+export function resolutionGuards(rows: ReportRow[], nodes: AuditData["nodes"]) {
+  const guards: {
+    parent_id: string | null
+    slug: string
+    matches: { id: string; short_id: number }[]
+  }[] = []
+  for (const row of rows) {
+    if (row.status === "already-numeric") continue
+    const path = row.old_href.startsWith("/")
+      ? row.old_href
+      : row.old_href.match(/^https?:\/\/[^/?#]+(\/[^?#]*)([?#].*)?$/i)?.[1]
+    if (!path) continue
+    let segments: string[]
+    try {
+      segments = path
+        .slice(6)
+        .split(/[?#]/, 1)[0]
+        .replace(/\/$/, "")
+        .split("/")
+        .map(decodeURIComponent)
+    } catch {
+      continue
+    }
+    let parentId: string | null = null
+    for (const slug of segments) {
+      const matches = nodes.filter(
+        (node) =>
+          node.parent_id === parentId &&
+          node.slug.toLowerCase() === slug.toLowerCase()
+      )
+      guards.push({
+        parent_id: parentId,
+        slug,
+        matches: matches.map(({ id, short_id }) => ({ id, short_id })),
+      })
+      if (!matches.length) break
+      parentId = matches[0].id
+    }
+  }
+  return guards
 }
 
 export function csv(rows: ReportRow[]) {

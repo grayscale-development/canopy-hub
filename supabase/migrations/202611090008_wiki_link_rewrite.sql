@@ -19,21 +19,31 @@ create table if not exists app_private.wiki_link_rewrite_rollbacks (
 );
 revoke all on app_private.wiki_link_rewrite_rollbacks from public, anon, authenticated;
 
-create or replace function app_private.apply_wiki_link_rewrite(p_nodes jsonb, p_revision_count bigint, p_changes jsonb)
+create or replace function app_private.apply_wiki_link_rewrite(p_guards jsonb, p_linked_pages jsonb, p_site_host text, p_changes jsonb)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_run uuid := gen_random_uuid(); v_item jsonb; v_revision uuid; v_current jsonb;
   v_pages bigint; v_before bigint; v_after bigint; v_applied integer := 0;
 begin
-  if pg_catalog.jsonb_typeof(p_nodes) is distinct from 'array' or pg_catalog.jsonb_typeof(p_changes) is distinct from 'array' or pg_catalog.jsonb_array_length(p_changes) = 0 then
+  if pg_catalog.jsonb_typeof(p_guards) is distinct from 'array' or pg_catalog.jsonb_typeof(p_linked_pages) is distinct from 'array' or p_site_host is null or pg_catalog.jsonb_typeof(p_changes) is distinct from 'array' or pg_catalog.jsonb_array_length(p_changes) = 0 then
     raise exception 'invalid_link_rewrite_input';
   end if;
   perform pg_catalog.pg_advisory_xact_lock(530064);
   lock table public.wiki_nodes, public.wiki_page_revisions in share row exclusive mode;
-  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', id, 'parent_id', parent_id, 'slug', slug, 'short_id', short_id, 'type', type, 'title', title, 'status', status, 'current_revision_id', current_revision_id) order by id), '[]'::jsonb) into v_current from public.wiki_nodes;
-  if v_current is distinct from p_nodes then raise exception 'wiki_nodes_changed_since_preview'; end if;
+  for v_item in select value from pg_catalog.jsonb_array_elements(p_guards) loop
+    select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', id, 'short_id', short_id) order by id), '[]'::jsonb) into v_current
+    from public.wiki_nodes where parent_id is not distinct from (v_item->>'parent_id')::uuid and pg_catalog.lower(slug) = pg_catalog.lower(v_item->>'slug');
+    if v_current is distinct from v_item->'matches' then raise exception 'wiki_link_target_changed_since_preview'; end if;
+  end loop;
+  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('node_id', n.id, 'revision_id', r.id, 'blocks', r.blocks) order by n.id), '[]'::jsonb) into v_current
+  from public.wiki_nodes n join public.wiki_page_revisions r on r.id = n.current_revision_id and r.node_id = n.id
+  where exists (
+    select 1 from pg_catalog.jsonb_path_query(r.blocks, '$.** ? (@.type == "link")') link
+    where link->>'href' like '/wiki/%'
+      or (link->>'href' ~* '^https?://' and pg_catalog.lower(pg_catalog.regexp_replace(pg_catalog.regexp_replace(pg_catalog.substring(link->>'href', '(?i)^https?://([^/?#]+)'), '^.*@', ''), ':[0-9]+$', '')) = pg_catalog.lower(p_site_host) and pg_catalog.regexp_replace(link->>'href', '^https?://[^/?#]+', '', 'i') like '/wiki/%')
+  );
+  if v_current is distinct from p_linked_pages then raise exception 'wiki_link_pages_changed_since_preview'; end if;
   select count(*) into v_before from public.wiki_page_revisions;
-  if v_before <> p_revision_count then raise exception 'wiki_revisions_changed_since_preview'; end if;
   select count(*) into v_pages from public.wiki_nodes where type = 'page';
   if exists (select 1 from pg_catalog.jsonb_array_elements(p_changes) d group by d->>'node_id' having count(*) > 1) then raise exception 'duplicate_link_rewrite_page'; end if;
   for v_item in select value from pg_catalog.jsonb_array_elements(p_changes) loop
@@ -51,9 +61,9 @@ begin
   if v_after <> v_before + v_applied or (select count(*) from public.wiki_nodes where type = 'page') <> v_pages then raise exception 'link_rewrite_count_mismatch'; end if;
   return pg_catalog.jsonb_build_object('run_id', v_run, 'pages', v_pages, 'revisions_before', v_before, 'revisions_after', v_after, 'changed_pages', v_applied, 'new_revisions', (select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('node_id', node_id, 'new_revision_id', new_revision_id) order by node_id) from app_private.wiki_link_rewrite_audit where run_id = v_run));
 end $$;
-revoke all on function app_private.apply_wiki_link_rewrite(jsonb, bigint, jsonb) from public, anon, authenticated;
-grant execute on function app_private.apply_wiki_link_rewrite(jsonb, bigint, jsonb) to service_role;
-create or replace function public.apply_wiki_link_rewrite(p_nodes jsonb, p_revision_count bigint, p_changes jsonb)
-returns jsonb language sql security invoker set search_path = '' as $$ select app_private.apply_wiki_link_rewrite(p_nodes, p_revision_count, p_changes); $$;
-revoke all on function public.apply_wiki_link_rewrite(jsonb, bigint, jsonb) from public, anon, authenticated;
-grant execute on function public.apply_wiki_link_rewrite(jsonb, bigint, jsonb) to service_role;
+revoke all on function app_private.apply_wiki_link_rewrite(jsonb, jsonb, text, jsonb) from public, anon, authenticated;
+grant execute on function app_private.apply_wiki_link_rewrite(jsonb, jsonb, text, jsonb) to service_role;
+create or replace function public.apply_wiki_link_rewrite(p_guards jsonb, p_linked_pages jsonb, p_site_host text, p_changes jsonb)
+returns jsonb language sql security invoker set search_path = '' as $$ select app_private.apply_wiki_link_rewrite(p_guards, p_linked_pages, p_site_host, p_changes); $$;
+revoke all on function public.apply_wiki_link_rewrite(jsonb, jsonb, text, jsonb) from public, anon, authenticated;
+grant execute on function public.apply_wiki_link_rewrite(jsonb, jsonb, text, jsonb) to service_role;

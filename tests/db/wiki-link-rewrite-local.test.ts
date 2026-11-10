@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { createClient } from "@supabase/supabase-js"
 import { describe, expect, it } from "vitest"
+import { readData, resolutionGuards } from "../../scripts/wiki-link-audit"
 
 const dbDescribe =
   process.env.CANOPY_DB_TESTS === "1" ? describe : describe.skip
@@ -42,6 +43,7 @@ dbDescribe("local wiki link rewrite", { timeout: 90_000 }, () => {
     expect(login.error).toBeNull()
     const dir = await mkdtemp(path.join(tmpdir(), "canopy-link-test-"))
     const ids: string[] = []
+    const unrelatedIds: string[] = []
     try {
       const { data: root, error: rootError } = await admin
         .from("wiki_nodes")
@@ -109,8 +111,9 @@ dbDescribe("local wiki link rewrite", { timeout: 90_000 }, () => {
         .single()
       if (historic.error) throw historic.error
       const denied = await manager.rpc("apply_wiki_link_rewrite", {
-        p_nodes: [],
-        p_revision_count: 0,
+        p_guards: [],
+        p_linked_pages: [],
+        p_site_host: "canopy.example",
         p_changes: [],
       })
       expect(denied.error).not.toBeNull()
@@ -142,29 +145,135 @@ dbDescribe("local wiki link rewrite", { timeout: 90_000 }, () => {
             r.status === "resolvable"
         )
       ).toBe(true)
+      const unrelated = await admin
+        .from("wiki_nodes")
+        .insert({
+          parent_id: root.id,
+          type: "page",
+          slug: `link-unrelated-${stamp}`,
+          title: "Unrelated page",
+          status: "published",
+        })
+        .select("id")
+        .single()
+      if (unrelated.error) throw unrelated.error
+      unrelatedIds.push(unrelated.data.id)
+      const unrelatedRevision = await admin
+        .from("wiki_page_revisions")
+        .insert({
+          node_id: unrelated.data.id,
+          blocks: blocks[2],
+          plain_text: "No links",
+          change_note: "Unrelated",
+        })
+        .select("id")
+        .single()
+      if (unrelatedRevision.error) throw unrelatedRevision.error
+      const unrelatedPointer = await admin
+        .from("wiki_nodes")
+        .update({ current_revision_id: unrelatedRevision.data.id })
+        .eq("id", unrelated.data.id)
+      if (unrelatedPointer.error) throw unrelatedPointer.error
       expect(
         run("scripts/wiki-link-apply.ts", `${prefix}.json`, "--dry-run")
       ).toContain("Dry run")
-      const snapshot = await admin
+      const snapshot = await readData(admin)
+      const linkedIds = new Set(
+        report.rows
+          .filter(
+            (r: { location: string; current: boolean }) =>
+              r.location === "wiki" && r.current
+          )
+          .map((r: { revision: string }) => r.revision)
+      )
+      const rpcArgs = {
+        p_guards: resolutionGuards(report.rows, snapshot.nodes),
+        p_linked_pages: snapshot.revisions
+          .filter((r) => linkedIds.has(r.id))
+          .map((r) => ({
+            node_id: r.node_id,
+            revision_id: r.id,
+            blocks: r.blocks,
+          }))
+          .sort((a, b) => a.node_id.localeCompare(b.node_id)),
+        p_site_host: "canopy.example",
+        p_changes: report.changes,
+      }
+      const edit = await admin
+        .from("wiki_page_revisions")
+        .update({ blocks: link(`${oldHref}&changed=1`) })
+        .eq("id", baseIds[0])
+      if (edit.error) throw edit.error
+      expect(() =>
+        run("scripts/wiki-link-apply.ts", `${prefix}.json`, "--dry-run")
+      ).toThrow(/Data or report changed/)
+      const stalePage = await admin.rpc("apply_wiki_link_rewrite", rpcArgs)
+      expect(stalePage.error?.message).toContain(
+        "wiki_link_pages_changed_since_preview"
+      )
+      const restore = await admin
+        .from("wiki_page_revisions")
+        .update({ blocks: blocks[0] })
+        .eq("id", baseIds[0])
+      if (restore.error) throw restore.error
+      const newVersion = await admin
+        .from("wiki_page_revisions")
+        .insert({
+          node_id: one.id,
+          blocks: link(`${oldHref}&edited=1`),
+          plain_text: "Fixture link",
+          change_note: "Edited after preview",
+        })
+        .select("id")
+        .single()
+      if (newVersion.error) throw newVersion.error
+      const changePointer = await admin
         .from("wiki_nodes")
-        .select(
-          "id,parent_id,slug,short_id,type,title,status,current_revision_id"
-        )
-        .order("id")
-      if (snapshot.error) throw snapshot.error
+        .update({ current_revision_id: newVersion.data.id })
+        .eq("id", one.id)
+      if (changePointer.error) throw changePointer.error
+      expect(() =>
+        run("scripts/wiki-link-apply.ts", `${prefix}.json`, "--dry-run")
+      ).toThrow(/Data or report changed/)
+      const stalePointer = await admin.rpc("apply_wiki_link_rewrite", rpcArgs)
+      expect(stalePointer.error?.message).toContain(
+        "wiki_link_pages_changed_since_preview"
+      )
+      const restorePointer = await admin
+        .from("wiki_nodes")
+        .update({ current_revision_id: baseIds[0] })
+        .eq("id", one.id)
+      if (restorePointer.error) throw restorePointer.error
+      const removeVersion = await admin
+        .from("wiki_page_revisions")
+        .delete()
+        .eq("id", newVersion.data.id)
+      if (removeVersion.error) throw removeVersion.error
+      const rename = await admin
+        .from("wiki_nodes")
+        .update({ slug: `${two.slug}-moved` })
+        .eq("id", two.id)
+      if (rename.error) throw rename.error
+      expect(() =>
+        run("scripts/wiki-link-apply.ts", `${prefix}.json`, "--dry-run")
+      ).toThrow(/Data or report changed/)
+      const staleTarget = await admin.rpc("apply_wiki_link_rewrite", rpcArgs)
+      expect(staleTarget.error?.message).toContain(
+        "wiki_link_target_changed_since_preview"
+      )
+      const restoreSlug = await admin
+        .from("wiki_nodes")
+        .update({ slug: two.slug })
+        .eq("id", two.id)
+      if (restoreSlug.error) throw restoreSlug.error
       const badChanges = structuredClone(report.changes)
       badChanges[badChanges.length - 1].base_revision_id =
         "00000000-0000-4000-8000-000000000099"
       const stale = await admin.rpc("apply_wiki_link_rewrite", {
-        p_nodes: snapshot.data,
-        p_revision_count: report.revisionCount,
+        ...rpcArgs,
         p_changes: badChanges,
       })
       expect(stale.error?.message).toContain("stale_link_rewrite_page")
-      const beforeApply = await admin
-        .from("wiki_page_revisions")
-        .select("id", { count: "exact", head: true })
-      expect(beforeApply.count).toBe(report.revisionCount)
       expect(
         run(
           "scripts/wiki-link-apply.ts",
@@ -173,6 +282,22 @@ dbDescribe("local wiki link rewrite", { timeout: 90_000 }, () => {
           "--i-have-approval"
         )
       ).toContain("Applied run")
+      const afterUnrelated = await admin
+        .from("wiki_page_revisions")
+        .insert({
+          node_id: unrelated.data.id,
+          blocks: blocks[2],
+          plain_text: "Still no links",
+          change_note: "Unrelated edit",
+        })
+        .select("id")
+        .single()
+      if (afterUnrelated.error) throw afterUnrelated.error
+      const editUnrelated = await admin
+        .from("wiki_nodes")
+        .update({ current_revision_id: afterUnrelated.data.id })
+        .eq("id", unrelated.data.id)
+      if (editUnrelated.error) throw editUnrelated.error
       const verify = run(
         "scripts/wiki-link-apply.ts",
         `${prefix}.json`,
@@ -287,6 +412,8 @@ dbDescribe("local wiki link rewrite", { timeout: 90_000 }, () => {
       process.stdout.write(`${scan.trim()}\n${verify.trim()}\n`)
     } finally {
       if (ids.length) await admin.from("wiki_nodes").delete().in("id", ids)
+      if (unrelatedIds.length)
+        await admin.from("wiki_nodes").delete().in("id", unrelatedIds)
       await rm(dir, { recursive: true, force: true })
     }
   })
