@@ -201,7 +201,7 @@ export async function prepareMiloProposal({
     .join(", ")
   const fellBack =
     !draft.usedAi || Boolean(revision && !merged) || (unsafe && merged)
-  const fallbackSummary = `${feedback.length ? "I couldn't make that adjustment safely. " : ""}I kept the existing page${added.length ? " and added the confirmed facts for review" : ""}.`
+  const fallbackSummary = `${feedback.length ? "I couldn't make that adjustment safely. " : ""}I kept the existing page${added.length ? " and added the confirmed facts" : ""}.${added.length && added.join("; ").length <= 240 ? ` ${added.join("; ")}` : ""}`
   const card: Extract<MiloCard, { type: "proposed-edit" }> = {
     type: "proposed-edit",
     id: "proposed-edit",

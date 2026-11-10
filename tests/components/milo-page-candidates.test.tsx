@@ -55,7 +55,7 @@ it("shows a match, walks to another and confirms it without changing the wiki", 
   await user.click(screen.getByRole("button", { name: "Show me another" }))
   expect(screen.getByRole("link", { name: "Other policy" })).toBeVisible()
   await user.click(screen.getByRole("button", { name: "Yes, this one" }))
-  expect(screen.getByText(/No changes have been made/)).toBeVisible()
+  expect(screen.getByText("Page confirmed.")).toBeVisible()
   expect(screen.queryByRole("button", { name: "Yes, this one" })).toBeNull()
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({
     action: "select-page",
@@ -72,15 +72,13 @@ it("offers the existing AI Create entry point when there are no matches", async 
   }
   vi.stubGlobal(
     "fetch",
-    vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          status: "ok",
-          card: { ...card, outcome: "create" },
-        }),
-      })
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "ok",
+        card: { ...card, outcome: "create" },
+      }),
+    })
   )
   const user = userEvent.setup()
   render(<WikiChatCard card={card} threadId="thread" messageId="message" />)

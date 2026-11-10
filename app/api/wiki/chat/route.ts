@@ -5,6 +5,7 @@ import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
 import { findPageCandidates } from "@/lib/milo/find-page"
 import { MAX_MILO_TWEAKS, prepareMiloProposal } from "@/lib/milo/proposed-edit"
+import { getMiloProposal, saveMiloProposal } from "@/lib/milo/proposal-store"
 import {
   answerMiloSourceQuestion,
   confirmed,
@@ -224,6 +225,41 @@ export async function GET(request: Request) {
     }
   }
 
+  const displayMessages = await Promise.all(
+    (messages ?? [])
+      .filter(
+        (message) => message.role === "user" || message.role === "assistant"
+      )
+      .map(async (message) => {
+        const cards = await Promise.all(
+          cardsFromMetadata(message.metadata).map(async (card) => {
+            if (card.type !== "applied-edit" || card.undone) return card
+            const stored = await getMiloProposal(thread.id, message.id, user.id)
+            if (!stored?.applied_revision_id || stored.undone_revision_id)
+              return { ...card, undoAvailable: false }
+            const { data: node } = await supabase
+              .from("wiki_nodes")
+              .select("current_revision_id")
+              .eq("id", stored.node_id)
+              .maybeSingle()
+            return {
+              ...card,
+              undoAvailable:
+                node?.current_revision_id === stored.applied_revision_id,
+            }
+          })
+        )
+        return {
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          createdAt: message.created_at,
+          citations: citationsByMessage.get(message.id) ?? [],
+          cards,
+          flagged: flaggedMessageIds.has(message.id),
+        }
+      })
+  )
   return NextResponse.json({
     thread: {
       id: thread.id,
@@ -231,19 +267,7 @@ export async function GET(request: Request) {
       createdAt: thread.created_at,
       updatedAt: thread.updated_at,
     },
-    messages: (messages ?? [])
-      .filter(
-        (message) => message.role === "user" || message.role === "assistant"
-      )
-      .map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        createdAt: message.created_at,
-        citations: citationsByMessage.get(message.id) ?? [],
-        cards: cardsFromMetadata(message.metadata),
-        flagged: flaggedMessageIds.has(message.id),
-      })),
+    messages: displayMessages,
   })
 }
 
@@ -372,13 +396,20 @@ export async function POST(request: Request) {
     }
     const { data: previous } = await supabase
       .from("ai_chat_messages")
-      .select("metadata")
+      .select("id,metadata")
       .eq("thread_id", threadId)
       .eq("role", "assistant")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
     previousState = previous?.metadata?.miloEdit as MiloEditState | undefined
+    if (previousState?.stage === "page_confirmed" && previous?.id) {
+      const stored = await getMiloProposal(threadId, previous.id, user.id)
+      previousState =
+        stored && !stored.applied_revision_id
+          ? (stored.edit_state as MiloEditState)
+          : undefined
+    }
   } else {
     const { data: thread, error: createThreadError } = await supabase
       .from("ai_chat_threads")
@@ -665,6 +696,17 @@ export async function POST(request: Request) {
         { error: assistantMessageError.message },
         { status: 400 }
       )
+    }
+
+    const proposal = cards.find((card) => card.type === "proposed-edit")
+    if (proposal && state?.stage === "page_confirmed") {
+      await saveMiloProposal({
+        threadId,
+        messageId: assistantMessage.id,
+        userId: user.id,
+        card: proposal,
+        state,
+      })
     }
 
     if (result.citations.length) {
