@@ -13,6 +13,132 @@ import {
 
 test.use({ trace: "off", screenshot: "off" })
 
+test("sidebar filter finds pages without changing saved expansion @wiki", async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  const shotDir = process.env.CANOPY_WIKI_NAV_SHOTS
+  const screenshot = async (name: string) => {
+    if (!shotDir) return
+    mkdirSync(shotDir, { recursive: true })
+    await page.screenshot({ path: path.join(shotDir, name) })
+  }
+  const stamp = Date.now()
+  const fixture = await createReviewedPage({
+    slug: `sidebar-filter-${stamp}`,
+    title: `Loan Éstimate Checklist ${stamp}`,
+    paragraphs: ["Sidebar filter fixture."],
+  })
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.emulateMedia({ colorScheme: "light" })
+    await signInAsSeededUser(page, "standard@canopy.test")
+    await page.goto("/wiki/1")
+    const sidebar = page.locator("[data-wiki-sidebar-scroll]")
+    const header = sidebar.locator("..")
+    const operations = sidebar.getByRole("button", {
+      name: "Toggle Operations",
+    })
+    await expect(async () => {
+      if ((await operations.getAttribute("aria-expanded")) === "true")
+        await operations.click()
+      await expect(operations).toHaveAttribute("aria-expanded", "false", {
+        timeout: 1000,
+      })
+    }).toPass({ timeout: 20_000 })
+    await expect(operations.locator("svg")).toHaveCSS("rotate", "none")
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          localStorage.getItem(
+            "wiki-sidebar:section:10000000-0000-4000-8000-000000000002"
+          )
+        )
+      )
+      .toBe("closed")
+    const saved = await page.evaluate(() => ({
+      section: localStorage.getItem(
+        "wiki-sidebar:section:10000000-0000-4000-8000-000000000002"
+      ),
+      group: localStorage.getItem(
+        "wiki-sidebar:group:10000000-0000-4000-8000-000000000003"
+      ),
+    }))
+    await expect(
+      header.getByRole("button", { name: "Create Section" })
+    ).toHaveCount(0)
+    await screenshot("00-desktop-viewer-header.png")
+    await header.getByRole("button", { name: "Filter wiki navigation" }).click()
+    const input = header.getByRole("textbox", {
+      name: "Filter sections, groups, and pages",
+    })
+    await expect(input).toBeFocused()
+    await input.fill(`est loan ${stamp}`)
+    await expect(operations).toHaveAttribute("aria-expanded", "true")
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Closing" })
+    ).toHaveAttribute("aria-expanded", "true")
+    const result = sidebar.getByRole("link", {
+      name: `Loan Éstimate Checklist ${stamp}`,
+    })
+    await expect(result).toBeVisible()
+    await expect(result.locator("mark")).toHaveCount(3)
+    await expect(operations.locator("svg")).toHaveCSS("rotate", "90deg")
+    await screenshot("01-desktop-results.png")
+    await input.press("ArrowDown")
+    await expect(result).toBeFocused()
+    await input.focus()
+    await input.fill("no-such-sidebar-result")
+    await expect(
+      sidebar.getByText(
+        'No pages, sections, or groups match "no-such-sidebar-result"'
+      )
+    ).toBeVisible()
+    await screenshot("02-desktop-empty.png")
+    await sidebar.getByRole("button", { name: "Clear filter" }).click()
+    await expect(input).toBeFocused()
+    await expect(operations).toHaveAttribute("aria-expanded", "false")
+    expect(
+      await page.evaluate(() => ({
+        section: localStorage.getItem(
+          "wiki-sidebar:section:10000000-0000-4000-8000-000000000002"
+        ),
+        group: localStorage.getItem(
+          "wiki-sidebar:group:10000000-0000-4000-8000-000000000003"
+        ),
+      }))
+    ).toEqual(saved)
+    await input.fill(`loan ${stamp}`)
+    await input.press("Escape")
+    await expect(input).toHaveValue("")
+    await input.press("Escape")
+    await expect(
+      header.getByRole("button", { name: "Filter wiki navigation" })
+    ).toBeFocused()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await header.getByRole("button", { name: "Filter wiki navigation" }).click()
+    await input.fill(`est loan ${stamp}`)
+    await expect(result).toBeVisible()
+    await expect(operations.locator("svg")).toHaveCSS("rotate", "90deg")
+    await screenshot("03-mobile-results.png")
+    await page.emulateMedia({ colorScheme: "dark" })
+    await expect(page.locator("html")).toHaveClass(/dark/)
+    await screenshot("04-mobile-dark.png")
+    await input.press("ArrowDown")
+    await expect(result).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(page).toHaveURL(new RegExp(`${fixture.path}$`))
+  } finally {
+    const db = serviceWiki()
+    await db
+      .from("knowledge_sources")
+      .delete()
+      .eq("source_type", "wiki_page")
+      .eq("source_id", fixture.id)
+    await db.from("wiki_nodes").delete().eq("id", fixture.id)
+  }
+})
+
 test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
   page,
 }) => {

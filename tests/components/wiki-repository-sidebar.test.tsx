@@ -193,6 +193,135 @@ function expectBefore(leftLabel: string, rightLabel: string) {
 }
 
 describe("WikiRepositorySidebar", () => {
+  it("filters the tree without changing saved expansion, and supports keyboard navigation", async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem(
+      "wiki-sidebar:section:canopy-operations",
+      "closed"
+    )
+    window.localStorage.setItem("wiki-sidebar:group:closing-group", "closed")
+    renderSidebar("canopy-wiki", "1")
+    const button = screen.getByRole("button", {
+      name: "Filter wiki navigation",
+    })
+    button.focus()
+    await user.keyboard("{Enter}")
+    const input = screen.getByRole("textbox", {
+      name: "Filter sections, groups, and pages",
+    })
+    expect(input).toHaveFocus()
+    await user.type(input, "review final")
+    expect(
+      screen.getByRole("button", { name: "Toggle Operations" })
+    ).toHaveAttribute("aria-expanded", "true")
+    expect(
+      screen.getByRole("button", { name: "Toggle Closing" })
+    ).toHaveAttribute("aria-expanded", "true")
+    const link = screen.getByRole("link", { name: "Final Review" })
+    expect(link).toHaveAttribute("href", "/wiki/1/5/7/8")
+    expect(link.querySelectorAll("mark")).toHaveLength(2)
+    expect(screen.getByText("1 result")).toHaveAttribute("aria-live", "polite")
+    await user.keyboard("{ArrowDown}")
+    expect(link).toHaveFocus()
+    input.focus()
+    await user.keyboard("{Escape}")
+    expect(input).toHaveValue("")
+    expect(
+      screen.getByRole("button", { name: "Toggle Operations" })
+    ).toHaveAttribute("aria-expanded", "false")
+    expect(
+      window.localStorage.getItem("wiki-sidebar:section:canopy-operations")
+    ).toBe("closed")
+    expect(
+      window.localStorage.getItem("wiki-sidebar:group:closing-group")
+    ).toBe("closed")
+    await user.keyboard("{Escape}")
+    expect(
+      screen.getByRole("button", { name: "Filter wiki navigation" })
+    ).toHaveFocus()
+  })
+
+  it("shows an empty state, clears it, and resets when changing areas", async () => {
+    const user = userEvent.setup()
+    const view = renderSidebar("canopy-wiki", "1")
+    await user.click(
+      screen.getByRole("button", { name: "Filter wiki navigation" })
+    )
+    const input = screen.getByRole("textbox", {
+      name: "Filter sections, groups, and pages",
+    })
+    await user.type(input, "xyz")
+    expect(
+      screen.getByText('No pages, sections, or groups match "xyz"')
+    ).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Clear filter" }))
+    expect(input).toHaveFocus()
+    expect(input).toHaveValue("")
+    await user.type(input, "closing")
+    expect(screen.getByRole("link", { name: "Final Review" })).toBeVisible()
+    view.rerender(
+      <TooltipProvider>
+        <WikiRepositorySidebar
+          nodes={nodes}
+          activePath="2"
+          selectedRepositorySlug="learning-hub"
+          canManageWiki
+        />
+      </TooltipProvider>
+    )
+    expect(screen.getByRole("heading", { name: "Learning Hub" })).toBeVisible()
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Filter sections, groups, and pages",
+      })
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Filter wiki navigation" })
+    )
+    expect(
+      screen.getByRole("textbox", {
+        name: "Filter sections, groups, and pages",
+      })
+    ).toHaveValue("")
+  })
+
+  it("offers search to viewers without exposing draft matches", async () => {
+    const user = userEvent.setup()
+    const draftNodes = nodes.map((item) =>
+      item.id === "closing-page" ? { ...item, status: "draft" as const } : item
+    )
+    render(
+      <WikiEditModeProvider canManageWiki={false}>
+        <TooltipProvider>
+          <WikiRepositorySidebar
+            nodes={draftNodes}
+            activePath="1"
+            selectedRepositorySlug="canopy-wiki"
+            canManageWiki={false}
+          />
+        </TooltipProvider>
+      </WikiEditModeProvider>
+    )
+    expect(
+      screen.queryByRole("button", { name: "Create Section" })
+    ).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Filter wiki navigation" })
+    )
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Filter sections, groups, and pages",
+      }),
+      "final review"
+    )
+    expect(
+      screen.getByText('No pages, sections, or groups match "final review"')
+    ).toBeVisible()
+    expect(
+      screen.queryByRole("link", { name: "Final Review" })
+    ).not.toBeInTheDocument()
+  })
+
   it("uses a static repository heading and contextual create controls", () => {
     renderSidebar("canopy-wiki")
 
