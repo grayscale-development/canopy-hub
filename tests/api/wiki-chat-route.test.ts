@@ -3,14 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const testState = vi.hoisted(() => ({
   user: null as { id: string; email?: string } | null,
   answer: {
-    answer: "Open /wiki/canopy-wiki for the Wiki.",
+    answer: "Open /wiki/1/9/22 for the Wiki.",
     model: "fake-chat",
     citations: [
       {
         knowledgeSourceId: "source-1",
         knowledgeChunkId: "chunk-1",
         title: "Wiki",
-        url: "/wiki/canopy-wiki",
+        url: "/wiki/1/9/22",
         snippet: "Wiki documentation lives here.",
       },
     ],
@@ -25,6 +25,7 @@ const testState = vi.hoisted(() => ({
     ai_chat_message_flags: [] as Array<Record<string, unknown>>,
   },
   nextId: 1,
+  wikiUrls: new Map<string, string>(),
 }))
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -35,6 +36,15 @@ vi.mock("@/lib/supabase/server", () => ({
     from: (table: keyof typeof testState.tables) =>
       new FakeSupabaseQuery(table),
   }),
+}))
+
+vi.mock("@/lib/wiki-knowledge-urls", () => ({
+  resolveWikiKnowledgeUrls: async (_client: unknown, ids: string[]) =>
+    new Map(
+      ids.flatMap((id) =>
+        testState.wikiUrls.has(id) ? [[id, testState.wikiUrls.get(id)!]] : []
+      )
+    ),
 }))
 
 vi.mock("@/lib/wiki-ai", () => ({
@@ -168,6 +178,7 @@ describe("/api/wiki/chat route", () => {
   beforeEach(() => {
     testState.user = null
     testState.nextId = 1
+    testState.wikiUrls = new Map()
     testState.tables.permissions = [
       {
         id: "permission-beta-1",
@@ -243,7 +254,7 @@ describe("/api/wiki/chat route", () => {
       citations: [
         {
           title: "Wiki",
-          url: "/wiki/canopy-wiki",
+          url: "/wiki/1/9/22",
           snippet: "Wiki documentation lives here.",
         },
       ],
@@ -251,6 +262,53 @@ describe("/api/wiki/chat route", () => {
     expect(testState.tables.ai_chat_threads).toHaveLength(1)
     expect(testState.tables.ai_chat_messages).toHaveLength(2)
     expect(testState.tables.ai_chat_citations).toHaveLength(1)
+  })
+
+  it("resolves saved citations after moves and omits inaccessible or unidentified old Wiki links", async () => {
+    testState.user = { id: "user-1" }
+    testState.tables.ai_chat_threads = [
+      { id: "thread", user_id: "user-1", title: "Chat" },
+    ]
+    testState.tables.ai_chat_messages = [
+      {
+        id: "message",
+        thread_id: "thread",
+        role: "assistant",
+        content: "Answer",
+      },
+    ]
+    testState.tables.ai_chat_citations = [
+      {
+        message_id: "message",
+        title: "Moved",
+        url: "/wiki/old",
+        snippet: "Text",
+        knowledge_source_id: "source",
+      },
+      {
+        message_id: "message",
+        title: "Denied",
+        url: "/wiki/old/denied",
+        snippet: "Private",
+        knowledge_source_id: "denied",
+      },
+      {
+        message_id: "message",
+        title: "Unknown",
+        url: "/wiki/old/unknown",
+        snippet: "Old",
+        knowledge_source_id: null,
+      },
+    ]
+    testState.wikiUrls.set("source", "/wiki/1/9/22")
+    const { GET } = await import("@/app/api/wiki/chat/route")
+    const response = await GET(
+      new Request("http://test.local/api/wiki/chat?threadId=thread")
+    )
+    const body = await response.json()
+    expect(body.messages[0].citations).toEqual([
+      { title: "Moved", url: "/wiki/1/9/22", snippet: "Text" },
+    ])
   })
 
   it("returns a sanitized runtime configuration error when OpenAI is not configured", async () => {

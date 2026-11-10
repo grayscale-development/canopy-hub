@@ -50,6 +50,16 @@ authorized account. Previously excluded drafts have no chunks until this reindex
 or their next save. No OpenAI calls are required for keyword retrieval; embeddings
 can remain null. Do not enable the draft-retaining indexer before the migration.
 
+For the v2.2 numeric Wiki URL release, **after deployment**, sign in with an
+account allowed to access AI Settings, open Settings → AI → Index, and select
+**Run Milo Index**. Wait for the successful receipt and confirm its Wiki source
+count covers the Wiki pages and assets. This rewrites stored source URLs and
+chunk path metadata; it is a release step, not a development-time operation.
+Existing Wiki page and asset links are resolved from current node ancestry at
+read time, including older index rows, so later moves do not require a reindex.
+Rows that cannot be resolved are omitted. Older saved chat citations without a
+source ID cannot be resolved and are omitted when reopening the chat.
+
 Settings → AI → Index and the Wiki reindex endpoint share the Wiki page/asset
 indexer. The Settings receipt includes a separate Wiki source count, including
 drafts retained behind live permission checks. A successful receipt containing

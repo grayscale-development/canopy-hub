@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
+import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
@@ -139,7 +140,7 @@ export async function GET(request: Request) {
   const { data: citations, error: citationsError } = messageIds.length
     ? await supabase
         .from("ai_chat_citations")
-        .select("message_id,title,url,snippet")
+        .select("message_id,title,url,snippet,knowledge_source_id")
         .in("message_id", messageIds)
         .order("created_at", { ascending: true })
     : { data: [], error: null }
@@ -148,11 +149,30 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: citationsError.message }, { status: 400 })
   }
 
+  const wikiCitations = (citations ?? []).filter(
+    (citation) =>
+      citation.url?.startsWith("/wiki/") &&
+      !citation.url.startsWith("/wiki/tags")
+  )
+  const wikiUrls = await resolveWikiKnowledgeUrls(
+    supabase,
+    wikiCitations.flatMap((citation) =>
+      citation.knowledge_source_id ? [citation.knowledge_source_id] : []
+    )
+  )
+
   const citationsByMessage = new Map<
     string,
     Array<{ title: string; url: string | null; snippet: string }>
   >()
   for (const citation of citations ?? []) {
+    if (wikiCitations.includes(citation)) {
+      const url = citation.knowledge_source_id
+        ? wikiUrls.get(citation.knowledge_source_id)
+        : null
+      if (!url) continue
+      citation.url = url
+    }
     const existing = citationsByMessage.get(citation.message_id) ?? []
     existing.push(mapCitationRow(citation))
     citationsByMessage.set(citation.message_id, existing)
@@ -311,9 +331,7 @@ export async function POST(request: Request) {
           content: result.answer,
           model: result.model,
           metadata:
-            "metadata" in result && result.metadata
-              ? result.metadata
-              : {},
+            "metadata" in result && result.metadata ? result.metadata : {},
         })
         .select("id")
         .single()

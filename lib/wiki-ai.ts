@@ -14,6 +14,7 @@ import {
 } from "@/lib/hub-data"
 import { answerMiloQuestionWithAgent } from "@/lib/milo/agent"
 import { getFeaturedReports } from "@/lib/reports"
+import { resolveWikiKnowledgeRows } from "@/lib/wiki-knowledge-urls"
 import {
   fetchSupportDirectoryData,
   type SupportDirectorySection,
@@ -615,10 +616,13 @@ export async function retrieveKnowledge(
     throw new Error(error.message)
   }
 
-  return mergeRetrievedChunks([
-    ...keywordMatches,
-    ...((data ?? []) as RetrievedChunk[]),
-  ]).slice(0, matchCount)
+  return resolveWikiKnowledgeRows(
+    supabase,
+    mergeRetrievedChunks([
+      ...keywordMatches,
+      ...((data ?? []) as RetrievedChunk[]),
+    ]).slice(0, matchCount)
+  )
 }
 
 async function retrieveKeywordKnowledge(

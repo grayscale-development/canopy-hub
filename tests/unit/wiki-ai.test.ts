@@ -15,7 +15,7 @@ type MockMiloToolResult = {
 const aiProvider = vi.hoisted(() => ({
   createEmbeddingsWithOpenAI: vi.fn(async () => [[0.1, 0.2, 0.3]]),
   createChatResponseWithOpenAI: vi.fn(async () => ({
-    output_text: "Use /wiki/canopy-wiki [1].",
+    output_text: "Use /wiki [1].",
   })),
   createAgentResponseWithOpenAI: vi.fn(async (): Promise<unknown> => {
     throw new Error("agent unavailable")
@@ -24,6 +24,17 @@ const aiProvider = vi.hoisted(() => ({
 }))
 
 vi.mock("@/lib/ai/provider", () => aiProvider)
+vi.mock("@/lib/wiki-knowledge-urls", () => ({
+  resolveWikiKnowledgeRows: async (
+    _client: unknown,
+    rows: Array<Record<string, unknown>>
+  ) =>
+    rows.map((row) =>
+      row.source_type === "wiki_page"
+        ? { ...row, source_url: "/wiki/1/22" }
+        : row
+    ),
+}))
 
 const miloMcp = vi.hoisted(() => ({
   MILO_MCP_TOOLS: [
@@ -168,8 +179,7 @@ describe("wiki AI orchestration", () => {
                 source_id: "source-borrower-auth",
                 source_type: "wiki_page",
                 source_title: "How to Send a Borrower's Authorization",
-                source_url:
-                  "/wiki/nano-wiki/processing/how-to-send-a-borrowers-authorization",
+                source_url: "/wiki/old-slug",
                 content:
                   "Borrower authorization steps are documented in this Wiki page.",
                 metadata: {},
@@ -192,7 +202,8 @@ describe("wiki AI orchestration", () => {
       question: "tell me about borrower auth",
     })
 
-    expect(result.answer).toBe("Use /wiki/canopy-wiki [1].")
+    expect(result.answer).toBe("Use /wiki [1].")
+    expect(result.citations[0]?.url).toBe("/wiki/1/22")
     expect(result.answer).not.toContain("People directory")
     expect(hubData.fetchEmployeeDirectoryRows).toHaveBeenCalled()
     expect(supabase.rpc).toHaveBeenCalledWith(
@@ -259,7 +270,7 @@ describe("wiki AI orchestration", () => {
                 {
                   source_type: "wiki_page",
                   source_title: "Cancel a Loan",
-                  source_url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
+                  source_url: "/wiki/1/9/22",
                   content: "HOW TO CANCEL A LOAN: Step 1...",
                 },
               ],
@@ -274,19 +285,19 @@ describe("wiki AI orchestration", () => {
               },
               {
                 title: "Cancel a Loan",
-                url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
+                url: "/wiki/1/9/22",
                 snippet: "Policy guidance from the Wiki.",
                 sourceType: "wiki_page",
               },
               {
                 title: "Cancel a Loan",
-                url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
+                url: "/wiki/1/9/22",
                 snippet: "HOW TO CANCEL A LOAN: Step 1...",
                 sourceType: "wiki_page",
               },
               {
                 title: "Cancel a Loan",
-                url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
+                url: "/wiki/1/9/22",
                 snippet: "COMMON CANCELLATION ERRORS...",
                 sourceType: "wiki_page",
               },
@@ -329,7 +340,7 @@ describe("wiki AI orchestration", () => {
       citations: [
         {
           title: "Cancel a Loan",
-          url: "/wiki/canopy-wiki/lo-loa/cancel-a-loan",
+          url: "/wiki/1/9/22",
         },
       ],
       metadata: {
@@ -374,8 +385,8 @@ describe("wiki AI orchestration", () => {
                 source_id: "source-1",
                 source_type: "site",
                 source_title: "Wiki",
-                source_url: "/wiki/canopy-wiki",
-                content: "Wiki documentation lives at /wiki/canopy-wiki.",
+                source_url: "/wiki",
+                content: "Wiki documentation lives at /wiki.",
                 metadata: {},
                 similarity: 0.95,
               },
@@ -391,7 +402,7 @@ describe("wiki AI orchestration", () => {
               source_id: "source-1",
               source_type: "site",
               source_title: "Wiki",
-              source_url: "/wiki/canopy-wiki",
+              source_url: "/wiki",
               content: "Lower scoring duplicate.",
               metadata: {},
               similarity: 0.6,
@@ -408,14 +419,14 @@ describe("wiki AI orchestration", () => {
         question: "Where is the Wiki?",
       })
     ).resolves.toMatchObject({
-      answer: "Use /wiki/canopy-wiki [1].",
+      answer: "Use /wiki [1].",
       model: "fake-chat",
       citations: [
         {
           knowledgeSourceId: "source-1",
           knowledgeChunkId: "chunk-1",
           title: "Wiki",
-          url: "/wiki/canopy-wiki",
+          url: "/wiki",
         },
       ],
     })
@@ -458,7 +469,7 @@ describe("wiki AI orchestration", () => {
       supabase: supabase as never,
       node: { id: "draft-page", title: "Draft SOP", status: "draft" } as never,
       revision: { id: "revision", plain_text: "Draft procedure" } as never,
-      path: "draft",
+      path: "1/22",
       isPublished: false,
     })
     await indexWikiAsset({
@@ -471,11 +482,21 @@ describe("wiki AI orchestration", () => {
         extracted_text: "Draft attachment",
       } as never,
       pageTitle: "Draft SOP",
-      pagePath: "draft",
+      pagePath: "1/22",
       isPagePublished: false,
     })
     expect(sources.map((source) => source.status)).toEqual(["active", "active"])
+    expect(sources.map((source) => source.url)).toEqual([
+      "/wiki/1/22",
+      "/wiki/1/22",
+    ])
+    expect(sources[1].metadata).toMatchObject({
+      nodeId: "draft-page",
+      pagePath: "1/22",
+    })
     expect(sources[0].metadata).toMatchObject({
+      nodeId: "draft-page",
+      path: "1/22",
       status: "draft",
       isPublished: false,
     })

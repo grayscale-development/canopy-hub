@@ -139,11 +139,18 @@ dbDescribe("Milo user permission enforcement", () => {
       manager
     )
     expect(permitted.ok).toBe(true)
+    const { data: nodes, error: pathError } = await manager
+      .from("wiki_nodes")
+      .select("id,short_id")
+      .in("id", [parentId, pageId])
+    expect(pathError).toBeNull()
+    const shortId = (id: string) =>
+      nodes?.find((node) => node.id === id)?.short_id
     expect(permitted.sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           title: `${token} Draft SOP`,
-          url: `/wiki/${token}/draft`,
+          url: `/wiki/${shortId(parentId)}/${shortId(pageId)}`,
           snippet: expect.stringContaining("confidential draft steps"),
         }),
         expect.objectContaining({
@@ -168,6 +175,60 @@ dbDescribe("Milo user permission enforcement", () => {
       .ilike("content", `%${token}%`)
     expect(error).toBeNull()
     expect(data).toEqual([])
+  })
+
+  it("resolves moved page and asset citations without reindexing", async () => {
+    const newParentId = randomUUID()
+    const { error: insertError } = await admin.from("wiki_nodes").insert({
+      id: newParentId,
+      type: "folder",
+      slug: `moved-${token}`,
+      title: "Moved fixture",
+      status: "published",
+    })
+    expect(insertError).toBeNull()
+    try {
+      const { error: moveError } = await admin
+        .from("wiki_nodes")
+        .update({ parent_id: newParentId })
+        .eq("id", pageId)
+      expect(moveError).toBeNull()
+      const { data: nodes, error: pathError } = await manager
+        .from("wiki_nodes")
+        .select("id,short_id")
+        .in("id", [newParentId, pageId])
+      expect(pathError).toBeNull()
+      const shortId = (id: string) =>
+        nodes?.find((node) => node.id === id)?.short_id
+      const result = await callMiloMcpTool(
+        "knowledge_search",
+        { query: token },
+        manager
+      )
+      expect(result.ok).toBe(true)
+      for (const title of [`${token} Draft SOP`, `${token} Draft asset`]) {
+        expect(result.sources).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              title,
+              url: `/wiki/${shortId(newParentId)}/${shortId(pageId)}`,
+            }),
+          ])
+        )
+      }
+      const denied = await callMiloMcpTool(
+        "knowledge_search",
+        { query: token },
+        viewer
+      )
+      expect(denied.sources).toEqual([])
+    } finally {
+      await admin
+        .from("wiki_nodes")
+        .update({ parent_id: parentId })
+        .eq("id", pageId)
+      await admin.from("wiki_nodes").delete().eq("id", newParentId)
+    }
   })
 
   it("derives viewer folder visibility from published descendants and protects folder status", async () => {

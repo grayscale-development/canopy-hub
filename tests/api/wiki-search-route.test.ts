@@ -170,11 +170,23 @@ describe("wiki tag search", () => {
         similarity: 1,
       },
     ]
+    state.knowledge.push({
+      source_id: "missing",
+      source_type: "wiki_page",
+      source_title: "Missing",
+      source_url: "/wiki/old/missing",
+      content: "Text",
+      similarity: 0.5,
+    })
     const response = await GET(
       new NextRequest("http://localhost/api/wiki/search?q=page")
     )
-    expect((await response.json()).results).toContainEqual(
+    const results = (await response.json()).results
+    expect(results).toContainEqual(
       expect.objectContaining({ title: "Page", url: "/wiki/1/9/22" })
+    )
+    expect(results).not.toContainEqual(
+      expect.objectContaining({ title: "Missing" })
     )
   })
   it("does not expose wiki tags without wiki access", async () => {
