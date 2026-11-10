@@ -15,14 +15,11 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import {
-  buildWikiBreadcrumbs,
-  resolveWikiPath,
-  type WikiNodeRow,
-} from "@/lib/wiki"
+import { buildWikiBreadcrumbs, type WikiNodeRow } from "@/lib/wiki"
+import { buildNumericWikiPath, resolveNumericWikiPath } from "@/lib/wiki-paths"
 import {
   getDefaultWikiRepository,
-  getWikiRepositoryBySlug,
+  getWikiRepositoryByShortId,
 } from "@/lib/wiki-repositories"
 
 function getWikiPathSegments(pathname: string) {
@@ -42,10 +39,7 @@ function WikiBreadcrumbs({ breadcrumbs }: { breadcrumbs: WikiNodeRow[] }) {
           </BreadcrumbLink>
         </BreadcrumbItem>
         {breadcrumbs.map((node, index) => {
-          const path = breadcrumbs
-            .slice(0, index + 1)
-            .map((item) => item.slug)
-            .join("/")
+          const path = buildNumericWikiPath(breadcrumbs, node)
           const isLast = index === breadcrumbs.length - 1
 
           return [
@@ -69,10 +63,10 @@ function WikiBreadcrumbs({ breadcrumbs }: { breadcrumbs: WikiNodeRow[] }) {
 export function WikiHeader({ nodes }: { nodes: WikiNodeRow[] }) {
   const pathname = usePathname()
   const path = getWikiPathSegments(pathname)
-  const node = resolveWikiPath(nodes, path)
+  const node = resolveNumericWikiPath(nodes, path)?.node
   const breadcrumbs = node ? buildWikiBreadcrumbs(nodes, node) : []
   const isTagsDirectory = path.length === 1 && path[0] === "tags"
-  const repository = getWikiRepositoryBySlug(path[0])
+  const repository = getWikiRepositoryByShortId(Number(path[0]))
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
@@ -134,8 +128,11 @@ export function WikiRepositoryNavigation({
 }) {
   const pathname = usePathname()
   const path = getWikiPathSegments(pathname)
+  const node = resolveNumericWikiPath(nodes, path)?.node
+  const root = node ? buildWikiBreadcrumbs(nodes, node)[0] : null
   const selectedRepositorySlug =
-    getWikiRepositoryBySlug(path[0])?.slug ?? getDefaultWikiRepository().slug
+    (root && getWikiRepositoryByShortId(root.short_id)?.slug) ??
+    getDefaultWikiRepository().slug
 
   if (selectedRepositorySlug === "nano-wiki") {
     return null

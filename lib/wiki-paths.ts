@@ -1,6 +1,5 @@
 import {
   buildWikiBreadcrumbs,
-  buildWikiTree,
   compareWikiNodes,
   isPublishedWikiBranch,
   type WikiNodeRow,
@@ -42,15 +41,26 @@ export function resolveNumericWikiPath(
 }
 
 export function buildNumericWikiTree(nodes: WikiNodeRow[]) {
-  const tree = buildWikiTree(nodes)
-  function setPaths(items: WikiTreeNode[]) {
-    for (const item of items) {
-      item.path = buildNumericWikiPath(nodes, item)
-      setPaths(item.children)
-    }
+  const byId = new Map<string, WikiTreeNode>()
+  const roots: WikiTreeNode[] = []
+  for (const node of nodes) {
+    byId.set(node.id, {
+      ...node,
+      children: [],
+      path: buildNumericWikiPath(nodes, node),
+    })
   }
-  setPaths(tree)
-  return tree
+  for (const node of byId.values()) {
+    const parent = node.parent_id ? byId.get(node.parent_id) : undefined
+    if (parent) parent.children.push(node)
+    else roots.push(node)
+  }
+  function sort(items: WikiTreeNode[]) {
+    items.sort(compareWikiNodes)
+    for (const item of items) sort(item.children)
+  }
+  sort(roots)
+  return roots
 }
 
 export function findDefaultNumericWikiPagePath(

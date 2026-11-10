@@ -1,3 +1,4 @@
+import { buildNumericWikiPath, resolveNumericWikiPath } from "@/lib/wiki-paths"
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import type { createSupabaseServerClient } from "@/lib/supabase/server"
 
@@ -325,35 +326,6 @@ export function validateWikiUpload(file: File) {
   return null
 }
 
-/** @deprecated Use buildNumericWikiTree when the wiki routes switch to numeric paths. */
-export function buildWikiTree(nodes: WikiNodeRow[]) {
-  const nodeMap = new Map<string, WikiTreeNode>()
-  const roots: WikiTreeNode[] = []
-
-  for (const node of nodes) {
-    nodeMap.set(node.id, { ...node, children: [], path: "" })
-  }
-
-  for (const node of nodeMap.values()) {
-    if (node.parent_id && nodeMap.has(node.parent_id)) {
-      nodeMap.get(node.parent_id)?.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  }
-
-  function sortAndPath(items: WikiTreeNode[], parentPath: string) {
-    items.sort(compareWikiNodes)
-    for (const item of items) {
-      item.path = parentPath ? `${parentPath}/${item.slug}` : item.slug
-      sortAndPath(item.children, item.path)
-    }
-  }
-
-  sortAndPath(roots, "")
-  return roots
-}
-
 export function compareWikiNodes(left: WikiNodeRow, right: WikiNodeRow) {
   if (left.type !== right.type) {
     return left.type === "folder" ? -1 : 1
@@ -366,29 +338,6 @@ export function compareWikiNodes(left: WikiNodeRow, right: WikiNodeRow) {
   return left.title.localeCompare(right.title, undefined, {
     sensitivity: "base",
   })
-}
-
-/** @deprecated Use resolveNumericWikiPath when the wiki routes switch to numeric paths. */
-export function resolveWikiPath(nodes: WikiNodeRow[], segments: string[]) {
-  let parentId: string | null = null
-  let current: WikiNodeRow | null = null
-
-  for (const segment of segments) {
-    current =
-      nodes.find(
-        (node) =>
-          node.parent_id === parentId &&
-          node.slug.toLowerCase() === segment.toLowerCase()
-      ) ?? null
-
-    if (!current) {
-      return null
-    }
-
-    parentId = current.id
-  }
-
-  return current
 }
 
 export function buildWikiBreadcrumbs(nodes: WikiNodeRow[], node: WikiNodeRow) {
@@ -476,114 +425,6 @@ export async function fetchWikiPageTags(
     const tag = row.wiki_tags
     return tag ? [tag as unknown as WikiTagRow] : []
   })
-}
-
-/** @deprecated Use buildNumericWikiPath when the wiki routes switch to numeric paths. */
-export function buildWikiPath(nodes: WikiNodeRow[], node: WikiNodeRow) {
-  return buildWikiBreadcrumbs(nodes, node)
-    .map((item) => item.slug)
-    .join("/")
-}
-
-/** @deprecated Use findDefaultNumericWikiPagePath when routes switch to numeric paths. */
-export function findDefaultWikiPagePath(
-  nodes: WikiNodeRow[],
-  repositorySlug: string
-) {
-  const repository = nodes.find(
-    (node) => node.parent_id === null && node.slug === repositorySlug
-  )
-
-  if (!repository) {
-    return null
-  }
-
-  const sections = nodes
-    .filter(
-      (node) => node.parent_id === repository.id && node.type === "folder"
-    )
-    .sort(compareWikiNodes)
-
-  for (const section of sections) {
-    const directPage = nodes
-      .filter((node) => node.parent_id === section.id && node.type === "page")
-      .sort(compareWikiNodes)[0]
-
-    if (directPage) {
-      return buildWikiPath(nodes, directPage)
-    }
-  }
-
-  for (const section of sections) {
-    const nestedFolders = nodes
-      .filter((node) => node.parent_id === section.id && node.type === "folder")
-      .sort(compareWikiNodes)
-
-    for (const folder of nestedFolders) {
-      const nestedPage = nodes
-        .filter((node) => node.parent_id === folder.id && node.type === "page")
-        .sort(compareWikiNodes)[0]
-
-      if (nestedPage) {
-        return buildWikiPath(nodes, nestedPage)
-      }
-    }
-  }
-
-  return null
-}
-
-/** @deprecated Use findFirstPublishedNumericWikiPagePath when routes switch to numeric paths. */
-export function findFirstPublishedWikiPagePath(
-  nodes: WikiNodeRow[],
-  folder: WikiNodeRow
-): string | null {
-  const childrenByParentId = new Map<string, WikiNodeRow[]>()
-
-  for (const node of nodes) {
-    if (!node.parent_id) {
-      continue
-    }
-
-    const children = childrenByParentId.get(node.parent_id) ?? []
-    children.push(node)
-    childrenByParentId.set(node.parent_id, children)
-  }
-
-  function findInFolder(
-    currentFolder: WikiNodeRow,
-    visited: Set<string>
-  ): string | null {
-    if (visited.has(currentFolder.id) || currentFolder.status === "archived") {
-      return null
-    }
-    visited.add(currentFolder.id)
-
-    const children = (childrenByParentId.get(currentFolder.id) ?? []).sort(
-      compareWikiNodes
-    )
-    const directPage = children.find(
-      (child) => child.type === "page" && child.status === "published"
-    )
-    if (directPage) {
-      return buildWikiPath(nodes, directPage)
-    }
-
-    for (const child of children) {
-      if (child.type !== "folder") {
-        continue
-      }
-
-      const path = findInFolder(child, visited)
-      if (path) {
-        return path
-      }
-    }
-
-    return null
-  }
-
-  return findInFolder(folder, new Set())
 }
 
 export function isPublishedWikiBranch(nodes: WikiNodeRow[], node: WikiNodeRow) {
@@ -709,7 +550,8 @@ export async function fetchWikiPageData(
   segments: string[]
 ): Promise<WikiPageData | null> {
   const nodes = await fetchWikiNodes(supabase)
-  const node = resolveWikiPath(nodes, segments)
+  const resolved = resolveNumericWikiPath(nodes, segments)
+  const node = resolved?.node
 
   if (!node) {
     return null
@@ -728,7 +570,7 @@ export async function fetchWikiPageData(
     children: nodes
       .filter((item) => item.parent_id === node.id)
       .sort(compareWikiNodes),
-    path: buildWikiPath(nodes, node),
+    path: buildNumericWikiPath(nodes, node),
   }
 }
 

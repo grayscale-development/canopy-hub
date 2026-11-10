@@ -2,6 +2,8 @@ import { mkdirSync } from "node:fs"
 import path from "node:path"
 import { expect, test, type Locator, type Page } from "@playwright/test"
 
+import { openWikiPath } from "./helpers"
+
 import {
   enableEditorMode,
   serviceWiki,
@@ -26,7 +28,7 @@ async function screenshot(locator: Locator, name: string) {
 
 async function openCreatePage(page: Page) {
   await expect(async () => {
-    await page.goto("/wiki/canopy-wiki/operations/closing")
+    await openWikiPath(page, "Canopy Wiki", "Operations", "Closing")
     await expect(
       page.getByRole("switch", { name: "Toggle wiki editor mode" })
     ).toBeVisible({ timeout: 5000 })

@@ -1,3 +1,4 @@
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import crypto from "node:crypto"
 
 import { NextResponse } from "next/server"
@@ -12,7 +13,6 @@ import {
 } from "@/lib/wiki-extract"
 import { indexWikiAsset } from "@/lib/wiki-ai"
 import {
-  buildWikiPath,
   fetchWikiNodes,
   getWikiAssetKind,
   isPublishedWikiBranch,
@@ -329,7 +329,7 @@ export async function POST(request: Request) {
   if (!(kind === "video" && deferVideoProcessing)) {
     const nodes = await fetchWikiNodes(supabase)
     const pageNode = nodes.find((item) => item.id === nodeId) ?? node
-    const pagePath = buildWikiPath(nodes, pageNode)
+    const pagePath = buildNumericWikiPath(nodes, pageNode)
     await indexWikiAsset({
       supabase: adminSupabase,
       asset: asset as WikiAssetRow,

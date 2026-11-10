@@ -73,6 +73,22 @@ export async function enableEditorMode(page: Page) {
   }).toPass()
 }
 
+export async function wikiPathForNode(nodeId: string) {
+  const { data, error } = await serviceWiki()
+    .from("wiki_nodes")
+    .select("id,parent_id,short_id")
+  if (error) throw error
+  const byId = new Map((data ?? []).map((node) => [node.id, node]))
+  const segments: number[] = []
+  let node = byId.get(nodeId)
+  while (node) {
+    segments.unshift(node.short_id)
+    node = node.parent_id ? byId.get(node.parent_id) : undefined
+  }
+  if (!segments.length) throw new Error("Wiki node not found")
+  return `/wiki/${segments.join("/")}`
+}
+
 export async function createReviewedPage({
   slug,
   title,
@@ -162,7 +178,7 @@ export async function createReviewedPage({
     id: node.id as string,
     revisionId: revision.id as string,
     olderRevisionId,
-    path: `/wiki/canopy-wiki/operations/closing/${slug}`,
+    path: await wikiPathForNode(node.id),
   }
 }
 

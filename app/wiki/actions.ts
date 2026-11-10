@@ -1,5 +1,6 @@
 "use server"
 
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
@@ -16,7 +17,6 @@ import { getWikiRepositoryBySlug } from "@/lib/wiki-repositories"
 import { backfillWikiTagEmbeddings } from "@/lib/wiki-tag-embeddings"
 import {
   blockNoteToPlainText,
-  buildWikiPath,
   fetchWikiAssetsForNode,
   fetchCurrentRevision,
   fetchWikiNodes,
@@ -155,12 +155,12 @@ async function syncWikiPageKnowledgeSource({
   const nodes = await fetchWikiNodes(supabase)
   const node = nodes.find((item) => item.id === nodeId)
   if (!node || node.type !== "page") {
-    return { nodes, path: node ? buildWikiPath(nodes, node) : "" }
+    return { nodes, path: node ? buildNumericWikiPath(nodes, node) : "" }
   }
 
   const isVisibleToViewers = isPublishedWikiBranch(nodes, node)
   const revision = await fetchCurrentRevision(supabase, node)
-  const path = buildWikiPath(nodes, node)
+  const path = buildNumericWikiPath(nodes, node)
   const indexClient = createSupabaseAdminClient()
 
   if (node.status === "draft" && node.import_content_hash) {
@@ -343,7 +343,7 @@ export async function createWikiNodeAction(
 
     const nodes = await fetchWikiNodes(supabase)
     const createdNode = nodes.find((item) => item.id === node.id) ?? node
-    const path = buildWikiPath(nodes, createdNode)
+    const path = buildNumericWikiPath(nodes, createdNode)
     revalidatePath("/wiki")
     revalidatePath(`/wiki/${path}`)
 
@@ -384,6 +384,13 @@ export async function updateWikiNodeAction(
       return { ok: false, message: "Wiki item not found." }
     }
 
+    const oldNodes = await fetchWikiNodes(supabase)
+    const oldParent = oldNodes.find(
+      (item) => item.id === existingNode.parent_id
+    )
+    const oldParentPath = oldParent
+      ? buildNumericWikiPath(oldNodes, oldParent)
+      : ""
     const tags = existingNode.type === "page" ? getSubmittedTags(formData) : []
 
     const parentId = formData.has("parent_id")
@@ -433,6 +440,9 @@ export async function updateWikiNodeAction(
     revalidatePath("/wiki")
     if (path) {
       revalidatePath(`/wiki/${path}`)
+    }
+    if (oldParentPath && parentId !== existingNode.parent_id) {
+      revalidatePath(`/wiki/${oldParentPath}`)
     }
 
     return {
@@ -487,6 +497,10 @@ export async function moveWikiNodeAction(
       }
     }
 
+    const oldParent = nodes.find((item) => item.id === node.parent_id)
+    const oldParentPath = oldParent
+      ? buildNumericWikiPath(nodes, oldParent)
+      : ""
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,
@@ -502,6 +516,7 @@ export async function moveWikiNodeAction(
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId: id })
     revalidatePath("/wiki")
     if (path) revalidatePath(`/wiki/${path}`)
+    if (oldParentPath) revalidatePath(`/wiki/${oldParentPath}`)
     return {
       ok: true,
       message: "Moved.",

@@ -1,3 +1,4 @@
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import { NextResponse, type NextRequest } from "next/server"
 
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
@@ -10,7 +11,6 @@ import {
 } from "@/lib/wiki-extract"
 import { indexWikiAsset } from "@/lib/wiki-ai"
 import {
-  buildWikiPath,
   fetchWikiNodes,
   isPublishedWikiBranch,
   WIKI_MANAGE_PERMISSION,
@@ -160,7 +160,7 @@ export async function PATCH(
       supabase: createSupabaseAdminClient(),
       asset: asset as WikiAssetRow,
       pageTitle: pageNode.title,
-      pagePath: buildWikiPath(nodes, pageNode),
+      pagePath: buildNumericWikiPath(nodes, pageNode),
       isPagePublished: isPublishedWikiBranch(nodes, pageNode),
     })
   }
@@ -313,7 +313,7 @@ export async function POST(
       supabase: createSupabaseAdminClient(),
       asset: asset as WikiAssetRow,
       pageTitle: pageNode.title,
-      pagePath: buildWikiPath(nodes, pageNode),
+      pagePath: buildNumericWikiPath(nodes, pageNode),
       isPagePublished: isPublishedWikiBranch(nodes, pageNode),
     })
 

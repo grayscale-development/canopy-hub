@@ -1,3 +1,4 @@
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import "server-only"
 
 import {
@@ -6,7 +7,6 @@ import {
   indexWikiPage,
 } from "@/lib/wiki-ai"
 import {
-  buildWikiPath,
   fetchCurrentRevision,
   isPublishedWikiBranch,
   type SupabaseWikiClient,
@@ -36,7 +36,7 @@ export async function indexWikiKnowledge(supabase: SupabaseWikiClient) {
   let indexedCount = 0
 
   for (const node of pageNodes) {
-    const path = buildWikiPath(nodes, node)
+    const path = buildNumericWikiPath(nodes, node)
     const revision = await fetchCurrentRevision(supabase, node)
     const isPagePublished = isPublishedWikiBranch(nodes, node)
 
@@ -93,7 +93,7 @@ export async function indexWikiKnowledge(supabase: SupabaseWikiClient) {
       supabase,
       asset,
       pageTitle: pageNode.title,
-      pagePath: buildWikiPath(nodes, pageNode),
+      pagePath: buildNumericWikiPath(nodes, pageNode),
       isPagePublished,
     })
     indexedCount += asset.status === "active" ? 1 : 0
