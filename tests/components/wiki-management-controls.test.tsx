@@ -14,6 +14,7 @@ import {
   WikiEditableTitle,
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
+import { updateWikiNodeAction } from "@/app/wiki/actions"
 import type { WikiNodeRow } from "@/lib/wiki"
 
 const router = vi.hoisted(() => ({
@@ -62,6 +63,39 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("WikiNodeActionsMenu", () => {
+  it("saves a selected tag after the search field loses focus", async () => {
+    const user = userEvent.setup()
+    const page = { ...emptyGroup, type: "page" as const }
+    vi.mocked(updateWikiNodeAction).mockResolvedValueOnce({
+      ok: true,
+      message: "Updated.",
+    })
+    render(
+      <WikiNodeActionsMenu
+        nodes={[page]}
+        node={page}
+        availableTags={[
+          { id: "credit", name: "Credit", scope: "global", section_id: null },
+        ]}
+      />
+    )
+    await user.click(
+      screen.getByRole("button", { name: "More actions for this page" })
+    )
+    await user.click(screen.getByRole("menuitem", { name: "Edit details" }))
+    const dialog = await screen.findByRole("dialog", { name: "Edit page" })
+    const search = within(dialog).getByRole("textbox", {
+      name: "Search or create a tag",
+    })
+    await user.type(search, "credit{Enter}")
+    await user.click(within(dialog).getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(updateWikiNodeAction).toHaveBeenCalledOnce())
+    const form = vi.mocked(updateWikiNodeAction).mock.calls[0][0]
+    expect(JSON.parse(String(form.get("tags_scoped")))).toEqual([
+      { name: "Credit", scope: "global", section_id: null },
+    ])
+  })
+
   it("keeps Move on the left and Cancel and Save together on the right", async () => {
     const user = userEvent.setup()
     render(

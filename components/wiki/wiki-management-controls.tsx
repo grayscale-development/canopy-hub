@@ -500,6 +500,7 @@ export function WikiNodeActionsMenu({
 
   const openEditDialog = React.useCallback(() => {
     setState(null)
+    setTagPickerOpen(false)
     setSelectedTags(pageTags.map(toScopedTag))
     setOpen(true)
   }, [pageTags])
@@ -765,10 +766,6 @@ export function WikiNodeActionsMenu({
                     : "[&_[aria-label='Available_tags']]:hidden"
                 }
                 onFocus={() => setTagPickerOpen(true)}
-                onBlur={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget))
-                    setTagPickerOpen(false)
-                }}
               >
                 <WikiTagPicker
                   availableTags={availableTags.map(toScopedTag)}
