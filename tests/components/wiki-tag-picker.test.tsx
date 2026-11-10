@@ -73,6 +73,27 @@ afterEach(() => {
 })
 
 describe("WikiTagPicker", () => {
+  it("offers a similar existing tag and still allows creating the new name", async () => {
+    const user = userEvent.setup()
+    render(<Harness available={[globalTag("Closing")]} />)
+    const input = screen.getByRole("textbox")
+    await user.type(input, "Closings")
+    expect(screen.getByText("A similar tag already exists")).toBeVisible()
+    expect(screen.getByText(/plural of/)).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: /Create “Closings” anyway/ })
+    ).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: "Use Closing" }))
+    expect(submittedTags()).toEqual([globalTag("Closing")])
+    await user.type(input, "Closings")
+    await user.click(
+      screen.getByRole("button", { name: /Create “Closings” anyway/ })
+    )
+    expect(submittedTags()).toEqual([
+      globalTag("Closing"),
+      sectionTag("Closings"),
+    ])
+  })
   it("keeps the directory filter flat without labeling its name-only tags global", async () => {
     function DirectoryFilter() {
       const [selected, setSelected] = React.useState<WikiScopedTag[]>([])

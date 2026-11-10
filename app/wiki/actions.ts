@@ -13,6 +13,7 @@ import {
   indexWikiPage,
 } from "@/lib/wiki-ai"
 import { getWikiRepositoryBySlug } from "@/lib/wiki-repositories"
+import { backfillWikiTagEmbeddings } from "@/lib/wiki-tag-embeddings"
 import {
   blockNoteToPlainText,
   buildWikiPath,
@@ -334,6 +335,10 @@ export async function createWikiNodeAction(
       }
 
       await syncWikiPageTags({ supabase, nodeId: node.id, tags })
+      await backfillWikiTagEmbeddings(
+        supabase,
+        tags.map((tag) => (typeof tag === "string" ? tag : tag.name))
+      )
     }
 
     const nodes = await fetchWikiNodes(supabase)
@@ -418,6 +423,10 @@ export async function updateWikiNodeAction(
         nodeId: id,
         tags,
       })
+      await backfillWikiTagEmbeddings(
+        supabase,
+        tags.map((tag) => (typeof tag === "string" ? tag : tag.name))
+      )
     }
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId: id })
@@ -532,11 +541,16 @@ export async function updateWikiNodeTagsAction(
       return { ok: false, message: "Wiki page not found." }
     }
 
+    const tags = getSubmittedTags(formData)
     await syncWikiPageTags({
       supabase,
       nodeId,
-      tags: getSubmittedTags(formData),
+      tags,
     })
+    await backfillWikiTagEmbeddings(
+      supabase,
+      tags.map((tag) => (typeof tag === "string" ? tag : tag.name))
+    )
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
     revalidatePath("/wiki")

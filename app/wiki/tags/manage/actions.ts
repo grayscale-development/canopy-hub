@@ -7,6 +7,7 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { WIKI_MANAGE_PERMISSION } from "@/lib/wiki"
+import { backfillWikiTagEmbeddings } from "@/lib/wiki-tag-embeddings"
 
 export async function manageWikiTagAction(input: {
   action: "merge" | "rename" | "promote" | "demote" | "delete"
@@ -88,6 +89,11 @@ export async function manageWikiTagAction(input: {
       message: "Could not update this tag. Refresh and try again.",
     }
   }
+  if (input.action === "rename")
+    await backfillWikiTagEmbeddings(
+      supabase,
+      input.name ? [input.name.trim().replace(/\s+/g, " ")] : []
+    )
   revalidatePath("/wiki", "layout")
   return { ok: true, message: "Tag updated." }
 }

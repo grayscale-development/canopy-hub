@@ -54,18 +54,36 @@ export function getTranscriptionModel() {
   return process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "gpt-4o-transcribe"
 }
 
-export async function createEmbeddingsWithOpenAI(texts: string[]) {
+export async function createEmbeddingsWithOpenAI(
+  texts: string[],
+  signal?: AbortSignal
+) {
   if (!texts.length) {
     return []
   }
 
-  const client = getOpenAIClient()
   const { model, dimensions } = getEmbeddingConfig()
-  const response = await client.embeddings.create({
-    model,
-    input: texts,
-    dimensions,
-  })
+  if (model === "fake-embedding") {
+    return texts.map((text) => {
+      const vector = Array<number>(dimensions).fill(0)
+      for (const word of text.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
+        let hash = 0
+        for (const character of word)
+          hash = (hash * 31 + character.charCodeAt(0)) >>> 0
+        vector[hash % dimensions] += 1
+      }
+      return vector
+    })
+  }
+  const client = getOpenAIClient()
+  const response = await client.embeddings.create(
+    {
+      model,
+      input: texts,
+      dimensions,
+    },
+    signal ? { signal, maxRetries: 0, timeout: 3000 } : undefined
+  )
 
   return response.data.map((item) => item.embedding)
 }

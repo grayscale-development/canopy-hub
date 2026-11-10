@@ -5,14 +5,32 @@ import { useVirtualizer } from "@tanstack/react-virtual"
 import { CheckIcon } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import { cn } from "@/lib/utils"
 import type { WikiScopedTag, WikiTagRow } from "@/lib/wiki"
+import { findSimilarWikiTags } from "@/lib/wiki-tag-similarity"
 
 const TAG_ROW_HEIGHT = 30
 const TAG_LIST_HEIGHT = 224
 const MAX_TAGS = 12
+
+type Suggestion = {
+  tag: WikiScopedTag
+  reason: string
+  sectionName?: string | null
+}
+
+function recordSuggestion(event: "shown" | "accepted" | "ignored") {
+  if (typeof fetch === "undefined") return
+  void fetch("/api/wiki/tag-suggestions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event }),
+    keepalive: true,
+  }).catch(() => {})
+}
 
 type TagListRow =
   | { type: "heading"; value: string }
@@ -66,6 +84,12 @@ export function WikiTagPicker({
 }) {
   const [query, setQuery] = React.useState("")
   const [makeGlobal, setMakeGlobal] = React.useState(false)
+  const [remote, setRemote] = React.useState<{
+    query: string
+    sectionId: string | null
+    results: Suggestion[]
+  } | null>(null)
+  const shownQuery = React.useRef("")
   const scrollElementRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
@@ -87,6 +111,86 @@ export function WikiTagPicker({
     tagMatches(tag.name, normalizedQuery)
   )
   const limitReached = selectedTags.length >= MAX_TAGS
+  const localSuggestions: Suggestion[] =
+    canManage && allowCreate && normalizedQuery && !exactMatch
+      ? findSimilarWikiTags(normalizedQuery, allTags).map(
+          ({ tag, reason }) => ({ tag, reason })
+        )
+      : []
+  const remoteSuggestions =
+    remote?.query === normalizedQuery && remote.sectionId === sectionId
+      ? remote.results
+      : []
+  const suggestions = [...localSuggestions, ...remoteSuggestions]
+    .filter(
+      ({ tag }, index, items) =>
+        items.findIndex((item) => sameTag(item.tag, tag)) === index
+    )
+    .filter(
+      ({ tag }) =>
+        !tagMatches(tag.name, normalizedQuery) ||
+        (tag.scope === "section" && tag.section_id !== sectionId)
+    )
+    .slice(0, 3)
+  const hasSuggestions = suggestions.length > 0
+
+  React.useEffect(() => {
+    if (
+      !open ||
+      !canManage ||
+      !allowCreate ||
+      !normalizedQuery ||
+      exactMatch ||
+      typeof fetch === "undefined"
+    )
+      return
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      void fetch("/api/wiki/tag-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: normalizedQuery, sectionId }),
+        signal: controller.signal,
+      })
+        .then((response) => (response.ok ? response.json() : { results: [] }))
+        .then((data) => {
+          if (controller.signal.aborted || !Array.isArray(data.results)) return
+          setRemote({
+            query: normalizedQuery,
+            sectionId,
+            results: data.results.map(
+              (
+                tag: WikiTagRow & {
+                  reason: string
+                  section_name: string | null
+                }
+              ) => ({
+                tag: toScopedTag(tag),
+                reason: tag.reason,
+                sectionName: tag.section_name,
+              })
+            ),
+          })
+        })
+        .catch(() => {})
+    }, 300)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [open, canManage, allowCreate, normalizedQuery, sectionId, exactMatch])
+
+  React.useEffect(() => {
+    if (!open || !hasSuggestions || !normalizedQuery || !canManage) return
+    const timer = setTimeout(() => {
+      const key = `${sectionId ?? ""}:${normalizedQuery}`
+      if (shownQuery.current !== key) {
+        shownQuery.current = key
+        recordSuggestion("shown")
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [open, hasSuggestions, normalizedQuery, sectionId, canManage])
   const rows: TagListRow[] = (() => {
     const matching = allTags.filter((tag) =>
       tag.name.toLocaleLowerCase().includes(normalizedQuery.toLocaleLowerCase())
@@ -144,6 +248,7 @@ export function WikiTagPicker({
       (!sectionId && !canManage)
     )
       return
+    if (hasSuggestions) recordOutcome("ignored")
     const tag: WikiScopedTag =
       sectionId && !makeGlobal
         ? { name: normalizedQuery, scope: "section", section_id: sectionId }
@@ -151,6 +256,23 @@ export function WikiTagPicker({
     onSelectedTagsChange((current) =>
       current.length < MAX_TAGS ? [...current, tag] : current
     )
+    setQuery("")
+    setMakeGlobal(false)
+  }
+
+  function recordOutcome(event: "accepted" | "ignored") {
+    const key = `${sectionId ?? ""}:${normalizedQuery}`
+    if (shownQuery.current !== key) recordSuggestion("shown")
+    recordSuggestion(event)
+    shownQuery.current = ""
+  }
+
+  function selectSuggestion(tag: WikiScopedTag) {
+    if (limitReached && !selectedTags.some((item) => sameTag(item, tag))) return
+    onSelectedTagsChange((current) =>
+      current.some((item) => sameTag(item, tag)) ? current : [...current, tag]
+    )
+    recordOutcome("accepted")
     setQuery("")
     setMakeGlobal(false)
   }
@@ -192,7 +314,7 @@ export function WikiTagPicker({
                 onClick={createTag}
                 className="w-full cursor-pointer rounded-sm px-2 py-1 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Create “{normalizedQuery}”{" "}
+                Create “{normalizedQuery}”{hasSuggestions ? " anyway" : ""}{" "}
                 <span className="text-muted-foreground">
                   — {sectionId && !makeGlobal ? "This section only" : "Global"}
                 </span>
@@ -210,7 +332,50 @@ export function WikiTagPicker({
                   Tags created here are global because this page has no section.
                 </p>
               ) : null}
-              {/* Reserved for the future similar-tag hint. */}
+              {hasSuggestions ? (
+                <div className="space-y-1 px-2" aria-live="polite">
+                  <p className="text-xs font-medium">
+                    A similar tag already exists
+                  </p>
+                  {suggestions.map(({ tag, reason, sectionName }) => {
+                    const elsewhere =
+                      tag.scope === "section" && tag.section_id !== sectionId
+                    return (
+                      <div
+                        key={`${tag.scope}-${tag.section_id}-${tag.name}`}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <p className="min-w-0 text-xs">
+                          <span className="font-medium">{tag.name}</span>
+                          {sectionName && elsewhere ? ` in ${sectionName}` : ""}
+                          <span className="text-muted-foreground">
+                            {" "}
+                            — {reason}
+                            {elsewhere
+                              ? "; only available in that section"
+                              : ""}
+                          </span>
+                        </p>
+                        {!elsewhere ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            disabled={
+                              limitReached &&
+                              !selectedTags.some((item) => sameTag(item, tag))
+                            }
+                            onClick={() => selectSuggestion(tag)}
+                            aria-label={`Use ${tag.name}`}
+                          >
+                            Use this tag
+                          </Button>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
             </div>
           ) : null}
           <div
