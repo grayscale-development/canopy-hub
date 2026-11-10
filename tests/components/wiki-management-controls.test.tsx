@@ -153,7 +153,9 @@ describe("WikiNodeActionsMenu", () => {
       <WikiNodeActionsMenu
         nodes={[page]}
         node={page}
-        availableTags={["Credit"]}
+        availableTags={[
+          { id: "credit", name: "Credit", scope: "global", section_id: null },
+        ]}
       />
     )
     await user.click(
@@ -163,15 +165,15 @@ describe("WikiNodeActionsMenu", () => {
     const dialog = await screen.findByRole("dialog", { name: "Edit page" })
     expect(within(dialog).getByRole("textbox", { name: "Title" })).toHaveFocus()
     const tags = within(dialog).getByLabelText("Available tags")
-    expect(tags.parentElement?.parentElement?.parentElement).toHaveClass(
+    expect(tags.closest("[class*='Available_tags']")).toHaveClass(
       "[&_[aria-label='Available_tags']]:hidden"
     )
     await user.click(
       within(dialog).getByRole("textbox", { name: "Search or create a tag" })
     )
-    expect(tags.parentElement?.parentElement?.parentElement).not.toHaveClass(
-      "[&_[aria-label='Available_tags']]:hidden"
-    )
+    expect(
+      tags.closest("form")?.querySelector("[class*='Available_tags']")
+    ).toBeNull()
   })
 
   it("confirms page archive in a dialog", async () => {

@@ -37,8 +37,13 @@ import {
 } from "@/components/wiki/wiki-edit-mode"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
-import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
-import { type WikiNodeRow, type WikiRevisionRow } from "@/lib/wiki"
+import { WikiTagPicker, toScopedTag } from "@/components/wiki/wiki-tag-picker"
+import {
+  type WikiNodeRow,
+  type WikiRevisionRow,
+  type WikiScopedTag,
+  type WikiTagRow,
+} from "@/lib/wiki"
 import {
   postWikiAssetAction,
   prepareDirectWikiUpload,
@@ -76,6 +81,8 @@ export function WikiEditor({
   createAction,
   versionHistory,
   availableTags = [],
+  pageTags = [],
+  sectionId = null,
 }: {
   node: WikiNodeRow
   revision: WikiRevisionRow | null
@@ -86,7 +93,9 @@ export function WikiEditor({
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
   versionHistory?: React.ReactNode
-  availableTags?: string[]
+  availableTags?: WikiTagRow[]
+  pageTags?: WikiTagRow[]
+  sectionId?: string | null
 }) {
   const [mounted, setMounted] = React.useState(false)
 
@@ -110,6 +119,8 @@ export function WikiEditor({
       createAction={createAction}
       versionHistory={versionHistory}
       availableTags={availableTags}
+      pageTags={pageTags}
+      sectionId={sectionId}
     />
   )
 }
@@ -125,6 +136,8 @@ function WikiEditorMounted({
   createAction,
   versionHistory,
   availableTags,
+  pageTags,
+  sectionId,
 }: {
   node: WikiNodeRow
   revision: WikiRevisionRow | null
@@ -135,7 +148,9 @@ function WikiEditorMounted({
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
   versionHistory?: React.ReactNode
-  availableTags: string[]
+  availableTags: WikiTagRow[]
+  pageTags: WikiTagRow[]
+  sectionId: string | null
 }) {
   const router = useRouter()
   const { resolvedTheme } = useTheme()
@@ -149,7 +164,7 @@ function WikiEditorMounted({
     normalizeInitialBlocks(revision?.blocks)
   )
   const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
-  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
   const showEditorControls = canEditPage && showStatusControl
 
@@ -236,6 +251,7 @@ function WikiEditorMounted({
   }
 
   function saveTags(formData: FormData) {
+    setState(null)
     formData.set("node_id", node.id)
     startTransition(async () => {
       const result = await updateWikiNodeTagsAction(formData)
@@ -249,9 +265,10 @@ function WikiEditorMounted({
   }
 
   const openTagDialog = React.useCallback(() => {
-    setSelectedTags(node.tags ?? [])
+    setState(null)
+    setSelectedTags(pageTags.map(toScopedTag))
     setTagDialogOpen(true)
-  }, [node.tags])
+  }, [pageTags])
 
   const getSlashMenuItems = React.useCallback(
     async (query: string) =>
@@ -334,7 +351,11 @@ function WikiEditorMounted({
                   href={getTagDirectoryHref(tag)}
                   className="cursor-pointer"
                 >
-                  <WikiTagPill>{tag}</WikiTagPill>
+                  <WikiTagPill
+                    scope={pageTags.find((item) => item.name === tag)?.scope}
+                  >
+                    {tag}
+                  </WikiTagPill>
                 </Link>
               ))
             : null}
@@ -365,6 +386,7 @@ function WikiEditorMounted({
       {canEditPage ? (
         <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
           <DialogContent
+            className="max-h-[90dvh] overflow-y-auto"
             onOpenAutoFocus={(event) => {
               event.preventDefault()
               tagInputRef.current?.focus()
@@ -378,13 +400,20 @@ function WikiEditorMounted({
             </DialogHeader>
             <form action={saveTags} className="grid gap-4">
               <WikiTagPicker
-                availableTags={availableTags}
+                availableTags={availableTags.map(toScopedTag)}
                 selectedTags={selectedTags}
                 onSelectedTagsChange={setSelectedTags}
+                sectionId={sectionId}
+                canManage={canManage}
                 open={tagDialogOpen}
                 inputRef={tagInputRef}
                 inputId="wiki-page-tags"
               />
+              {state && !state.ok ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {state.message}
+                </p>
+              ) : null}
               <DialogFooter>
                 <Button type="submit" disabled={pending}>
                   {pending ? "Saving..." : "Save tags"}

@@ -39,12 +39,17 @@ import {
 import { Input } from "@/components/ui/input"
 import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
 import { WikiPlainDiff } from "@/components/wiki/wiki-plain-diff"
-import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
+import { WikiTagPicker, toScopedTag } from "@/components/wiki/wiki-tag-picker"
 import {
   wikiFolderPath,
   WikiMovePicker,
 } from "@/components/wiki/wiki-move-picker"
-import type { WikiNodeRow } from "@/lib/wiki"
+import {
+  getWikiSectionId,
+  type WikiNodeRow,
+  type WikiScopedTag,
+  type WikiTagRow,
+} from "@/lib/wiki"
 
 function parentOptions(nodes: WikiNodeRow[], currentNodeId?: string) {
   return nodes
@@ -59,6 +64,7 @@ function StatusMessage({ state }: { state: WikiActionResult | null }) {
 
   return (
     <p
+      role={state.ok ? "status" : "alert"}
       className={
         state.ok ? "text-sm text-emerald-600" : "text-sm text-destructive"
       }
@@ -83,19 +89,10 @@ export function WikiCreateDialog({
   const [open, setOpen] = React.useState(false)
   const [pending, startTransition] = React.useTransition()
   const [state, setState] = React.useState<WikiActionResult | null>(null)
-  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
+  const [selectedParentId, setSelectedParentId] = React.useState(parentId ?? "")
+  const { availableTags, canManageWiki } = useWikiEditMode()
   const options = parentOptions(nodes)
-  const availableTags = React.useMemo(
-    () =>
-      Array.from(
-        new Set(
-          nodes.flatMap((node) =>
-            node.type === "page" ? (node.tags ?? []) : []
-          )
-        )
-      ).sort((left, right) => left.localeCompare(right)),
-    [nodes]
-  )
   const Icon = type === "folder" ? FolderPlusIcon : FilePlusIcon
 
   function handleSubmit(formData: FormData) {
@@ -127,7 +124,7 @@ export function WikiCreateDialog({
           {iconOnly ? null : type === "folder" ? "New Group" : "New Page"}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {type === "folder" ? "Create Group" : "Create Page"}
@@ -156,9 +153,11 @@ export function WikiCreateDialog({
                 Tags
               </label>
               <WikiTagPicker
-                availableTags={availableTags}
+                availableTags={availableTags.map(toScopedTag)}
                 selectedTags={selectedTags}
                 onSelectedTagsChange={setSelectedTags}
+                sectionId={getWikiSectionId(nodes, selectedParentId)}
+                canManage={canManageWiki}
                 open={open}
                 inputId={`wiki-${type}-tags`}
               />
@@ -174,7 +173,18 @@ export function WikiCreateDialog({
             <select
               id={`wiki-${type}-parent`}
               name="parent_id"
-              defaultValue={parentId ?? ""}
+              value={selectedParentId}
+              onChange={(event) => {
+                const nextParent = event.target.value
+                setSelectedParentId(nextParent)
+                const nextSection = getWikiSectionId(nodes, nextParent)
+                setSelectedTags((tags) =>
+                  tags.filter(
+                    (tag) =>
+                      tag.scope === "global" || tag.section_id === nextSection
+                  )
+                )
+              }}
               className="h-11 rounded-lg border bg-background px-3 text-sm"
             >
               <option value="">Wiki Root</option>
@@ -256,19 +266,9 @@ export function WikiCreateWizardDialog({
   const [type, setType] = React.useState<"folder" | "page">(defaultType)
   const [pending, startTransition] = React.useTransition()
   const [state, setState] = React.useState<WikiActionResult | null>(null)
-  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
   const isOpen = open ?? uncontrolledOpen
-  const availableTags = React.useMemo(
-    () =>
-      Array.from(
-        new Set(
-          nodes.flatMap((node) =>
-            node.type === "page" ? (node.tags ?? []) : []
-          )
-        )
-      ).sort((left, right) => left.localeCompare(right)),
-    [nodes]
-  )
+  const { availableTags, canManageWiki } = useWikiEditMode()
 
   function handleOpenChange(nextOpen: boolean) {
     if (open === undefined) {
@@ -325,7 +325,10 @@ export function WikiCreateWizardDialog({
           </Button>
         </DialogTrigger>
       ) : null}
-      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+      <DialogContent
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-md"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
         </DialogHeader>
@@ -366,9 +369,11 @@ export function WikiCreateWizardDialog({
                 Tags
               </label>
               <WikiTagPicker
-                availableTags={availableTags}
+                availableTags={availableTags.map(toScopedTag)}
                 selectedTags={selectedTags}
                 onSelectedTagsChange={setSelectedTags}
+                sectionId={getWikiSectionId(nodes, parentId ?? null)}
+                canManage={canManageWiki}
                 open={isOpen}
                 inputId="wiki-create-tags"
               />
@@ -433,14 +438,16 @@ export function WikiNodeActionsMenu({
   node,
   hasChildren = false,
   availableTags = [],
+  pageTags = [],
 }: {
   nodes: WikiNodeRow[]
   node: WikiNodeRow
   hasChildren?: boolean
-  availableTags?: string[]
+  availableTags?: WikiTagRow[]
+  pageTags?: WikiTagRow[]
 }) {
   const router = useRouter()
-  const { canEditWiki } = useWikiEditMode()
+  const { canEditWiki, canManageWiki } = useWikiEditMode()
   const [open, setOpen] = React.useState(false)
   const [pending, startTransition] = React.useTransition()
   const [state, setState] = React.useState<WikiActionResult | null>(null)
@@ -469,7 +476,7 @@ export function WikiNodeActionsMenu({
     signedPreview: string
     previewSignature: string
   } | null>(null)
-  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
   const titleInputRef = React.useRef<HTMLInputElement>(null)
   const [tagPickerOpen, setTagPickerOpen] = React.useState(false)
   const parent = nodes.find((item) => item.id === node.parent_id)
@@ -492,9 +499,10 @@ export function WikiNodeActionsMenu({
     : ""
 
   const openEditDialog = React.useCallback(() => {
-    setSelectedTags(node.tags ?? [])
+    setState(null)
+    setSelectedTags(pageTags.map(toScopedTag))
     setOpen(true)
-  }, [node.tags])
+  }, [pageTags])
 
   React.useEffect(() => {
     function handleEditRequest(event: Event) {
@@ -726,6 +734,7 @@ export function WikiNodeActionsMenu({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           aria-describedby={undefined}
+          className="max-h-[90dvh] overflow-y-auto"
           onOpenAutoFocus={(event) => {
             event.preventDefault()
             titleInputRef.current?.focus()
@@ -762,9 +771,11 @@ export function WikiNodeActionsMenu({
                 }}
               >
                 <WikiTagPicker
-                  availableTags={availableTags}
+                  availableTags={availableTags.map(toScopedTag)}
                   selectedTags={selectedTags}
                   onSelectedTagsChange={setSelectedTags}
+                  sectionId={getWikiSectionId(nodes, node.id)}
+                  canManage={canManageWiki}
                   open={tagPickerOpen}
                   inputId="wiki-edit-tags"
                 />

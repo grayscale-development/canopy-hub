@@ -10,9 +10,11 @@ import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   fetchWikiNodes,
+  fetchWikiTags,
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeRow,
+  type WikiTagRow,
 } from "@/lib/wiki"
 import { redirect } from "next/navigation"
 
@@ -48,9 +50,11 @@ export default async function WikiLayout({
   }
 
   let nodes: WikiNodeRow[] = []
+  let tags: WikiTagRow[] = []
   let isSetupRequired = false
   try {
     nodes = await fetchWikiNodes(supabase)
+    tags = await fetchWikiTags(supabase)
   } catch (error) {
     if (!isMissingWikiSchemaError(error)) {
       throw error
@@ -60,7 +64,7 @@ export default async function WikiLayout({
 
   return (
     <SidebarProvider>
-      <WikiEditModeProvider canManageWiki={canManageWiki}>
+      <WikiEditModeProvider canManageWiki={canManageWiki} availableTags={tags}>
         <AppSidebar activePath="/wiki" />
         <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
           <WikiHeader nodes={nodes} />

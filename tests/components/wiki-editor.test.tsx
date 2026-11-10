@@ -224,7 +224,12 @@ describe("WikiEditor", () => {
         node={node}
         revision={revision}
         canManage
-        availableTags={["Assets", "Credit", "Income"]}
+        availableTags={["Assets", "Credit", "Income"].map((name) => ({
+          id: name,
+          name,
+          scope: "global",
+          section_id: null,
+        }))}
       />
     )
 
@@ -247,12 +252,16 @@ describe("WikiEditor", () => {
       "aria-pressed",
       "true"
     )
-    expect(screen.getByRole("button", { name: "Credit ×" })).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Remove Credit, global tag" })
+    ).toBeVisible()
 
     await user.clear(searchInput)
     await user.type(searchInput, "Policies")
-    await user.click(screen.getByRole("button", { name: "Create “Policies”" }))
-    expect(screen.getByRole("button", { name: "Policies ×" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: /Create “Policies”/ }))
+    expect(
+      screen.getByRole("button", { name: "Remove Policies, global tag" })
+    ).toBeVisible()
   })
 
   it("keeps the draft editable and shows a recoverable error when saving fails", async () => {

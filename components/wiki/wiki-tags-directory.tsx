@@ -5,6 +5,7 @@ import Link from "next/link"
 
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
+import type { WikiScopedTag } from "@/lib/wiki"
 
 export type WikiTagDirectoryEntry = {
   name: string
@@ -25,15 +26,19 @@ export function WikiTagsDirectory({
   entries: WikiTagDirectoryEntry[]
   initialSearch?: string
 }) {
-  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
-  const selectedTag = selectedTags[0] ?? ""
+  const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
+  const selectedTag = selectedTags[0]?.name ?? ""
 
   React.useEffect(() => {
     const matchingTag = entries.find(
       (entry) =>
         entry.name.toLocaleLowerCase() === initialSearch.toLocaleLowerCase()
     )
-    setSelectedTags(matchingTag ? [matchingTag.name] : [])
+    setSelectedTags(
+      matchingTag
+        ? [{ name: matchingTag.name, scope: "global", section_id: null }]
+        : []
+    )
   }, [entries, initialSearch])
 
   const visibleEntries = entries.filter(
@@ -53,7 +58,11 @@ export function WikiTagsDirectory({
         </p>
         <div className="mt-4 max-w-xs">
           <WikiTagPicker
-            availableTags={entries.map((entry) => entry.name)}
+            availableTags={entries.map((entry) => ({
+              name: entry.name,
+              scope: "global",
+              section_id: null,
+            }))}
             selectedTags={selectedTags}
             onSelectedTagsChange={(nextTags) =>
               setSelectedTags((currentTags) => {
@@ -67,7 +76,9 @@ export function WikiTagsDirectory({
             open
             inputId="wiki-tags-directory-filter"
             allowCreate={false}
-            name="wiki-tags-directory-filter"
+            showLevels={false}
+            sectionId={null}
+            canManage={false}
           />
         </div>
       </div>
