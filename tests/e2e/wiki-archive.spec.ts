@@ -16,7 +16,14 @@ test("managers can find and restore archived wiki items while viewers cannot see
   const stamp = crypto.randomUUID().slice(0, 8)
   const shotDir = process.env.CANOPY_QA_SHOTS_DIR
   async function shot(name: string) {
-    if (shotDir) await page.screenshot({ path: `${shotDir}/${name}.png` })
+    if (shotDir) {
+      await page.mouse.move(5, 5)
+      await page.screenshot({
+        path: `${shotDir}/${name}.png`,
+        style: "nextjs-portal { visibility: hidden }",
+        animations: "disabled",
+      })
+    }
   }
   async function insertNode(
     parentId: string,
@@ -113,6 +120,13 @@ test("managers can find and restore archived wiki items while viewers cannot see
       "folder",
       "archived"
     )
+    const archivedChild = await insertNode(
+      archived1.id,
+      "old-course",
+      "Old Training Course",
+      "page",
+      "archived"
+    )
     await insertNode(
       root.id,
       "compliance-resources",
@@ -131,27 +145,51 @@ test("managers can find and restore archived wiki items while viewers cannot see
       .locator("section")
       .filter({ has: page.getByRole("link", { name: "Team Handbook" }) })
       .first()
-    const archived = sectionArea
-      .locator("details")
-      .filter({ hasText: "Archived" })
-    await expect(archived.locator("summary")).toBeVisible()
-    await expect(archived).not.toHaveAttribute("open", "")
+    const sidebar = page.locator("[data-wiki-sidebar-scroll]")
+    const archivedToggle = sectionArea.getByRole("button", {
+      name: "Toggle Archived",
+    })
+    const archived = page.locator(
+      `#${await archivedToggle.getAttribute("aria-controls")}`
+    )
+    const liveToggle = sectionArea.getByRole("button", {
+      name: "Toggle Team Handbook",
+    })
+    await expect(archivedToggle).toHaveAttribute("aria-expanded", "false")
+    await expect(archivedToggle.locator("svg")).toHaveAttribute(
+      "class",
+      /size-3\.5.*transition-transform/
+    )
+    await expect(liveToggle.locator("svg")).toHaveAttribute(
+      "class",
+      /size-3\.5.*transition-transform/
+    )
     await shot("01-section-archived-collapsed")
-    await expect(async () => {
-      if (!(await archived.getAttribute("open")))
-        await archived.locator("summary").click()
-      await expect(archived).toHaveAttribute("open", "")
-    }).toPass()
+    await archivedToggle.click()
+    await expect(archivedToggle).toHaveAttribute("aria-expanded", "true")
+    await expect(archivedToggle.locator("svg")).toHaveClass(/rotate-90/)
     await expect(
-      archived.getByRole("button", { name: "Restore Legacy Onboarding Guide" })
+      archived.getByRole("link", { name: "Legacy Onboarding Guide" })
     ).toBeVisible()
+    await expect(sidebar.getByRole("button", { name: /^Restore/ })).toHaveCount(
+      0
+    )
     await shot("02-section-archived-expanded")
-    const global = page
-      .locator("details")
-      .filter({ has: page.locator("summary", { hasText: /^Archive \(/ }) })
-    await global.locator("summary").scrollIntoViewIfNeeded()
-    await global.locator("summary").click()
-    await expect(global.getByText("Loan Training Library")).toBeVisible()
+    const globalToggle = sidebar.getByRole("button", {
+      name: "Toggle Archive",
+      exact: true,
+    })
+    const global = page.locator(
+      `#${await globalToggle.getAttribute("aria-controls")}`
+    )
+    await globalToggle.scrollIntoViewIfNeeded()
+    await globalToggle.click()
+    await expect(globalToggle.locator("svg")).toHaveClass(
+      /size-3\.5.*transition-transform.*rotate-90/
+    )
+    await expect(
+      global.getByRole("link", { name: "Loan Training Library" })
+    ).toBeVisible()
     await global.locator("li").last().scrollIntoViewIfNeeded()
     await shot("03-global-archive")
     await global
@@ -162,13 +200,46 @@ test("managers can find and restore archived wiki items while viewers cannot see
     await global.getByText("Compliance Resources").scrollIntoViewIfNeeded()
     await shot("04-global-archive-search")
     await global.getByRole("textbox", { name: "Search archive" }).fill("")
+    await global.getByRole("textbox", { name: "Search archive" }).blur()
     await page.setViewportSize({ width: 390, height: 844 })
     await global.locator("li").last().scrollIntoViewIfNeeded()
     await shot("06-global-archive-mobile")
     await archived
-      .getByRole("button", { name: "Restore Retired Templates" })
+      .getByRole("link", { name: "Retired Templates" })
       .scrollIntoViewIfNeeded()
     await shot("07-section-archived-mobile")
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await archived
+      .getByRole("link", { name: "Legacy Onboarding Guide" })
+      .click()
+    await expect(
+      page.getByRole("heading", { name: "Legacy Onboarding Guide" })
+    ).toBeVisible()
+    await expect(
+      page.getByText("This item is archived and is not visible in the Wiki.")
+    ).toBeVisible()
+    await shot("08-archived-page-header")
+    await page.goto(`/wiki/canopy-wiki/${archived1.slug}/${archivedChild.slug}`)
+    await expect(
+      page.getByRole("heading", { name: "Old Training Course" })
+    ).toBeVisible()
+    await expect(
+      page.getByText("Restore Loan Training Library first.")
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Restore Old Training Course" })
+    ).toBeDisabled()
+    await page.goto(sectionPath)
+    if ((await globalToggle.getAttribute("aria-expanded")) === "false")
+      await globalToggle.click()
+    await global.getByRole("link", { name: "Loan Training Library" }).click()
+    await expect(
+      page.getByRole("heading", { name: "Loan Training Library" })
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Restore Loan Training Library" })
+    ).toBeVisible()
+    await shot("09-archived-section-header")
     await page.setViewportSize({ width: 1440, height: 900 })
     await signInAsSeededUser(page, "standard@canopy.test")
     await page.goto(sectionPath)
@@ -188,10 +259,10 @@ test("managers can find and restore archived wiki items while viewers cannot see
     )
     await signInAsSeededUser(page, "wiki-manager@canopy.test")
     await page.goto(oldPath)
+    await page.waitForLoadState("networkidle")
     await expect(
       page.getByText("This item is archived and is not visible in the Wiki.")
     ).toBeVisible()
-    await shot("08-archived-url-notice")
     await page
       .getByRole("button", { name: "Restore Legacy Onboarding Guide" })
       .click()
@@ -205,6 +276,7 @@ test("managers can find and restore archived wiki items while viewers cannot see
       .single()
     expect(restoredPage?.status).toBe("published")
     await page.goto(`/wiki/canopy-wiki/${archived1.slug}`)
+    await page.waitForLoadState("networkidle")
     await expect(
       page.getByText("This item is archived and is not visible in the Wiki.")
     ).toBeVisible()
@@ -237,6 +309,7 @@ test("managers can find and restore archived wiki items while viewers cannot see
       page.getByText("Page archived. Find it in Archive in the sidebar.")
     ).toBeVisible()
     await page.goto(livePath)
+    await page.waitForLoadState("networkidle")
     await expect(
       page.getByText("This item is archived and is not visible in the Wiki.")
     ).toBeVisible()

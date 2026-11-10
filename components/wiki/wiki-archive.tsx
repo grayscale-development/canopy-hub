@@ -9,6 +9,10 @@ import { restoreArchivedWikiNodeAction } from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
+  SidebarExpansionToggle,
+  usePersistedSidebarExpansion,
+} from "@/components/wiki/wiki-sidebar-expansion"
+import {
   buildWikiBreadcrumbs,
   buildWikiPath,
   type WikiNodeRow,
@@ -46,6 +50,36 @@ export function RestoreWikiButton({
   )
 }
 
+export function ArchivedWikiHeader({
+  node,
+  archivedParent,
+}: {
+  node: WikiNodeRow
+  archivedParent?: WikiNodeRow
+}) {
+  return (
+    <header className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-4xl leading-tight font-bold">{node.title}</h1>
+          <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+            Archived
+          </span>
+        </div>
+        <RestoreWikiButton node={node} disabled={Boolean(archivedParent)} />
+      </div>
+      <p className="text-sm text-muted-foreground">
+        This item is archived and is not visible in the Wiki.
+      </p>
+      {archivedParent ? (
+        <p className="text-sm text-muted-foreground">
+          Restore {archivedParent.title} first.
+        </p>
+      ) : null}
+    </header>
+  )
+}
+
 function ArchiveItems({
   items,
   nodes,
@@ -55,30 +89,17 @@ function ArchiveItems({
 }) {
   return (
     <ul className="space-y-2">
-      {items.map((item) => {
-        const parent = buildWikiBreadcrumbs(nodes, item)
-          .slice(0, -1)
-          .find((node) => node.status === "archived")
-        return (
-          <li key={item.id} className="flex items-center gap-2 text-sm">
-            <div className="min-w-0 flex-1">
-              <Link
-                className="block truncate hover:underline"
-                href={`/wiki/${buildWikiPath(nodes, item)}`}
-                title={item.title}
-              >
-                {item.title}
-              </Link>
-              {parent ? (
-                <p className="text-xs text-muted-foreground">
-                  Restore {parent.title} first
-                </p>
-              ) : null}
-            </div>
-            <RestoreWikiButton node={item} disabled={Boolean(parent)} />
-          </li>
-        )
-      })}
+      {items.map((item) => (
+        <li key={item.id} className="text-sm">
+          <Link
+            className="block truncate hover:underline"
+            href={`/wiki/${buildWikiPath(nodes, item)}`}
+            title={item.title}
+          >
+            {item.title}
+          </Link>
+        </li>
+      ))}
     </ul>
   )
 }
@@ -92,6 +113,12 @@ export function SectionArchive({
   nodes: WikiNodeRow[]
   archived: WikiNodeRow[]
 }) {
+  const [isOpen, setOpen] = usePersistedSidebarExpansion(
+    `wiki-sidebar:archive:${section.id}`,
+    false,
+    false
+  )
+  const contentId = `wiki-sidebar-archive-${section.id}`
   const items = archived.filter((item) =>
     buildWikiBreadcrumbs(nodes, item).some(
       (ancestor) => ancestor.id === section.id
@@ -99,14 +126,21 @@ export function SectionArchive({
   )
   if (!items.length) return null
   return (
-    <details className="ml-4 text-sm">
-      <summary className="cursor-pointer rounded-md px-2 py-2 text-muted-foreground hover:bg-sidebar-accent">
-        Archived ({items.length})
-      </summary>
-      <div className="px-2 py-2">
+    <div className="ml-4 text-sm">
+      <div className="flex items-center rounded-md text-muted-foreground hover:bg-sidebar-accent">
+        <SidebarExpansionToggle
+          label="Archived"
+          contentId={contentId}
+          isOpen={isOpen}
+          setOpen={setOpen}
+        >
+          Archived ({items.length})
+        </SidebarExpansionToggle>
+      </div>
+      <div id={contentId} hidden={!isOpen} className="px-8 py-2">
         <ArchiveItems items={items} nodes={nodes} />
       </div>
-    </details>
+    </div>
   )
 }
 
@@ -118,26 +152,30 @@ export function GlobalWikiArchive({
   archived: WikiNodeRow[]
 }) {
   const [search, setSearch] = React.useState("")
+  const [isOpen, setOpen] = usePersistedSidebarExpansion(
+    "wiki-sidebar:global-archive",
+    false,
+    false
+  )
+  const contentId = "wiki-sidebar-global-archive"
   const items = archived.filter((item) =>
     buildWikiBreadcrumbs(nodes, item).some((node) =>
       node.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
     )
   )
   return (
-    <details
-      className="text-sm"
-      onToggle={(event) => {
-        const details = event.currentTarget
-        if (details.open)
-          requestAnimationFrame(() =>
-            details.scrollIntoView?.({ block: "nearest" })
-          )
-      }}
-    >
-      <summary className="cursor-pointer rounded-md px-2 py-2 font-semibold hover:bg-sidebar-accent">
-        Archive ({archived.length})
-      </summary>
-      <div className="space-y-3 px-2 py-2">
+    <div className="text-sm">
+      <div className="flex items-center rounded-md font-semibold hover:bg-sidebar-accent">
+        <SidebarExpansionToggle
+          label="Archive"
+          contentId={contentId}
+          isOpen={isOpen}
+          setOpen={setOpen}
+        >
+          Archive ({archived.length})
+        </SidebarExpansionToggle>
+      </div>
+      <div id={contentId} hidden={!isOpen} className="space-y-3 px-2 py-2">
         <Input
           aria-label="Search archive"
           placeholder="Search archive"
@@ -152,6 +190,6 @@ export function GlobalWikiArchive({
           </p>
         )}
       </div>
-    </details>
+    </div>
   )
 }

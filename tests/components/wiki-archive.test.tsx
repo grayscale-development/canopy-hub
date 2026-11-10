@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  ArchivedWikiHeader,
   GlobalWikiArchive,
   SectionArchive,
 } from "@/components/wiki/wiki-archive"
@@ -67,7 +68,10 @@ const child = {
   title: "Hidden Child",
 } satisfies WikiNodeRow
 const all = [section, draft, old, closed, child]
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  window.localStorage.clear()
+})
 function Visible() {
   return (
     <div>
@@ -96,30 +100,36 @@ describe("wiki archives", () => {
     expect(screen.queryByText("Draft")).toBeNull()
     expect(screen.queryByText("Hidden Child")).toBeNull()
   })
-  it("starts a section archive collapsed and exposes restore on expansion", async () => {
+  it("starts collapsed and opens item links with the shared chevron", async () => {
     const user = userEvent.setup()
     render(
       <SectionArchive section={section} nodes={all} archived={[old, closed]} />
     )
-    expect(
-      screen.getByText("Archived (1)").closest("details")
-    ).not.toHaveAttribute("open")
-    await user.click(screen.getByText("Archived (1)"))
-    expect(
-      screen.getByRole("button", { name: "Restore Old Handbook" })
-    ).toBeVisible()
+    const toggle = screen.getByRole("button", { name: "Toggle Archived" })
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(toggle).toHaveClass("size-8")
+    expect(toggle.querySelector("svg")).toHaveClass(
+      "size-3.5",
+      "transition-transform"
+    )
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(toggle.querySelector("svg")).toHaveClass("rotate-90")
+    expect(screen.getByRole("link", { name: "Old Handbook" })).toHaveAttribute(
+      "href",
+      "/wiki/operations/old"
+    )
+    expect(screen.queryByRole("button", { name: /Restore/ })).toBeNull()
   })
-  it("shows why an archived child cannot be restored before its parent", async () => {
-    const user = userEvent.setup()
-    const archivedChild = { ...child, status: "archived" } as WikiNodeRow
+  it("explains on the child header why its parent must be restored first", () => {
     render(
-      <GlobalWikiArchive
-        nodes={[closed, archivedChild]}
-        archived={[closed, archivedChild]}
+      <ArchivedWikiHeader
+        node={{ ...child, status: "archived" }}
+        archivedParent={closed}
       />
     )
-    await user.click(screen.getByText("Archive (2)"))
-    expect(screen.getByText("Restore Retired Team first")).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Hidden Child" })).toBeVisible()
+    expect(screen.getByText("Restore Retired Team first.")).toBeVisible()
     expect(
       screen.getByRole("button", { name: "Restore Hidden Child" })
     ).toBeDisabled()
@@ -127,14 +137,32 @@ describe("wiki archives", () => {
   it("filters the global archive as the manager types", async () => {
     const user = userEvent.setup()
     render(<GlobalWikiArchive nodes={all} archived={[old, closed]} />)
-    await user.click(screen.getByText("Archive (2)"))
-    const details = screen.getByText("Archive (2)").closest("details")!
-    expect(within(details).getByText("Old Handbook")).toBeVisible()
+    const toggle = screen.getByRole("button", { name: "Toggle Archive" })
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(toggle.querySelector("svg")).toHaveClass(
+      "size-3.5",
+      "transition-transform"
+    )
+    await user.click(toggle)
+    expect(toggle.querySelector("svg")).toHaveClass("rotate-90")
+    const content = document.getElementById(
+      toggle.getAttribute("aria-controls")!
+    )!
+    expect(
+      within(content).getByRole("link", { name: "Old Handbook" })
+    ).toBeVisible()
     await user.type(
       screen.getByRole("textbox", { name: "Search archive" }),
       "retired"
     )
-    expect(within(details).getByText("Retired Team")).toBeVisible()
-    expect(within(details).queryByText("Old Handbook")).toBeNull()
+    expect(
+      within(content).getByRole("link", { name: "Retired Team" })
+    ).toBeVisible()
+    expect(
+      within(content).queryByRole("link", { name: "Old Handbook" })
+    ).toBeNull()
+    expect(
+      within(content).queryByRole("button", { name: /Restore/ })
+    ).toBeNull()
   })
 })

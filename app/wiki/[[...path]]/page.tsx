@@ -5,7 +5,7 @@ import {
   WikiVisibleNodeGate,
   WikiViewModeTitleSpacing,
 } from "@/components/wiki/wiki-edit-mode"
-import { RestoreWikiButton } from "@/components/wiki/wiki-archive"
+import { ArchivedWikiHeader } from "@/components/wiki/wiki-archive"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
@@ -251,20 +251,15 @@ export default async function WikiPage({
       ...archived,
     ]
     const target = resolveWikiPath(allNodes, path)
-    const archivedAncestor =
-      target &&
-      buildWikiBreadcrumbs(allNodes, target).find(
-        (item) => item.status === "archived"
-      )
-    if (archivedAncestor) {
+    const breadcrumbs = target ? buildWikiBreadcrumbs(allNodes, target) : []
+    const archivedParent = breadcrumbs
+      .slice(0, -1)
+      .find((item) => item.status === "archived")
+    if (target && (target.status === "archived" || archivedParent)) {
       return (
-        <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-background">
-          <section className="mx-auto w-full max-w-[864px] space-y-5 px-6 py-10">
-            <h1 className="text-3xl font-semibold">{archivedAncestor.title}</h1>
-            <p className="text-muted-foreground">
-              This item is archived and is not visible in the Wiki.
-            </p>
-            <RestoreWikiButton node={archivedAncestor} />
+        <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
+          <section className="mx-auto w-full max-w-[864px] px-6 py-4 md:px-8 md:py-6">
+            <ArchivedWikiHeader node={target} archivedParent={archivedParent} />
           </section>
         </main>
       )
