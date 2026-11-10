@@ -3,11 +3,11 @@ import "server-only"
 import { wikiTagDirectoryUrl } from "@/lib/wiki"
 import {
   isWikiKnowledgeSource,
-  resolveWikiKnowledgeRows,
   resolveWikiKnowledgeUrls,
 } from "@/lib/wiki-knowledge-urls"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
+import { citationSnippet, searchKnowledge } from "@/lib/milo/knowledge-search"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 type MiloClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -799,26 +799,11 @@ async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
   }
 
   const limit = getLimit(args.limit, 8, 20)
-  const { data, error } = await supabase.rpc("match_knowledge_chunks_keyword", {
-    search_query: query,
-    match_count: limit,
-    source_types: getSourceTypes(args.sourceTypes),
-  })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  const rows = await resolveWikiKnowledgeRows(
+  const rows = await searchKnowledge(
     supabase,
-    (data ?? []) as unknown as Array<
-      {
-        source_id: string
-        source_type: string
-        source_url: string | null
-        metadata?: Record<string, unknown> | null
-      } & Record<string, unknown>
-    >
+    query,
+    limit,
+    getSourceTypes(args.sourceTypes)
   )
   return ok(
     "knowledge_search",
@@ -826,7 +811,7 @@ async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
     rows.map((row) => ({
       title: getString(row.source_title) || "Knowledge source",
       url: getString(row.source_url) || null,
-      snippet: getString(row.content).slice(0, 360),
+      snippet: citationSnippet(row.content, row.metadata),
       sourceType: getString(row.source_type) || "knowledge",
       knowledgeSourceId: getString(row.source_id) || null,
       knowledgeChunkId: getString(row.chunk_id) || null,

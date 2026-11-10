@@ -4,6 +4,8 @@ export type EvalCase = {
   kind: "answerable" | "unanswerable" | "restricted"
   expectedPages: string[]
   forbiddenPages?: string[]
+  expectedHeading?: string[]
+  managerExpectedFirst?: string
 }
 
 export type EvalRow = {

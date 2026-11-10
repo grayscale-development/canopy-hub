@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest"
 import { createEmbeddingsWithOpenAI } from "@/lib/ai/provider"
 import { callMiloMcpTool } from "@/lib/milo/mcp/tools"
 import { retrieveKnowledge } from "@/lib/wiki-ai"
+import { chunkKnowledgeText } from "@/lib/wiki"
 import {
   regressions,
   scoreResults,
@@ -16,7 +17,13 @@ import {
 import golden from "@/tests/fixtures/milo-evals/golden.json"
 import baseline from "@/tests/fixtures/milo-evals/baseline.json"
 
-type Page = { id: string; title: string; content: string; status: string }
+type Page = {
+  id: string
+  title: string
+  content: string
+  status: string
+  updatedAt?: string
+}
 const cases = golden.cases as EvalCase[]
 const pages: Page[] = golden.pages
 const evalDescribe = process.env.MILO_EVALS === "1" ? describe : describe.skip
@@ -125,6 +132,7 @@ evalDescribe("Milo golden retrieval evaluation", () => {
               slug: page.id,
               title: page.title,
               status: page.status,
+              updated_at: page.updatedAt ?? "2023-01-01T00:00:00Z",
             }))
           )
         ).error
@@ -137,10 +145,7 @@ evalDescribe("Milo golden retrieval evaluation", () => {
       const shortIds = new Map(
         nodes.data!.map((node) => [node.id, node.short_id])
       )
-      const embeddings = await createEmbeddingsWithOpenAI(
-        pages.map((page) => `${page.title}\n\n${page.content}`)
-      )
-      for (const [index, page] of pages.entries()) {
+      for (const page of pages) {
         const nodeId = nodeIds.get(page.id)!
         expectedUrls[page.id] =
           `/wiki/${shortIds.get(rootId)}/${shortIds.get(nodeId)}`
@@ -159,15 +164,21 @@ evalDescribe("Milo golden retrieval evaluation", () => {
           .single()
         check(source.error)
         sourceIds.set(source.data!.id, page.id)
+        const chunks = chunkKnowledgeText(`${page.title}\n\n${page.content}`)
+        const embeddings = await createEmbeddingsWithOpenAI(
+          chunks.map((chunk) => chunk.content)
+        )
         check(
           (
-            await admin.from("knowledge_chunks").insert({
-              source_id: source.data!.id,
-              chunk_index: 0,
-              content: `${page.title}\n\n${page.content}`,
-              embedding: embeddings[index],
-              metadata: { nodeId },
-            })
+            await admin.from("knowledge_chunks").insert(
+              chunks.map((chunk, index) => ({
+                source_id: source.data!.id,
+                chunk_index: index,
+                content: chunk.content,
+                embedding: embeddings[index],
+                metadata: { nodeId, headingPath: chunk.headingPath },
+              }))
+            )
           ).error
         )
       }
@@ -175,6 +186,42 @@ evalDescribe("Milo golden retrieval evaluation", () => {
       const leaks: string[] = []
       for (const testCase of cases) {
         const rows = await retrieveKnowledge(viewer, testCase.question)
+        if (testCase.expectedHeading) {
+          expect(
+            rows
+              .slice(0, 3)
+              .some(
+                (row) =>
+                  testCase.expectedPages.includes(
+                    sourceIds.get(row.source_id) ?? ""
+                  ) &&
+                  JSON.stringify(row.metadata.headingPath) ===
+                    JSON.stringify(testCase.expectedHeading)
+              )
+          ).toBe(true)
+        }
+        if (testCase.managerExpectedFirst) {
+          const managerRows = await retrieveKnowledge(
+            manager,
+            testCase.question
+          )
+          expect(sourceIds.get(rows[0]?.source_id)).toBe(
+            testCase.expectedPages[0]
+          )
+          expect(sourceIds.get(managerRows[0]?.source_id)).toBe(
+            testCase.managerExpectedFirst
+          )
+          expect(
+            managerRows.some(
+              (row) => sourceIds.get(row.source_id) === "protocol-draft"
+            )
+          ).toBe(true)
+          expect(
+            rows.some(
+              (row) => sourceIds.get(row.source_id) === "protocol-draft"
+            )
+          ).toBe(false)
+        }
         const search = await callMiloMcpTool(
           "knowledge_search",
           { query: testCase.question },

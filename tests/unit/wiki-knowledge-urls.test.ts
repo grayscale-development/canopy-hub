@@ -3,9 +3,28 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock("@/lib/wiki", async (original) => ({
   ...(await original<typeof import("@/lib/wiki")>()),
   fetchWikiNodes: async () => [
-    { id: "root", parent_id: null, short_id: 1, type: "folder" },
-    { id: "new-parent", parent_id: "root", short_id: 9, type: "folder" },
-    { id: "page", parent_id: "new-parent", short_id: 22, type: "page" },
+    {
+      id: "root",
+      parent_id: null,
+      short_id: 1,
+      type: "folder",
+      status: "published",
+    },
+    {
+      id: "new-parent",
+      parent_id: "root",
+      short_id: 9,
+      type: "folder",
+      status: "published",
+    },
+    {
+      id: "page",
+      parent_id: "new-parent",
+      short_id: 22,
+      type: "page",
+      status: "published",
+      updated_at: "2026-11-01T00:00:00Z",
+    },
     { id: "orphan", parent_id: "missing", short_id: 23, type: "page" },
   ],
 }))
@@ -65,11 +84,23 @@ describe("Wiki knowledge URLs", () => {
       },
     ]
     expect(await resolveWikiKnowledgeRows(supabase as never, rows)).toEqual([
-      { ...rows[0], source_url: "/wiki/1/9/22", metadata: { path: "1/9/22" } },
+      {
+        ...rows[0],
+        source_url: "/wiki/1/9/22",
+        metadata: {
+          path: "1/9/22",
+          isPublished: true,
+          updatedAt: "2026-11-01T00:00:00Z",
+        },
+      },
       {
         ...rows[1],
         source_url: "/wiki/1/9/22",
-        metadata: { pagePath: "1/9/22" },
+        metadata: {
+          pagePath: "1/9/22",
+          isPublished: true,
+          updatedAt: "2026-11-01T00:00:00Z",
+        },
       },
       rows[4],
     ])

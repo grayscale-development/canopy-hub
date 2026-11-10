@@ -641,35 +641,76 @@ export function blockNoteToPlainText(blocks: unknown) {
     .trim()
 }
 
+// Plain text intentionally omits formatting; indexing also needs heading levels.
+export function blockNoteToKnowledgeText(blocks: unknown): string {
+  if (!Array.isArray(blocks)) return ""
+  return blocks
+    .flatMap((block): string[] => {
+      if (!block || typeof block !== "object") return []
+      const record = block as Record<string, unknown>
+      const text =
+        record.type === "table"
+          ? tableContentToText(record.content)
+          : inlineContentToText(record.content)
+      const props = record.props as { level?: unknown } | undefined
+      const level = typeof props?.level === "number" ? props.level : 1
+      const heading =
+        record.type === "heading" && text
+          ? `${"#".repeat(Math.max(1, Math.min(6, level)))} ${text}`
+          : text
+      return [heading, blockNoteToKnowledgeText(record.children)].filter(
+        Boolean
+      )
+    })
+    .join("\n\n")
+}
+
 export function chunkKnowledgeText(value: string, maxChars = 1800) {
-  const text = value.replace(/\s+/g, " ").trim()
-  if (!text) {
-    return []
-  }
-
-  const chunks: string[] = []
-  let cursor = 0
-
-  while (cursor < text.length) {
-    const targetEnd = Math.min(cursor + maxChars, text.length)
-    let end = targetEnd
-
-    if (targetEnd < text.length) {
-      const sentenceEnd = text.lastIndexOf(". ", targetEnd)
-      const paragraphEnd = text.lastIndexOf("\n", targetEnd)
-      const candidate = Math.max(sentenceEnd, paragraphEnd)
-      if (candidate > cursor + maxChars * 0.6) {
-        end = candidate + 1
-      }
+  const chunks: { content: string; headingPath: string[] }[] = []
+  const headings: string[] = []
+  let body: string[] = []
+  let sectionPending = false
+  const flush = () => {
+    const text = body.join("\n").replace(/\s+/g, " ").trim()
+    const path = headings.filter(Boolean)
+    if (!text) {
+      if (sectionPending && path.length)
+        chunks.push({ content: path.join(" > "), headingPath: [...path] })
+      body = []
+      sectionPending = false
+      return
     }
-
-    const chunk = text.slice(cursor, end).trim()
-    if (chunk) {
-      chunks.push(chunk)
+    let cursor = 0
+    while (cursor < text.length) {
+      const target = Math.min(cursor + Math.max(1, maxChars), text.length)
+      const sentence = text.lastIndexOf(". ", target)
+      const end =
+        target < text.length && sentence > cursor + maxChars * 0.6
+          ? sentence + 1
+          : target
+      const part = text.slice(cursor, end).trim()
+      if (part)
+        chunks.push({
+          content: [path.join(" > "), part].filter(Boolean).join("\n\n"),
+          headingPath: [...path],
+        })
+      cursor = end
     }
-    cursor = end
+    body = []
+    sectionPending = false
   }
-
+  for (const line of value.split(/\r?\n/)) {
+    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line.trim())
+    if (heading) {
+      flush()
+      headings.length = heading[1].length - 1
+      headings[heading[1].length - 1] = heading[2].trim()
+      sectionPending = true
+    } else {
+      body.push(line)
+    }
+  }
+  flush()
   return chunks
 }
 

@@ -93,6 +93,14 @@ read time, including older index rows, so later moves do not require a reindex.
 Rows that cannot be resolved are omitted. Older saved chat citations without a
 source ID cannot be resolved and are omitted when reopening the chat.
 
+The same post-deployment **Run Milo Index** step also backfills heading-aware
+chunks and their embeddings for issue 77. Wait for a successful receipt and
+check the Wiki source count. The index version makes existing sources rebuild
+once; rerunning the index is safe and unchanged sources are skipped. New Wiki
+saves use the new chunking automatically. If embeddings are unavailable, Milo
+continues using keyword search. Abbreviation expansions are maintained as data
+in `lib/milo/abbreviations.json` for a future manager editing experience.
+
 Settings → AI → Index and the Wiki reindex endpoint share the Wiki page/asset
 indexer. The Settings receipt includes a separate Wiki source count, including
 drafts retained behind live permission checks. A successful receipt containing

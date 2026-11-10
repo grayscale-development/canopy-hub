@@ -247,18 +247,6 @@ function isAggregateQuestion(question: string) {
   )
 }
 
-function getQuestionProfile(question: string) {
-  return (
-    [
-      isProcedureQuestion(question) ? "procedure/workflow" : null,
-      isDocumentQuestion(question) ? "documents/files" : null,
-      isAggregateQuestion(question) ? "data summary" : null,
-    ]
-      .filter(Boolean)
-      .join(", ") || "general lookup"
-  )
-}
-
 function addUniqueResearchCall(
   calls: InitialResearchToolCall[],
   nextCall: InitialResearchToolCall
@@ -626,7 +614,6 @@ async function buildInitialResearchBrief(
 
   const brief = [
     "Initial Milo research brief",
-    `Question profile: ${getQuestionProfile(question)}`,
     "Use this brief as starting evidence. If it contains a strong exact page/source match, answer from it before calling more tools.",
     "",
     "Source cards:",

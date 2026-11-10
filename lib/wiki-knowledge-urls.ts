@@ -9,12 +9,15 @@ export function isWikiKnowledgeSource(type: string) {
 
 // Resolve through user-visible sources and the current tree, including old
 // index rows which predate nodeId metadata.
-export async function resolveWikiKnowledgeUrls(
+async function resolveWikiKnowledgeDetails(
   supabase: SupabaseWikiClient,
   sourceIds: string[]
 ) {
-  const urls = new Map<string, string>()
-  if (!sourceIds.length) return urls
+  const details = new Map<
+    string,
+    { url: string; updatedAt: string; isPublished: boolean }
+  >()
+  if (!sourceIds.length) return details
 
   const [nodes, sourcesResult] = await Promise.all([
     fetchWikiNodes(supabase),
@@ -50,6 +53,7 @@ export async function resolveWikiKnowledgeUrls(
     const seen = new Set<string>()
     let current = node
     let complete = true
+    let isPublished = true
     while (true) {
       if (
         seen.has(current.id) ||
@@ -59,6 +63,7 @@ export async function resolveWikiKnowledgeUrls(
         complete = false
         break
       }
+      if (current.status !== "published") isPublished = false
       seen.add(current.id)
       if (!current.parent_id) break
       const parent = nodesById.get(current.parent_id)
@@ -69,9 +74,21 @@ export async function resolveWikiKnowledgeUrls(
       current = parent
     }
     if (complete)
-      urls.set(source.id, `/wiki/${buildNumericWikiPath(nodes, node)}`)
+      details.set(source.id, {
+        url: `/wiki/${buildNumericWikiPath(nodes, node)}`,
+        updatedAt: node.updated_at,
+        isPublished,
+      })
   }
-  return urls
+  return details
+}
+
+export async function resolveWikiKnowledgeUrls(
+  supabase: SupabaseWikiClient,
+  sourceIds: string[]
+) {
+  const details = await resolveWikiKnowledgeDetails(supabase, sourceIds)
+  return new Map([...details].map(([id, detail]) => [id, detail.url]))
 }
 
 export async function resolveWikiKnowledgeRows<
@@ -83,15 +100,20 @@ export async function resolveWikiKnowledgeRows<
   },
 >(supabase: SupabaseWikiClient, rows: T[]) {
   const wikiRows = rows.filter((row) => isWikiKnowledgeSource(row.source_type))
-  const urls = await resolveWikiKnowledgeUrls(
+  const details = await resolveWikiKnowledgeDetails(
     supabase,
     wikiRows.map((row) => row.source_id)
   )
   return rows.flatMap((row) => {
     if (!isWikiKnowledgeSource(row.source_type)) return [row]
-    const url = urls.get(row.source_id)
-    if (!url) return []
-    const metadata = row.metadata ? { ...row.metadata } : row.metadata
+    const detail = details.get(row.source_id)
+    if (!detail) return []
+    const { url } = detail
+    const metadata = {
+      ...row.metadata,
+      updatedAt: detail.updatedAt,
+      isPublished: detail.isPublished,
+    }
     if (metadata && "path" in metadata) metadata.path = url.slice(6)
     if (metadata && "pagePath" in metadata) metadata.pagePath = url.slice(6)
     return [{ ...row, source_url: url, metadata }]

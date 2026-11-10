@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   blockNoteToPlainText,
+  blockNoteToKnowledgeText,
   chunkKnowledgeText,
   compareWikiNodes,
   estimateTokenCount,
@@ -317,8 +318,44 @@ describe("wiki helpers", () => {
   it("chunks normalized knowledge text near sentence boundaries", () => {
     const chunks = chunkKnowledgeText("First sentence. Second sentence.", 20)
 
-    expect(chunks).toEqual(["First sentence.", "Second sentence."])
+    expect(chunks).toEqual([
+      { content: "First sentence.", headingPath: [] },
+      { content: "Second sentence.", headingPath: [] },
+    ])
     expect(chunkKnowledgeText("   ")).toEqual([])
+  })
+
+  it("preserves BlockNote headings and their paths across nested sections and long bodies", () => {
+    const text = blockNoteToKnowledgeText([
+      { type: "heading", props: { level: 1 }, content: [{ text: "Loans" }] },
+      { type: "paragraph", content: "Overview." },
+      { type: "heading", props: { level: 2 }, content: [{ text: "Funding" }] },
+      { type: "paragraph", content: "First sentence. Second sentence." },
+      { type: "heading", props: { level: 2 }, content: [{ text: "Closing" }] },
+      { type: "paragraph", content: "Final step." },
+    ])
+    expect(chunkKnowledgeText(text, 20)).toEqual([
+      { content: "Loans\n\nOverview.", headingPath: ["Loans"] },
+      {
+        content: "Loans > Funding\n\nFirst sentence.",
+        headingPath: ["Loans", "Funding"],
+      },
+      {
+        content: "Loans > Funding\n\nSecond sentence.",
+        headingPath: ["Loans", "Funding"],
+      },
+      {
+        content: "Loans > Closing\n\nFinal step.",
+        headingPath: ["Loans", "Closing"],
+      },
+    ])
+    expect(chunkKnowledgeText("# Parent\n\n## Empty section")).toEqual([
+      { content: "Parent", headingPath: ["Parent"] },
+      {
+        content: "Parent > Empty section",
+        headingPath: ["Parent", "Empty section"],
+      },
+    ])
   })
 
   it("formats approximate sizes and token counts", () => {

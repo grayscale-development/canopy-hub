@@ -492,6 +492,7 @@ describe("wiki AI orchestration", () => {
         error: null,
       })),
       delete: vi.fn(() => chain),
+      update: vi.fn(() => chain),
       insert: vi.fn(async (rows) => {
         chunks.push(...rows)
         return { error: null }
@@ -544,6 +545,72 @@ describe("wiki AI orchestration", () => {
         }),
       ])
     )
+  })
+
+  it("retries an interrupted reindex and embeds heading chunks on save", async () => {
+    const { indexWikiPage } = await import("@/lib/wiki-ai")
+    vi.stubEnv("OPENAI_EMBEDDING_MODEL", "fake-embedding")
+    aiProvider.createEmbeddingsWithOpenAI.mockImplementation(async () => [
+      [0.1, 0.2, 0.3],
+      [0.1, 0.2, 0.3],
+    ])
+    let hash: string | null = null
+    let fail = true
+    const written: Array<Record<string, unknown>> = []
+    const chain = {
+      select: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      maybeSingle: vi.fn(async () => ({
+        data: hash ? { id: "source", content_hash: hash } : null,
+        error: null,
+      })),
+      upsert: vi.fn((row: { content_hash: string }) => {
+        hash = row.content_hash
+        return chain
+      }),
+      single: vi.fn(async () => ({ data: { id: "source" }, error: null })),
+      delete: vi.fn(() => chain),
+      update: vi.fn((row: { content_hash: string }) => {
+        hash = row.content_hash
+        return chain
+      }),
+      insert: vi.fn(async (rows: Array<Record<string, unknown>>) => {
+        if (fail) {
+          fail = false
+          return { error: { message: "interrupted" } }
+        }
+        written.push(...rows)
+        return { error: null }
+      }),
+      then: (resolve: (value: unknown) => void) => resolve({ error: null }),
+    }
+    const params = {
+      supabase: { from: vi.fn(() => chain) } as never,
+      node: { id: "page", title: "Guide", status: "published" } as never,
+      revision: {
+        id: "revision",
+        plain_text: "Funding\nInstructions",
+        blocks: [
+          { type: "heading", props: { level: 1 }, content: "Funding" },
+          { type: "paragraph", content: "Instructions" },
+        ],
+      } as never,
+      path: "1/2",
+    }
+    await expect(indexWikiPage(params)).rejects.toThrow("interrupted")
+    expect(hash).toMatch(/^pending:/)
+    await indexWikiPage(params)
+    expect(written).toContainEqual(
+      expect.objectContaining({
+        content: "Funding\n\nInstructions",
+        metadata: expect.objectContaining({ headingPath: ["Funding"] }),
+        embedding: [0.1, 0.2, 0.3],
+      })
+    )
+    expect(hash).not.toMatch(/^pending:/)
+    await indexWikiPage(params)
+    expect(chain.insert).toHaveBeenCalledTimes(2)
+    vi.unstubAllEnvs()
   })
 
   it("keeps imported drafts out of the index until they are published", async () => {
