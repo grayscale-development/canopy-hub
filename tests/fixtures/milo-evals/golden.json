@@ -1,0 +1,297 @@
+{
+  "pages": [
+    {
+      "id": "lock-desk",
+      "title": "Rate Lock Desk",
+      "content": "Rate lock extensions require a request to the lock desk before the current expiration date. Include the loan number and requested extension period.",
+      "status": "published"
+    },
+    {
+      "id": "appraisal",
+      "title": "Appraisal Ordering",
+      "content": "Order an appraisal after the initial disclosures are acknowledged. Send appraisal questions to the valuation team.",
+      "status": "published"
+    },
+    {
+      "id": "conditions",
+      "title": "Underwriting Conditions",
+      "content": "Upload underwriting condition documents to the loan file and notify the assigned underwriter when the package is complete.",
+      "status": "published"
+    },
+    {
+      "id": "closing",
+      "title": "Closing Disclosure",
+      "content": "The closing disclosure must be delivered before the closing appointment. Coordinate corrections with the closing team.",
+      "status": "published"
+    },
+    {
+      "id": "wire",
+      "title": "Wire Verification",
+      "content": "Verify wire instructions by calling the recipient using a trusted phone number before sending funds.",
+      "status": "published"
+    },
+    {
+      "id": "payoff",
+      "title": "Payoff Requests",
+      "content": "Request a payoff statement from the current servicer and check the good-through date before closing.",
+      "status": "published"
+    },
+    {
+      "id": "employment",
+      "title": "Employment Verification",
+      "content": "Complete verbal employment verification shortly before funding and record the conversation in the loan file.",
+      "status": "published"
+    },
+    {
+      "id": "flood",
+      "title": "Flood Insurance",
+      "content": "Review the flood determination and obtain flood insurance when the property is in a required flood zone.",
+      "status": "published"
+    },
+    {
+      "id": "escrow",
+      "title": "Escrow Accounts",
+      "content": "An escrow account collects property taxes and insurance with the monthly mortgage payment.",
+      "status": "published"
+    },
+    {
+      "id": "post-closing",
+      "title": "Post Closing Shipping",
+      "content": "After funding, the post closing team reviews the signed package and ships the required documents to the investor.",
+      "status": "published"
+    },
+    {
+      "id": "draft",
+      "title": "Manager Draft Compensation",
+      "content": "The proposed manager compensation schedule is a confidential draft for management review only.",
+      "status": "draft"
+    }
+  ],
+  "cases": [
+    {
+      "id": "lock-desk-1",
+      "question": "How do I request a rate lock extension?",
+      "kind": "answerable",
+      "expectedPages": ["lock-desk"]
+    },
+    {
+      "id": "lock-desk-2",
+      "question": "Who handles an expiring rate lock?",
+      "kind": "answerable",
+      "expectedPages": ["lock-desk"]
+    },
+    {
+      "id": "lock-desk-3",
+      "question": "What information goes to the lock desk?",
+      "kind": "answerable",
+      "expectedPages": ["lock-desk"]
+    },
+    {
+      "id": "appraisal-1",
+      "question": "When should I order the appraisal?",
+      "kind": "answerable",
+      "expectedPages": ["appraisal"]
+    },
+    {
+      "id": "appraisal-2",
+      "question": "Who answers appraisal questions?",
+      "kind": "answerable",
+      "expectedPages": ["appraisal"]
+    },
+    {
+      "id": "appraisal-3",
+      "question": "Where are appraisal ordering instructions?",
+      "kind": "answerable",
+      "expectedPages": ["appraisal"]
+    },
+    {
+      "id": "conditions-1",
+      "question": "How do I submit underwriting conditions?",
+      "kind": "answerable",
+      "expectedPages": ["conditions"]
+    },
+    {
+      "id": "conditions-2",
+      "question": "Who should be notified when conditions are complete?",
+      "kind": "answerable",
+      "expectedPages": ["conditions"]
+    },
+    {
+      "id": "conditions-3",
+      "question": "Where do underwriting condition documents go?",
+      "kind": "answerable",
+      "expectedPages": ["conditions"]
+    },
+    {
+      "id": "closing-1",
+      "question": "When is the closing disclosure delivered?",
+      "kind": "answerable",
+      "expectedPages": ["closing"]
+    },
+    {
+      "id": "closing-2",
+      "question": "Who coordinates closing disclosure corrections?",
+      "kind": "answerable",
+      "expectedPages": ["closing"]
+    },
+    {
+      "id": "closing-3",
+      "question": "What should happen before the closing appointment?",
+      "kind": "answerable",
+      "expectedPages": ["closing"]
+    },
+    {
+      "id": "wire-1",
+      "question": "How do I verify wire instructions?",
+      "kind": "answerable",
+      "expectedPages": ["wire"]
+    },
+    {
+      "id": "wire-2",
+      "question": "What phone number should I use to confirm wire instructions?",
+      "kind": "answerable",
+      "expectedPages": ["wire"]
+    },
+    {
+      "id": "wire-3",
+      "question": "What check happens before sending a wire?",
+      "kind": "answerable",
+      "expectedPages": ["wire"]
+    },
+    {
+      "id": "payoff-1",
+      "question": "How do I request a payoff statement?",
+      "kind": "answerable",
+      "expectedPages": ["payoff"]
+    },
+    {
+      "id": "payoff-2",
+      "question": "What date should I check on a payoff?",
+      "kind": "answerable",
+      "expectedPages": ["payoff"]
+    },
+    {
+      "id": "payoff-3",
+      "question": "Who provides the payoff statement?",
+      "kind": "answerable",
+      "expectedPages": ["payoff"]
+    },
+    {
+      "id": "employment-1",
+      "question": "When should verbal employment verification happen?",
+      "kind": "answerable",
+      "expectedPages": ["employment"]
+    },
+    {
+      "id": "employment-2",
+      "question": "Where do I record employment verification?",
+      "kind": "answerable",
+      "expectedPages": ["employment"]
+    },
+    {
+      "id": "employment-3",
+      "question": "What is required before funding for employment verification?",
+      "kind": "answerable",
+      "expectedPages": ["employment"]
+    },
+    {
+      "id": "flood-1",
+      "question": "When is flood insurance required?",
+      "kind": "answerable",
+      "expectedPages": ["flood"]
+    },
+    {
+      "id": "flood-2",
+      "question": "What should I review for flood insurance?",
+      "kind": "answerable",
+      "expectedPages": ["flood"]
+    },
+    {
+      "id": "flood-3",
+      "question": "How do I check a property flood zone?",
+      "kind": "answerable",
+      "expectedPages": ["flood"]
+    },
+    {
+      "id": "escrow-1",
+      "question": "What does an escrow account collect?",
+      "kind": "answerable",
+      "expectedPages": ["escrow"]
+    },
+    {
+      "id": "escrow-2",
+      "question": "How are property taxes paid through escrow?",
+      "kind": "answerable",
+      "expectedPages": ["escrow"]
+    },
+    {
+      "id": "escrow-3",
+      "question": "Does escrow include insurance payments?",
+      "kind": "answerable",
+      "expectedPages": ["escrow"]
+    },
+    {
+      "id": "post-closing-1",
+      "question": "Who reviews the signed package after funding?",
+      "kind": "answerable",
+      "expectedPages": ["post-closing"]
+    },
+    {
+      "id": "post-closing-2",
+      "question": "What does post closing ship to the investor?",
+      "kind": "answerable",
+      "expectedPages": ["post-closing"]
+    },
+    {
+      "id": "post-closing-3",
+      "question": "Where are post closing shipping steps?",
+      "kind": "answerable",
+      "expectedPages": ["post-closing"]
+    },
+    {
+      "id": "no-answer-1",
+      "question": "What is the cafeteria menu for next Tuesday?",
+      "kind": "unanswerable",
+      "expectedPages": []
+    },
+    {
+      "id": "no-answer-2",
+      "question": "Who won the company softball championship in 2031?",
+      "kind": "unanswerable",
+      "expectedPages": []
+    },
+    {
+      "id": "no-answer-3",
+      "question": "What is the office parking garage height limit?",
+      "kind": "unanswerable",
+      "expectedPages": []
+    },
+    {
+      "id": "no-answer-4",
+      "question": "Where can I find the company pet adoption policy?",
+      "kind": "unanswerable",
+      "expectedPages": []
+    },
+    {
+      "id": "private-1",
+      "question": "What is the proposed manager compensation schedule?",
+      "kind": "restricted",
+      "expectedPages": [],
+      "forbiddenPages": ["draft"]
+    },
+    {
+      "id": "private-2",
+      "question": "Where is the confidential manager compensation draft?",
+      "kind": "restricted",
+      "expectedPages": [],
+      "forbiddenPages": ["draft"]
+    },
+    {
+      "id": "private-3",
+      "question": "How is manager compensation being changed?",
+      "kind": "restricted",
+      "expectedPages": [],
+      "forbiddenPages": ["draft"]
+    }
+  ]
+}

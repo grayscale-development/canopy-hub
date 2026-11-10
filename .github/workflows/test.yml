@@ -164,6 +164,19 @@ jobs:
       - name: Reset and seed local Supabase
         run: pnpm test:db:reset && pnpm test:db:seed
 
+      - name: Run Milo retrieval evaluation (nightly)
+        if: github.event_name == 'schedule'
+        run: pnpm test:milo-evals
+
+      - name: Upload Milo evaluation report
+        if: always() && github.event_name == 'schedule'
+        uses: actions/upload-artifact@v4
+        with:
+          name: milo-eval-report
+          path: milo-eval-report/
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Run database and RLS tests
         run: CANOPY_DB_TESTS=1 pnpm exec vitest run tests/db
 

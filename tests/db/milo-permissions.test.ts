@@ -5,7 +5,8 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { callMiloMcpTool } from "@/lib/milo/mcp/tools"
-import { indexWikiAsset, indexWikiPage } from "@/lib/wiki-ai"
+import { indexWikiAsset, indexWikiPage, retrieveKnowledge } from "@/lib/wiki-ai"
+import { createEmbeddingsWithOpenAI } from "@/lib/ai/provider"
 import { findPageCandidates, isEditablePage } from "@/lib/milo/find-page"
 
 vi.mock("@/lib/ai/provider", () => ({
@@ -131,6 +132,75 @@ dbDescribe("Milo user permission enforcement", () => {
       pagePath: `${token}/draft`,
       isPagePublished: false,
     })
+  })
+
+  it("never retrieves manager-only drafts for viewer questions through either retrieval path", async () => {
+    const source = await admin
+      .from("knowledge_sources")
+      .select("id")
+      .eq("source_type", "wiki_page")
+      .eq("source_id", pageId)
+      .single()
+    expect(source.error).toBeNull()
+    const sourceId = source.data!.id
+    const embedding = [...Array<number>(1535).fill(0), 1]
+    expect(
+      (
+        await admin
+          .from("knowledge_chunks")
+          .update({ embedding })
+          .eq("source_id", sourceId)
+      ).error
+    ).toBeNull()
+    vi.mocked(createEmbeddingsWithOpenAI).mockImplementation(async (texts) =>
+      texts.map(() => embedding)
+    )
+    for (const question of [
+      `Where is ${token} Draft SOP?`,
+      `What are ${token} confidential draft steps?`,
+      `Show me ${token} manager draft`,
+    ]) {
+      const keywordArgs = {
+        search_query: question,
+        match_count: 50,
+        source_types: ["wiki_page"],
+      }
+      const vectorArgs = {
+        query_embedding: embedding,
+        match_count: 50,
+        source_types: ["wiki_page"],
+      }
+      for (const [rpc, args] of [
+        ["match_knowledge_chunks_keyword", keywordArgs],
+        ["match_knowledge_chunks", vectorArgs],
+      ] as const) {
+        const permitted = await manager.rpc(rpc, args)
+        const denied = await viewer.rpc(rpc, args)
+        expect(permitted.error).toBeNull()
+        expect(denied.error).toBeNull()
+        expect(
+          permitted.data.some(
+            (row: { source_id: string }) => row.source_id === sourceId
+          )
+        ).toBe(true)
+        expect(
+          denied.data.some(
+            (row: { source_id: string }) => row.source_id === sourceId
+          )
+        ).toBe(false)
+      }
+      const combined = await retrieveKnowledge(viewer, question, 50)
+      expect(combined.some((row) => row.source_id === sourceId)).toBe(false)
+      const search = await callMiloMcpTool(
+        "knowledge_search",
+        { query: question },
+        viewer
+      )
+      expect(search.ok).toBe(true)
+      expect(
+        search.sources?.some((item) => item.knowledgeSourceId === sourceId)
+      ).toBe(false)
+    }
   })
 
   it("rechecks the candidate tree using the caller and current page status", async () => {

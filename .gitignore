@@ -42,3 +42,6 @@ supabase/functions/.env.*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local Milo evaluation reports
+/milo-eval-report/
