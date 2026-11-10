@@ -13,6 +13,7 @@ import { WikiChat } from "@/components/wiki/wiki-chat"
 
 interface WikiChatModalContextValue {
   openWithPrompt: (prompt: string) => void
+  openWithDraft: (draft: string) => void
   close: () => void
 }
 
@@ -38,6 +39,7 @@ export function WikiChatModalProvider({
 }) {
   const [isOpen, setIsOpen] = React.useState(false)
   const [queuedPrompt, setQueuedPrompt] = React.useState<string | null>(null)
+  const [draft, setDraft] = React.useState("")
 
   React.useEffect(() => {
     let active = true
@@ -57,6 +59,7 @@ export function WikiChatModalProvider({
   const close = React.useCallback(() => {
     setIsOpen(false)
     setQueuedPrompt(null)
+    setDraft("")
     try {
       sessionStorage.removeItem(openChatKey)
     } catch {
@@ -70,6 +73,7 @@ export function WikiChatModalProvider({
       return
     }
 
+    setDraft("")
     setQueuedPrompt(trimmedPrompt)
     setIsOpen(true)
     try {
@@ -79,9 +83,20 @@ export function WikiChatModalProvider({
     }
   }, [])
 
+  const openWithDraft = React.useCallback((value: string) => {
+    setQueuedPrompt(null)
+    setDraft(value)
+    setIsOpen(true)
+    try {
+      sessionStorage.setItem(openChatKey, "true")
+    } catch {
+      /* Storage is optional. */
+    }
+  }, [])
+
   const value = React.useMemo(
-    () => ({ openWithPrompt, close }),
-    [close, openWithPrompt]
+    () => ({ openWithPrompt, openWithDraft, close }),
+    [close, openWithPrompt, openWithDraft]
   )
 
   return (
@@ -95,7 +110,7 @@ export function WikiChatModalProvider({
           }
         }}
       >
-        <DialogContent className="h-[min(78svh,44rem)] max-w-3xl gap-0 overflow-hidden p-0 sm:w-[min(92vw,48rem)]">
+        <DialogContent className="flex h-[min(78svh,44rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:w-[min(92vw,48rem)]">
           <DialogHeader className="border-b px-6 py-4">
             <DialogTitle>Ask Milo</DialogTitle>
             <DialogDescription className="sr-only">
@@ -105,6 +120,7 @@ export function WikiChatModalProvider({
           {isOpen ? (
             <WikiChat
               queuedPrompt={queuedPrompt}
+              initialDraft={draft}
               onQueuedPromptConsumed={() => setQueuedPrompt(null)}
               onNavigate={close}
             />

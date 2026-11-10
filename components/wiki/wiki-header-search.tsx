@@ -9,7 +9,7 @@ import { useWikiChatModal } from "@/components/wiki/wiki-chat-modal"
 import { cn } from "@/lib/utils"
 
 export function WikiHeaderSearch({ className }: { className?: string }) {
-  const { openWithPrompt } = useWikiChatModal()
+  const { openWithPrompt, openWithDraft } = useWikiChatModal()
   const [query, setQuery] = React.useState("")
   const [results, setResults] = React.useState<
     Array<{
@@ -23,7 +23,7 @@ export function WikiHeaderSearch({ className }: { className?: string }) {
   const [focused, setFocused] = React.useState(false)
 
   React.useEffect(() => {
-    if (query.trim().length < 2) return
+    if (query.trim().length < 2 || query.length > 200) return
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       try {
@@ -68,10 +68,32 @@ export function WikiHeaderSearch({ className }: { className?: string }) {
       }}
       className={cn("relative w-full max-w-xl", className)}
     >
-      <SparklesIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+      <button
+        type="button"
+        aria-label="Open Milo chat"
+        onClick={() => {
+          openWithDraft(query)
+          setQuery("")
+          setResults([])
+        }}
+        className="absolute top-0 left-0 z-10 flex size-10 items-center justify-center rounded-md text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <SparklesIcon className="size-4" />
+      </button>
       <Input
         type="text"
         value={query}
+        onPaste={(event) => {
+          const pasted = event.clipboardData.getData("text")
+          if (pasted.includes("\n") || pasted.length > 200) {
+            event.preventDefault()
+            const start = event.currentTarget.selectionStart ?? query.length
+            const end = event.currentTarget.selectionEnd ?? start
+            openWithDraft(query.slice(0, start) + pasted + query.slice(end))
+            setQuery("")
+            setResults([])
+          }
+        }}
         onChange={(event) => {
           setQuery(event.target.value)
           setResults([])
