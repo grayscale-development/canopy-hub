@@ -2,13 +2,13 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { openWikiAiCreate, signInAsLocalDev } from "./helpers"
+import { openWikiAiCreate, openWikiPath, signInAsLocalDev } from "./helpers"
 
 test("Wiki managers can use AI Create with a text PDF @wiki", async ({
   page,
 }) => {
   await signInAsLocalDev(page)
-  await page.goto("/wiki/canopy-wiki/hub/reports")
+  await openWikiPath(page, "Canopy Wiki", "Hub", "Reports")
   await openWikiAiCreate(page)
   await page
     .locator('input[type="file"]')

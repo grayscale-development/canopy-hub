@@ -73,24 +73,28 @@ function node(overrides: Partial<WikiNodeRow> & Pick<WikiNodeRow, "id">) {
 const nodes = [
   node({
     id: "canopy-root",
+    short_id: 1,
     slug: "canopy-wiki",
     title: "Canopy Wiki",
     sort_order: 0,
   }),
   node({
     id: "learning-root",
+    short_id: 2,
     slug: "learning-hub",
     title: "Learning Hub",
     sort_order: 1,
   }),
   node({
     id: "nano-root",
+    short_id: 3,
     slug: "nano-wiki",
     title: "Nano Wiki",
     sort_order: 2,
   }),
   node({
     id: "canopy-hub",
+    short_id: 4,
     parent_id: "canopy-root",
     slug: "hub",
     title: "Hub",
@@ -98,6 +102,7 @@ const nodes = [
   }),
   node({
     id: "canopy-operations",
+    short_id: 5,
     parent_id: "canopy-root",
     slug: "operations",
     title: "Operations",
@@ -105,6 +110,7 @@ const nodes = [
   }),
   node({
     id: "operations-overview",
+    short_id: 6,
     parent_id: "canopy-operations",
     type: "page",
     slug: "overview",
@@ -112,12 +118,14 @@ const nodes = [
   }),
   node({
     id: "closing-group",
+    short_id: 7,
     parent_id: "canopy-operations",
     slug: "closing",
     title: "Closing",
   }),
   node({
     id: "closing-page",
+    short_id: 8,
     parent_id: "closing-group",
     type: "page",
     slug: "final-review",
@@ -125,6 +133,7 @@ const nodes = [
   }),
   node({
     id: "learning-courses",
+    short_id: 9,
     parent_id: "learning-root",
     slug: "course-library",
     title: "Course Library",
@@ -132,6 +141,7 @@ const nodes = [
   }),
   node({
     id: "learning-onboarding",
+    short_id: 10,
     parent_id: "learning-root",
     slug: "onboarding",
     title: "Onboarding",
@@ -206,7 +216,7 @@ describe("WikiRepositorySidebar", () => {
 
     expect(screen.getByRole("link", { name: "Operations" })).toHaveAttribute(
       "href",
-      "/wiki/canopy-wiki/operations"
+      "/wiki/1/5"
     )
 
     const sectionChevron = screen.getByRole("button", {
@@ -222,7 +232,7 @@ describe("WikiRepositorySidebar", () => {
       <TooltipProvider>
         <WikiRepositorySidebar
           nodes={nodes}
-          activePath="canopy-wiki/operations/closing/final-review"
+          activePath="1/5/7/8"
           selectedRepositorySlug="canopy-wiki"
           canManageWiki={canManageWiki}
         />
@@ -240,10 +250,7 @@ describe("WikiRepositorySidebar", () => {
     const user = userEvent.setup()
     renderSidebar("canopy-wiki")
     const groupTitle = screen.getByRole("link", { name: "Closing" })
-    expect(groupTitle).toHaveAttribute(
-      "href",
-      "/wiki/canopy-wiki/operations/closing"
-    )
+    expect(groupTitle).toHaveAttribute("href", "/wiki/1/5/7")
     await user.click(screen.getByRole("button", { name: "Toggle Closing" }))
     expect(screen.getByRole("link", { name: "Final Review" })).toBeVisible()
     expect(
@@ -331,7 +338,7 @@ describe("WikiRepositorySidebar", () => {
           <TooltipProvider>
             <WikiRepositorySidebar
               nodes={nodes}
-              activePath="canopy-wiki"
+              activePath="1"
               selectedRepositorySlug="canopy-wiki"
               canManageWiki={manager}
             />

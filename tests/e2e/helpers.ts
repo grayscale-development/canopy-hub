@@ -6,6 +6,23 @@ export async function signInAsLocalDev(page: Page) {
   await expect(page).toHaveURL(/\/home$/)
 }
 
+export async function openWikiPath(page: Page, ...titles: string[]) {
+  await page.goto("/wiki")
+  for (const title of titles) {
+    const link = page
+      .getByRole("main")
+      .last()
+      .getByRole("link", { name: title, exact: true })
+    const href = await link.getAttribute("href")
+    expect(href).toMatch(/^\/wiki\/\d+(?:\/\d+)*$/)
+    const target = new URL(href!, page.url()).toString()
+    await expect(async () => {
+      if (page.url() !== target) await link.click()
+      await expect(page).toHaveURL(target, { timeout: 3000 })
+    }).toPass({ timeout: 20_000 })
+  }
+}
+
 export async function openWikiAiCreate(page: Page) {
   const editMode = page.getByRole("switch", { name: "Toggle wiki editor mode" })
   if (!(await editMode.isChecked())) await editMode.check()
@@ -39,8 +56,8 @@ export async function mockMiloChatApi(page: Page) {
       body: [
         'data: {"type":"meta","threadId":"e2e-thread"}',
         'data: {"type":"token","token":"Open "}',
-        'data: {"type":"token","token":"/wiki/canopy-wiki"}',
-        'data: {"type":"done","threadId":"e2e-thread","userMessageId":"user-message","assistantMessageId":"assistant-message","citations":[{"title":"Wiki","url":"/wiki/canopy-wiki","snippet":"Seeded Wiki source."}]}',
+        'data: {"type":"token","token":"/wiki/1"}',
+        'data: {"type":"done","threadId":"e2e-thread","userMessageId":"user-message","assistantMessageId":"assistant-message","citations":[{"title":"Wiki","url":"/wiki/1","snippet":"Seeded Wiki source."}]}',
         "",
       ].join("\n\n"),
     })

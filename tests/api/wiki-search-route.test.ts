@@ -4,6 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const state = vi.hoisted(() => ({
   canAccess: true,
   calls: [] as { name: string; args: Record<string, unknown> }[],
+  knowledge: [] as Array<Record<string, unknown>>,
+}))
+vi.mock("@/lib/wiki", async (original) => ({
+  ...(await original<typeof import("@/lib/wiki")>()),
+  fetchWikiNodes: async () => [
+    { id: "root", parent_id: null, short_id: 1, type: "folder" },
+    { id: "new-parent", parent_id: "root", short_id: 9, type: "folder" },
+    { id: "page", parent_id: "new-parent", short_id: 22, type: "page" },
+  ],
 }))
 vi.mock("@/lib/wiki-ai", async () => {
   const provider = await import("@/lib/ai/provider")
@@ -19,7 +28,9 @@ vi.mock("@/lib/supabase/server", () => ({
       state.calls.push({ name, args })
       return {
         data:
-          name === "match_wiki_tags" ? [{ id: "semantic" }, { id: "h" }] : [],
+          name === "match_wiki_tags"
+            ? [{ id: "semantic" }, { id: "h" }]
+            : state.knowledge,
         error: null,
       }
     },
@@ -62,7 +73,16 @@ vi.mock("@/lib/supabase/server", () => ({
             }
           : {
               in: async () => ({
-                data: [{ id: "visible", title: "Operations" }],
+                data:
+                  table === "knowledge_sources"
+                    ? [
+                        {
+                          id: "source",
+                          source_type: "wiki_page",
+                          source_id: "page",
+                        },
+                      ]
+                    : [{ id: "visible", title: "Operations" }],
                 error: null,
               }),
             },
@@ -73,6 +93,7 @@ import { GET } from "@/app/api/wiki/search/route"
 
 beforeEach(() => {
   state.calls = []
+  state.knowledge = []
   vi.stubEnv("OPENAI_EMBEDDING_MODEL", "fake-embedding")
 })
 afterEach(() => vi.unstubAllEnvs())
@@ -136,6 +157,25 @@ describe("wiki tag search", () => {
         snippet: "Operations · close spelling",
       }),
     ])
+  })
+  it("uses the current numeric page path for an old indexed URL", async () => {
+    state.canAccess = true
+    state.knowledge = [
+      {
+        source_id: "source",
+        source_type: "wiki_page",
+        source_title: "Page",
+        source_url: "/wiki/old-slug",
+        content: "Text",
+        similarity: 1,
+      },
+    ]
+    const response = await GET(
+      new NextRequest("http://localhost/api/wiki/search?q=page")
+    )
+    expect((await response.json()).results).toContainEqual(
+      expect.objectContaining({ title: "Page", url: "/wiki/1/9/22" })
+    )
   })
   it("does not expose wiki tags without wiki access", async () => {
     state.canAccess = false

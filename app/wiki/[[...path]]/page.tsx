@@ -1,4 +1,5 @@
-import { redirect } from "next/navigation"
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
+import { notFound, redirect } from "next/navigation"
 
 import {
   WikiEditModeGate,
@@ -23,11 +24,10 @@ import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   getDefaultWikiRepository,
-  getWikiRepositoryBySlug,
+  getWikiRepositoryByShortId,
 } from "@/lib/wiki-repositories"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
-  buildWikiPath,
   buildWikiBreadcrumbs,
   fetchWikiTagAssignments,
   compareWikiNodes,
@@ -170,19 +170,6 @@ function HiddenDraftView({ title }: { title: string }) {
   )
 }
 
-function getSelectedRepositorySlug({
-  path,
-  pageData,
-}: {
-  path: string[]
-  pageData: Awaited<ReturnType<typeof fetchWikiPageData>> | null
-}) {
-  const rootSlug = pageData?.breadcrumbs[0]?.slug ?? path[0]
-  return (
-    getWikiRepositoryBySlug(rootSlug)?.slug ?? getDefaultWikiRepository().slug
-  )
-}
-
 function WikiSetupRequired({ canManageWiki }: { canManageWiki: boolean }) {
   return (
     <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
@@ -239,10 +226,8 @@ export default async function WikiPage({
     code: WIKI_MANAGE_PERMISSION,
   })
 
-  const [
-    { path = [] },
-    { tag: highlightedTag = "", section: highlightedSection = "" },
-  ] = await Promise.all([params, searchParams])
+  const [{ path = [] }, query] = await Promise.all([params, searchParams])
+  const { tag: highlightedTag = "", section: highlightedSection = "" } = query
   let nodes: WikiNodeRow[]
   try {
     nodes = await fetchWikiNodes(supabase)
@@ -252,8 +237,9 @@ export default async function WikiPage({
     }
     throw error
   }
+  const isTagsDirectory = path.length === 1 && path[0] === "tags"
   const [pageData, wikiTags] = await Promise.all([
-    path.length ? fetchWikiPageData(supabase, path) : null,
+    path.length && !isTagsDirectory ? fetchWikiPageData(supabase, path) : null,
     fetchWikiTags(supabase),
   ])
   const pageTags =
@@ -273,12 +259,14 @@ export default async function WikiPage({
     WikiRevisionMetadata,
     "author"
   >[]
-  const missingRepositoryPage =
-    !pageData && path.length === 1 ? getWikiRepositoryBySlug(path[0]) : null
-  const isTagsDirectory = path.length === 1 && path[0] === "tags"
-
-  if (path.length && !pageData && !missingRepositoryPage && !isTagsDirectory) {
-    redirect("/wiki")
+  if (path.length && !isTagsDirectory && !pageData) notFound()
+  if (pageData && pageData.path !== path.join("/")) {
+    const search = new URLSearchParams()
+    for (const [key, value] of Object.entries(query)) {
+      if (value) search.set(key, value)
+    }
+    const suffix = search.toString()
+    redirect(`/wiki/${pageData.path}${suffix ? `?${suffix}` : ""}`)
   }
 
   let directoryUsers: Array<{
@@ -311,7 +299,10 @@ export default async function WikiPage({
   const rootChildren = nodes
     .filter((node) => node.parent_id === null)
     .sort(compareWikiNodes)
-  const selectedRepositorySlug = getSelectedRepositorySlug({ path, pageData })
+  const root = pageData?.breadcrumbs[0]
+  const selectedRepositorySlug =
+    (root && getWikiRepositoryByShortId(root.short_id)?.slug) ??
+    getDefaultWikiRepository().slug
   const isNanoWiki = selectedRepositorySlug === "nano-wiki"
   const eligiblePageIds = new Set(
     nodes
@@ -368,9 +359,9 @@ export default async function WikiPage({
             id: section.id,
             title: section.title,
             area: area?.title ?? "Wiki",
-            href: `/wiki/${buildWikiPath(nodes, section)}`,
+            href: `/wiki/${buildNumericWikiPath(nodes, section)}`,
             examplePageHref: example
-              ? `/wiki/${buildWikiPath(nodes, example)}`
+              ? `/wiki/${buildNumericWikiPath(nodes, example)}`
               : undefined,
           }
         })
@@ -389,16 +380,12 @@ export default async function WikiPage({
         .map((page) => ({
           id: page.id,
           title: page.title,
-          href: `/wiki/${buildWikiPath(nodes, page)}`,
+          href: `/wiki/${buildNumericWikiPath(nodes, page)}`,
           area: buildWikiBreadcrumbs(nodes, page)[0]?.title ?? "Wiki",
         })),
     }))
   const displayedNode = pageData?.node ?? null
   const displayedChildren = pageData?.children ?? []
-
-  if (!isNanoWiki && missingRepositoryPage) {
-    redirect("/wiki")
-  }
 
   return (
     <>

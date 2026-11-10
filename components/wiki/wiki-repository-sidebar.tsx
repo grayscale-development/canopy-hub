@@ -1,5 +1,6 @@
 "use client"
 
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import * as React from "react"
 import Link from "next/link"
 import { ChevronRightIcon, PencilIcon, TagsIcon } from "lucide-react"
@@ -16,10 +17,11 @@ import {
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
-import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
+import { compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 import {
   getDefaultWikiRepository,
   getWikiRepositoryBySlug,
+  getWikiRepositoryByShortId,
 } from "@/lib/wiki-repositories"
 import {
   useWikiEditMode,
@@ -147,7 +149,7 @@ function SidebarPageLink({
   nodes: WikiNodeRow[]
   activePath: string
 }) {
-  const path = buildWikiPath(nodes, node)
+  const path = buildNumericWikiPath(nodes, node)
   const isActive = path === activePath
 
   return (
@@ -223,7 +225,7 @@ function SidebarNestedFolder({
   const children = nodes
     .filter((node) => node.parent_id === folder.id)
     .sort(compareWikiNodes)
-  const folderPath = buildWikiPath(nodes, folder)
+  const folderPath = buildNumericWikiPath(nodes, folder)
   const [isOpen, setPersistedOpen] = usePersistedSidebarExpansion(
     `wiki-sidebar:group:${folder.id}`,
     false,
@@ -314,7 +316,7 @@ function SidebarSection({
   activePath: string
   canManage: boolean
 }) {
-  const sectionPath = buildWikiPath(nodes, section)
+  const sectionPath = buildNumericWikiPath(nodes, section)
   const [isOpen, setPersistedOpen] = usePersistedSidebarExpansion(
     `wiki-sidebar:section:${section.id}`,
     true,
@@ -428,7 +430,11 @@ export function WikiRepositorySidebar({
     getDefaultWikiRepository()
   const repositoryNode =
     visibleNodes.find((node) => {
-      return node.parent_id === null && node.slug === selectedRepository.slug
+      return (
+        node.parent_id === null &&
+        getWikiRepositoryByShortId(node.short_id)?.slug ===
+          selectedRepository.slug
+      )
     }) ?? null
   const sections = React.useMemo(
     () =>
@@ -443,7 +449,7 @@ export function WikiRepositorySidebar({
     [repositoryNode, visibleNodes]
   )
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:w-72">
+    <aside className="flex max-h-64 min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:max-h-none lg:w-72">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border px-3">
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {selectedRepository.title}

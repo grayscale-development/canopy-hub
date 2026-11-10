@@ -3,7 +3,12 @@ import { type NextRequest, NextResponse } from "next/server"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { wikiTagDirectoryUrl, type WikiTagRow } from "@/lib/wiki"
+import {
+  fetchWikiNodes,
+  wikiTagDirectoryUrl,
+  type WikiTagRow,
+} from "@/lib/wiki"
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import { matchSemanticWikiTags } from "@/lib/wiki-tag-embeddings"
 import { rankWikiTags } from "@/lib/wiki-tag-similarity"
 
@@ -109,10 +114,63 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const knowledgeResults = [...bySource.values()].slice(0, 8).map((row) => ({
+  const selectedRows = [...bySource.values()].slice(0, 8)
+  const wikiRows = selectedRows.filter((row) =>
+    BETA_SEARCH_SOURCE_TYPES.includes(row.source_type)
+  )
+  const wikiUrls = new Map<string, string>()
+  if (wikiRows.length) {
+    const [nodes, sourcesResult] = await Promise.all([
+      fetchWikiNodes(supabase),
+      supabase
+        .from("knowledge_sources")
+        .select("id,source_type,source_id")
+        .in(
+          "id",
+          wikiRows.map((row) => row.source_id)
+        ),
+    ])
+    if (sourcesResult.error) {
+      return NextResponse.json(
+        { error: sourcesResult.error.message },
+        { status: 500 }
+      )
+    }
+    const sources = sourcesResult.data ?? []
+    const assetIds = sources
+      .filter((source) => source.source_type === "wiki_asset")
+      .map((source) => source.source_id)
+    const assetsResult = assetIds.length
+      ? await supabase
+          .from("wiki_assets")
+          .select("id,node_id")
+          .in("id", assetIds)
+      : { data: [], error: null }
+    if (assetsResult.error) {
+      return NextResponse.json(
+        { error: assetsResult.error.message },
+        { status: 500 }
+      )
+    }
+    for (const source of sources) {
+      const nodeId =
+        source.source_type === "wiki_asset"
+          ? assetsResult.data?.find((asset) => asset.id === source.source_id)
+              ?.node_id
+          : source.source_id
+      const node = nodes.find(
+        (item) => item.id === nodeId && item.type === "page"
+      )
+      if (node)
+        wikiUrls.set(source.id, `/wiki/${buildNumericWikiPath(nodes, node)}`)
+    }
+  }
+  const knowledgeResults = selectedRows.map((row) => ({
     id: row.source_id,
     title: row.source_title || "Untitled",
-    url: row.source_url || "/home",
+    url: BETA_SEARCH_SOURCE_TYPES.includes(row.source_type)
+      ? (wikiUrls.get(row.source_id) ?? "/wiki")
+      : row.source_url || "/home",
     type: row.source_type,
     typeLabel: formatSourceType(row.source_type),
     snippet: compactSnippet(row.content),

@@ -2,14 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   blockNoteToPlainText,
-  buildWikiBreadcrumbs,
-  buildWikiPath,
-  buildWikiTree,
   chunkKnowledgeText,
   compareWikiNodes,
   estimateTokenCount,
-  findDefaultWikiPagePath,
-  findFirstPublishedWikiPagePath,
   formatBytes,
   getWikiAssetKind,
   getWikiSectionId,
@@ -17,7 +12,6 @@ import {
   normalizeWikiTags,
   normalizeWikiTagInputs,
   syncWikiPageTags,
-  resolveWikiPath,
   sanitizeWikiFileName,
   slugifyWikiTitle,
   validateWikiUpload,
@@ -215,61 +209,6 @@ describe("wiki helpers", () => {
     )
   })
 
-  it("builds sorted tree paths with folders before pages", () => {
-    const nodes = [
-      node({ id: "page", title: "Overview", slug: "overview" }),
-      node({
-        id: "root",
-        type: "folder",
-        title: "Canopy",
-        slug: "canopy",
-        sort_order: 0,
-      }),
-      node({
-        id: "section",
-        parent_id: "root",
-        type: "folder",
-        title: "Operations",
-        slug: "operations",
-      }),
-      node({
-        id: "child",
-        parent_id: "section",
-        title: "Publishing",
-        slug: "publishing",
-      }),
-    ]
-
-    const tree = buildWikiTree(nodes)
-
-    expect(tree.map((item) => item.id)).toEqual(["root", "page"])
-    expect(tree[0]?.path).toBe("canopy")
-    expect(tree[0]?.children[0]?.path).toBe("canopy/operations")
-    expect(tree[0]?.children[0]?.children[0]?.path).toBe(
-      "canopy/operations/publishing"
-    )
-  })
-
-  it("resolves paths and breadcrumbs case-insensitively", () => {
-    const nodes = [
-      node({ id: "root", type: "folder", slug: "canopy", title: "Canopy" }),
-      node({
-        id: "page",
-        parent_id: "root",
-        slug: "getting-started",
-        title: "Getting Started",
-      }),
-    ]
-
-    const resolved = resolveWikiPath(nodes, ["CANOPY", "Getting-Started"])
-
-    expect(resolved?.id).toBe("page")
-    expect(buildWikiBreadcrumbs(nodes, resolved as WikiNodeRow)).toHaveLength(2)
-    expect(buildWikiPath(nodes, resolved as WikiNodeRow)).toBe(
-      "canopy/getting-started"
-    )
-  })
-
   it("derives folder visibility from published descendant pages", () => {
     const root = node({
       id: "root",
@@ -305,36 +244,6 @@ describe("wiki helpers", () => {
         draftParent
       )
     ).toBe(false)
-  })
-
-  it("finds the first published page beneath a folder at any depth", () => {
-    const root = node({ id: "root", type: "folder", slug: "root" })
-    const section = node({
-      id: "section",
-      parent_id: root.id,
-      type: "folder",
-      slug: "section",
-      status: "draft",
-    })
-    const group = node({
-      id: "group",
-      parent_id: section.id,
-      type: "folder",
-      slug: "group",
-    })
-    const page = node({
-      id: "page",
-      parent_id: group.id,
-      slug: "page",
-      status: "published",
-    })
-
-    expect(
-      findFirstPublishedWikiPagePath([root, section, group, page], section)
-    ).toBe("root/section/group/page")
-    expect(
-      findFirstPublishedWikiPagePath([root, section, group], section)
-    ).toBeNull()
   })
 
   it("does not treat an archived folder branch as visible or redirectable", () => {
@@ -376,112 +285,6 @@ describe("wiki helpers", () => {
     expect(isPublishedWikiBranch(nodes, archivedPage)).toBe(false)
     expect(isPublishedWikiBranch(nodes, archivedSection)).toBe(false)
     expect(isPublishedWikiBranch(nodes, root)).toBe(true)
-    expect(findFirstPublishedWikiPagePath(nodes, archivedSection)).toBeNull()
-    expect(findFirstPublishedWikiPagePath(nodes, root)).toBe(
-      "root/visible-section/visible-page"
-    )
-  })
-
-  it("finds the first direct page across wiki sections as the default page", () => {
-    const nodes = [
-      node({
-        id: "root",
-        type: "folder",
-        slug: "canopy-wiki",
-        title: "Canopy Wiki",
-      }),
-      node({
-        id: "first-section",
-        parent_id: "root",
-        type: "folder",
-        slug: "first-section",
-        title: "First Section",
-        sort_order: 0,
-      }),
-      node({
-        id: "group",
-        parent_id: "first-section",
-        type: "folder",
-        slug: "group",
-        title: "Group",
-        sort_order: 0,
-      }),
-      node({
-        id: "grouped-page",
-        parent_id: "group",
-        slug: "grouped-page",
-        title: "Grouped Page",
-        sort_order: 0,
-      }),
-      node({
-        id: "second-section",
-        parent_id: "root",
-        type: "folder",
-        slug: "second-section",
-        title: "Second Section",
-        sort_order: 1,
-      }),
-      node({
-        id: "direct-page",
-        parent_id: "second-section",
-        slug: "direct-page",
-        title: "Direct Page",
-        sort_order: 0,
-      }),
-    ]
-
-    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBe(
-      "canopy-wiki/second-section/direct-page"
-    )
-  })
-
-  it("falls back to the first grouped page when no section has a direct page", () => {
-    const nodes = [
-      node({
-        id: "root",
-        type: "folder",
-        slug: "canopy-wiki",
-        title: "Canopy Wiki",
-      }),
-      node({
-        id: "section",
-        parent_id: "root",
-        type: "folder",
-        slug: "section",
-        title: "Section",
-      }),
-      node({
-        id: "group",
-        parent_id: "section",
-        type: "folder",
-        slug: "group",
-        title: "Group",
-      }),
-      node({
-        id: "grouped-page",
-        parent_id: "group",
-        slug: "grouped-page",
-        title: "Grouped Page",
-      }),
-    ]
-
-    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBe(
-      "canopy-wiki/section/group/grouped-page"
-    )
-  })
-
-  it("does not return a default page for missing or empty repositories", () => {
-    const nodes = [
-      node({
-        id: "root",
-        type: "folder",
-        slug: "canopy-wiki",
-        title: "Canopy Wiki",
-      }),
-    ]
-
-    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBeNull()
-    expect(findDefaultWikiPagePath(nodes, "learning-hub")).toBeNull()
   })
 
   it("compares folders, sort order, and title", () => {

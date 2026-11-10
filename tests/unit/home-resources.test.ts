@@ -11,10 +11,10 @@ describe("getHelpfulResourceLinks", () => {
     const [wikiLink] = getHelpfulResourceLinks(true)
 
     expect(wikiLink).toMatchObject({
-      href: "/wiki/canopy-wiki",
+      href: "/wiki/1",
       external: false,
     })
-    expect(CANOPY_WIKI_URL).toBe("/wiki/canopy-wiki")
+    expect(CANOPY_WIKI_URL).toBe("/wiki/1")
   })
 
   it("uses the external legacy wiki for users without beta access", () => {
@@ -25,7 +25,7 @@ describe("getHelpfulResourceLinks", () => {
       external: true,
     })
     expect(LEGACY_TRAINING_WIKI_URL).toBe(
-      "https://sites.google.com/canopymortgage.com/trainingwiki/home?authuser=0",
+      "https://sites.google.com/canopymortgage.com/trainingwiki/home?authuser=0"
     )
   })
 })

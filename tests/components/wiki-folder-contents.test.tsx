@@ -21,7 +21,17 @@ const node = (
 ) =>
   ({
     id,
-    short_id: 1,
+    short_id:
+      [
+        "root",
+        "section",
+        "group",
+        "Tagged",
+        "Untagged",
+        "Draft page",
+        "empty",
+        "Draft group",
+      ].indexOf(id) + 1,
     parent_id,
     type,
     slug: id,
@@ -71,7 +81,10 @@ describe("Wiki folder contents", () => {
     expect(chip).toHaveAttribute("aria-pressed", "false")
     await user.click(chip)
     expect(chip).toHaveAttribute("aria-pressed", "true")
-    expect(screen.getByRole("link", { name: /Tagged/ })).toBeVisible()
+    expect(screen.getByRole("link", { name: /Tagged/ })).toHaveAttribute(
+      "href",
+      "/wiki/1/2/3/4"
+    )
     expect(screen.queryByRole("link", { name: /Untagged/ })).toBeNull()
     await user.click(chip)
     expect(screen.getByRole("link", { name: /Untagged/ })).toBeVisible()

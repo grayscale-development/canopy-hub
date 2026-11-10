@@ -1,23 +1,129 @@
+import { mkdirSync } from "node:fs"
+import path from "node:path"
 import { expect, test } from "@playwright/test"
 
-import { signInAsLocalDev } from "./helpers"
+import { openWikiPath } from "./helpers"
+import {
+  createReviewedPage,
+  enableEditorMode,
+  serviceWiki,
+  signInAsSeededUser,
+  wikiPathForNode,
+} from "./wiki-reviewed-helpers"
 
-test("Switching wiki pages keeps the sidebars mounted @wiki", async ({ page }) => {
-  await signInAsLocalDev(page)
-  await page.goto("/wiki/canopy-wiki/hub/reports")
-  const editorSwitch = page.getByRole("switch", { name: "Toggle wiki editor mode" })
-  if ((await editorSwitch.getAttribute("aria-checked")) !== "true") await editorSwitch.click()
-  const links = page.locator('aside a[href^="/wiki/canopy-wiki/hub/"]')
-  await expect(links.first()).toBeVisible()
-  await page.evaluate(() => {
-    ;(window as unknown as { __navMarker: string }).__navMarker = "alive"
-    document.querySelector("aside")?.setAttribute("data-nav-marker", "1")
+test.use({ trace: "off", screenshot: "off" })
+
+test("numeric wiki navigation survives rename and move @wiki", async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  const shotDir = process.env.CANOPY_WIKI_NAV_SHOTS
+  const screenshot = async (name: string) => {
+    if (!shotDir) return
+    mkdirSync(shotDir, { recursive: true })
+    await page.screenshot({ path: path.join(shotDir, name) })
+  }
+  const stamp = Date.now()
+  const fixture = await createReviewedPage({
+    slug: `numeric-nav-${stamp}`,
+    title: `Numeric navigation ${stamp}`,
+    paragraphs: ["Local numeric navigation fixture."],
   })
-  const hrefs = await links.evaluateAll((els) => els.map((e) => e.getAttribute("href")))
-  const target = hrefs.find((h) => h && !h.endsWith("/hub/reports")) as string
-  await page.locator(`aside a[href="${target}"]`).first().click()
-  await expect(page).toHaveURL(new RegExp(target.replace(/[/]/g, "\\/")))
-  expect(await page.evaluate(() => (window as unknown as { __navMarker?: string }).__navMarker)).toBe("alive")
-  await expect(page.locator("aside[data-nav-marker='1']")).toHaveCount(1)
-  await expect(page.locator("h1").first()).toBeVisible()
+  const renamed = `Renamed navigation ${stamp}`
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await signInAsSeededUser(page, "wiki-manager@canopy.test")
+    await openWikiPath(page, "Canopy Wiki", "Operations", "Closing")
+    const sidebar = page.locator("[data-wiki-sidebar-scroll]")
+    const closingToggle = sidebar.getByRole("button", {
+      name: "Toggle Closing",
+    })
+    if ((await closingToggle.getAttribute("aria-expanded")) !== "true") {
+      await closingToggle.click()
+    }
+    await sidebar.evaluate((element) =>
+      element.setAttribute("data-nav-marker", "1")
+    )
+    await sidebar
+      .getByRole("link", { name: `Numeric navigation ${stamp}`, exact: true })
+      .click()
+    await expect(
+      page.locator('[data-wiki-sidebar-scroll][data-nav-marker="1"]')
+    ).toHaveCount(1)
+    await expect(page).toHaveURL(new RegExp(`${fixture.path}$`))
+    await expect(
+      page.getByRole("navigation", { name: "breadcrumb" })
+    ).toContainText("Operations")
+    await expect(
+      page.getByRole("navigation", { name: "breadcrumb" })
+    ).toContainText("Closing")
+    await expect(
+      page
+        .getByRole("main")
+        .last()
+        .getByText("Local numeric navigation fixture.")
+    ).toBeVisible()
+    await screenshot("01-desktop-page.png")
+    await enableEditorMode(page)
+    await page
+      .getByRole("button", { name: "More actions for this page" })
+      .click()
+    await page.getByRole("menuitem", { name: "Edit details" }).click()
+    const editDialog = page.getByRole("dialog", { name: "Edit page" })
+    await editDialog.getByRole("textbox", { name: "Title" }).fill(renamed)
+    await editDialog.getByRole("button", { name: "Save", exact: true }).click()
+    await expect(page.getByText(renamed, { exact: true }).first()).toBeVisible()
+    await expect(page).toHaveURL(new RegExp(`${fixture.path}$`))
+    await page
+      .getByRole("button", { name: "More actions for this page" })
+      .click()
+    await page.getByRole("menuitem", { name: "Move to..." }).click()
+    const moveDialog = page.getByRole("dialog", { name: `Move ${renamed}` })
+    await moveDialog.getByRole("button", { name: "Hub", exact: true }).click()
+    await moveDialog.getByRole("button", { name: "Move", exact: true }).click()
+    await expect.poll(() => wikiPathForNode(fixture.id)).not.toBe(fixture.path)
+    const movedPath = await wikiPathForNode(fixture.id)
+    await expect(page).toHaveURL(new RegExp(`${movedPath}$`))
+    await page.goto(fixture.path)
+    await expect(page).toHaveURL(new RegExp(`${movedPath}$`))
+    await expect(page.getByText(renamed, { exact: true }).first()).toBeVisible()
+    await expect(
+      page.getByRole("navigation", { name: "breadcrumb" })
+    ).toContainText("Hub")
+    await screenshot("02-moved-page.png")
+    await openWikiPath(page, "Learning Hub")
+    await expect(
+      page
+        .locator("[data-wiki-sidebar-scroll]")
+        .locator("..")
+        .getByRole("heading", { name: "Learning Hub" })
+    ).toBeVisible()
+    await page.goto("/wiki/tags")
+    await expect(page.getByRole("main").last()).toContainText("Tags")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await screenshot("03-narrow-tags.png")
+    await openWikiPath(page, "Canopy Wiki", "Hub", renamed)
+    await expect(
+      page.getByRole("navigation", { name: "breadcrumb" })
+    ).toContainText("Hub")
+    await expect(
+      page
+        .getByRole("main")
+        .last()
+        .getByText("Local numeric navigation fixture.")
+    ).toBeVisible()
+    await screenshot("04-narrow-page.png")
+    await page.goto("/wiki/old-slug")
+    await expect(
+      page.getByText(/could not be found|404/i).first()
+    ).toBeVisible()
+  } finally {
+    const db = serviceWiki()
+    await db
+      .from("knowledge_sources")
+      .delete()
+      .eq("source_type", "wiki_page")
+      .eq("source_id", fixture.id)
+    await db.from("wiki_nodes").delete().eq("id", fixture.id)
+  }
 })

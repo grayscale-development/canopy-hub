@@ -1,5 +1,6 @@
 "use client"
 
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import Link from "next/link"
 import * as React from "react"
 import { ChevronRightIcon, FileTextIcon, FolderIcon } from "lucide-react"
@@ -13,7 +14,6 @@ import {
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import {
   buildWikiBreadcrumbs,
-  buildWikiPath,
   compareWikiNodes,
   getWikiSectionId,
   getWikiLandingTags,
@@ -105,7 +105,7 @@ export function WikiFolderContents({
           {" "}
           <Link
             className="underline"
-            href={`/wiki/${buildWikiPath(nodes, descendantPages[0])}`}
+            href={`/wiki/${buildNumericWikiPath(nodes, descendantPages[0])}`}
           >
             Edit a page to add a tag.
           </Link>
@@ -180,7 +180,7 @@ export function WikiFolderContents({
             return (
               <Link
                 key={node.id}
-                href={`/wiki/${buildWikiPath(visibleNodes, node)}`}
+                href={`/wiki/${buildNumericWikiPath(visibleNodes, node)}`}
                 aria-label={node.title}
                 aria-describedby={`wiki-card-details-${encodeURIComponent(node.id)}`}
                 className="flex min-h-20 items-center gap-3 rounded-lg border bg-card p-4 hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"

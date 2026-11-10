@@ -1,3 +1,4 @@
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import crypto from "node:crypto"
 
 import { revalidatePath } from "next/cache"
@@ -12,7 +13,6 @@ import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
-  buildWikiPath,
   blockNoteToPlainText,
   fetchWikiNodes,
   getWikiAssetKind,
@@ -399,7 +399,7 @@ async function completeWikiVideoImport({
 
   const nodes = await fetchWikiNodes(supabase)
   const completedNode = nodes.find((item) => item.id === nodeId)
-  const path = completedNode ? buildWikiPath(nodes, completedNode) : ""
+  const path = completedNode ? buildNumericWikiPath(nodes, completedNode) : ""
   revalidatePath("/wiki")
   if (path) {
     revalidatePath(`/wiki/${path}`)
@@ -620,7 +620,7 @@ async function applyPreparedWikiPreview({
 
   const nodes = await fetchWikiNodes(supabase)
   const node = nodes.find((item) => item.id === targetPage.id)
-  const path = node ? buildWikiPath(nodes, node) : ""
+  const path = node ? buildNumericWikiPath(nodes, node) : ""
   revalidatePath("/wiki")
   if (path) {
     revalidatePath(`/wiki/${path}`)
@@ -1060,7 +1060,7 @@ export async function POST(request: Request) {
   if (isVideoImportStart) {
     if (targetPage) {
       const nodes = await fetchWikiNodes(supabase)
-      const path = buildWikiPath(nodes, targetPage)
+      const path = buildNumericWikiPath(nodes, targetPage)
       return NextResponse.json({
         ok: true,
         nodeId: targetPage.id,
@@ -1092,7 +1092,7 @@ export async function POST(request: Request) {
           duplicate: true,
           existing: {
             title: existing.title,
-            path: `/wiki/${buildWikiPath(nodes, existing)}`,
+            path: `/wiki/${buildNumericWikiPath(nodes, existing)}`,
           },
         },
         { status: 409 }
@@ -1128,7 +1128,7 @@ export async function POST(request: Request) {
 
     const nodes = await fetchWikiNodes(supabase)
     const node = nodes.find((item) => item.id === nodeId)
-    const path = node ? buildWikiPath(nodes, node) : ""
+    const path = node ? buildNumericWikiPath(nodes, node) : ""
     return NextResponse.json({ ok: true, nodeId, path: `/wiki/${path}` })
   }
 
@@ -1156,7 +1156,7 @@ export async function POST(request: Request) {
           duplicate: true,
           existing: {
             title: existing.title,
-            path: `/wiki/${buildWikiPath(nodes, existing)}`,
+            path: `/wiki/${buildNumericWikiPath(nodes, existing)}`,
           },
         },
         { status: 409 }
@@ -1427,7 +1427,7 @@ export async function POST(request: Request) {
 
     const nodes = await fetchWikiNodes(supabase)
     const node = nodes.find((item) => item.id === nodeId)
-    const path = node ? buildWikiPath(nodes, node) : ""
+    const path = node ? buildNumericWikiPath(nodes, node) : ""
     revalidatePath("/wiki")
     if (path) {
       revalidatePath(`/wiki/${path}`)

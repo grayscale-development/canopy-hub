@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => {
   }
   const node = {
     id: "draft",
+    short_id: 17,
     parent_id: null,
     type: "page",
     slug: "draft",
@@ -94,7 +95,10 @@ describe("authorized Wiki knowledge writes", () => {
     const form = new FormData()
     form.set("node_id", "draft")
     form.set("blocks", "[]")
-    expect((await saveWikiPageAction(form)).ok).toBe(true)
+    expect(await saveWikiPageAction(form)).toMatchObject({
+      ok: true,
+      path: "/wiki/17",
+    })
     expect(mocks.index).toHaveBeenCalledWith(
       expect.objectContaining({
         supabase: mocks.indexClient,
