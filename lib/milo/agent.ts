@@ -10,6 +10,11 @@ import type { createSupabaseServerClient } from "@/lib/supabase/server"
 
 import { createAgentResponseWithOpenAI, getChatModel } from "@/lib/ai/provider"
 import {
+  checkAnswer,
+  hasRetrievalConfidence,
+  sourceUrl,
+} from "@/lib/milo/evidence"
+import {
   callMiloMcpTool,
   MILO_MCP_TOOLS,
   type MiloSourceCard,
@@ -25,6 +30,8 @@ export interface MiloAgentCitation {
   title: string
   url: string | null
   snippet: string
+  updatedAt?: string
+  updatedBy?: string
 }
 
 export interface MiloAgentAnswer {
@@ -33,6 +40,8 @@ export interface MiloAgentAnswer {
   citations: MiloAgentCitation[]
   metadata: {
     mode: "agentic_mcp"
+    abstained?: boolean
+    abstainReason?: string
     toolCalls: Array<{
       toolName: string
       ok: boolean
@@ -42,7 +51,6 @@ export interface MiloAgentAnswer {
 }
 
 const MAX_AGENT_STEPS = 5
-const MAX_FINAL_CITATIONS = 5
 
 const MILO_AGENT_INSTRUCTIONS = `You are Milo, Canopy Hub's internal assistant.
 
@@ -412,7 +420,7 @@ function formatResearchResult({
 }
 
 function formatResearchSources(sources: MiloSourceCard[]) {
-  const citations = toCitations(sources)
+  const citations = toCitations(sources).slice(0, 8)
   if (!citations.length) {
     return "No source cards were returned by the initial tools."
   }
@@ -425,167 +433,6 @@ function formatResearchSources(sources: MiloSourceCard[]) {
         }\nSnippet: ${source.snippet}`
     )
     .join("\n\n")
-}
-
-function canonicalizeUrl(value: string | null) {
-  if (!value) {
-    return ""
-  }
-
-  try {
-    const parsed = new URL(value, "http://canopy.local")
-    return `${parsed.pathname}${parsed.search}`.replace(/\/$/, "") || "/"
-  } catch {
-    return value.trim().replace(/\/$/, "")
-  }
-}
-
-function getSourceKey(source: MiloSourceCard) {
-  const canonicalUrl = canonicalizeUrl(source.url)
-  return canonicalUrl || normalizeSearchText(source.title)
-}
-
-function getTextTerms(value: string) {
-  return normalizeSearchText(value)
-    .split(" ")
-    .filter((term) => term.length > 2 && !SEARCH_STOP_WORDS.has(term))
-}
-
-function getOverlapScore(left: string, right: string) {
-  const leftTerms = new Set(getTextTerms(left))
-  if (!leftTerms.size) {
-    return 0
-  }
-
-  let matches = 0
-  for (const term of getTextTerms(right)) {
-    if (leftTerms.has(term)) {
-      matches += 1
-    }
-  }
-
-  return matches / leftTerms.size
-}
-
-function getSourceTypeRank(source: MiloSourceCard, question: string) {
-  const sourceType = source.sourceType ?? ""
-
-  if (isProcedureQuestion(question)) {
-    switch (sourceType) {
-      case "wiki_page":
-        return 35
-      case "support":
-      case "document":
-      case "site":
-        return 10
-      case "wiki_asset":
-        return -10
-      case "branch":
-      case "employee":
-      case "report":
-      case "data":
-      case "storage":
-        return -45
-      default:
-        return 0
-    }
-  }
-
-  if (isDocumentQuestion(question)) {
-    return ["document", "storage", "newsletter", "wiki_asset"].includes(
-      sourceType
-    )
-      ? 20
-      : 0
-  }
-
-  return 0
-}
-
-function scoreCitationSource({
-  source,
-  answer,
-  question,
-}: {
-  source: MiloSourceCard
-  answer: string
-  question: string
-}) {
-  const normalizedAnswer = normalizeSearchText(answer)
-  const normalizedQuestion = normalizeSearchText(question)
-  const normalizedTitle = normalizeSearchText(source.title)
-  const canonicalUrl = canonicalizeUrl(source.url)
-  let score = getSourceTypeRank(source, question)
-
-  if (canonicalUrl && answer.includes(canonicalUrl)) {
-    score += 130
-  }
-
-  if (normalizedTitle && normalizedAnswer.includes(normalizedTitle)) {
-    score += 110
-  }
-
-  if (normalizedTitle && normalizedQuestion.includes(normalizedTitle)) {
-    score += 65
-  }
-
-  const focusedQuery = getFocusedSearchQuery(question)
-  if (focusedQuery) {
-    score += Math.round(getOverlapScore(focusedQuery, source.title) * 50)
-    score += Math.round(getOverlapScore(focusedQuery, source.snippet) * 25)
-  }
-
-  score += Math.round(getOverlapScore(source.title, answer) * 30)
-
-  return {
-    source,
-    score,
-    answerReferenced:
-      (canonicalUrl ? answer.includes(canonicalUrl) : false) ||
-      (normalizedTitle ? normalizedAnswer.includes(normalizedTitle) : false),
-  }
-}
-
-function selectFinalCitations({
-  question,
-  answer,
-  sources,
-}: {
-  question: string
-  answer: string
-  sources: MiloSourceCard[]
-}) {
-  const bestByKey = new Map<string, ReturnType<typeof scoreCitationSource>>()
-
-  for (const source of sources) {
-    const key = getSourceKey(source)
-    if (!key) {
-      continue
-    }
-
-    const scored = scoreCitationSource({ source, answer, question })
-    const existing = bestByKey.get(key)
-    if (!existing || scored.score > existing.score) {
-      bestByKey.set(key, scored)
-    }
-  }
-
-  const ranked = [...bestByKey.values()].sort(
-    (left, right) => right.score - left.score
-  )
-  const answerReferenced = ranked.filter((item) => item.answerReferenced)
-  const minimumScore = isProcedureQuestion(question) ? 80 : 35
-  const candidates = answerReferenced.length
-    ? answerReferenced
-    : ranked.filter((item) => item.score >= minimumScore)
-  const citationLimit =
-    isProcedureQuestion(question) && candidates[0]?.score >= 100
-      ? 1
-      : Math.min(MAX_FINAL_CITATIONS, candidates.length)
-
-  return toCitations(
-    candidates.slice(0, citationLimit).map((item) => item.source)
-  )
 }
 
 async function buildInitialResearchBrief(
@@ -646,10 +493,12 @@ function toCitations(sources: MiloSourceCard[]): MiloAgentCitation[] {
       title: source.title,
       url: source.url,
       snippet: source.snippet,
+      updatedAt: source.updatedAt,
+      updatedBy: source.updatedBy,
     })
   }
 
-  return citations.slice(0, 8)
+  return citations
 }
 
 export async function answerMiloQuestionWithAgent({
@@ -732,13 +581,38 @@ export async function answerMiloQuestionWithAgent({
     throw new Error("Milo agent did not return an answer.")
   }
 
+  const chunks = sources.filter((source) => source.knowledgeChunkId)
+  const confident = hasRetrievalConfidence(question, chunks)
+  if (!confident) {
+    const candidates = sources.filter(
+      (source) =>
+        source.sourceType === "wiki_page" &&
+        source.url &&
+        source.knowledgeChunkId
+    )
+    const unique = [
+      ...new Map(candidates.map((source) => [source.url, source])).values(),
+    ].slice(0, 3)
+    return {
+      answer:
+        "I couldn't find an answer in the wiki. You can ask a manager or flag this gap.",
+      model,
+      citations: toCitations(
+        unique.map((source) => ({ ...source, url: sourceUrl(source) }))
+      ),
+      metadata: {
+        mode: "agentic_mcp",
+        toolCalls,
+        abstained: true,
+        abstainReason: "low_retrieval_overlap",
+      },
+    }
+  }
+  const checked = checkAnswer(answer, chunks)
   return {
-    answer,
+    answer: checked.answer,
     model,
-    citations: selectFinalCitations({ question, answer, sources }),
-    metadata: {
-      mode: "agentic_mcp",
-      toolCalls,
-    },
+    citations: toCitations(checked.citations),
+    metadata: { mode: "agentic_mcp", toolCalls, abstained: false },
   }
 }

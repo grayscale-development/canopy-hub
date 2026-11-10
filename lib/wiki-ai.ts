@@ -14,7 +14,12 @@ import {
 } from "@/lib/hub-data"
 import { answerMiloQuestionWithAgent } from "@/lib/milo/agent"
 import {
-  citationSnippet,
+  checkAnswer,
+  hasRetrievalConfidence,
+  sourceUrl,
+  type Evidence,
+} from "@/lib/milo/evidence"
+import {
   searchKnowledge,
   type RetrievedChunk,
 } from "@/lib/milo/knowledge-search"
@@ -88,6 +93,8 @@ interface ChatCitation {
   title: string
   url: string | null
   snippet: string
+  updatedAt?: string
+  updatedBy?: string
 }
 
 export async function embedTexts(texts: string[], signal?: AbortSignal) {
@@ -922,34 +929,65 @@ export async function answerKnowledgeQuestion({
 
   const chunks = await retrieveKnowledge(supabase, question)
   const answerChunks = selectAnswerChunks(question, chunks)
-  const citations = answerChunks.map<ChatCitation>((chunk) => ({
-    knowledgeSourceId: chunk.source_id,
-    knowledgeChunkId: chunk.chunk_id,
+  const sources: Evidence[] = chunks.map((chunk) => ({
     title: chunk.source_title,
     url: chunk.source_url,
-    snippet: citationSnippet(chunk.content, chunk.metadata),
+    snippet: chunk.content,
+    sourceType: chunk.source_type,
+    knowledgeSourceId: chunk.source_id,
+    knowledgeChunkId: chunk.chunk_id,
+    headingPath: Array.isArray(chunk.metadata?.headingPath)
+      ? chunk.metadata.headingPath.filter(
+          (part): part is string => typeof part === "string"
+        )
+      : [],
+    updatedAt:
+      typeof chunk.metadata?.updatedAt === "string"
+        ? chunk.metadata.updatedAt
+        : undefined,
+    updatedBy:
+      typeof chunk.metadata?.updatedBy === "string"
+        ? chunk.metadata.updatedBy
+        : undefined,
   }))
-
-  if (!chunks.length) {
+  const toCitation = (source: Evidence): ChatCitation => ({
+    knowledgeSourceId: source.knowledgeSourceId ?? null,
+    knowledgeChunkId: source.knowledgeChunkId ?? null,
+    title: source.title,
+    url: sourceUrl(source),
+    snippet: source.snippet,
+    updatedAt: source.updatedAt,
+    updatedBy: source.updatedBy,
+  })
+  if (!hasRetrievalConfidence(question, sources)) {
+    const candidates = sources.filter(
+      (source) => source.sourceType === "wiki_page" && source.url
+    )
+    const unique = [
+      ...new Map(candidates.map((source) => [source.url, source])).values(),
+    ].slice(0, 3)
     return {
       answer:
-        "I could not find enough information in the Canopy Hub knowledge base to answer that.",
+        "I couldn't find an answer in the wiki. You can ask a manager or flag this gap.",
       model: null,
-      citations,
+      citations: unique.map(toCitation),
+      metadata: { abstained: true, abstainReason: "low_retrieval_overlap" },
     }
   }
-
   const model = getChatModel()
   const response = await createChatResponseWithOpenAI({
     model,
     input: buildChatPrompt(question, answerChunks, userContext),
   })
-
-  return {
-    answer:
-      getResponseText(response) ||
+  const checked = checkAnswer(
+    getResponseText(response) ||
       "I could not generate an answer from the retrieved knowledge.",
+    sources
+  )
+  return {
+    answer: checked.answer,
     model,
-    citations,
+    citations: checked.citations.map(toCitation),
+    metadata: { abstained: false },
   }
 }

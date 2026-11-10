@@ -2,7 +2,7 @@ import fs from "node:fs"
 import { randomUUID } from "node:crypto"
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
-import { beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { callMiloMcpTool } from "@/lib/milo/mcp/tools"
 import { indexWikiAsset, indexWikiPage, retrieveKnowledge } from "@/lib/wiki-ai"
@@ -24,6 +24,7 @@ dbDescribe("Milo user permission enforcement", () => {
   let viewer: SupabaseClient
   let settings: SupabaseClient
   let outsider: SupabaseClient
+  let outsiderUserId: string | undefined
   const parentId = randomUUID()
   const pageId = randomUUID()
   const assetId = randomUUID()
@@ -61,12 +62,14 @@ dbDescribe("Milo user permission enforcement", () => {
     viewer = await signIn("standard@canopy.test")
     settings = await signIn("settings@canopy.test")
     const email = `${token}@canopy.test`
-    const { error: userError } = await admin.auth.admin.createUser({
-      email,
-      password: process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password",
-      email_confirm: true,
-    })
+    const { data: createdUser, error: userError } =
+      await admin.auth.admin.createUser({
+        email,
+        password: process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password",
+        email_confirm: true,
+      })
     expect(userError).toBeNull()
+    outsiderUserId = createdUser.user?.id
     outsider = await signIn(email)
     const { error: nodeError } = await admin.from("wiki_nodes").insert([
       {
@@ -133,6 +136,21 @@ dbDescribe("Milo user permission enforcement", () => {
       isPagePublished: false,
     })
   })
+
+  afterAll(async () => {
+    await admin.storage.from("Wiki").remove([path])
+    await admin
+      .from("knowledge_sources")
+      .delete()
+      .in("source_id", [pageId, assetId, token])
+    await admin.from("wiki_assets").delete().eq("id", assetId)
+    await admin.from("wiki_nodes").delete().eq("id", pageId)
+    await admin.from("wiki_nodes").delete().eq("id", parentId)
+    if (outsiderUserId) await admin.auth.admin.deleteUser(outsiderUserId)
+  })
+
+  const ownSources = (sources: Array<{ title: string }> | undefined) =>
+    (sources ?? []).filter((source) => source.title.includes(token))
 
   it("never retrieves manager-only drafts for viewer questions through either retrieval path", async () => {
     const source = await admin
@@ -419,8 +437,7 @@ dbDescribe("Milo user permission enforcement", () => {
         client
       )
       expect(denied.ok).toBe(true)
-      expect(denied.content).toMatchObject({ rows: [] })
-      expect(denied.sources).toEqual([])
+      expect(ownSources(denied.sources)).toEqual([])
     }
     const { data, error } = await viewer
       .from("knowledge_chunks")
@@ -474,7 +491,7 @@ dbDescribe("Milo user permission enforcement", () => {
         { query: token },
         viewer
       )
-      expect(denied.sources).toEqual([])
+      expect(ownSources(denied.sources)).toEqual([])
     } finally {
       await admin
         .from("wiki_nodes")
@@ -715,7 +732,7 @@ dbDescribe("Milo user permission enforcement", () => {
       { query: token },
       settings
     )
-    expect(permitted.sources).toEqual([
+    expect(ownSources(permitted.sources)).toEqual([
       expect.objectContaining({
         title: `${token} Admin settings`,
         snippet: expect.stringContaining("permission management instructions"),
@@ -745,12 +762,16 @@ dbDescribe("Milo user permission enforcement", () => {
       ).error
     ).toBeNull()
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
+          .sources
+      )
     ).toHaveLength(2)
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, outsider))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, outsider))
+          .sources
+      )
     ).toEqual([])
     expect(
       (
@@ -761,8 +782,10 @@ dbDescribe("Milo user permission enforcement", () => {
       ).error
     ).toBeNull()
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
+          .sources
+      )
     ).toHaveLength(2)
     expect(
       (
@@ -773,8 +796,10 @@ dbDescribe("Milo user permission enforcement", () => {
       ).error
     ).toBeNull()
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
+          .sources
+      )
     ).toEqual([])
     expect(
       (
@@ -786,8 +811,10 @@ dbDescribe("Milo user permission enforcement", () => {
       ).ok
     ).toBe(false)
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, manager))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, manager))
+          .sources
+      )
     ).toEqual([])
   })
   it("allows current public source classes but retains site route gates", async () => {

@@ -15,7 +15,7 @@ async function resolveWikiKnowledgeDetails(
 ) {
   const details = new Map<
     string,
-    { url: string; updatedAt: string; isPublished: boolean }
+    { url: string; updatedAt: string; updatedBy?: string; isPublished: boolean }
   >()
   if (!sourceIds.length) return details
 
@@ -36,6 +36,17 @@ async function resolveWikiKnowledgeDetails(
     : { data: [], error: null }
   if (assetsResult.error) throw new Error(assetsResult.error.message)
 
+  // The directory is optional for viewers; never substitute a guessed name.
+  let directoryUsers: Array<{ user_id: string; full_name: string | null }> = []
+  try {
+    const directory = await supabase.rpc("list_permission_directory_users")
+    if (!directory.error) directoryUsers = directory.data ?? []
+  } catch {
+    /* Names are optional. */
+  }
+  const names = new Map(
+    directoryUsers.map((user) => [user.user_id, user.full_name])
+  )
   const nodesById = new Map(nodes.map((node) => [node.id, node]))
   const assetsById = new Map(
     (assetsResult.data ?? []).map((asset) => [asset.id, asset.node_id])
@@ -77,6 +88,9 @@ async function resolveWikiKnowledgeDetails(
       details.set(source.id, {
         url: `/wiki/${buildNumericWikiPath(nodes, node)}`,
         updatedAt: node.updated_at,
+        updatedBy: node.updated_by
+          ? names.get(node.updated_by) || undefined
+          : undefined,
         isPublished,
       })
   }
@@ -112,6 +126,7 @@ export async function resolveWikiKnowledgeRows<
     const metadata = {
       ...row.metadata,
       updatedAt: detail.updatedAt,
+      updatedBy: detail.updatedBy,
       isPublished: detail.isPublished,
     }
     if (metadata && "path" in metadata) metadata.path = url.slice(6)

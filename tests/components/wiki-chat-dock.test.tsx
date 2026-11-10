@@ -106,7 +106,7 @@ describe("WikiChatModalProvider", () => {
       await screen.findByText("The loan policy is in the Wiki.")
     ).toBeVisible()
     expect(screen.getByText("Please try again.")).toBeVisible()
-    expect(screen.getByRole("heading", { name: "Resources" })).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Sources" })).toBeVisible()
 
     await user.click(screen.getByRole("link", { name: /Loan policy/ }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())

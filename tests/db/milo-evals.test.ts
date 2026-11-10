@@ -5,6 +5,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { describe, expect, it } from "vitest"
 
 import { createEmbeddingsWithOpenAI } from "@/lib/ai/provider"
+import { hasRetrievalConfidence } from "@/lib/milo/evidence"
 import { callMiloMcpTool } from "@/lib/milo/mcp/tools"
 import { retrieveKnowledge } from "@/lib/wiki-ai"
 import { chunkKnowledgeText } from "@/lib/wiki"
@@ -260,6 +261,14 @@ evalDescribe("Milo golden retrieval evaluation", () => {
         results.push({
           testCase,
           expectedUrls,
+          abstained: !hasRetrievalConfidence(
+            testCase.question,
+            rows.map((row) => ({
+              title: row.source_title,
+              url: row.source_url,
+              snippet: row.content,
+            }))
+          ),
           rows: rows.map((row) => ({
             page: sourceIds.get(row.source_id) ?? null,
             title: row.source_title,
@@ -267,6 +276,12 @@ evalDescribe("Milo golden retrieval evaluation", () => {
           })),
         })
       }
+      const falseAbstentions = results
+        .filter(
+          (result) => result.testCase.kind === "answerable" && result.abstained
+        )
+        .map((result) => result.testCase.id)
+      expect(falseAbstentions).toEqual([])
       const metrics = scoreResults(results)
       const failed = regressions(metrics, baseline.metrics, baseline.tolerance)
       const report = {
@@ -299,7 +314,7 @@ evalDescribe("Milo golden retrieval evaluation", () => {
           `Regressions: ${failed.join(", ") || "none"}.`,
           `Permission leaks: ${leaks.join(", ") || "none"}.`,
           "",
-          "Abstention is empty retrieval, not a generated-answer judgment. Citation correctness checks the URL of retrieved expected pages in the top three; it does not grade generated citations.",
+          "Abstention measures the production retrieval overlap decision, not generated-answer quality. Citation correctness checks the URL of retrieved expected pages in the top three; it does not grade generated citations.",
           "",
           "See report.json for per-case results.",
           "",

@@ -7,7 +7,7 @@ import {
 } from "@/lib/wiki-knowledge-urls"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
-import { citationSnippet, searchKnowledge } from "@/lib/milo/knowledge-search"
+import { searchKnowledge } from "@/lib/milo/knowledge-search"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 type MiloClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -33,6 +33,9 @@ export interface MiloSourceCard {
   sourceType?: string
   knowledgeSourceId?: string | null
   knowledgeChunkId?: string | null
+  headingPath?: string[]
+  updatedAt?: string
+  updatedBy?: string
 }
 
 export interface MiloMcpToolResult {
@@ -811,7 +814,20 @@ async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
     rows.map((row) => ({
       title: getString(row.source_title) || "Knowledge source",
       url: getString(row.source_url) || null,
-      snippet: citationSnippet(row.content, row.metadata),
+      snippet: row.content,
+      headingPath: Array.isArray(row.metadata?.headingPath)
+        ? row.metadata.headingPath.filter(
+            (part): part is string => typeof part === "string"
+          )
+        : [],
+      updatedAt:
+        typeof row.metadata?.updatedAt === "string"
+          ? row.metadata.updatedAt
+          : undefined,
+      updatedBy:
+        typeof row.metadata?.updatedBy === "string"
+          ? row.metadata.updatedBy
+          : undefined,
       sourceType: getString(row.source_type) || "knowledge",
       knowledgeSourceId: getString(row.source_id) || null,
       knowledgeChunkId: getString(row.chunk_id) || null,

@@ -166,7 +166,9 @@ export async function GET(request: Request) {
   const { data: citations, error: citationsError } = messageIds.length
     ? await supabase
         .from("ai_chat_citations")
-        .select("message_id,title,url,snippet,knowledge_source_id")
+        .select(
+          "message_id,title,url,snippet,knowledge_source_id,knowledge_chunk_id"
+        )
         .in("message_id", messageIds)
         .order("created_at", { ascending: true })
     : { data: [], error: null }
@@ -189,7 +191,13 @@ export async function GET(request: Request) {
 
   const citationsByMessage = new Map<
     string,
-    Array<{ title: string; url: string | null; snippet: string }>
+    Array<{
+      title: string
+      url: string | null
+      snippet: string
+      updatedAt?: string
+      updatedBy?: string
+    }>
   >()
   for (const citation of citations ?? []) {
     if (wikiCitations.includes(citation)) {
@@ -197,10 +205,29 @@ export async function GET(request: Request) {
         ? wikiUrls.get(citation.knowledge_source_id)
         : null
       if (!url) continue
-      citation.url = url
+      citation.url =
+        url +
+        (citation.url?.includes("#")
+          ? `#${citation.url.split("#").slice(1).join("#")}`
+          : "")
     }
     const existing = citationsByMessage.get(citation.message_id) ?? []
-    existing.push(mapCitationRow(citation))
+    const message = (messages ?? []).find(
+      (item) => item.id === citation.message_id
+    )
+    const details = Array.isArray(message?.metadata?.citationDetails)
+      ? message.metadata.citationDetails
+      : []
+    const detail = details.find(
+      (item: { knowledgeChunkId?: string | null }) =>
+        item.knowledgeChunkId &&
+        item.knowledgeChunkId === citation.knowledge_chunk_id
+    )
+    existing.push({
+      ...mapCitationRow(citation),
+      ...(detail?.updatedAt ? { updatedAt: detail.updatedAt } : {}),
+      ...(detail?.updatedBy ? { updatedBy: detail.updatedBy } : {}),
+    })
     citationsByMessage.set(citation.message_id, existing)
   }
 
@@ -257,6 +284,7 @@ export async function GET(request: Request) {
           citations: citationsByMessage.get(message.id) ?? [],
           cards,
           flagged: flaggedMessageIds.has(message.id),
+          abstained: message.metadata?.abstained === true,
         }
       })
   )
@@ -674,6 +702,14 @@ export async function POST(request: Request) {
     // Model text and model/tool metadata are never interpreted as actionable cards.
     const metadata: Record<string, unknown> =
       "metadata" in result && result.metadata ? { ...result.metadata } : {}
+    const citationDetails = result.citations
+      .filter((citation) => citation.updatedAt || citation.updatedBy)
+      .map((citation) => ({
+        knowledgeChunkId: citation.knowledgeChunkId,
+        updatedAt: citation.updatedAt,
+        updatedBy: citation.updatedBy,
+      }))
+    if (citationDetails.length) metadata.citationDetails = citationDetails
     delete metadata.cards
     if (cards.length)
       metadata.cards = cards.map((card) => miloCardSchema.parse(card))
@@ -745,7 +781,10 @@ export async function POST(request: Request) {
           title: citation.title,
           url: citation.url,
           snippet: citation.snippet,
+          updatedAt: citation.updatedAt,
+          updatedBy: citation.updatedBy,
         })),
+        abstained: metadata.abstained === true,
       },
     ])
   } catch (error) {

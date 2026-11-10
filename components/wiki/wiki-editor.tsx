@@ -1,5 +1,6 @@
 "use client"
 
+import { wikiHeadingAnchor } from "@/lib/wiki-heading-anchor"
 import { WikiLastUpdated } from "@/components/wiki/wiki-revisions"
 import { WikiEditableTitle } from "@/components/wiki/wiki-management-controls"
 import * as React from "react"
@@ -159,6 +160,7 @@ function WikiEditorMounted({
   const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
   const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
+  const surfaceRef = React.useRef<HTMLDivElement>(null)
   const showEditorControls = canEditPage && showStatusControl
 
   async function uploadWikiFile(file: File) {
@@ -196,6 +198,48 @@ function WikiEditorMounted({
       : undefined,
     resolveFileUrl: async (url) => url,
   })
+
+  React.useEffect(() => {
+    const surface = surfaceRef.current
+    if (!surface) return
+    let scrolled = false
+    const update = () => {
+      const path: string[] = []
+      surface
+        .querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")
+        .forEach((heading) => {
+          const level = Number(heading.tagName.slice(1))
+          path.length = level - 1
+          path[level - 1] = heading.textContent?.trim() ?? ""
+          heading.id = wikiHeadingAnchor(path.filter(Boolean))
+        })
+      if (!scrolled && window.location.hash) {
+        const target = document.getElementById(
+          decodeURIComponent(window.location.hash.slice(1))
+        )
+        if (target && surface.contains(target)) {
+          target.scrollIntoView()
+          scrolled = true
+        }
+      }
+    }
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(surface, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    })
+    const hashChange = () => {
+      scrolled = false
+      update()
+    }
+    window.addEventListener("hashchange", hashChange)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("hashchange", hashChange)
+    }
+  }, [])
 
   React.useEffect(() => {
     if (!isDirty) return
@@ -299,7 +343,7 @@ function WikiEditorMounted({
           {canEditPage ? headerActions : null}
         </div>
       </WikiViewModeTitleSpacing>
-      <div className="wiki-blocknote-surface min-w-0 p-0">
+      <div ref={surfaceRef} className="wiki-blocknote-surface min-w-0 p-0">
         <BlockNoteView
           editor={editor}
           theme={resolvedTheme === "dark" ? "dark" : "light"}
