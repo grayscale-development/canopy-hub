@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { restoreArchivedWikiNodeAction } from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
 import {
   SidebarAccordionHeader,
   usePersistedSidebarExpansion,
@@ -79,6 +80,30 @@ export function ArchivedWikiHeader({
     </header>
   )
 }
+
+
+export function ArchivedWikiPageView({
+  node,
+  archivedParent,
+}: {
+  node: WikiNodeRow
+  archivedParent?: WikiNodeRow
+}) {
+  const { canEditWiki } = useWikiEditMode()
+  if (!canEditWiki) {
+    return (
+      <header className="space-y-3">
+        <h1 className="text-4xl leading-tight font-bold">{node.title}</h1>
+        <p className="text-sm text-muted-foreground">
+          This item is hidden in viewer mode. Turn on Editor Mode to view or
+          restore it.
+        </p>
+      </header>
+    )
+  }
+  return <ArchivedWikiHeader node={node} archivedParent={archivedParent} />
+}
+
 
 function ArchiveItems({
   items,

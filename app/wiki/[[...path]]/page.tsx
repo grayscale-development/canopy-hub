@@ -5,7 +5,7 @@ import {
   WikiVisibleNodeGate,
   WikiViewModeTitleSpacing,
 } from "@/components/wiki/wiki-edit-mode"
-import { ArchivedWikiHeader } from "@/components/wiki/wiki-archive"
+import { ArchivedWikiPageView } from "@/components/wiki/wiki-archive"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
@@ -259,7 +259,7 @@ export default async function WikiPage({
       return (
         <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
           <section className="mx-auto w-full max-w-[864px] px-6 py-4 md:px-8 md:py-6">
-            <ArchivedWikiHeader node={target} archivedParent={archivedParent} />
+            <ArchivedWikiPageView node={target} archivedParent={archivedParent} />
           </section>
         </main>
       )

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test"
 import { mockMiloChatApi } from "./helpers"
 import {
   enableEditorMode,
+  setWikiEditorMode,
   serviceWiki,
   signInAsSeededUser,
 } from "./wiki-reviewed-helpers"
@@ -141,11 +142,19 @@ test("managers can find and restore archived wiki items while viewers cannot see
     await mockMiloChatApi(page)
     await signInAsSeededUser(page, "wiki-manager@canopy.test")
     await page.goto(sectionPath)
+    await setWikiEditorMode(page, false)
+    const sidebar = page.locator("[data-wiki-sidebar-scroll]")
+    await expect(sidebar.getByRole("link", { name: "Team Handbook" })).toBeVisible()
+    await expect(page.getByText(/Archive \(/)).toHaveCount(0)
+    await expect(page.getByText(/Archived \(/)).toHaveCount(0)
+    await shot("13-manager-editor-off-no-archive")
+    await enableEditorMode(page)
+    await expect(page.getByText(/Archived \(/).first()).toBeVisible()
+    await shot("14-manager-editor-on-archive")
     const sectionArea = page
       .locator("section")
       .filter({ has: page.getByRole("link", { name: "Team Handbook" }) })
       .first()
-    const sidebar = page.locator("[data-wiki-sidebar-scroll]")
     const archivedToggle = sectionArea.getByRole("button", {
       name: "Toggle Archived",
     })
@@ -270,6 +279,14 @@ test("managers can find and restore archived wiki items while viewers cannot see
     await signInAsSeededUser(page, "wiki-manager@canopy.test")
     await page.goto(oldPath)
     await page.waitForLoadState("networkidle")
+    await setWikiEditorMode(page, false)
+    await expect(
+      page.getByText("This item is hidden in viewer mode.")
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Restore Legacy Onboarding Guide" })
+    ).toHaveCount(0)
+    await enableEditorMode(page)
     await expect(
       page.getByText("This item is archived and is not visible in the Wiki.")
     ).toBeVisible()

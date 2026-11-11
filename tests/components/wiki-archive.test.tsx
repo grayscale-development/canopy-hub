@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   ArchivedWikiHeader,
+  ArchivedWikiPageView,
   GlobalWikiArchive,
   SectionArchive,
 } from "@/components/wiki/wiki-archive"
@@ -181,6 +182,20 @@ describe("wiki archives", () => {
     ).toBeNull()
     expect(
       within(content).queryByRole("button", { name: /Restore/ })
+    ).toBeNull()
+  })
+
+  it("hides restore on an archived page when editor mode is off", () => {
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <TooltipProvider>
+          <ArchivedWikiPageView node={old} />
+        </TooltipProvider>
+      </WikiEditModeProvider>
+    )
+    expect(screen.getByText(/hidden in viewer mode/)).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "Restore Old Handbook" })
     ).toBeNull()
   })
 })

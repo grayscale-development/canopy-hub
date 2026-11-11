@@ -179,14 +179,12 @@ function SidebarSection({
   section,
   nodes,
   archivedNodes,
-  canManageWiki,
   activePath,
   canManage,
 }: {
   section: WikiNodeRow
   nodes: WikiNodeRow[]
   archivedNodes: WikiNodeRow[]
-  canManageWiki: boolean
   activePath: string
   canManage: boolean
 }) {
@@ -246,7 +244,7 @@ function SidebarSection({
               />
             )
           )}
-        {canManageWiki ? (
+        {canManage ? (
           <SectionArchive
             section={section}
             nodes={[...nodes, ...archivedNodes]}
@@ -344,7 +342,6 @@ export function WikiRepositorySidebar({
                 section={section}
                 nodes={visibleNodes}
                 archivedNodes={archivedNodes}
-                canManageWiki={canManageWiki}
                 activePath={activePath}
                 canManage={canEditSidebar}
               />
@@ -355,7 +352,7 @@ export function WikiRepositorySidebar({
             No sections yet.
           </p>
         )}
-        {canManageWiki ? (
+        {canEditSidebar ? (
           <GlobalWikiArchive
             nodes={[
               ...nodes.filter((node) => node.status !== "archived"),
