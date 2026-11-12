@@ -21,6 +21,9 @@ import {
   fetchCurrentRevision,
   fetchWikiNodes,
   fetchWikiTags,
+  fetchArchivedWikiNodes,
+  buildWikiBreadcrumbs,
+  wikiRestoreStatus,
   formatWikiRestoreChangeNote,
   isPublishedWikiBranch,
   normalizeWikiTags,
@@ -651,6 +654,66 @@ export async function archiveWikiNodeAction(
       ok: false,
       message:
         error instanceof Error ? error.message : "Unable to archive Wiki item.",
+    }
+  }
+}
+
+export async function restoreArchivedWikiNodeAction(
+  formData: FormData
+): Promise<WikiActionResult> {
+  try {
+    const { supabase, user } = await getWikiManagerClient()
+    const id = getString(formData, "id")
+    if (!id) return { ok: false, message: "ID is required." }
+    const [nodes, archived] = await Promise.all([
+      fetchWikiNodes(supabase),
+      fetchArchivedWikiNodes(supabase),
+    ])
+    const node = archived.find((item) => item.id === id)
+    if (!node) return { ok: false, message: "Archived item not found." }
+    const allNodes = [
+      ...nodes.filter((item) => item.status !== "archived"),
+      ...archived,
+    ]
+    const ancestor = buildWikiBreadcrumbs(allNodes, node).find(
+      (item) => item.id !== id && item.status === "archived"
+    )
+    if (ancestor)
+      return { ok: false, message: `Restore ${ancestor.title} first.` }
+    if (node.type === "folder") {
+      const { data, error } = await supabase.rpc(
+        "restore_archived_wiki_folder",
+        { target_id: id }
+      )
+      if (error || !data)
+        return {
+          ok: false,
+          message: error?.message ?? "Unable to restore this item.",
+        }
+    } else {
+      const { data, error } = await supabase
+        .from("wiki_nodes")
+        .update({ status: wikiRestoreStatus(node), updated_by: user.id })
+        .eq("id", id)
+        .eq("status", "archived")
+        .select("id,status")
+        .maybeSingle()
+      if (error) return { ok: false, message: error.message }
+      if (!data || data.status !== wikiRestoreStatus(node))
+        return { ok: false, message: "Unable to restore this item." }
+    }
+    const path =
+      node.type === "page"
+        ? (await syncWikiPageKnowledgeSource({ supabase, nodeId: id })).path
+        : buildNumericWikiPath(allNodes, node)
+    revalidatePath("/wiki")
+    if (path) revalidatePath(`/wiki/${path}`)
+    return { ok: true, message: "Restored." }
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error ? error.message : "Unable to restore Wiki item.",
     }
   }
 }

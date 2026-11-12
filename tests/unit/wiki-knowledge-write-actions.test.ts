@@ -18,12 +18,14 @@ const mocks = vi.hoisted(() => {
   const query = {
     operation: null as "insert" | "update" | null,
     savedRevisionId: "revision",
+    updatedStatus: "published",
     insert: vi.fn(() => {
       query.operation = "insert"
       return query
     }),
     select: vi.fn(() => query),
-    update: vi.fn(() => {
+    update: vi.fn((value: { status?: string }) => {
+      query.updatedStatus = value.status ?? "published"
       query.operation = "update"
       return query
     }),
@@ -35,7 +37,13 @@ const mocks = vi.hoisted(() => {
           : revision,
       error: null,
     })),
-    maybeSingle: vi.fn(async () => ({ data: { type: "page" }, error: null })),
+    maybeSingle: vi.fn(async () => ({
+      data:
+        query.operation === "update"
+          ? { status: query.updatedStatus }
+          : { type: "page" },
+      error: null,
+    })),
     then: (resolve: (value: { error: null }) => unknown) =>
       resolve({ error: null }),
   }
@@ -75,11 +83,15 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
 vi.mock("@/lib/wiki", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/wiki")>()),
   fetchWikiNodes: vi.fn(async () => [mocks.node]),
+  fetchArchivedWikiNodes: vi.fn(async () => [
+    { ...mocks.node, status: "archived", current_revision_id: "revision" },
+  ]),
   fetchCurrentRevision: vi.fn(async () => mocks.revision),
 }))
 
 import {
   saveWikiPageAction,
+  restoreArchivedWikiNodeAction,
   updateWikiNodeStatusAction,
 } from "@/app/wiki/actions"
 
@@ -108,6 +120,28 @@ describe("authorized Wiki knowledge writes", () => {
       })
     )
     expect(mocks.archive).not.toHaveBeenCalled()
+  })
+
+  it("restores a revised archived page and synchronizes its knowledge source", async () => {
+    const form = new FormData()
+    form.set("id", "draft")
+    expect((await restoreArchivedWikiNodeAction(form)).ok).toBe(true)
+    expect(mocks.query.update).toHaveBeenCalledWith({
+      status: "published",
+      updated_by: "manager",
+    })
+    expect(mocks.index).toHaveBeenCalledWith(
+      expect.objectContaining({ node: mocks.node, revision: mocks.revision })
+    )
+  })
+
+  it("denies restore before querying when the user cannot manage the Wiki", async () => {
+    mocks.permission.mockResolvedValue(false)
+    const form = new FormData()
+    form.set("id", "draft")
+    expect((await restoreArchivedWikiNodeAction(form)).ok).toBe(false)
+    expect(mocks.userClient.from).not.toHaveBeenCalled()
+    expect(mocks.index).not.toHaveBeenCalled()
   })
 
   it("keeps unpublished status changes indexed behind live read checks", async () => {

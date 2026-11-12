@@ -10,6 +10,8 @@ import {
   getWikiAssetKind,
   getWikiSectionId,
   isPublishedWikiBranch,
+  isUnarchivedWikiBranch,
+  wikiRestoreStatus,
   normalizeWikiTags,
   normalizeWikiTagInputs,
   syncWikiPageTags,
@@ -245,6 +247,25 @@ describe("wiki helpers", () => {
         draftParent
       )
     ).toBe(false)
+  })
+
+  it("hides archived branches from managers without hiding drafts", () => {
+    const folder = node({ id: "folder", type: "folder", status: "archived" })
+    const child = node({ id: "child", parent_id: folder.id, status: "draft" })
+    const draft = node({ id: "draft", status: "draft" })
+    expect(isUnarchivedWikiBranch([folder, child, draft], child)).toBe(false)
+    expect(isUnarchivedWikiBranch([folder, child, draft], draft)).toBe(true)
+    expect(isPublishedWikiBranch([folder, child, draft], draft)).toBe(false)
+  })
+
+  it("restores folders and revised pages as published, unrevised pages as draft", () => {
+    expect(wikiRestoreStatus(node({ id: "folder", type: "folder" }))).toBe(
+      "published"
+    )
+    expect(
+      wikiRestoreStatus(node({ id: "page", current_revision_id: "revision" }))
+    ).toBe("published")
+    expect(wikiRestoreStatus(node({ id: "page" }))).toBe("draft")
   })
 
   it("does not treat an archived folder branch as visible or redirectable", () => {

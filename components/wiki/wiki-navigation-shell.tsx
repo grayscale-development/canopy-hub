@@ -122,8 +122,10 @@ export function WikiHeader({ nodes }: { nodes: WikiNodeRow[] }) {
 export function WikiRepositoryNavigation({
   nodes,
   canManageWiki,
+  archivedNodes = [],
 }: {
   nodes: WikiNodeRow[]
+  archivedNodes?: WikiNodeRow[]
   canManageWiki: boolean
 }) {
   const pathname = usePathname()
@@ -141,6 +143,7 @@ export function WikiRepositoryNavigation({
   const navigation = (
     <WikiRepositorySidebar
       nodes={nodes}
+      archivedNodes={archivedNodes}
       activePath={path.join("/")}
       selectedRepositorySlug={selectedRepositorySlug}
       canManageWiki={canManageWiki}

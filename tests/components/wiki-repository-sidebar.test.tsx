@@ -517,4 +517,44 @@ describe("WikiRepositorySidebar", () => {
       screen.queryByRole("button", { name: "Edit Operations" })
     ).not.toBeInTheDocument()
   })
+
+  it("hides archive lists when a manager turns Editor Mode off", async () => {
+    const user = userEvent.setup()
+    const archivedPage = node({
+      id: "old-handbook",
+      parent_id: "canopy-operations",
+      type: "page",
+      slug: "old-handbook",
+      title: "Old Handbook",
+      status: "archived",
+    })
+    const archivedSection = node({
+      id: "retired-team",
+      parent_id: "canopy-root",
+      slug: "retired-team",
+      title: "Retired Team",
+      status: "archived",
+    })
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <TooltipProvider>
+          <WikiRepositorySidebar
+            nodes={[...nodes, archivedPage, archivedSection]}
+            archivedNodes={[archivedPage, archivedSection]}
+            activePath="canopy-wiki/operations"
+            selectedRepositorySlug="canopy-wiki"
+            canManageWiki
+          />
+        </TooltipProvider>
+      </WikiEditModeProvider>
+    )
+    expect(screen.queryByText(/Archived \(/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Archive \(/)).not.toBeInTheDocument()
+    const toggle = screen.getByRole("switch", {
+      name: "Toggle wiki editor mode",
+    })
+    await user.click(toggle)
+    expect(screen.getByText("Archived (1)")).toBeVisible()
+    expect(screen.getByText("Archive (2)")).toBeVisible()
+  })
 })

@@ -461,6 +461,37 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   return (data ?? []) as WikiNodeRow[]
 }
 
+// Call only after checking wiki.manage. Keep archived pages out of shared consumers.
+export async function fetchArchivedWikiNodes(supabase: SupabaseWikiClient) {
+  const { data, error } = await supabase
+    .from("wiki_nodes")
+    .select(
+      "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
+    )
+    .eq("status", "archived")
+    .order("title", { ascending: true })
+
+  if (error) throw new Error(error.message)
+  return (data ?? []) as WikiNodeRow[]
+}
+
+export function isUnarchivedWikiBranch(
+  nodes: WikiNodeRow[],
+  node: WikiNodeRow
+) {
+  return buildWikiBreadcrumbs(nodes, node).every(
+    (item) => item.status !== "archived"
+  )
+}
+
+export function wikiRestoreStatus(
+  node: Pick<WikiNodeRow, "type" | "current_revision_id">
+): WikiNodeStatus {
+  return node.type === "folder" || node.current_revision_id
+    ? "published"
+    : "draft"
+}
+
 export async function fetchWikiTags(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_tags")

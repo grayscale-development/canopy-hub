@@ -182,7 +182,7 @@ jobs:
 
   e2e-smoke:
     name: 6. Playwright smoke tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - build
       - db

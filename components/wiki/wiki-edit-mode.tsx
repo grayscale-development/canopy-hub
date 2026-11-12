@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
   isPublishedWikiBranch,
+  isUnarchivedWikiBranch,
   type WikiNodeRow,
   type WikiTagRow,
 } from "@/lib/wiki"
@@ -134,7 +135,7 @@ export function useVisibleWikiNodes(nodes: WikiNodeRow[]) {
   return React.useMemo(
     () =>
       canManageWiki
-        ? nodes
+        ? nodes.filter((node) => isUnarchivedWikiBranch(nodes, node))
         : nodes.filter((node) => isPublishedWikiBranch(nodes, node)),
     [canManageWiki, nodes]
   )
@@ -153,7 +154,8 @@ export function WikiVisibleNodeGate({
 }) {
   const { canManageWiki } = useWikiEditMode()
 
-  return canManageWiki || isPublishedWikiBranch(nodes, node) ? (
+  return (canManageWiki && isUnarchivedWikiBranch(nodes, node)) ||
+    isPublishedWikiBranch(nodes, node) ? (
     <>{children}</>
   ) : (
     <>{fallback}</>
