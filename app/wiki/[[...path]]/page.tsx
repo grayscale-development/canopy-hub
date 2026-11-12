@@ -6,6 +6,7 @@ import {
   WikiVisibleNodeGate,
   WikiViewModeTitleSpacing,
 } from "@/components/wiki/wiki-edit-mode"
+import { ArchivedWikiPageView } from "@/components/wiki/wiki-archive"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
@@ -32,6 +33,8 @@ import {
   fetchWikiTagAssignments,
   compareWikiNodes,
   fetchWikiNodes,
+  fetchArchivedWikiNodes,
+  resolveWikiPath,
   fetchWikiPageData,
   fetchWikiTags,
   fetchWikiPageTags,
@@ -238,6 +241,27 @@ export default async function WikiPage({
     throw error
   }
   const isTagsDirectory = path.length === 1 && path[0] === "tags"
+  if (canManageWiki && path.length && !isTagsDirectory) {
+    const archived = await fetchArchivedWikiNodes(supabase)
+    const allNodes = [
+      ...nodes.filter((item) => item.status !== "archived"),
+      ...archived,
+    ]
+    const target = resolveWikiPath(allNodes, path)
+    const breadcrumbs = target ? buildWikiBreadcrumbs(allNodes, target) : []
+    const archivedParent = breadcrumbs
+      .slice(0, -1)
+      .find((item) => item.status === "archived")
+    if (target && (target.status === "archived" || archivedParent)) {
+      return (
+        <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
+          <section className="mx-auto w-full max-w-[864px] px-6 py-4 md:px-8 md:py-6">
+            <ArchivedWikiPageView node={target} archivedParent={archivedParent} />
+          </section>
+        </main>
+      )
+    }
+  }
   const [pageData, wikiTags] = await Promise.all([
     path.length && !isTagsDirectory ? fetchWikiPageData(supabase, path) : null,
     fetchWikiTags(supabase),

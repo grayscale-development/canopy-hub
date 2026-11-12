@@ -10,6 +10,8 @@ import {
   getWikiAssetKind,
   getWikiSectionId,
   isPublishedWikiBranch,
+  isUnarchivedWikiBranch,
+  wikiRestoreStatus,
   normalizeWikiTags,
   normalizeWikiTagInputs,
   syncWikiPageTags,
@@ -245,6 +247,55 @@ describe("wiki helpers", () => {
         draftParent
       )
     ).toBe(false)
+  })
+
+  it("finds the first published page beneath a folder at any depth", () => {
+    const root = node({ id: "root", type: "folder", slug: "root" })
+    const section = node({
+      id: "section",
+      parent_id: root.id,
+      type: "folder",
+      slug: "section",
+      status: "draft",
+    })
+    const group = node({
+      id: "group",
+      parent_id: section.id,
+      type: "folder",
+      slug: "group",
+    })
+    const page = node({
+      id: "page",
+      parent_id: group.id,
+      slug: "page",
+      status: "published",
+    })
+
+    expect(
+      findFirstPublishedWikiPagePath([root, section, group, page], section)
+    ).toBe("root/section/group/page")
+    expect(
+      findFirstPublishedWikiPagePath([root, section, group], section)
+    ).toBeNull()
+  })
+
+  it("hides archived branches from managers without hiding drafts", () => {
+    const folder = node({ id: "folder", type: "folder", status: "archived" })
+    const child = node({ id: "child", parent_id: folder.id, status: "draft" })
+    const draft = node({ id: "draft", status: "draft" })
+    expect(isUnarchivedWikiBranch([folder, child, draft], child)).toBe(false)
+    expect(isUnarchivedWikiBranch([folder, child, draft], draft)).toBe(true)
+    expect(isPublishedWikiBranch([folder, child, draft], draft)).toBe(false)
+  })
+
+  it("restores folders and revised pages as published, unrevised pages as draft", () => {
+    expect(wikiRestoreStatus(node({ id: "folder", type: "folder" }))).toBe(
+      "published"
+    )
+    expect(
+      wikiRestoreStatus(node({ id: "page", current_revision_id: "revision" }))
+    ).toBe("published")
+    expect(wikiRestoreStatus(node({ id: "page" }))).toBe("draft")
   })
 
   it("does not treat an archived folder branch as visible or redirectable", () => {
