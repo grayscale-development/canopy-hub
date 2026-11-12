@@ -1,4 +1,4 @@
-import { buildNumericWikiPath } from "@/lib/wiki-paths"
+import { buildNumericWikiPath, resolveNumericWikiPath } from "@/lib/wiki-paths"
 import { notFound, redirect } from "next/navigation"
 
 import {
@@ -34,7 +34,6 @@ import {
   compareWikiNodes,
   fetchWikiNodes,
   fetchArchivedWikiNodes,
-  resolveWikiPath,
   fetchWikiPageData,
   fetchWikiTags,
   fetchWikiPageTags,
@@ -247,7 +246,7 @@ export default async function WikiPage({
       ...nodes.filter((item) => item.status !== "archived"),
       ...archived,
     ]
-    const target = resolveWikiPath(allNodes, path)
+    const target = resolveNumericWikiPath(allNodes, path)?.node
     const breadcrumbs = target ? buildWikiBreadcrumbs(allNodes, target) : []
     const archivedParent = breadcrumbs
       .slice(0, -1)

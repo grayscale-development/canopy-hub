@@ -128,14 +128,16 @@ vi.mock("@/lib/wiki", () => ({
   compareWikiNodes: () => 0,
   fetchWikiNodes: vi.fn(async () => []),
   fetchArchivedWikiNodes: vi.fn(async () => []),
-  resolveWikiPath: vi.fn(() => null),
-  buildWikiBreadcrumbs: vi.fn(() => []),
   fetchWikiPageData: vi.fn(async () => state.pageData),
   fetchWikiPageTags: vi.fn(async () => []),
   fetchWikiTags: vi.fn(async () => []),
   getWikiSectionId: vi.fn(() => null),
   isMissingWikiSchemaError: vi.fn(() => false),
   isPublishedWikiBranch: vi.fn(() => false),
+}))
+vi.mock("@/lib/wiki-paths", () => ({
+  buildNumericWikiPath: vi.fn(() => "1"),
+  resolveNumericWikiPath: vi.fn(() => null),
 }))
 vi.mock("@/lib/wiki-repositories", () => ({
   getDefaultWikiRepository: vi.fn(() => ({ slug: "canopy-wiki" })),

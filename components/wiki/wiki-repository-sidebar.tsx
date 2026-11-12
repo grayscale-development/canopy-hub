@@ -340,6 +340,7 @@ export function WikiRepositorySidebar({
     <WikiRepositorySidebarArea
       key={selectedRepositorySlug}
       nodes={nodes}
+      archivedNodes={archivedNodes}
       activePath={activePath}
       selectedRepositorySlug={selectedRepositorySlug}
       canManageWiki={canManageWiki}
@@ -349,11 +350,13 @@ export function WikiRepositorySidebar({
 
 function WikiRepositorySidebarArea({
   nodes,
+  archivedNodes = [],
   activePath,
   selectedRepositorySlug,
   canManageWiki,
 }: {
   nodes: WikiNodeRow[]
+  archivedNodes?: WikiNodeRow[]
   activePath: string
   selectedRepositorySlug: string
   canManageWiki: boolean

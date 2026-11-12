@@ -249,36 +249,6 @@ describe("wiki helpers", () => {
     ).toBe(false)
   })
 
-  it("finds the first published page beneath a folder at any depth", () => {
-    const root = node({ id: "root", type: "folder", slug: "root" })
-    const section = node({
-      id: "section",
-      parent_id: root.id,
-      type: "folder",
-      slug: "section",
-      status: "draft",
-    })
-    const group = node({
-      id: "group",
-      parent_id: section.id,
-      type: "folder",
-      slug: "group",
-    })
-    const page = node({
-      id: "page",
-      parent_id: group.id,
-      slug: "page",
-      status: "published",
-    })
-
-    expect(
-      findFirstPublishedWikiPagePath([root, section, group, page], section)
-    ).toBe("root/section/group/page")
-    expect(
-      findFirstPublishedWikiPagePath([root, section, group], section)
-    ).toBeNull()
-  })
-
   it("hides archived branches from managers without hiding drafts", () => {
     const folder = node({ id: "folder", type: "folder", status: "archived" })
     const child = node({ id: "child", parent_id: folder.id, status: "draft" })

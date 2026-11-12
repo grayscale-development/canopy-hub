@@ -705,7 +705,7 @@ export async function restoreArchivedWikiNodeAction(
     const path =
       node.type === "page"
         ? (await syncWikiPageKnowledgeSource({ supabase, nodeId: id })).path
-        : buildWikiPath(allNodes, node)
+        : buildNumericWikiPath(allNodes, node)
     revalidatePath("/wiki")
     if (path) revalidatePath(`/wiki/${path}`)
     return { ok: true, message: "Restored." }

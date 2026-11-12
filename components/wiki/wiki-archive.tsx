@@ -15,9 +15,9 @@ import {
 } from "@/components/wiki/wiki-sidebar-expansion"
 import {
   buildWikiBreadcrumbs,
-  buildWikiPath,
   type WikiNodeRow,
 } from "@/lib/wiki"
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 
 export function RestoreWikiButton({
   node,
@@ -118,7 +118,7 @@ function ArchiveItems({
         <li key={item.id}>
           <Link
             className="flex min-h-8 w-full items-center rounded-md pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            href={`/wiki/${buildWikiPath(nodes, item)}`}
+            href={`/wiki/${buildNumericWikiPath(nodes, item)}`}
             title={item.title}
           >
             <span aria-hidden="true" className="size-8 shrink-0" />

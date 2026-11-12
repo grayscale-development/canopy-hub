@@ -33,12 +33,14 @@ const base = {
 const section = {
   ...base,
   id: "section",
+  short_id: 1,
   slug: "operations",
   title: "Operations",
 } satisfies WikiNodeRow
 const draft = {
   ...base,
   id: "draft",
+  short_id: 2,
   parent_id: "section",
   type: "page",
   status: "draft",
@@ -48,6 +50,7 @@ const draft = {
 const old = {
   ...base,
   id: "old",
+  short_id: 3,
   parent_id: "section",
   type: "page",
   status: "archived",
@@ -57,6 +60,7 @@ const old = {
 const closed = {
   ...base,
   id: "closed",
+  short_id: 4,
   status: "archived",
   slug: "closed",
   title: "Retired Team",
@@ -64,6 +68,7 @@ const closed = {
 const child = {
   ...base,
   id: "child",
+  short_id: 5,
   parent_id: "closed",
   type: "page",
   slug: "child",
