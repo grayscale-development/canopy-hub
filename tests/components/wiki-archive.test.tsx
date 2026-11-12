@@ -133,7 +133,7 @@ describe("wiki archives", () => {
     expect(toggle.querySelector("svg")).toHaveClass("rotate-90")
     expect(screen.getByRole("link", { name: "Old Handbook" })).toHaveAttribute(
       "href",
-      "/wiki/operations/old"
+      "/wiki/1/3"
     )
     expect(screen.queryByRole("button", { name: /Restore/ })).toBeNull()
   })
