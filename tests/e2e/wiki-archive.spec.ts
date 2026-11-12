@@ -5,6 +5,7 @@ import {
   setWikiEditorMode,
   serviceWiki,
   signInAsSeededUser,
+  wikiPathForNode,
 } from "./wiki-reviewed-helpers"
 
 test.setTimeout(120_000)
@@ -43,7 +44,7 @@ test("managers can find and restore archived wiki items while viewers cannot see
         status,
         sort_order: -100,
       })
-      .select("id,slug")
+      .select("id,slug,short_id")
       .single()
     if (error || !data) throw error ?? new Error("Unable to create fixture")
     ids.unshift(data.id)
@@ -135,9 +136,9 @@ test("managers can find and restore archived wiki items while viewers cannot see
       "folder",
       "archived"
     )
-    const sectionPath = `/wiki/canopy-wiki/${section.slug}`
-    const oldPath = `${sectionPath}/${old.slug}`
-    const livePath = `${sectionPath}/${live.slug}`
+    const sectionPath = await wikiPathForNode(section.id)
+    const oldPath = await wikiPathForNode(old.id)
+    const livePath = await wikiPathForNode(live.id)
     await page.setViewportSize({ width: 1440, height: 900 })
     await mockMiloChatApi(page)
     await signInAsSeededUser(page, "wiki-manager@canopy.test")
@@ -238,7 +239,7 @@ test("managers can find and restore archived wiki items while viewers cannot see
       page.getByText("This item is archived and is not visible in the Wiki.")
     ).toBeVisible()
     await shot("08-archived-page-header")
-    await page.goto(`/wiki/canopy-wiki/${archived1.slug}/${archivedChild.slug}`)
+    await page.goto(await wikiPathForNode(archivedChild.id))
     await expect(
       page.getByRole("heading", { name: "Old Training Course" })
     ).toBeVisible()
@@ -302,7 +303,7 @@ test("managers can find and restore archived wiki items while viewers cannot see
       .eq("id", old.id)
       .single()
     expect(restoredPage?.status).toBe("published")
-    await page.goto(`/wiki/canopy-wiki/${archived1.slug}`)
+    await page.goto(await wikiPathForNode(archived1.id))
     await page.waitForLoadState("networkidle")
     await expect(
       page.getByText("This item is archived and is not visible in the Wiki.")
