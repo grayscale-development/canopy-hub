@@ -10,6 +10,7 @@ import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   fetchWikiNodes,
+  fetchArchivedWikiNodes,
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeRow,
@@ -48,9 +49,11 @@ export default async function WikiLayout({
   }
 
   let nodes: WikiNodeRow[] = []
+  let archivedNodes: WikiNodeRow[] = []
   let isSetupRequired = false
   try {
     nodes = await fetchWikiNodes(supabase)
+    if (canManageWiki) archivedNodes = await fetchArchivedWikiNodes(supabase)
   } catch (error) {
     if (!isMissingWikiSchemaError(error)) {
       throw error
@@ -68,6 +71,7 @@ export default async function WikiLayout({
             {!isSetupRequired ? (
               <WikiRepositoryNavigation
                 nodes={nodes}
+                archivedNodes={archivedNodes}
                 canManageWiki={canManageWiki}
               />
             ) : null}

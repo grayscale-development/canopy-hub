@@ -535,7 +535,7 @@ export function WikiNodeActionsMenu({
         setArchiveOpen(false)
         setOpen(false)
         toast.success(
-          `${itemType === "page" ? "Page" : itemType === "section" ? "Section" : "Group"} archived.`
+          `${itemType === "page" ? "Page" : itemType === "section" ? "Section" : "Group"} archived. Find it in Archive in the sidebar.`
         )
         router.push(result.path ?? "/wiki")
         router.refresh()
@@ -870,7 +870,7 @@ export function WikiNodeActionsMenu({
             <DialogDescription>
               {cannotArchive
                 ? "Move or archive what is inside first."
-                : "It disappears from the wiki for everyone. You can ask an admin to bring it back."}
+                : "It disappears from the wiki for everyone. You can restore it from Archive in the sidebar."}
             </DialogDescription>
           </DialogHeader>
           <StatusMessage state={archiveState} />

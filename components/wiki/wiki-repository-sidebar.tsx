@@ -2,20 +2,24 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ChevronRightIcon, PencilIcon, TagsIcon } from "lucide-react"
+import { PencilIcon, TagsIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import {
   WIKI_EDIT_NODE_EVENT,
   WikiCreateWizardDialog,
   WikiNodeActionsMenu,
 } from "@/components/wiki/wiki-management-controls"
+import {
+  GlobalWikiArchive,
+  SectionArchive,
+} from "@/components/wiki/wiki-archive"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
+import {
+  SidebarAccordionHeader,
+  TruncatedTitle,
+  usePersistedSidebarExpansion,
+} from "@/components/wiki/wiki-sidebar-expansion"
 import { buildWikiPath, compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
 import {
   getDefaultWikiRepository,
@@ -27,116 +31,6 @@ import {
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
 import { cn } from "@/lib/utils"
-
-function readPersistedExpansion(storageKey: string) {
-  if (typeof window === "undefined") {
-    return null
-  }
-
-  const savedValue = window.localStorage.getItem(storageKey)
-  if (savedValue === "open") {
-    return true
-  }
-  if (savedValue === "closed") {
-    return false
-  }
-
-  return null
-}
-
-function writePersistedExpansion(storageKey: string, isOpen: boolean) {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  window.localStorage.setItem(storageKey, isOpen ? "open" : "closed")
-}
-
-function usePersistedSidebarExpansion(
-  storageKey: string,
-  defaultOpen: boolean,
-  autoOpen: boolean
-) {
-  const hasUserSetPreference = React.useRef(false)
-  const [isOpen, setIsOpen] = React.useState(defaultOpen)
-
-  React.useEffect(() => {
-    if (hasUserSetPreference.current) {
-      return
-    }
-
-    const savedValue = readPersistedExpansion(storageKey)
-    setIsOpen(savedValue ?? (autoOpen || defaultOpen))
-  }, [storageKey, defaultOpen, autoOpen])
-
-  const setPersistedOpen = React.useCallback(
-    (value: React.SetStateAction<boolean>) => {
-      hasUserSetPreference.current = true
-      setIsOpen((current) => {
-        const next =
-          typeof value === "function"
-            ? (value as (currentValue: boolean) => boolean)(current)
-            : value
-        writePersistedExpansion(storageKey, next)
-        return next
-      })
-    },
-    [storageKey]
-  )
-
-  return [isOpen, setPersistedOpen] as const
-}
-
-function toggleExpansionWithoutScrollJump(
-  event: React.MouseEvent<HTMLButtonElement>,
-  toggle: () => void
-) {
-  const button = event.currentTarget
-  const sidebar = button.closest<HTMLElement>("[data-wiki-sidebar-scroll]")
-  const buttonTop = button.getBoundingClientRect().top
-  const scrollTop = sidebar?.scrollTop
-
-  toggle()
-
-  if (!sidebar || scrollTop === undefined) {
-    return
-  }
-
-  window.requestAnimationFrame(() => {
-    sidebar.scrollTop =
-      scrollTop + button.getBoundingClientRect().top - buttonTop
-  })
-}
-
-const SIDEBAR_TOOLTIP_DELAY_MS = 700
-
-function TruncatedTitle({ title }: { title: string }) {
-  const textRef = React.useRef<HTMLSpanElement>(null)
-  const [open, setOpen] = React.useState(false)
-
-  return (
-    <Tooltip
-      delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}
-      open={open}
-      onOpenChange={(nextOpen) => {
-        const element = textRef.current
-        const isCutOff = Boolean(
-          element && element.scrollWidth > element.clientWidth
-        )
-        setOpen(nextOpen && isCutOff)
-      }}
-    >
-      <TooltipTrigger asChild>
-        <span ref={textRef} className="truncate">
-          {title}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="right" align="start" sideOffset={8}>
-        {title}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
 
 function SidebarPageLink({
   node,
@@ -235,38 +129,16 @@ function SidebarNestedFolder({
 
   return (
     <div>
-      <div
-        className={cn(
-          "group flex min-h-8 w-full items-center rounded-md text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-          isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
-        )}
+      <SidebarAccordionHeader
+        label={folder.title}
+        title={folder.title}
+        contentId={contentId}
+        isOpen={isOpen}
+        setOpen={setPersistedOpen}
+        tone="group"
+        href={`/wiki/${folderPath}`}
+        isActive={isActive}
       >
-        <button
-          type="button"
-          aria-label={`Toggle ${folder.title}`}
-          aria-expanded={isOpen}
-          aria-controls={contentId}
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={(event) =>
-            toggleExpansionWithoutScrollJump(event, () =>
-              setPersistedOpen((current) => !current)
-            )
-          }
-        >
-          <ChevronRightIcon
-            className={cn(
-              "size-3.5 transition-transform",
-              isOpen && "rotate-90"
-            )}
-          />
-        </button>
-        <Link
-          href={`/wiki/${folderPath}`}
-          aria-current={activePath === folderPath ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <TruncatedTitle title={folder.title} />
-        </Link>
         {canManage ? (
           <SidebarFolderEditButton folder={folder} nodes={nodes} />
         ) : null}
@@ -278,7 +150,7 @@ function SidebarNestedFolder({
             variant="icon"
           />
         ) : null}
-      </div>
+      </SidebarAccordionHeader>
       <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
         {children.map((child) =>
           child.type === "folder" ? (
@@ -306,11 +178,13 @@ function SidebarNestedFolder({
 function SidebarSection({
   section,
   nodes,
+  archivedNodes,
   activePath,
   canManage,
 }: {
   section: WikiNodeRow
   nodes: WikiNodeRow[]
+  archivedNodes: WikiNodeRow[]
   activePath: string
   canManage: boolean
 }) {
@@ -326,38 +200,16 @@ function SidebarSection({
 
   return (
     <section className="space-y-1">
-      <div
-        className={cn(
-          "group flex min-h-8 w-full items-center rounded-md text-sm leading-5 font-semibold text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-          isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
-        )}
+      <SidebarAccordionHeader
+        label={section.title}
+        title={section.title}
+        contentId={contentId}
+        isOpen={isOpen}
+        setOpen={setPersistedOpen}
+        tone="section"
+        href={`/wiki/${sectionPath}`}
+        isActive={isActive}
       >
-        <button
-          type="button"
-          aria-label={`Toggle ${section.title}`}
-          aria-expanded={isOpen}
-          aria-controls={contentId}
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={(event) =>
-            toggleExpansionWithoutScrollJump(event, () =>
-              setPersistedOpen((current) => !current)
-            )
-          }
-        >
-          <ChevronRightIcon
-            className={cn(
-              "size-3.5 transition-transform",
-              isOpen && "rotate-90"
-            )}
-          />
-        </button>
-        <Link
-          href={`/wiki/${sectionPath}`}
-          aria-current={activePath === sectionPath ? "page" : undefined}
-          className="flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left text-inherit focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <TruncatedTitle title={section.title} />
-        </Link>
         {canManage ? (
           <SidebarFolderEditButton folder={section} nodes={nodes} />
         ) : null}
@@ -369,7 +221,7 @@ function SidebarSection({
             variant="icon"
           />
         ) : null}
-      </div>
+      </SidebarAccordionHeader>
       <div id={contentId} hidden={!isOpen} className="space-y-1">
         {nodes
           .filter((node) => node.parent_id === section.id)
@@ -392,6 +244,13 @@ function SidebarSection({
               />
             )
           )}
+        {canManage ? (
+          <SectionArchive
+            section={section}
+            nodes={[...nodes, ...archivedNodes]}
+            archived={archivedNodes}
+          />
+        ) : null}
       </div>
     </section>
   )
@@ -414,8 +273,10 @@ export function WikiRepositorySidebar({
   activePath,
   selectedRepositorySlug,
   canManageWiki,
+  archivedNodes = [],
 }: {
   nodes: WikiNodeRow[]
+  archivedNodes?: WikiNodeRow[]
   activePath: string
   selectedRepositorySlug: string
   canManageWiki: boolean
@@ -443,7 +304,7 @@ export function WikiRepositorySidebar({
     [repositoryNode, visibleNodes]
   )
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:w-72">
+    <aside className="flex max-h-[50svh] min-h-0 w-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:max-h-none lg:w-72">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-sidebar-border px-3">
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {selectedRepository.title}
@@ -480,6 +341,7 @@ export function WikiRepositorySidebar({
                 key={section.id}
                 section={section}
                 nodes={visibleNodes}
+                archivedNodes={archivedNodes}
                 activePath={activePath}
                 canManage={canEditSidebar}
               />
@@ -490,6 +352,15 @@ export function WikiRepositorySidebar({
             No sections yet.
           </p>
         )}
+        {canEditSidebar ? (
+          <GlobalWikiArchive
+            nodes={[
+              ...nodes.filter((node) => node.status !== "archived"),
+              ...archivedNodes,
+            ]}
+            archived={archivedNodes}
+          />
+        ) : null}
       </div>
       <div className="shrink-0 space-y-3 border-t border-sidebar-border p-3">
         <div className="-mx-3 -mt-3 border-b border-sidebar-border">
