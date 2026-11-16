@@ -22,8 +22,10 @@ const nextConfig = {
   },
   // pdf-parse resolves its Node worker at runtime. Bundling it makes Turbopack
   // resolve the browser entry instead, which cannot load that worker on the
-  // server.
-  serverExternalPackages: ["pdf-parse"],
+  // server. jsdom 30 (and html-encoding-sniffer -> @exodus/bytes) is ESM;
+  // bundling it makes Turbopack emit a CJS require() that throws
+  // ERR_REQUIRE_ESM on the Node 24 server runtime.
+  serverExternalPackages: ["pdf-parse", "jsdom"],
   turbopack: {
     root: __dirname,
   },
