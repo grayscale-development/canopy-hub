@@ -65,6 +65,23 @@ function normalizeInitialBlocks(value: unknown) {
     : EMPTY_CONTENT
 }
 
+export function wikiBlocksPlainText(value: unknown): string {
+  if (typeof value === "string") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map(wikiBlocksPlainText).join("")
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>
+    if (typeof record.text === "string") {
+      return record.text
+    }
+    return `${wikiBlocksPlainText(record.content)}${wikiBlocksPlainText(record.children)}`
+  }
+  return ""
+}
+
 export function WikiEditor({
   node,
   nodes = [],
@@ -375,7 +392,21 @@ function WikiEditorMounted({
             const next = JSON.stringify(editor.document)
             setBlocks(editor.document)
             if (changeBaseline.current === null) {
-              changeBaseline.current = next
+              const initialText = wikiBlocksPlainText(
+                normalizeInitialBlocks(revision?.blocks)
+              )
+              const nextText = wikiBlocksPlainText(editor.document)
+              if (nextText === initialText) {
+                // First event is editor initialization / ID normalization.
+                changeBaseline.current = next
+                return
+              }
+              // First event already has user content (e.g. paste on a new
+              // page when BlockNote did not emit a mount change).
+              changeBaseline.current = JSON.stringify(
+                normalizeInitialBlocks(revision?.blocks)
+              )
+              setIsDirty(true)
               return
             }
             setIsDirty(next !== changeBaseline.current)
