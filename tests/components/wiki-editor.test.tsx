@@ -16,6 +16,7 @@ import type { WikiNodeRow } from "@/lib/wiki"
 
 const blockNoteState = vi.hoisted(() => ({
   onChange: () => () => undefined,
+  emitMountChange: true,
   document: [
     {
       type: "paragraph",
@@ -40,8 +41,11 @@ vi.mock("@blocknote/shadcn", () => ({
   }) => {
     const initialOnChange = useRef(onChange)
     useEffect(() => {
-      // The real editor emits an initialization change when it mounts.
-      initialOnChange.current?.()
+      // The real editor may emit an initialization change when it mounts.
+      // New empty pages do not always get that event before the first paste.
+      if (blockNoteState.emitMountChange) {
+        initialOnChange.current?.()
+      }
     }, [])
 
     return (
@@ -119,6 +123,7 @@ describe("WikiEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
+    blockNoteState.emitMountChange = true
     blockNoteState.document = [
       {
         type: "paragraph",
@@ -391,5 +396,45 @@ describe("WikiEditor", () => {
     expect(
       await screen.findByRole("button", { name: "Edit page tags" })
     ).toBeVisible()
+  })
+
+  it("shows Save Changes when a new page receives pasted text as the first change", async () => {
+    const user = userEvent.setup()
+    blockNoteState.emitMountChange = false
+    blockNoteState.document = [{ type: "paragraph", content: "" }]
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor node={node} revision={null} canManage />
+      </WikiEditModeProvider>
+    )
+
+    expect(
+      screen.queryByRole("button", { name: "Save Changes" })
+    ).not.toBeInTheDocument()
+
+    blockNoteState.document = [
+      { type: "paragraph", content: "Pasted funding checklist text." },
+    ]
+    await user.click(screen.getByTestId("blocknote-view"))
+
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeVisible()
+    expect(screen.getByText("Unsaved changes")).toBeVisible()
+  })
+
+  it("does not show Save Changes after only the editor's initialization change", async () => {
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    blockNoteState.document = [{ type: "paragraph", content: "" }]
+
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor node={node} revision={null} canManage />
+      </WikiEditModeProvider>
+    )
+
+    expect(
+      screen.queryByRole("button", { name: "Save Changes" })
+    ).not.toBeInTheDocument()
   })
 })
