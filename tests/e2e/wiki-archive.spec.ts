@@ -145,12 +145,20 @@ test("managers can find and restore archived wiki items while viewers cannot see
     await page.goto(sectionPath)
     await setWikiEditorMode(page, false)
     const sidebar = page.locator("[data-wiki-sidebar-scroll]")
-    await expect(sidebar.getByRole("link", { name: "Team Handbook" })).toBeVisible()
-    await expect(page.getByText(/Archive \(/)).toHaveCount(0)
-    await expect(page.getByText(/Archived \(/)).toHaveCount(0)
+    await expect(
+      sidebar.getByRole("link", { name: "Team Handbook" })
+    ).toBeVisible()
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archive", exact: true })
+    ).toHaveCount(0)
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archived" })
+    ).toHaveCount(0)
     await shot("13-manager-editor-off-no-archive")
     await enableEditorMode(page)
-    await expect(page.getByText(/Archived \(/).first()).toBeVisible()
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archived" }).first()
+    ).toBeVisible()
     await shot("14-manager-editor-on-archive")
     const sectionArea = page
       .locator("section")
@@ -268,8 +276,12 @@ test("managers can find and restore archived wiki items while viewers cannot see
         .locator("[data-wiki-sidebar-scroll]")
         .getByRole("link", { name: "Team Handbook" })
     ).toBeVisible()
-    await expect(page.getByText(/Archive \(/)).toHaveCount(0)
-    await expect(page.getByText(/Archived \(/)).toHaveCount(0)
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archive", exact: true })
+    ).toHaveCount(0)
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archived" })
+    ).toHaveCount(0)
     await expect(page.getByText("Retired Templates")).toHaveCount(0)
     await expect(page.getByText("Legacy Onboarding Guide")).toHaveCount(0)
     await shot("05-non-manager-no-archive")
