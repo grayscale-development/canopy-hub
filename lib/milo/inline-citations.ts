@@ -1,7 +1,7 @@
 type Citation = { title: string; url: string | null }
 
 export const INLINE_CITATION_INSTRUCTIONS =
-  "Cite a source inline by linking its page or source name in the sentence using a markdown link with the URL from context. Never use numbered citation markers like [1]. When a title is available, never show a raw or backtick-formatted path or write a title followed by a path. Do not invent source names or URLs."
+  "Cite each page once, naturally at its first mention, using a markdown link such as per the [Funding Checklist](/wiki/1/16/17) with the URL from context. Never repeat a page link or use numbered citation markers like [1]. Never append a bare page name or path to a sentence as a citation. When a title is available, never show a raw or backtick-formatted path or write a title followed by a path. Do not invent source names or URLs."
 
 const escapePattern = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -63,29 +63,42 @@ export function inlineCitations(answer: string, citations: Citation[]) {
     })
     .join("")
 
-  return normalized
-    .split(/((?<=[.!?])\s+(?=[A-Z])|(?<=\])\s+(?=[A-Z])|\n)/u)
-    .map((sentence) => {
-      const markers = [...sentence.matchAll(/\s*\[(\d+)\]/g)]
-      const citation =
-        markers.length === 1 ? citations[Number(markers[0][1]) - 1] : undefined
-      const alreadyNamed = references.some(({ title }) =>
-        new RegExp(
-          `(?<![\\p{L}\\p{N}])${escapePattern(title)}(?![\\p{L}\\p{N}])`,
-          "iu"
-        ).test(sentence)
-      )
-      let result = sentence.replace(/\s*\[\d+\]/g, "")
-      if (
-        citation &&
-        safeUrl(citation.url) &&
-        citation.title.trim() &&
-        !alreadyNamed
-      ) {
-        const link = `[${citation.title}](${citation.url})`
-        result = result.replace(/([.!?])?$/, ` ${link}$1`)
-      }
-      return result
+  const names = references
+    .flatMap(({ title, url }) => {
+      const tag = /^Tag: (.+) \((.+)\)$/.exec(title)
+      return [title, ...(tag ? [tag[1]] : [])]
+        .filter((name) => name.length >= 3)
+        .map((name) => ({ name, url }))
     })
-    .join("")
+    .sort((a, b) => b.name.length - a.name.length)
+  const titlePattern = names.map(({ name }) => escapePattern(name)).join("|")
+  const tokens = new RegExp(
+    `\\[[^\\]\\n]+\\]\\([^\\s)]+\\)|\`[^\`\\n]+\`${
+      titlePattern
+        ? `|(?<![\\p{L}\\p{N}])(?:${titlePattern})(?![\\p{L}\\p{N}])`
+        : ""
+    }`,
+    "giu"
+  )
+  const linked = new Set<string>()
+
+  return normalized.replace(/[ \t]*\[\d+\]/g, "").replace(tokens, (token) => {
+    const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token)
+    if (link) {
+      const reference = references.find(
+        ({ url }) => url === link[2] || url.split("#")[0] === link[2]
+      )
+      if (!reference && !/^\/wiki(?:\/\d+)+$/.test(link[2])) return token
+      if (linked.has(link[2])) return link[1]
+      linked.add(link[2])
+      return token
+    }
+    if (token.startsWith("`")) return token
+    const reference = names.find(
+      ({ name }) => name.toLocaleLowerCase() === token.toLocaleLowerCase()
+    )!
+    if (linked.has(reference.url)) return token
+    linked.add(reference.url)
+    return `[${token}](${reference.url})`
+  })
 }
