@@ -4,7 +4,6 @@ import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
 import { findPageCandidates } from "@/lib/milo/find-page"
-import { MAX_MILO_TWEAKS, prepareMiloProposal } from "@/lib/milo/proposed-edit"
 import { getMiloProposal, saveMiloProposal } from "@/lib/milo/proposal-store"
 import {
   answerMiloSourceQuestion,
@@ -16,6 +15,7 @@ import {
   type MiloEditState,
 } from "@/lib/milo/source-workflow"
 import {
+  MAX_MILO_TWEAKS,
   MILO_FILE_MAX_BYTES,
   MILO_SOURCE_MAX_CHARS,
 } from "@/lib/milo/source-limits"
@@ -547,6 +547,9 @@ export async function POST(request: Request) {
           "That's the limit for adjustments to this proposal. Start a new chat to make more changes."
       } else {
         const feedback = [...(previousState.feedback ?? []), message]
+        const { prepareMiloProposal } = await import(
+          "@/lib/milo/proposed-edit"
+        )
         const prepared = await prepareMiloProposal({
           supabase,
           pageId: previousState.pageId,

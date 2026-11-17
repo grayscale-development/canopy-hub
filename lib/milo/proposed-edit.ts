@@ -1,10 +1,6 @@
 import "server-only"
 
 import { z } from "zod"
-import {
-  getImportAiOutput,
-  mergeWikiPageContent,
-} from "@/lib/ai/wiki-import-pipeline"
 import { isEditablePage } from "@/lib/milo/find-page"
 import { extractionSchema } from "@/lib/milo/source-workflow"
 import type { MiloCard } from "@/lib/milo/chat-cards"
@@ -13,14 +9,9 @@ import {
   type SupabaseWikiClient,
   type WikiRevisionRow,
 } from "@/lib/wiki"
-import {
-  createWikiImportDraft,
-  isFaithfulWikiImportOutput,
-  isFaithfulWikiUpdate,
-} from "@/lib/wiki-import"
 import { wikiNonTextChangeNotes } from "@/lib/wiki-diff"
 
-export const MAX_MILO_TWEAKS = 3
+export { MAX_MILO_TWEAKS } from "@/lib/milo/source-limits"
 
 // Model Markdown is converted to blocks by the import pipeline. Validate the
 // resulting block shape before retaining it for a future apply operation.
@@ -125,6 +116,17 @@ export async function prepareMiloProposal({
     revision = result.data as WikiRevisionRow
   }
   const text = extraction.facts.join("\n\n")
+  const [
+    { getImportAiOutput, mergeWikiPageContent },
+    {
+      createWikiImportDraft,
+      isFaithfulWikiImportOutput,
+      isFaithfulWikiUpdate,
+    },
+  ] = await Promise.all([
+    import("@/lib/ai/wiki-import-pipeline"),
+    import("@/lib/wiki-import"),
+  ])
   let aiOutput = null
   try {
     aiOutput = await getImportAiOutput(
