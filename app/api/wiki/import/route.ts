@@ -30,25 +30,7 @@ import {
   type WikiExtractedDocx,
   type WikiExtractedPdf,
 } from "@/lib/wiki-extract"
-import {
-  buildWikiPdfStructureHints,
-  createUniqueWikiImportSlug,
-  createWikiImportContentHash,
-  createWikiDocxImportDraft,
-  createWikiImportDraft,
-  createWikiVideoImportDraft,
-  isSupportedWikiImportFile,
-  isFaithfulWikiUpdate,
-  isWikiImportVideoFile,
-  normalizeWikiImportText,
-  titleFromWikiImportFileName,
-  WIKI_IMPORT_MAX_TEXT_LENGTH,
-  type WikiImportAiOutput,
-} from "@/lib/wiki-import"
-import {
-  getImportAiOutput,
-  mergeWikiPageContent,
-} from "@/lib/ai/wiki-import-pipeline"
+import type { WikiImportAiOutput } from "@/lib/wiki-import"
 import { archiveKnowledgeSource } from "@/lib/wiki-ai"
 import {
   readSignedWikiPreview,
@@ -180,6 +162,14 @@ async function completeWikiVideoImport({
       { status: 404 }
     )
   }
+
+  const [
+    { normalizeWikiImportText, createWikiVideoImportDraft },
+    { mergeWikiPageContent },
+  ] = await Promise.all([
+    import("@/lib/wiki-import"),
+    import("@/lib/ai/wiki-import-pipeline"),
+  ])
 
   const { data: node, error: nodeError } = await supabase
     .from("wiki_nodes")
@@ -759,6 +749,26 @@ export async function POST(request: Request) {
           : undefined,
     })
   }
+
+  const [
+    {
+      buildWikiPdfStructureHints,
+      createUniqueWikiImportSlug,
+      createWikiImportContentHash,
+      createWikiDocxImportDraft,
+      createWikiImportDraft,
+      isSupportedWikiImportFile,
+      isFaithfulWikiUpdate,
+      isWikiImportVideoFile,
+      normalizeWikiImportText,
+      titleFromWikiImportFileName,
+      WIKI_IMPORT_MAX_TEXT_LENGTH,
+    },
+    { getImportAiOutput, mergeWikiPageContent },
+  ] = await Promise.all([
+    import("@/lib/wiki-import"),
+    import("@/lib/ai/wiki-import-pipeline"),
+  ])
 
   const isVideoImportStart = videoImport === "start"
   const videoFileName =
