@@ -3,12 +3,7 @@
 import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import * as React from "react"
 import Link from "next/link"
-import {
-  PencilIcon,
-  SearchIcon,
-  TagsIcon,
-  XIcon,
-} from "lucide-react"
+import { PencilIcon, SearchIcon, TagsIcon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,7 +22,11 @@ import {
   TruncatedTitle,
   usePersistedSidebarExpansion,
 } from "@/components/wiki/wiki-sidebar-expansion"
-import { compareWikiNodes, type WikiNodeRow } from "@/lib/wiki"
+import {
+  buildWikiBreadcrumbs,
+  compareWikiNodes,
+  type WikiNodeRow,
+} from "@/lib/wiki"
 import {
   getDefaultWikiRepository,
   getWikiRepositoryBySlug,
@@ -41,6 +40,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   filterWikiSidebar,
+  normalizeSidebarText,
   sidebarQueryWords,
 } from "@/lib/wiki-sidebar-filter"
 
@@ -214,6 +214,7 @@ function SidebarSection({
   section,
   nodes,
   archivedNodes,
+  archiveTree,
   activePath,
   canManage,
   visibleIds,
@@ -224,6 +225,7 @@ function SidebarSection({
   section: WikiNodeRow
   nodes: WikiNodeRow[]
   archivedNodes: WikiNodeRow[]
+  archiveTree: WikiNodeRow[]
   activePath: string
   canManage: boolean
   visibleIds: Set<string>
@@ -302,8 +304,9 @@ function SidebarSection({
         {canManage ? (
           <SectionArchive
             section={section}
-            nodes={[...nodes, ...archivedNodes]}
+            nodes={archiveTree}
             archived={archivedNodes}
+            filtering={filtering}
           />
         ) : null}
       </div>
@@ -418,7 +421,25 @@ function WikiRepositorySidebarArea({
     }
     return result
   }, [sections, visibleNodes])
-  const filtering = sidebarQueryWords(query).length > 0
+  const queryWords = sidebarQueryWords(query)
+  const filtering = queryWords.length > 0
+  const archiveTree = React.useMemo(
+    () => [
+      ...nodes.filter((node) => node.status !== "archived"),
+      ...archivedNodes,
+    ],
+    [nodes, archivedNodes]
+  )
+  const filteredArchivedNodes = filtering
+    ? archivedNodes.filter((item) =>
+        buildWikiBreadcrumbs(archiveTree, item).some((ancestor) => {
+          const title = normalizeSidebarText(ancestor.title)
+          return queryWords.every((word) => title.includes(word))
+        })
+      )
+    : archivedNodes
+  const archiveMatches =
+    canEditSidebar && filtering ? filteredArchivedNodes.length : 0
   const { matchIds, visibleIds } = React.useMemo(
     () => filterWikiSidebar(areaNodes, query),
     [areaNodes, query]
@@ -523,7 +544,7 @@ function WikiRepositorySidebarArea({
       >
         <p className="sr-only" aria-live="polite">
           {filtering
-            ? `${matchIds.size} ${matchIds.size === 1 ? "result" : "results"}`
+            ? `${matchIds.size + archiveMatches} ${matchIds.size + archiveMatches === 1 ? "result" : "results"}`
             : ""}
         </p>
         {filteredSections.length ? (
@@ -533,7 +554,8 @@ function WikiRepositorySidebarArea({
                 key={section.id}
                 section={section}
                 nodes={visibleNodes}
-                archivedNodes={archivedNodes}
+                archivedNodes={filteredArchivedNodes}
+                archiveTree={archiveTree}
                 activePath={activePath}
                 canManage={canEditSidebar}
                 visibleIds={visibleIds}
@@ -543,14 +565,14 @@ function WikiRepositorySidebarArea({
               />
             )
           })
-        ) : filtering ? (
-          <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-            <p>No pages, sections, or groups match &quot;{query}&quot;</p>
+        ) : filtering && !archiveMatches ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>No matches.</span>
             <Button
               type="button"
-              variant="outline"
+              variant="link"
               size="sm"
-              className="mt-3"
+              className="h-auto p-0 underline"
               onClick={() => {
                 updateQuery("")
                 inputRef.current?.focus()
@@ -559,18 +581,16 @@ function WikiRepositorySidebarArea({
               Clear filter
             </Button>
           </div>
-        ) : (
+        ) : !filtering ? (
           <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
             No sections yet.
           </p>
-        )}
+        ) : null}
         {canEditSidebar ? (
           <GlobalWikiArchive
-            nodes={[
-              ...nodes.filter((node) => node.status !== "archived"),
-              ...archivedNodes,
-            ]}
-            archived={archivedNodes}
+            nodes={archiveTree}
+            archived={filteredArchivedNodes}
+            filtering={filtering}
           />
         ) : null}
       </div>
