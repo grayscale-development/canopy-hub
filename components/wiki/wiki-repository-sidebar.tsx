@@ -18,6 +18,7 @@ import {
 } from "@/components/wiki/wiki-archive"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
 import {
+  SidebarAccessorySlot,
   SidebarAccordionHeader,
   TruncatedTitle,
   usePersistedSidebarExpansion,
@@ -65,20 +66,24 @@ function SidebarPageLink({
       href={`/wiki/${path}`}
       data-wiki-filter-match={matchIds.has(node.id) ? "" : undefined}
       className={cn(
-        "flex min-h-8 w-full items-center rounded-md pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        "flex min-h-8 w-full items-center rounded-md text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
       )}
     >
       <span aria-hidden="true" className="size-8 shrink-0" />
-      <TruncatedTitle title={node.title} query={query} />
-      {node.status === "draft" ? (
-        <span
-          role="img"
-          aria-label="Draft"
-          title="Draft - only editors can see this"
-          className="ml-auto size-2 shrink-0 rounded-full bg-muted-foreground/50"
-        />
-      ) : null}
+      <span className="flex min-w-0 flex-1">
+        <TruncatedTitle title={node.title} query={query} />
+      </span>
+      <SidebarAccessorySlot>
+        {node.status === "draft" ? (
+          <span
+            role="img"
+            aria-label="Draft"
+            title="Draft - only editors can see this"
+            className="size-2 shrink-0 rounded-full bg-muted-foreground/50"
+          />
+        ) : null}
+      </SidebarAccessorySlot>
     </Link>
   )
 }
@@ -103,7 +108,7 @@ function SidebarFolderEditButton({
         type="button"
         size="icon-sm"
         variant="ghost"
-        className="-mr-1 size-6 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100"
+        className="size-6 shrink-0 cursor-pointer px-0 text-sidebar-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 hover:text-sidebar-foreground focus-visible:opacity-100"
         aria-label={`Edit ${folder.title}`}
         title={`Edit ${folder.title}`}
         onClick={() => {
@@ -167,10 +172,12 @@ function SidebarNestedFolder({
         query={query}
         filterMatch={matchIds.has(folder.id)}
         disabled={filtering}
+        secondaryAction={
+          canManage ? (
+            <SidebarFolderEditButton folder={folder} nodes={nodes} />
+          ) : null
+        }
       >
-        {canManage ? (
-          <SidebarFolderEditButton folder={folder} nodes={nodes} />
-        ) : null}
         {canManage ? (
           <WikiAddMenu
             folder={folder}
@@ -258,10 +265,12 @@ function SidebarSection({
         query={query}
         filterMatch={matchIds.has(section.id)}
         disabled={filtering}
+        secondaryAction={
+          canManage ? (
+            <SidebarFolderEditButton folder={section} nodes={nodes} />
+          ) : null
+        }
       >
-        {canManage ? (
-          <SidebarFolderEditButton folder={section} nodes={nodes} />
-        ) : null}
         {canManage ? (
           <WikiAddMenu
             folder={section}

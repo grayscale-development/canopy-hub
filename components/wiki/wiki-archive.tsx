@@ -131,7 +131,7 @@ function ArchiveItems({
 function ArchiveCount({ count }: { count: number }) {
   if (!count) return null
   return (
-    <span className="mr-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
       {count}
     </span>
   )
