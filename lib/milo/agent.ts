@@ -608,7 +608,7 @@ export async function answerMiloQuestionWithAgent({
       },
     }
   }
-  const checked = checkAnswer(answer, chunks)
+  const checked = checkAnswer(answer, chunks, sources)
   return {
     answer: checked.answer,
     model,

@@ -87,29 +87,95 @@ export function sourceUrl(source: Evidence) {
     : source.url
 }
 
-export function checkAnswer(answer: string, sources: Evidence[]) {
-  const citations: Evidence[] = []
-  const paragraphs = answer.split(/\n\s*\n/).map((paragraph) =>
-    paragraph
-      .split(/(?<=[.!?])\s+(?=[A-Z])/)
-      .map((sentence) => {
-        const claim = sentence.replace(/\s*\[\d+\]/g, "")
-        const match = sources
-          .map((source) => ({ source, quote: quoteFor(claim, source) }))
-          .find(({ quote }) => quote)
-        if (!match) return `${claim} (Not found in the wiki.)`
-        const { source, quote } = match
-        const url = sourceUrl(source)
-        let index = citations.findIndex(
-          (item) => item.url === url && item.snippet === quote
-        )
-        if (index < 0) {
-          index = citations.length
-          citations.push({ ...source, url, snippet: quote })
-        }
-        return `${claim} [${index + 1}]`
-      })
-      .join(" ")
+function referenceNames(source: Evidence) {
+  const tag = /^Tag: (.+) \((.+)\)$/.exec(source.title)
+  return tag ? [source.title, tag[1], tag[2]] : [source.title]
+}
+
+function mentionsReference(sentence: string, source: Evidence) {
+  if (!source.url) return false
+  const path = source.url.split("#")[0]
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  if (new RegExp(`${escape(path)}(?![\\p{L}\\p{N}/])`, "iu").test(sentence))
+    return true
+  const isNavigation =
+    /(?:^\s*[-*]\s+|\b(?:see|open|visit|read|find|match|page|link|tag|section)\b|\*\*|\[)/i.test(
+      sentence
+    )
+  return (
+    isNavigation &&
+    referenceNames(source).some((name) => {
+      if (name.length < 3) return false
+      return new RegExp(
+        `(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`,
+        "iu"
+      ).test(sentence)
+    })
   )
-  return { answer: paragraphs.join("\n\n"), citations }
+}
+
+export function checkAnswer(
+  answer: string,
+  sources: Evidence[],
+  referenceSources: Evidence[] = sources
+) {
+  const citations: Evidence[] = []
+  let unsupported = false
+  function addCitation(source: Evidence, snippet: string) {
+    const url = sourceUrl(source)
+    let index = citations.findIndex(
+      (item) => item.url === url && item.snippet === snippet
+    )
+    if (index < 0) {
+      index = citations.length
+      citations.push({ ...source, url, snippet })
+    }
+    return index + 1
+  }
+  const checked = answer
+    .split(/((?<=[.!?]) +(?=[A-Z])|\n)/)
+    .map((sentence, part) => {
+      if (part % 2) return sentence
+      const claim = sentence.replace(/ *\[\d+\]/g, "")
+      const match = sources
+        .map((source) => ({ source, quote: quoteFor(claim, source) }))
+        .find(({ quote }) => quote)
+      const references = referenceSources
+        .filter((source) => mentionsReference(claim, source))
+        .sort(
+          (a, b) =>
+            Number(Boolean(b.knowledgeSourceId)) -
+            Number(Boolean(a.knowledgeSourceId))
+        )
+      const referencedUrls = new Set<string | null>()
+      if (match) {
+        const index = addCitation(match.source, match.quote)
+        referencedUrls.add(sourceUrl(match.source))
+        for (const reference of references) {
+          const url = sourceUrl(reference)
+          if (!referencedUrls.has(url))
+            addCitation(reference, reference.snippet)
+          referencedUrls.add(url)
+        }
+        return `${claim.trimEnd()} [${index}]`
+      }
+      for (const reference of references) {
+        const url = sourceUrl(reference)
+        if (!referencedUrls.has(url)) addCitation(reference, reference.snippet)
+        referencedUrls.add(url)
+      }
+      const heading =
+        /^\s{0,3}#{1,6}\s/.test(claim) ||
+        /^\s*\*\*[^*]+\*\*\s*:?\s*$/.test(claim)
+      if (!references.length && !heading && terms(claim).length)
+        unsupported = true
+      return claim
+    })
+    .join("")
+  return {
+    answer: unsupported
+      ? `${checked}\n\nSome details could not be verified in the wiki.`
+      : checked,
+    citations,
+  }
 }

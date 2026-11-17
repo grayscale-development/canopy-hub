@@ -15,13 +15,13 @@ const source = {
 }
 
 describe("Milo evidence", () => {
-  it("uses exact sentences and labels unsupported paragraphs", () => {
+  it("cites supported details and warns once about unsupported details", () => {
     const result = checkAnswer(
       "Track returned checks in the refund ledger.\n\nThe CEO approves every refund.",
       [source]
     )
     expect(result.answer).toBe(
-      "Track returned checks in the refund ledger. [1]\n\nThe CEO approves every refund. (Not found in the wiki.)"
+      "Track returned checks in the refund ledger. [1]\n\nThe CEO approves every refund.\n\nSome details could not be verified in the wiki."
     )
     expect(result.citations).toMatchObject([
       {
@@ -30,15 +30,59 @@ describe("Milo evidence", () => {
       },
     ])
   })
-  it("labels an unsupported sentence even inside a supported paragraph", () => {
+  it("warns about an unsupported sentence even inside a supported paragraph", () => {
     const result = checkAnswer(
       "Track returned checks in the refund ledger. The CEO approves every refund.",
       [source]
     )
     expect(result.answer).toBe(
-      "Track returned checks in the refund ledger. [1] The CEO approves every refund. (Not found in the wiki.)"
+      "Track returned checks in the refund ledger. [1] The CEO approves every refund.\n\nSome details could not be verified in the wiki."
     )
   })
+  it("recognizes funding page paths, tags, and section names as references", () => {
+    const funding = {
+      title: "Funding Checklist",
+      url: "/wiki/1/16/17",
+      snippet: "Complete the funding steps.",
+    }
+    const closing = {
+      title: "Closing Desk Notes",
+      url: "/wiki/1/16/18",
+      snippet: "Notes for the closing desk.",
+    }
+    const tag = {
+      title: "Tag: Hub Process (v2.2 Test Section)",
+      url: "/wiki/tags?tag=Hub%20Process",
+      snippet: "Accessible pages: Funding Checklist",
+      sourceType: "wiki_tag",
+    }
+    const answer =
+      "The best match is **Funding Checklist**: `/wiki/1/16/17`.\n\n- **Closing Desk Notes**: `/wiki/1/16/18`\n- Hub Process tag, section v2.2 Test Section"
+    const result = checkAnswer(
+      answer,
+      [funding, closing],
+      [funding, closing, tag]
+    )
+    expect(result.answer).toBe(answer)
+    expect(result.citations.map((item) => item.url)).toEqual([
+      funding.url,
+      closing.url,
+      tag.url,
+    ])
+  })
+
+  it("warns only once when several claims cannot be verified", () => {
+    const result = checkAnswer(
+      "The CEO approves refunds. Every refund takes 20 days.",
+      [source]
+    )
+    expect(result.answer).toContain(
+      "Some details could not be verified in the wiki."
+    )
+    expect(result.answer.match(/could not be verified/g)).toHaveLength(1)
+    expect(result.citations).toEqual([])
+  })
+
   it("rejects unrelated retrieval and preserves closest pages", () => {
     expect(
       hasRetrievalConfidence("Where are returned checks tracked?", [source])

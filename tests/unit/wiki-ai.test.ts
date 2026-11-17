@@ -219,7 +219,7 @@ describe("wiki AI orchestration", () => {
       question: "tell me about borrower auth",
     })
 
-    expect(result.answer).toContain("Not found in the wiki")
+    expect(result.answer).toContain("could not be verified in the wiki")
     expect(result.citations).toEqual([])
     expect(result.answer).not.toContain("People directory")
     expect(hubData.fetchEmployeeDirectoryRows).toHaveBeenCalled()
@@ -405,7 +405,7 @@ describe("wiki AI orchestration", () => {
     expect(supabase.rpc).not.toHaveBeenCalled()
   })
 
-  it("labels an unsupported sentence from the fake agent while citing the supported sentence", async () => {
+  it("warns about an unsupported sentence from the fake agent while citing the supported sentence", async () => {
     const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
     miloMcp.callMiloMcpTool.mockImplementation(async (toolName: string) => ({
       ok: true,
@@ -435,7 +435,7 @@ describe("wiki AI orchestration", () => {
       question: "Where are returned checks tracked?",
     })
     expect(result.answer).toBe(
-      "Track returned checks in the refund ledger. [1] The CEO approves every refund. (Not found in the wiki.)"
+      "Track returned checks in the refund ledger. [1] The CEO approves every refund.\n\nSome details could not be verified in the wiki."
     )
     expect(result.citations).toMatchObject([
       { snippet: "Track returned checks in the refund ledger." },
