@@ -24,7 +24,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   try {
     return NextResponse.json(await scanWikiAlerts(createSupabaseAdminClient()))
-  } catch {
+  } catch (error) {
+    // Do not log the error object: providers and Data API errors can contain
+    // request bodies, headers, and other sensitive details in extra fields.
+    const details = error as { name?: unknown; message?: unknown } | null
+    const name = typeof details?.name === "string" ? details.name : "Error"
+    const message =
+      typeof details?.message === "string" ? details.message : "Unknown error"
+    console.error("Wiki alerts scan failed", {
+      name,
+      message: message.replaceAll(secret, "[redacted]"),
+    })
     return NextResponse.json(
       { error: "Unable to scan wiki alerts." },
       { status: 500 }
