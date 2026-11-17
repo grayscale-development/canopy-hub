@@ -24,7 +24,7 @@ test("renders the funding answer and a calm missing-answer state", async ({
   try {
     for (const [label, width, height, email] of [
       ["desktop", 1440, 900, "wiki-manager@canopy.test"],
-      ["mobile", 390, 844, "standard@canopy.test"],
+      ["mobile", 390, 844, "wiki-manager@canopy.test"],
     ] as const) {
       await page.setViewportSize({ width, height })
       await page.emulateMedia({ colorScheme: "light" })
@@ -49,14 +49,17 @@ test("renders the funding answer and a calm missing-answer state", async ({
         snippet: "Accessible pages: Funding Checklist",
       }
       // This is deliberately the unprocessed shape returned by the model.
-      const answer = `The best match is the published wiki page **Funding Checklist: ${fixture.path}**. [2]
+      const answer = `The funding process is documented in Funding Checklist: ${fixture.path}. [2]
 
-Funding steps on that page: [2]
-- Confirm the **wire instructions** before closing. [3]
+Before a loan can fund, the closer must: [2]
+- confirm the wire instructions on file match the title company callback [3]
+- verify the CD was signed [2]
+- check that the hazard insurance binder lists Canopy Mortgage as mortgagee [3]
 
-Related page:
-- **Closing Desk Notes**: \`/wiki/1/16/18\` contains closing notes. [4]
-- [Hub Process](/wiki/tags?tag=Hub%20Process), section v2.2 Test Section`
+If any of those three items is missing, pause funding and notify the processor in the loan file notes. [2]
+
+There's also a related page, Closing Desk Notes: /wiki/1/16/18, with the same funding paragraph. [4]
+Funding Checklist: ${fixture.path} has more details. [3]`
       const citations = [tag, funding, funding, closing]
       await page.route("**/api/wiki/chat", async (route) => {
         if (route.request().method() !== "POST") return route.fallback()
@@ -95,20 +98,26 @@ Related page:
       await expect(
         dialog.getByText("tell me about the funding process")
       ).toBeVisible()
-      const citation = dialog
-        .getByRole("link", {
-          name: "Funding Checklist",
-          exact: true,
-        })
-        .first()
+      const citation = dialog.getByRole("link", {
+        name: "Funding Checklist",
+        exact: true,
+      })
+      await expect(citation).toHaveCount(1)
       await expect(citation).toHaveAttribute("href", fixture.path)
       await expect(dialog).not.toContainText(/\[\d+\]|\/wiki\/\d|\*\*/)
+      const closingLink = dialog.getByRole("link", {
+        name: "Closing Desk Notes",
+      })
+      await expect(closingLink).toHaveCount(1)
+      await expect(closingLink).toHaveAttribute("href", closing.url)
       await expect(
-        dialog.getByRole("link", { name: "Closing Desk Notes" })
-      ).toHaveAttribute("href", closing.url)
+        dialog.getByText("Before a loan can fund, the closer must:")
+      ).toBeVisible()
       await expect(
-        dialog.getByRole("link", { name: "Hub Process" })
-      ).toHaveAttribute("href", tag.url)
+        dialog.getByText(
+          "confirm the wire instructions on file match the title company callback"
+        )
+      ).toBeVisible()
       await expect(dialog.getByText("Sources", { exact: true })).toHaveCount(0)
       await expect(dialog).not.toContainText("Not found in the wiki")
       if (shots)
@@ -117,8 +126,8 @@ Related page:
           path: path.join(
             shots,
             label === "desktop"
-              ? "08-manager-funding-desktop.png"
-              : "09-viewer-funding-mobile.png"
+              ? "01-manager-funding-desktop.png"
+              : "02-manager-funding-mobile.png"
           ),
         })
       await citation.click()

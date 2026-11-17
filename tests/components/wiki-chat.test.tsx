@@ -121,7 +121,7 @@ describe("WikiChat", () => {
       await screen.findByText("tell me about the funding process")
     ).toBeVisible()
     expect(
-      screen.getAllByRole("link", { name: "Funding Checklist" })[0]
+      screen.getByRole("link", { name: "Funding Checklist" })
     ).toHaveAttribute("href", "/wiki/1/16/17")
     expect(
       screen.queryByRole("link", { name: "/wiki/1/16/17" })
@@ -141,7 +141,7 @@ describe("WikiChat", () => {
     )
     expect(screen.getByRole("list")).toBeInTheDocument()
     expect(screen.queryByText("Sources")).not.toBeInTheDocument()
-    const link = screen.getAllByRole("link", { name: "Funding Checklist" })[0]
+    const link = screen.getByRole("link", { name: "Funding Checklist" })
     link.addEventListener("click", (event) => event.preventDefault(), {
       once: true,
     })
