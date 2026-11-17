@@ -120,4 +120,33 @@ describe("wiki alerts", () => {
       screen.getByRole("button", { name: "Apply recommendation" })
     ).toBeDisabled()
   })
+  it("enables Apply only for a valid versioned recommendation", async () => {
+    state.rows = [
+      {
+        id: "alert",
+        page_id: "a",
+        other_page_id: "b",
+        recommendation: {
+          version: 1,
+          summary: "Replace the duplicate",
+          targetPageId: "a",
+          baseRevisionId: "rev-1",
+          canonicalPageId: "b",
+          canonicalTitle: "Second",
+          canonicalPath: "/wiki/2",
+          blockId: "one",
+          changeNote: "Consolidated",
+        },
+      },
+    ]
+    render(<WikiAlerts nodes={nodes} />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: /Alerts 1/ }))
+    expect(
+      screen.getByRole("button", { name: "Apply recommendation" })
+    ).toBeEnabled()
+    expect(
+      screen.queryByText("This recommendation cannot be applied yet.")
+    ).not.toBeInTheDocument()
+  })
 })

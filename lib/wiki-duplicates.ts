@@ -180,11 +180,11 @@ function validPath(node: WikiNodeRow, byId: Map<string, WikiNodeRow>) {
   return false
 }
 
-async function visibleNodes(supabase: SupabaseWikiClient) {
+async function visibleNodes(supabase: SupabaseWikiClient, job = false) {
   const nodes: WikiNodeRow[] = []
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const { data, error } = await supabase
-      .from("milo_wiki_nodes")
+      .from(job ? "wiki_nodes" : "milo_wiki_nodes")
       .select("id")
       .order("id")
       .range(offset, offset + PAGE_SIZE - 1)
@@ -238,20 +238,22 @@ export async function detectWikiDuplicates(
   userId: string,
   nodeId: string,
   selection?: string,
-  includeDismissed = false
+  includeDismissed = false,
+  job = false
 ): Promise<DuplicateResult | null> {
-  const nodes = await visibleNodes(supabase)
+  const nodes = await visibleNodes(supabase, job)
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const node = byId.get(nodeId)
   if (
     !node ||
     node.type !== "page" ||
+    (job && node.status !== "published") ||
     !validPath(node, byId) ||
     !node.current_revision_id
   )
     return null
   const key = cacheKey(userId, nodeId, selection, nodes)
-  const cached = cache.get(key)
+  const cached = job ? undefined : cache.get(key)
   if (cached && cached.expires > Date.now()) {
     cache.delete(key)
     cache.set(key, cached)
@@ -266,7 +268,10 @@ export async function detectWikiDuplicates(
   cache.delete(key)
   const pages = nodes.filter(
     (item) =>
-      item.type === "page" && item.current_revision_id && validPath(item, byId)
+      item.type === "page" &&
+      (!job || item.status === "published") &&
+      item.current_revision_id &&
+      validPath(item, byId)
   )
   const revisions = new Map<string, unknown>()
   const ids = pages.map((page) => page.current_revision_id!)
@@ -425,6 +430,7 @@ export async function detectWikiDuplicates(
   }
   for (const passage of result.passages)
     passage.matches.sort((a, b) => b.score - a.score)
+  if (job) return result
   cache.set(key, { expires: Date.now() + CACHE_TTL_MS, result })
   while (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!)
   return applyDismissals(supabase, nodeId, result, includeDismissed, nodes)
