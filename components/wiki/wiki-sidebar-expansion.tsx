@@ -176,6 +176,18 @@ export function SidebarExpansionToggle({
   )
 }
 
+export function SidebarAccessorySlot({
+  children,
+}: {
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="flex w-8 shrink-0 items-center justify-center">
+      {children}
+    </div>
+  )
+}
+
 export function SidebarAccordionHeader({
   label,
   title,
@@ -188,6 +200,7 @@ export function SidebarAccordionHeader({
   query,
   filterMatch = false,
   disabled = false,
+  secondaryAction,
   children,
 }: {
   label: string
@@ -201,6 +214,7 @@ export function SidebarAccordionHeader({
   query?: string
   filterMatch?: boolean
   disabled?: boolean
+  secondaryAction?: React.ReactNode
   children?: React.ReactNode
 }) {
   const titleNode = <TruncatedTitle title={title} query={query} />
@@ -254,7 +268,8 @@ export function SidebarAccordionHeader({
           {titleNode}
         </button>
       )}
-      {children}
+      {secondaryAction}
+      <SidebarAccessorySlot>{children}</SidebarAccessorySlot>
     </div>
   )
 }
