@@ -249,12 +249,12 @@ describe("WikiEditor", () => {
       name: "Search or create a tag",
     })
     expect(searchInput).toHaveFocus()
-    expect(screen.getByRole("button", { name: "Assets" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Assets, Global" })).toBeVisible()
 
     await user.type(searchInput, "cred")
     expect(screen.getByRole("button", { name: "Credit, Global" })).toBeVisible()
     expect(
-      screen.queryByRole("button", { name: "Assets" })
+      screen.queryByRole("button", { name: "Assets, Global" })
     ).not.toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "Credit, Global" }))

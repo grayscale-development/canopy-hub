@@ -33,7 +33,6 @@ function recordSuggestion(event: "shown" | "accepted" | "ignored") {
 }
 
 type TagListRow =
-  | { type: "heading"; value: string }
   | { type: "empty"; value: string }
   | { type: "tag"; value: WikiScopedTag; reason?: string | null }
 
@@ -251,32 +250,15 @@ export function WikiTagPicker({
     const matching = allTags.filter((tag) =>
       tag.name.toLocaleLowerCase().includes(normalizedQuery.toLocaleLowerCase())
     )
-    const group = (scope: "section" | "global") =>
-      matching
-        .filter((tag) => tag.scope === scope)
-        .sort((left, right) => {
-          const selectionOrder =
-            Number(selectedTags.some((tag) => sameTag(tag, right))) -
-            Number(selectedTags.some((tag) => sameTag(tag, left)))
-          return selectionOrder || left.name.localeCompare(right.name)
-        })
-        .map((value) => ({ type: "tag" as const, value }))
-    if (!showLevels) {
-      const tags = [...group("section"), ...group("global")]
-      return tags.length ? tags : [{ type: "empty", value: "all" }]
-    }
-    const sectionTags = group("section")
-    const globalTags = group("global")
-    return [
-      { type: "heading", value: "In this section" },
-      ...(sectionTags.length
-        ? sectionTags
-        : [{ type: "empty" as const, value: "section" }]),
-      { type: "heading", value: "Global" },
-      ...(globalTags.length
-        ? globalTags
-        : [{ type: "empty" as const, value: "global" }]),
-    ]
+    const tags = matching
+      .sort((left, right) => {
+        const selectionOrder =
+          Number(selectedTags.some((tag) => sameTag(tag, right))) -
+          Number(selectedTags.some((tag) => sameTag(tag, left)))
+        return selectionOrder || left.name.localeCompare(right.name)
+      })
+      .map((value) => ({ type: "tag" as const, value }))
+    return tags.length ? tags : [{ type: "empty", value: "all" }]
   })()
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
@@ -445,16 +427,6 @@ export function WikiTagPicker({
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const row = rows[virtualRow.index]
                 const style = { transform: `translateY(${virtualRow.start}px)` }
-                if (row.type === "heading")
-                  return (
-                    <div
-                      key={row.value}
-                      style={style}
-                      className="absolute top-0 left-0 flex h-[30px] w-full items-center px-2 text-xs font-semibold text-muted-foreground"
-                    >
-                      {row.value}
-                    </div>
-                  )
                 if (row.type === "empty")
                   return (
                     <div
@@ -481,10 +453,8 @@ export function WikiTagPicker({
                       row.value.name,
                       outOfScope ? "different section" : null,
                       row.reason,
-                      showLevels && normalizedQuery && !outOfScope
-                        ? row.value.scope === "global"
-                          ? "Global"
-                          : "This section"
+                      showLevels && row.value.scope === "global"
+                        ? "Global"
                         : null,
                     ]
                       .filter(Boolean)
@@ -505,11 +475,9 @@ export function WikiTagPicker({
                         {row.reason}
                       </span>
                     ) : null}
-                    {showLevels && normalizedQuery && !outOfScope ? (
+                    {showLevels && row.value.scope === "global" ? (
                       <span className="text-xs text-muted-foreground">
-                        {row.value.scope === "global"
-                          ? "Global"
-                          : "This section"}
+                        Global
                       </span>
                     ) : null}
                     {normalizedQuery &&
