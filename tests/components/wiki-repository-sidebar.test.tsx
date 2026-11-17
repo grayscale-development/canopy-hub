@@ -615,6 +615,63 @@ describe("WikiRepositorySidebar", () => {
     )
   })
 
+  it("uses the same reserved accessory slot for sections, pages, and archives", async () => {
+    const user = userEvent.setup()
+    const draftNodes = nodes.map((item) =>
+      item.id === "closing-page" ? { ...item, status: "draft" as const } : item
+    )
+    const archivedPage = node({
+      id: "old-handbook",
+      parent_id: "canopy-operations",
+      type: "page",
+      status: "archived",
+    })
+    renderSidebar("canopy-wiki", "1", draftNodes, true, [archivedPage])
+    await user.click(screen.getByRole("button", { name: "Toggle Closing" }))
+
+    const slotClasses = [
+      "flex",
+      "w-8",
+      "shrink-0",
+      "items-center",
+      "justify-center",
+    ]
+    const sectionSlot = screen.getByRole("button", {
+      name: "Add to Operations",
+    }).parentElement!
+    const groupSlot = screen.getByRole("button", {
+      name: "Add to Closing",
+    }).parentElement!
+    const draftSlot = screen.getByRole("img", { name: "Draft" }).parentElement!
+    const publishedSlot = screen.getByRole("link", {
+      name: "Operations Overview",
+    }).lastElementChild!
+    const archiveRow = screen.getByRole("button", {
+      name: "Toggle Archive",
+    }).parentElement!
+    const archiveSlot = within(archiveRow).getByText("1").parentElement!
+    const sectionArchiveRow = screen.getByRole("button", {
+      name: "Toggle Archived",
+    }).parentElement!
+    const sectionArchiveSlot =
+      within(sectionArchiveRow).getByText("1").parentElement!
+
+    for (const slot of [
+      sectionSlot,
+      groupSlot,
+      draftSlot,
+      publishedSlot,
+      archiveSlot,
+      sectionArchiveSlot,
+    ]) {
+      expect(slot).toHaveClass(...slotClasses)
+    }
+    expect(publishedSlot).toBeEmptyDOMElement()
+    expect(
+      screen.getByRole("button", { name: "Edit Operations" }).nextElementSibling
+    ).toBe(sectionSlot)
+  })
+
   it("does not offer creation controls to a viewer", () => {
     renderSidebar("canopy-wiki", "canopy-wiki", nodes, false)
 
@@ -678,8 +735,7 @@ describe("WikiRepositorySidebar", () => {
     ).toBeVisible()
     expect(
       within(
-        screen.getByRole("button", { name: "Toggle Archive" })
-          .parentElement!
+        screen.getByRole("button", { name: "Toggle Archive" }).parentElement!
       ).getByText("2")
     ).toBeVisible()
   })
