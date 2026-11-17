@@ -80,6 +80,7 @@ export function WikiTagsManage({
   )
   const [query, setQuery] = React.useState("")
   const [expanded, setExpanded] = React.useState<string | null | undefined>()
+  const [toggled, setToggled] = React.useState<Record<string, boolean>>({})
   const matching = entries.filter((entry) =>
     entry.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
   )
@@ -216,7 +217,10 @@ export function WikiTagsManage({
             id="wiki-tags-filter"
             placeholder="Search tags"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setToggled({})
+            }}
           />
         </div>
         {canManage && unused.length > 0 ? (
@@ -247,10 +251,14 @@ export function WikiTagsManage({
         </TableHeader>
         <TableBody>
           {matching.map((tag) => {
+            const defaultOpen =
+              highlighted?.id === tag.id || query.trim().length > 0
             const isOpen =
-              expanded === undefined
-                ? highlighted?.id === tag.id
-                : expanded === tag.id
+              tag.id in toggled
+                ? toggled[tag.id]
+                : expanded === undefined
+                  ? defaultOpen
+                  : expanded === tag.id
             const firstWithName = entries.find(
               (item) =>
                 item.name.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
@@ -283,7 +291,12 @@ export function WikiTagsManage({
                     <button
                       type="button"
                       aria-expanded={isOpen}
-                      onClick={() => setExpanded(isOpen ? null : tag.id)}
+                      onClick={() =>
+                        setToggled((current) => ({
+                          ...current,
+                          [tag.id]: !isOpen,
+                        }))
+                      }
                       className="flex cursor-pointer items-center gap-2 text-left break-all hover:underline"
                     >
                       <ChevronDown

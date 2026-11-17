@@ -66,6 +66,22 @@ describe("combined tags page", () => {
     )
     expect(screen.getByText("No tags match your search.")).toBeVisible()
   })
+  it("searching a tag reveals its published pages", async () => {
+    const user = userEvent.setup()
+    render(
+      <WikiTagsManage entries={entries} sections={sections} canManage={false} />
+    )
+    expect(screen.queryByRole("link", { name: "Funding" })).toBeNull()
+    await user.type(
+      screen.getByRole("textbox", { name: "Search tags" }),
+      "Loans"
+    )
+    expect(screen.getByRole("link", { name: "Funding" })).toHaveAttribute(
+      "href",
+      "/wiki/1/2/3"
+    )
+  })
+
   it("highlights and opens the requested section without filtering the list", () => {
     render(
       <WikiTagsManage
