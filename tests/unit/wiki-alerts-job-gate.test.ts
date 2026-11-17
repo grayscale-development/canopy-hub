@@ -7,16 +7,29 @@ const stagingUrl = "https://lnzxjlsojwwnkqxzhizj.supabase.co"
 describe("wikiAlertsJobGate", () => {
   afterEach(() => vi.unstubAllEnvs())
 
-  it("denies production even with the flag enabled", () => {
+  it.each([undefined, "", "false", "TRUE"])(
+    "denies production with flag %j",
+    (flag) => {
+      vi.stubEnv(
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "https://rvwmxbuycfbmntxkovmn.supabase.co"
+      )
+      vi.stubEnv("CANOPY_ALLOW_STAGING_ALERTS_JOB", "true")
+      vi.stubEnv("CANOPY_ALLOW_PRODUCTION_ALERTS_JOB", flag)
+      expect(wikiAlertsJobGate()).toEqual({
+        allowed: false,
+        reason: "Production alerts job is not enabled",
+      })
+    }
+  )
+
+  it("allows production only with its own flag", () => {
     vi.stubEnv(
       "NEXT_PUBLIC_SUPABASE_URL",
       "https://rvwmxbuycfbmntxkovmn.supabase.co"
     )
-    vi.stubEnv("CANOPY_ALLOW_STAGING_ALERTS_JOB", "true")
-    expect(wikiAlertsJobGate()).toEqual({
-      allowed: false,
-      reason: "Alerts jobs cannot run on production",
-    })
+    vi.stubEnv("CANOPY_ALLOW_PRODUCTION_ALERTS_JOB", "true")
+    expect(wikiAlertsJobGate()).toEqual({ allowed: true })
   })
 
   it.each(["", "false", "TRUE"])("denies staging with flag %j", (flag) => {

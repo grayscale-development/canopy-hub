@@ -7,7 +7,7 @@ export function wikiAlertsJobGate():
   | { allowed: true }
   | { allowed: false; reason: string } {
   // Next can inline the public URL at build time; require both that value and
-  // the runtime value to identify staging before allowing a job to run.
+  // the runtime value to identify the same project before allowing a job.
   const runtimeEnv = process.env
   let urls: URL[]
   try {
@@ -19,23 +19,25 @@ export function wikiAlertsJobGate():
     return { allowed: false, reason: "Supabase URL is missing or invalid" }
   }
 
-  if (urls.some((url) => url.hostname === `${PRODUCTION_REF}.supabase.co`)) {
-    return { allowed: false, reason: "Alerts jobs cannot run on production" }
-  }
-  if (
-    urls.some(
+  const matchesProject = (ref: string) =>
+    urls.every(
       (url) =>
-        url.protocol !== "https:" ||
-        url.hostname !== `${STAGING_REF}.supabase.co` ||
-        url.port !== "" ||
-        url.username !== "" ||
-        url.password !== ""
+        url.protocol === "https:" &&
+        url.hostname === `${ref}.supabase.co` &&
+        url.port === "" &&
+        url.username === "" &&
+        url.password === ""
     )
-  ) {
-    return { allowed: false, reason: "Supabase URL is not the staging project" }
+
+  if (matchesProject(PRODUCTION_REF)) {
+    return process.env.CANOPY_ALLOW_PRODUCTION_ALERTS_JOB === "true"
+      ? { allowed: true }
+      : { allowed: false, reason: "Production alerts job is not enabled" }
   }
-  if (process.env.CANOPY_ALLOW_STAGING_ALERTS_JOB !== "true") {
-    return { allowed: false, reason: "Staging alerts job is not enabled" }
+  if (matchesProject(STAGING_REF)) {
+    return process.env.CANOPY_ALLOW_STAGING_ALERTS_JOB === "true"
+      ? { allowed: true }
+      : { allowed: false, reason: "Staging alerts job is not enabled" }
   }
-  return { allowed: true }
+  return { allowed: false, reason: "Supabase URL is not an alerts project" }
 }
