@@ -5,7 +5,7 @@ vi.mock("@/lib/supabase/admin", () => ({
   createSupabaseAdminClient: state.admin,
 }))
 vi.mock("@/lib/wiki-alert-scan", () => ({ scanWikiAlerts: state.scan }))
-import { POST } from "@/app/api/wiki/alerts/scan/route"
+import { GET, POST } from "@/app/api/wiki/alerts/scan/route"
 
 const request = (secret = "test-secret") =>
   new Request("http://localhost", {
@@ -55,6 +55,15 @@ describe("alerts scan route gate", () => {
       skipped: true,
       reason: "unchanged",
     })
+  })
+  it("accepts GET with the same gate and secret so a Vercel Cron can trigger it", async () => {
+    const response = await GET(request())
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      skipped: true,
+      reason: "unchanged",
+    })
+    expect(state.scan).toHaveBeenCalledTimes(1)
   })
   it("logs only the error name and message, redacting the scan secret", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
