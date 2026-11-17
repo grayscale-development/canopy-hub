@@ -1,165 +1,108 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
-  WikiTagsDirectory,
-  type WikiTagDirectoryEntry,
-} from "@/components/wiki/wiki-tags-directory"
-import { WikiEditModeProvider } from "@/components/wiki/wiki-edit-mode"
+  WikiTagsManage,
+  type ManageTag,
+} from "@/components/wiki/wiki-tags-manage"
 
-const entries: WikiTagDirectoryEntry[] = [
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock("@/app/wiki/tags/manage/actions", () => ({
+  manageWikiTagAction: vi.fn(),
+}))
+
+const entries: ManageTag[] = [
   {
     id: "g",
     name: "Loans",
     scope: "global",
     section_id: null,
     pages: [
-      {
-        id: "p1",
-        title: "Funding",
-        href: "/wiki/canopy/funding",
-        area: "Canopy Wiki",
-      },
-      {
-        id: "p2",
-        title: "Lesson",
-        href: "/wiki/learning/lesson",
-        area: "Learning Hub",
-      },
+      { id: "p1", sectionId: "s1" },
+      { id: "draft", sectionId: "s1" },
+    ],
+    publishedPages: [
+      { id: "p1", title: "Funding", href: "/wiki/1/2/3", area: "Canopy Wiki" },
     ],
   },
-  { id: "s", name: "Loans", scope: "section", section_id: "s1", pages: [] },
-]
-const sections = [
   {
-    id: "s1",
-    title: "Operations",
-    area: "Canopy Wiki",
-    href: "/wiki/canopy/operations",
-    examplePageHref: "/wiki/canopy/funding",
-  },
-  {
-    id: "s2",
-    title: "Learning",
-    area: "Learning Hub",
-    href: "/wiki/learning/learning",
+    id: "s",
+    name: "Loans",
+    scope: "section",
+    section_id: "s1",
+    pages: [],
+    publishedPages: [],
   },
 ]
+const sections = [{ id: "s1", name: "Operations", area: "Canopy Wiki" }]
 afterEach(() => {
   cleanup()
-  window.localStorage.clear()
+  window.history.replaceState(null, "", "/")
 })
-describe("tag directory", () => {
-  it("shows the management link only to managers in editor mode", () => {
-    const view = render(
-      <WikiEditModeProvider canManageWiki={false}>
-        <WikiTagsDirectory entries={entries} sections={sections} />
-      </WikiEditModeProvider>
-    )
-    expect(screen.queryByRole("link", { name: "Manage tags" })).toBeNull()
-    view.unmount()
-    const managerView = render(
-      <WikiEditModeProvider canManageWiki>
-        <WikiTagsDirectory entries={entries} sections={sections} />
-      </WikiEditModeProvider>
-    )
-    expect(screen.queryByRole("link", { name: "Manage tags" })).toBeNull()
-    managerView.unmount()
-    window.localStorage.setItem("wiki-edit-mode", "edit")
-    render(
-      <WikiEditModeProvider canManageWiki>
-        <WikiTagsDirectory entries={entries} sections={sections} />
-      </WikiEditModeProvider>
-    )
-    expect(screen.getByRole("link", { name: "Manage tags" })).toHaveAttribute(
-      "href",
-      "/wiki/tags/manage"
-    )
-  })
-  it("groups sections by area and counts global pages from both areas", async () => {
-    const user = userEvent.setup()
-    render(<WikiTagsDirectory entries={entries} sections={sections} />)
-    expect(screen.getByRole("heading", { name: "Global" })).toBeVisible()
-    expect(screen.getByText("2 pages")).toBeVisible()
-    expect(screen.getByText("Canopy Wiki", { selector: "span" })).toBeVisible()
-    expect(screen.getByText("Learning Hub", { selector: "span" })).toBeVisible()
-    await user.click(screen.getByText("Operations", { selector: "summary" }))
-    expect(
-      screen.getByText("No published pages use this tag yet.")
-    ).toBeVisible()
-    await user.click(screen.getByText("Learning", { selector: "summary" }))
-    expect(screen.getByText("No section tags yet.")).toBeVisible()
-  })
-  it("keeps empty-section guidance out of viewer mode", async () => {
+
+describe("combined tags page", () => {
+  it("reveals published pages and hides management controls from readers", async () => {
     const user = userEvent.setup()
     render(
-      <WikiEditModeProvider canManageWiki={false}>
-        <WikiTagsDirectory entries={entries} sections={sections} />
-      </WikiEditModeProvider>
+      <WikiTagsManage entries={entries} sections={sections} canManage={false} />
     )
-    await user.click(screen.getByText("Learning", { selector: "summary" }))
-    expect(screen.getByText("No section tags yet.")).toBeVisible()
+    expect(screen.queryByRole("link", { name: "Manage tags" })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Actions for/ })).toBeNull()
     expect(
-      screen.queryByRole("link", { name: /Add a page|Edit a page/ })
+      screen.queryByRole("button", { name: "Delete unused tags" })
     ).toBeNull()
-  })
-  it("prefers global for name links and opens the requested section for scoped links", () => {
-    const view = render(
-      <WikiTagsDirectory
-        entries={entries}
-        sections={sections}
-        initialSearch="Loans"
-      />
+    expect(screen.queryByText("Funding")).toBeNull()
+    const row = screen.getByText("Global", { selector: "td" }).closest("tr")!
+    await user.click(within(row).getByRole("button", { name: "Loans" }))
+    expect(screen.getByRole("link", { name: "Funding" })).toHaveAttribute(
+      "href",
+      "/wiki/1/2/3"
     )
-    expect(
-      document.getElementById("tag-loans")?.querySelector(".ring-2")
-    ).not.toBeNull()
-    view.rerender(
-      <WikiTagsDirectory
-        entries={entries}
-        sections={sections}
-        initialSearch="Loans"
-        initialSection="s1"
-      />
-    )
-    expect(
-      document.getElementById("tag-loans-s1")?.querySelector(".ring-2")
-    ).not.toBeNull()
-    expect(document.getElementById("tag-loans-s1")).toBeVisible()
-  })
-  it("keeps the old anchor when a name exists only in a section", () => {
-    render(
-      <WikiTagsDirectory
-        entries={[entries[1]]}
-        sections={sections}
-        initialSearch="Loans"
-      />
-    )
-    expect(document.getElementById("tag-loans")).toBeInTheDocument()
-    expect(
-      document.getElementById("tag-loans-s1")?.querySelector(".ring-2")
-    ).not.toBeNull()
-  })
-  it("filters by text and gives editing managers a way to add a tag", async () => {
-    const user = userEvent.setup()
-    window.localStorage.setItem("wiki-edit-mode", "edit")
-    render(
-      <WikiEditModeProvider canManageWiki>
-        <WikiTagsDirectory entries={entries} sections={sections} />
-      </WikiEditModeProvider>
-    )
-    await user.click(screen.getByText("Learning", { selector: "summary" }))
-    expect(
-      within(screen.getByText("No section tags yet.").parentElement!).getByRole(
-        "link",
-        { name: /Add a page/ }
-      )
-    ).toHaveAttribute("href", "/wiki/learning/learning")
+    expect(within(row).getByText("1")).toBeVisible()
     await user.type(
       screen.getByRole("textbox", { name: "Search tags" }),
       "missing"
     )
-    expect(screen.getByText(/No tags match/)).toBeVisible()
+    expect(screen.getByText("No tags match your search.")).toBeVisible()
+  })
+  it("highlights and opens the requested section without filtering the list", () => {
+    render(
+      <WikiTagsManage
+        entries={entries}
+        sections={sections}
+        canManage
+        initialTag="Loans"
+        initialSection="s1"
+      />
+    )
+    const row = document.getElementById("tag-loans-s1")!
+    expect(row).toHaveClass("bg-muted/50")
+    expect(within(row).getByRole("button", { name: "Loans" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    )
+    expect(screen.getAllByRole("button", { name: "Loans" })).toHaveLength(2)
+    expect(
+      screen.getByRole("button", { name: "Actions for Loans, Global" })
+    ).toBeVisible()
+  })
+  it("resolves hash-only and legacy name anchors", () => {
+    window.history.replaceState(null, "", "/wiki/tags#tag-loans-s1")
+    const view = render(
+      <WikiTagsManage entries={entries} sections={sections} canManage={false} />
+    )
+    expect(document.getElementById("tag-loans-s1")).toHaveClass("bg-muted/50")
+    view.unmount()
+    window.history.replaceState(null, "", "/wiki/tags#tag-loans")
+    render(
+      <WikiTagsManage
+        entries={[entries[1]]}
+        sections={sections}
+        canManage={false}
+      />
+    )
+    expect(document.getElementById("tag-loans")).toBeInTheDocument()
+    expect(document.getElementById("tag-loans-s1")).toHaveClass("bg-muted/50")
   })
 })

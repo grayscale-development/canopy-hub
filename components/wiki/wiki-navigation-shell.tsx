@@ -149,7 +149,7 @@ export function WikiRepositoryNavigation({
       canManageWiki={canManageWiki}
     />
   )
-  return pathname === "/wiki/tags/manage" ? (
+  return pathname === "/wiki/tags" ? (
     <div className="hidden lg:contents">{navigation}</div>
   ) : (
     navigation

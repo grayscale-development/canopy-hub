@@ -26,6 +26,7 @@ const entries: ManageTag[] = [
     scope: "global",
     section_id: null,
     pages: [],
+    publishedPages: [],
   },
   {
     id: "target",
@@ -33,6 +34,7 @@ const entries: ManageTag[] = [
     scope: "global",
     section_id: null,
     pages: [{ id: "p1", sectionId: "a" }],
+    publishedPages: [],
   },
   {
     id: "source",
@@ -43,6 +45,7 @@ const entries: ManageTag[] = [
       { id: "p1", sectionId: "a" },
       { id: "p2", sectionId: "b" },
     ],
+    publishedPages: [],
   },
 ]
 const sections = [
@@ -71,9 +74,11 @@ describe("manage tags", () => {
             section_id: "group",
             sectionTitle: "Closing",
             pages: [],
+            publishedPages: [],
           },
         ]}
         sections={sections}
+        canManage
       />
     )
     expect(screen.getByText("Closing")).toBeVisible()
@@ -84,7 +89,7 @@ describe("manage tags", () => {
       ok: true,
       message: "Done",
     })
-    render(<WikiTagsManage entries={entries} sections={sections} />)
+    render(<WikiTagsManage entries={entries} sections={sections} canManage />)
     await user.click(
       screen.getByRole("button", { name: "Actions for Source, Global" })
     )
@@ -112,7 +117,7 @@ describe("manage tags", () => {
   })
   it("explains the sections blocking a demotion", async () => {
     const user = userEvent.setup()
-    render(<WikiTagsManage entries={entries} sections={sections} />)
+    render(<WikiTagsManage entries={entries} sections={sections} canManage />)
     await user.click(
       screen.getByRole("button", { name: "Actions for Source, Global" })
     )
@@ -133,7 +138,7 @@ describe("manage tags", () => {
       ok: false,
       message: "A tag with this name already exists.",
     })
-    render(<WikiTagsManage entries={entries} sections={sections} />)
+    render(<WikiTagsManage entries={entries} sections={sections} canManage />)
     await user.click(
       screen.getByRole("button", { name: "Actions for Source, Global" })
     )
@@ -151,7 +156,7 @@ describe("manage tags", () => {
   })
   it("previews the unused tags before deleting", async () => {
     const user = userEvent.setup()
-    render(<WikiTagsManage entries={entries} sections={sections} />)
+    render(<WikiTagsManage entries={entries} sections={sections} canManage />)
     await user.click(screen.getByRole("button", { name: "Delete unused tags" }))
     expect(
       screen.getByText("Delete 1 unused tag? No pages will change.")

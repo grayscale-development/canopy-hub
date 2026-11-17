@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { MoreHorizontal } from "lucide-react"
+import { ChevronDown, MoreHorizontal } from "lucide-react"
 
 import { manageWikiTagAction } from "@/app/wiki/tags/manage/actions"
 import { Button } from "@/components/ui/button"
@@ -38,10 +38,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import type { WikiTagRow } from "@/lib/wiki"
+import { wikiTagAnchor, type WikiTagRow } from "@/lib/wiki"
 
 export type ManageTag = WikiTagRow & {
   pages: { id: string; sectionId: string | null }[]
+  publishedPages: { id: string; title: string; href: string; area: string }[]
   sectionTitle?: string
 }
 export type ManageTagSection = { id: string; name: string; area: string }
@@ -53,14 +54,53 @@ type Operation =
   | "delete"
   | "delete-unused"
 
+function subscribeToHash(callback: () => void) {
+  window.addEventListener("hashchange", callback)
+  return () => window.removeEventListener("hashchange", callback)
+}
+
 export function WikiTagsManage({
   entries,
   sections,
+  canManage,
+  initialTag = "",
+  initialSection = "",
 }: {
   entries: ManageTag[]
   sections: ManageTagSection[]
+  canManage: boolean
+  initialTag?: string
+  initialSection?: string
 }) {
   const router = useRouter()
+  const hash = React.useSyncExternalStore(
+    subscribeToHash,
+    () => window.location.hash.slice(1),
+    () => ""
+  )
+  const [query, setQuery] = React.useState("")
+  const [expanded, setExpanded] = React.useState<string | null | undefined>()
+  const matching = entries.filter((entry) =>
+    entry.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+  )
+  const exact = entries.filter(
+    (entry) =>
+      entry.name.toLocaleLowerCase() === initialTag.trim().toLocaleLowerCase()
+  )
+  const highlighted =
+    entries.find((entry) => wikiTagAnchor(entry) === hash) ??
+    entries.find(
+      (entry) =>
+        entry.scope === "section" &&
+        wikiTagAnchor({
+          name: entry.name,
+          scope: "global",
+          section_id: null,
+        }) === hash
+    ) ??
+    (initialSection
+      ? exact.find((entry) => entry.section_id === initialSection)
+      : (exact.find((entry) => entry.scope === "global") ?? exact[0]))
   const [operation, setOperation] = React.useState<Operation | null>(null)
   const [source, setSource] = React.useState<ManageTag | null>(null)
   const [name, setName] = React.useState("")
@@ -159,26 +199,31 @@ export function WikiTagsManage({
   return (
     <section className="mx-auto flex w-full max-w-[864px] flex-col gap-6 px-6 py-10 md:px-8">
       <div className="space-y-3">
-        <Link href="/wiki/tags" className="text-sm underline">
-          Back to tags
-        </Link>
-        <h1 className="text-4xl font-bold">Manage tags</h1>
+        <h1 className="text-4xl font-bold">Tags</h1>
         <p className="text-sm text-muted-foreground">
-          Clean up tags across all Wiki pages, including drafts and archived
-          pages. Least-used tags appear first.
+          Browse tags and the published Wiki pages that use them.
+          {canManage
+            ? " Cleanup actions include drafts and archived pages."
+            : null}
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {entries.length} {entries.length === 1 ? "tag" : "tags"}
-        </p>
-        <Button
-          variant="outline"
-          disabled={!unused.length}
-          onClick={() => open("delete-unused")}
-        >
-          Delete unused tags
-        </Button>
+        <div className="w-full max-w-xs">
+          <label htmlFor="wiki-tags-filter" className="sr-only">
+            Search tags
+          </label>
+          <Input
+            id="wiki-tags-filter"
+            placeholder="Search tags"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        {canManage && unused.length > 0 ? (
+          <Button variant="outline" onClick={() => open("delete-unused")}>
+            Delete unused tags
+          </Button>
+        ) : null}
       </div>
       {notice ? (
         <p role="status" className="text-sm">
@@ -189,62 +234,157 @@ export function WikiTagsManage({
         <TableHeader>
           <TableRow>
             <TableHead>Tag</TableHead>
-            <TableHead>Level</TableHead>
-            <TableHead>Pages used</TableHead>
-            <TableHead>
-              <span className="sr-only">Actions</span>
+            <TableHead className="hidden sm:table-cell">Level</TableHead>
+            <TableHead className="hidden sm:table-cell">
+              Published pages
             </TableHead>
+            {canManage ? (
+              <TableHead className="w-10">
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            ) : null}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {entries.map((tag) => (
-            <TableRow key={tag.id}>
-              <TableCell className="font-medium">{tag.name}</TableCell>
-              <TableCell>{level(tag)}</TableCell>
-              <TableCell>{tag.pages.length}</TableCell>
-              <TableCell className="text-right">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Actions for ${tag.name}, ${level(tag)}`}
+          {matching.map((tag) => {
+            const isOpen =
+              expanded === undefined
+                ? highlighted?.id === tag.id
+                : expanded === tag.id
+            const firstWithName = entries.find(
+              (item) =>
+                item.name.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
+            )
+            const hasGlobalName = entries.some(
+              (item) =>
+                item.scope === "global" &&
+                item.name.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
+            )
+            const legacyAnchor =
+              tag.scope === "section" &&
+              !hasGlobalName &&
+              firstWithName?.id === tag.id
+                ? wikiTagAnchor({
+                    name: tag.name,
+                    scope: "global",
+                    section_id: null,
+                  })
+                : null
+            return (
+              <React.Fragment key={tag.id}>
+                <TableRow
+                  id={wikiTagAnchor(tag)}
+                  className={
+                    highlighted?.id === tag.id ? "bg-muted/50" : undefined
+                  }
+                >
+                  <TableCell className="font-medium whitespace-normal">
+                    {legacyAnchor ? <span id={legacyAnchor} /> : null}
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      onClick={() => setExpanded(isOpen ? null : tag.id)}
+                      className="flex cursor-pointer items-center gap-2 text-left break-all hover:underline"
                     >
-                      <MoreHorizontal />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => open("rename", tag)}>
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => open("merge", tag)}>
-                      Merge into...
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        open(tag.scope === "global" ? "demote" : "promote", tag)
-                      }
+                      <ChevronDown
+                        className={`size-4 shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                        aria-hidden="true"
+                      />
+                      {tag.name}
+                    </button>
+                    <span className="mt-1 block pl-6 text-xs font-normal text-muted-foreground sm:hidden">
+                      {level(tag)} · {tag.publishedPages.length} published{" "}
+                      {tag.publishedPages.length === 1 ? "page" : "pages"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    {level(tag)}
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    {tag.publishedPages.length}
+                  </TableCell>
+                  {canManage ? (
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Actions for ${tag.name}, ${level(tag)}`}
+                          >
+                            <MoreHorizontal />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onSelect={() => open("rename", tag)}
+                          >
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => open("merge", tag)}>
+                            Merge into...
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              open(
+                                tag.scope === "global" ? "demote" : "promote",
+                                tag
+                              )
+                            }
+                          >
+                            {tag.scope === "global"
+                              ? "Make section-only"
+                              : "Make global"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={tag.pages.length > 0}
+                            onSelect={() => open("delete", tag)}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+                {isOpen ? (
+                  <TableRow>
+                    <TableCell
+                      className="whitespace-normal"
+                      colSpan={canManage ? 4 : 3}
                     >
-                      {tag.scope === "global"
-                        ? "Make section-only"
-                        : "Make global"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={tag.pages.length > 0}
-                      onSelect={() => open("delete", tag)}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
+                      {tag.publishedPages.length ? (
+                        <ul className="space-y-2 py-2 pl-6">
+                          {tag.publishedPages.map((page) => (
+                            <li key={page.id}>
+                              <Link
+                                href={page.href}
+                                className="font-medium underline-offset-4 hover:underline"
+                              >
+                                {page.title}
+                              </Link>
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {page.area}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="py-2 pl-6 text-sm text-muted-foreground">
+                          No published pages use this tag yet.
+                        </p>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </React.Fragment>
+            )
+          })}
         </TableBody>
       </Table>
-      {!entries.length ? (
+      {!matching.length ? (
         <p className="text-sm text-muted-foreground">
-          There are no tags to manage yet.
+          {query ? "No tags match your search." : "There are no tags yet."}
         </p>
       ) : null}
       <Dialog

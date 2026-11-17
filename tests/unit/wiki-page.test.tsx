@@ -85,8 +85,8 @@ vi.mock("@/components/wiki/wiki-revisions", () => ({
     </div>
   ),
 }))
-vi.mock("@/components/wiki/wiki-tags-directory", () => ({
-  WikiTagsDirectory: () => <div>Tags</div>,
+vi.mock("@/components/wiki/wiki-tags-manage", () => ({
+  WikiTagsManage: () => <div>Tags</div>,
 }))
 vi.mock("@/lib/permissions", () => ({
   userHasPermissionCode: vi.fn(
@@ -108,6 +108,7 @@ vi.mock("@/lib/supabase/server", () => ({
       select: (...args: unknown[]) => {
         state.select(...args)
         return {
+          order: () => ({ range: async () => ({ data: [], error: null }) }),
           eq: () => ({
             order: () => ({
               limit: async (value: number) => {
