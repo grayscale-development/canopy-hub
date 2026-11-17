@@ -661,13 +661,26 @@ describe("WikiRepositorySidebar", () => {
         </TooltipProvider>
       </WikiEditModeProvider>
     )
-    expect(screen.queryByText(/Archived \(/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Archive \(/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Toggle Archived" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Toggle Archive" })
+    ).not.toBeInTheDocument()
     const toggle = screen.getByRole("switch", {
       name: "Toggle wiki editor mode",
     })
     await user.click(toggle)
-    expect(screen.getByText("Archived (1)")).toBeVisible()
-    expect(screen.getByText("Archive (2)")).toBeVisible()
+    expect(
+      within(
+        screen.getByRole("button", { name: "Toggle Archived" }).parentElement!
+      ).getByText("1")
+    ).toBeVisible()
+    expect(
+      within(
+        screen.getByRole("button", { name: "Toggle Archive" })
+          .parentElement!
+      ).getByText("2")
+    ).toBeVisible()
   })
 })

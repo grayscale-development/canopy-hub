@@ -119,6 +119,12 @@ describe("wiki archives", () => {
       </TooltipProvider>
     )
     const toggle = screen.getByRole("button", { name: "Toggle Archived" })
+    expect(screen.getByRole("button", { name: "Archived" })).toBeVisible()
+    expect(within(toggle.parentElement!).getByText("1")).toHaveClass(
+      "rounded-full",
+      "bg-muted",
+      "text-xs"
+    )
     expect(toggle).toHaveAttribute("aria-expanded", "false")
     expect(toggle).toHaveClass("size-8")
     expect(toggle.parentElement).toHaveClass(
@@ -164,6 +170,12 @@ describe("wiki archives", () => {
       </TooltipProvider>
     )
     const toggle = screen.getByRole("button", { name: "Toggle Archive" })
+    expect(screen.getByRole("button", { name: "Archive" })).toBeVisible()
+    expect(within(toggle.parentElement!).getByText("2")).toHaveClass(
+      "rounded-full",
+      "bg-muted",
+      "text-xs"
+    )
     expect(toggle).toHaveAttribute("aria-expanded", "false")
     expect(toggle.parentElement).toHaveClass(
       "min-h-8",
@@ -207,6 +219,7 @@ describe("wiki archives", () => {
         <GlobalWikiArchive nodes={all} archived={[old, closed]} />
       </TooltipProvider>
     )
+    expect(screen.getByText("2")).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Toggle Archive" }))
     await user.type(
       screen.getByRole("textbox", { name: "Search archive" }),
@@ -217,6 +230,8 @@ describe("wiki archives", () => {
         <GlobalWikiArchive nodes={all} archived={[old]} filtering />
       </TooltipProvider>
     )
+    expect(screen.getByText("1")).toBeVisible()
+    expect(screen.queryByText("2")).toBeNull()
     expect(screen.getByRole("link", { name: "Old Handbook" })).toBeVisible()
     expect(screen.queryByRole("textbox", { name: "Search archive" })).toBeNull()
     view.rerender(
@@ -224,11 +239,32 @@ describe("wiki archives", () => {
         <GlobalWikiArchive nodes={all} archived={[old, closed]} />
       </TooltipProvider>
     )
+    expect(screen.getByText("2")).toBeVisible()
     expect(screen.getByRole("textbox", { name: "Search archive" })).toHaveValue(
       "retired"
     )
     expect(screen.getByRole("link", { name: "Retired Team" })).toBeVisible()
     expect(screen.queryByRole("link", { name: "Old Handbook" })).toBeNull()
+  })
+
+  it("hides zero counts and empty sections while keeping the unfiltered global archive", () => {
+    const view = render(
+      <TooltipProvider>
+        <SectionArchive section={section} nodes={all} archived={[]} />
+        <GlobalWikiArchive nodes={all} archived={[]} />
+      </TooltipProvider>
+    )
+    expect(screen.queryByRole("button", { name: "Archived" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Archive" })).toBeVisible()
+    expect(screen.queryByText("0")).toBeNull()
+    view.rerender(
+      <TooltipProvider>
+        <SectionArchive section={section} nodes={all} archived={[]} filtering />
+        <GlobalWikiArchive nodes={all} archived={[]} filtering />
+      </TooltipProvider>
+    )
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull()
+    expect(screen.queryByText("0")).toBeNull()
   })
 
   it("hides restore on an archived page when editor mode is off", () => {
