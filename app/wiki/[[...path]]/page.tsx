@@ -17,10 +17,10 @@ import {
 import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
 import { WikiRevisionSelector } from "@/components/wiki/wiki-revisions"
 import {
-  WikiTagsDirectory,
-  type WikiTagDirectoryEntry,
-  type WikiTagDirectorySection,
-} from "@/components/wiki/wiki-tags-directory"
+  WikiTagsManage,
+  type ManageTag,
+  type ManageTagSection,
+} from "@/components/wiki/wiki-tags-manage"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
@@ -43,6 +43,7 @@ import {
   WIKI_MANAGE_PERMISSION,
   type WikiNodeRow,
   type WikiTagAssignment,
+  type WikiTagRow,
   type WikiRevisionMetadata,
 } from "@/lib/wiki"
 
@@ -255,16 +256,50 @@ export default async function WikiPage({
       return (
         <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
           <section className="mx-auto w-full max-w-[864px] px-6 py-4 md:px-8 md:py-6">
-            <ArchivedWikiPageView node={target} archivedParent={archivedParent} />
+            <ArchivedWikiPageView
+              node={target}
+              archivedParent={archivedParent}
+            />
           </section>
         </main>
       )
     }
   }
-  const [pageData, wikiTags] = await Promise.all([
+  const [pageData, ordinaryTags] = await Promise.all([
     path.length && !isTagsDirectory ? fetchWikiPageData(supabase, path) : null,
-    fetchWikiTags(supabase),
+    isTagsDirectory ? [] : fetchWikiTags(supabase),
   ])
+  // Cleanup must include every tag and every page, including drafts and archives.
+  // Keep this data on the manager-only path; readers receive published pages only.
+  let allNodes = nodes
+  const wikiTags: WikiTagRow[] = ordinaryTags
+  if (isTagsDirectory && canManageWiki) {
+    allNodes = []
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from("wiki_nodes")
+        .select(
+          "id,short_id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+        )
+        .order("id")
+        .range(offset, offset + 999)
+      if (error) throw new Error(error.message)
+      allNodes.push(...((data ?? []) as WikiNodeRow[]))
+      if ((data ?? []).length < 1000) break
+    }
+  }
+  if (isTagsDirectory) {
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from("wiki_tags")
+        .select("id,name,scope,section_id")
+        .order("id")
+        .range(offset, offset + 999)
+      if (error) throw new Error(error.message)
+      wikiTags.push(...((data ?? []) as WikiTagRow[]))
+      if ((data ?? []).length < 1000) break
+    }
+  }
   const pageTags =
     pageData?.node.type === "page"
       ? await fetchWikiPageTags(supabase, pageData.node.id)
@@ -340,73 +375,79 @@ export default async function WikiPage({
       )
       .map((node) => node.id)
   )
-  const assignments =
+  const allAssignments =
     isTagsDirectory || pageData?.node.type === "folder"
-      ? (await fetchWikiTagAssignments(supabase)).filter((assignment) =>
-          eligiblePageIds.has(assignment.node_id)
-        )
+      ? await fetchWikiTagAssignments(supabase)
       : []
+  const assignments = allAssignments.filter((assignment) =>
+    eligiblePageIds.has(assignment.node_id)
+  )
   const pageIdsByTag = new Map<string, Set<string>>()
-  for (const assignment of assignments) {
+  for (const assignment of isTagsDirectory ? allAssignments : assignments) {
     const pageIds = pageIdsByTag.get(assignment.tag_id) ?? new Set<string>()
     pageIds.add(assignment.node_id)
     pageIdsByTag.set(assignment.tag_id, pageIds)
   }
   const publishedNodes = isTagsDirectory
-    ? nodes.filter(
-        (node) => node.type === "page" && isPublishedWikiBranch(nodes, node)
+    ? allNodes.filter(
+        (node) => node.type === "page" && isPublishedWikiBranch(allNodes, node)
       )
     : []
-  const sections: WikiTagDirectorySection[] = isTagsDirectory
-    ? nodes
+  const sections: ManageTagSection[] = isTagsDirectory
+    ? allNodes
         .filter(
           (node) =>
             node.type === "folder" &&
             node.parent_id &&
-            nodes.some(
+            allNodes.some(
               (root) => root.id === node.parent_id && root.parent_id === null
-            ) &&
-            buildWikiBreadcrumbs(nodes, node).every(
-              (ancestor) => ancestor.status !== "archived"
             ) &&
             (canManageWiki || isPublishedWikiBranch(nodes, node))
         )
         .map((section) => {
-          const area = nodes.find((node) => node.id === section.parent_id)
-          const example = publishedNodes.find((page) =>
-            buildWikiBreadcrumbs(nodes, page).some(
-              (ancestor) => ancestor.id === section.id
-            )
-          )
+          const area = allNodes.find((node) => node.id === section.parent_id)
           return {
             id: section.id,
-            title: section.title,
+            name: section.title,
             area: area?.title ?? "Wiki",
-            href: `/wiki/${buildNumericWikiPath(nodes, section)}`,
-            examplePageHref: example
-              ? `/wiki/${buildNumericWikiPath(nodes, example)}`
-              : undefined,
           }
         })
     : []
   const visibleSectionIds = new Set(sections.map((section) => section.id))
-  const tagDirectoryEntries: WikiTagDirectoryEntry[] = wikiTags
+  const tagDirectoryEntries: ManageTag[] = wikiTags
     .filter(
       (tag) =>
+        canManageWiki ||
         tag.scope === "global" ||
         (tag.section_id && visibleSectionIds.has(tag.section_id))
     )
     .map((tag) => ({
       ...tag,
-      pages: publishedNodes
+      pages: canManageWiki
+        ? allAssignments
+            .filter((assignment) => assignment.tag_id === tag.id)
+            .map(({ node_id }) => ({
+              id: node_id,
+              sectionId: getWikiSectionId(allNodes, node_id),
+            }))
+        : [],
+      sectionTitle: canManageWiki
+        ? allNodes.find((node) => node.id === tag.section_id)?.title
+        : undefined,
+      publishedPages: publishedNodes
         .filter((node) => pageIdsByTag.get(tag.id)?.has(node.id))
         .map((page) => ({
           id: page.id,
           title: page.title,
-          href: `/wiki/${buildNumericWikiPath(nodes, page)}`,
-          area: buildWikiBreadcrumbs(nodes, page)[0]?.title ?? "Wiki",
+          href: `/wiki/${buildNumericWikiPath(allNodes, page)}`,
+          area: buildWikiBreadcrumbs(allNodes, page)[0]?.title ?? "Wiki",
         })),
     }))
+    .sort(
+      (a, b) =>
+        a.name.localeCompare(b.name) ||
+        (a.section_id ?? "").localeCompare(b.section_id ?? "")
+    )
   const displayedNode = pageData?.node ?? null
   const displayedChildren = pageData?.children ?? []
 
@@ -422,11 +463,12 @@ export default async function WikiPage({
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
           <div className="flex min-h-full w-full flex-col">
             {isTagsDirectory ? (
-              <WikiTagsDirectory
+              <WikiTagsManage
                 key={`${highlightedTag}:${highlightedSection}`}
                 entries={tagDirectoryEntries}
                 sections={sections}
-                initialSearch={highlightedTag}
+                canManage={canManageWiki}
+                initialTag={highlightedTag}
                 initialSection={highlightedSection}
               />
             ) : displayedNode ? (

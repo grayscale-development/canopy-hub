@@ -166,15 +166,17 @@ describe("WikiTagPicker", () => {
     expect(screen.queryByText("This section")).not.toBeInTheDocument()
   })
 
-  it("groups matching tags by level, with selected first and other sections hidden", async () => {
+  it("shows one flat list with selected tags first and a global indicator", async () => {
     const user = userEvent.setup()
     render(<Harness initial={[sectionTag("Credit"), globalTag("Income")]} />)
     const list = within(screen.getByLabelText("Available tags"))
-    expect(list.getByText("In this section")).toBeVisible()
-    expect(list.getByText("Global")).toBeVisible()
+    expect(list.queryByText("In this section")).not.toBeInTheDocument()
+    expect(
+      list.getByRole("button", { name: "Income, Global" })
+    ).toHaveTextContent("Global")
     expect(
       list.getAllByRole("button").map((button) => button.textContent)
-    ).toEqual(["Credit", "Assets", "Income"])
+    ).toEqual(["Credit", "IncomeGlobal", "Assets"])
     expect(list.queryByText("Elsewhere")).not.toBeInTheDocument()
     expect(screen.getByText("Global tag:")).toHaveClass("sr-only")
     await user.type(screen.getByRole("textbox"), "ass")
@@ -217,7 +219,7 @@ describe("WikiTagPicker", () => {
       [
         "ClosingGlobalUse existing",
         "Closing costsGlobal",
-        "Loan closingThis section",
+        "Loan closing",
         "Closngclose spellingGlobal",
       ]
     )
