@@ -1,9 +1,7 @@
 import "server-only"
 
 import crypto from "node:crypto"
-// jsdom is a server dependency without bundled declarations.
-// @ts-expect-error jsdom does not publish TypeScript declarations.
-import { JSDOM } from "jsdom"
+import { createRequire } from "node:module"
 
 import type { WikiPdfLine } from "@/lib/wiki-extract"
 
@@ -726,6 +724,13 @@ function docxTableBlock(table: Element): WikiImportBlock {
   }
 }
 
+function createWikiImportDocument(html: string): Document {
+  const { JSDOM } = createRequire(import.meta.url)("jsdom") as {
+    JSDOM: new (html: string) => { window: { document: Document } }
+  }
+  return new JSDOM(`<body>${html}</body>`).window.document
+}
+
 /** Convert Mammoth's deterministic DOCX HTML into the app's BlockNote JSON. */
 export function docxHtmlToWikiImportBlocks({
   html,
@@ -736,7 +741,7 @@ export function docxHtmlToWikiImportBlocks({
   imageUrls?: Map<string, string>
   title?: string
 }) {
-  const document = new JSDOM(`<body>${html}</body>`).window.document
+  const document = createWikiImportDocument(html)
   const blocks: WikiImportBlock[] = []
   let sawTitle = false
 
@@ -844,7 +849,7 @@ export function createWikiDocxImportDraft({
   fileName: string
   imageUrls: Map<string, string>
 }): WikiImportDraft {
-  const document = new JSDOM(`<body>${html}</body>`).window.document
+  const document = createWikiImportDocument(html)
   const titleElement = [...document.body.children].find((element) => {
     const tag = element.tagName.toLowerCase()
     const value = normalizeImportLine(element.textContent ?? "")
