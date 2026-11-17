@@ -1,4 +1,5 @@
 import { wikiHeadingAnchor } from "@/lib/wiki-heading-anchor"
+import { inlineCitations } from "@/lib/milo/inline-citations"
 
 const STOP = new Set(
   "a an and are as at be by can could do does for from how i in is it me of on or please should that the their this to was what when where which who will with would you your find tell about page wiki company".split(
@@ -173,9 +174,12 @@ export function checkAnswer(
     })
     .join("")
   return {
-    answer: unsupported
-      ? `${checked}\n\nSome details could not be verified in the wiki.`
-      : checked,
+    answer: inlineCitations(
+      unsupported
+        ? `${checked}\n\nSome details could not be verified in the wiki.`
+        : checked,
+      citations
+    ),
     citations,
   }
 }

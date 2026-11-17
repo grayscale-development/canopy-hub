@@ -288,6 +288,24 @@ describe("wiki AI orchestration", () => {
     )
   })
 
+  it("instructs the agent to use inline source names", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    aiProvider.createAgentResponseWithOpenAI.mockResolvedValueOnce({
+      output_text: "No data.",
+      output: [],
+    })
+    await answerKnowledgeQuestion({
+      userContext,
+      supabase: { rpc: vi.fn() } as never,
+      question: "what documents are available",
+    })
+    const calls = JSON.stringify(
+      aiProvider.createAgentResponseWithOpenAI.mock.calls
+    )
+    expect(calls).toContain("linking its page or source name")
+    expect(calls).toContain("Never use numbered citation markers")
+  })
+
   it("preloads procedure questions and only cites final supporting sources", async () => {
     const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
     miloMcp.callMiloMcpTool.mockImplementation(
@@ -367,7 +385,7 @@ describe("wiki AI orchestration", () => {
     })
 
     expect(result).toMatchObject({
-      answer: "HOW TO CANCEL A LOAN: Step 1... [1]",
+      answer: "HOW TO CANCEL A LOAN: Step 1...",
       model: "fake-chat",
       citations: [
         {
@@ -435,7 +453,7 @@ describe("wiki AI orchestration", () => {
       question: "Where are returned checks tracked?",
     })
     expect(result.answer).toBe(
-      "Track returned checks in the refund ledger. [1] The CEO approves every refund.\n\nSome details could not be verified in the wiki."
+      "Track returned checks in the refund ledger [Refunds](/wiki/1/2). The CEO approves every refund.\n\nSome details could not be verified in the wiki."
     )
     expect(result.citations).toMatchObject([
       { snippet: "Track returned checks in the refund ledger." },
@@ -492,7 +510,7 @@ describe("wiki AI orchestration", () => {
         question: "Where is the Wiki?",
       })
     ).resolves.toMatchObject({
-      answer: "Wiki documentation lives at /wiki. [1]",
+      answer: "Wiki documentation lives at [Wiki](/wiki).",
       model: "fake-chat",
       citations: [
         {
@@ -518,6 +536,12 @@ describe("wiki AI orchestration", () => {
         input: expect.stringContaining('"wiki.manage":false'),
       })
     )
+    const calls = JSON.stringify(
+      aiProvider.createChatResponseWithOpenAI.mock.calls
+    )
+    expect(calls).toContain("linking its page or source name")
+    expect(calls).toContain("Never use numbered citation markers")
+    expect(calls).not.toContain("cite sources using bracket numbers")
   })
   it("indexes draft pages and assets as active while preserving visibility metadata", async () => {
     const { indexWikiPage, indexWikiAsset } = await import("@/lib/wiki-ai")

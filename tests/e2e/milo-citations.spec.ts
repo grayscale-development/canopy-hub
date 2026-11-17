@@ -1,7 +1,6 @@
 import { mkdirSync } from "node:fs"
 import path from "node:path"
 import { expect, test } from "@playwright/test"
-import { checkAnswer } from "../../lib/milo/evidence"
 import { mockMiloChatApi } from "./helpers"
 import {
   createReviewedPage,
@@ -49,11 +48,16 @@ test("renders the funding answer and a calm missing-answer state", async ({
         url: "/wiki/tags?tag=Hub%20Process",
         snippet: "Accessible pages: Funding Checklist",
       }
-      const checked = checkAnswer(
-        `The best match is **Funding Checklist**: \`${fixture.path}\`.\n\n- **Closing Desk Notes**: \`/wiki/1/16/18\`\n- Hub Process tag, section v2.2 Test Section`,
-        [funding, closing],
-        [funding, closing, tag]
-      )
+      // This is deliberately the unprocessed shape returned by the model.
+      const answer = `The best match is the published wiki page **Funding Checklist: ${fixture.path}**. [2]
+
+Funding steps on that page: [2]
+- Confirm the **wire instructions** before closing. [3]
+
+Related page:
+- **Closing Desk Notes**: \`/wiki/1/16/18\` contains closing notes. [4]
+- [Hub Process](/wiki/tags?tag=Hub%20Process), section v2.2 Test Section`
+      const citations = [tag, funding, funding, closing]
       await page.route("**/api/wiki/chat", async (route) => {
         if (route.request().method() !== "POST") return route.fallback()
         const events = [
@@ -62,14 +66,14 @@ test("renders the funding answer and a calm missing-answer state", async ({
             type: "token",
             token: abstained
               ? "I couldn't find an answer in the wiki. You can ask a manager or flag this gap."
-              : checked.answer,
+              : answer,
           },
           {
             type: "done",
             threadId: "e2e-thread",
             assistantMessageId: "assistant-message",
             abstained,
-            citations: abstained ? [funding] : checked.citations,
+            citations: abstained ? [funding] : citations,
           },
         ]
         await route.fulfill({
@@ -91,14 +95,14 @@ test("renders the funding answer and a calm missing-answer state", async ({
       await expect(
         dialog.getByText("tell me about the funding process")
       ).toBeVisible()
-      const citation = dialog.getByRole("link", {
-        name: "Funding Checklist",
-        exact: true,
-      })
+      const citation = dialog
+        .getByRole("link", {
+          name: "Funding Checklist",
+          exact: true,
+        })
+        .first()
       await expect(citation).toHaveAttribute("href", fixture.path)
-      await expect(
-        dialog.getByRole("link", { name: fixture.path })
-      ).toHaveAttribute("href", fixture.path)
+      await expect(dialog).not.toContainText(/\[\d+\]|\/wiki\/\d|\*\*/)
       await expect(
         dialog.getByRole("link", { name: "Closing Desk Notes" })
       ).toHaveAttribute("href", closing.url)
@@ -107,17 +111,14 @@ test("renders the funding answer and a calm missing-answer state", async ({
       ).toHaveAttribute("href", tag.url)
       await expect(dialog.getByText("Sources", { exact: true })).toHaveCount(0)
       await expect(dialog).not.toContainText("Not found in the wiki")
-      await expect(dialog.locator("strong").first()).toContainText(
-        "Funding Checklist"
-      )
       if (shots)
         await page.screenshot({
           animations: "disabled",
           path: path.join(
             shots,
             label === "desktop"
-              ? "01-funding-desktop.png"
-              : "03-funding-mobile.png"
+              ? "08-manager-funding-desktop.png"
+              : "09-viewer-funding-mobile.png"
           ),
         })
       await citation.click()
@@ -139,16 +140,6 @@ test("renders the funding answer and a calm missing-answer state", async ({
         .click()
       await expect(dialog.getByText(/couldn't find an answer/)).toBeVisible()
       await expect(dialog.getByText("Closest pages")).toHaveCount(0)
-      if (shots)
-        await page.screenshot({
-          animations: "disabled",
-          path: path.join(
-            shots,
-            label === "desktop"
-              ? "02-abstain-desktop.png"
-              : "04-abstain-mobile.png"
-          ),
-        })
       await dialog.getByRole("button", { name: "Flag this gap" }).click()
       await expect(
         dialog.getByRole("button", { name: "Gap flagged" })

@@ -19,6 +19,7 @@ import {
   sourceUrl,
   type Evidence,
 } from "@/lib/milo/evidence"
+import { INLINE_CITATION_INSTRUCTIONS } from "@/lib/milo/inline-citations"
 import {
   searchKnowledge,
   type RetrievedChunk,
@@ -872,7 +873,7 @@ function buildChatPrompt(
     )
     .join("\n\n")
 
-  return `You are Canopy Hub's internal knowledge assistant. Answer only from the supplied context. If the context does not contain enough information, say that the knowledge base does not have enough information and suggest where to look in Canopy Hub. Keep answers concise and cite sources using bracket numbers like [1]. Use the smallest number of citations needed; for simple navigation or factual lookup questions, usually cite only one source. Do not list every related source unless the user asks for options, all links, or a list. When the question asks for a page, document, newsletter, employee, branch, email, or phone number, include the exact value and the relevant Hub URL from the context when available.\n\n${miloPermissionInstructions(userContext)}\n\nContext:\n${context || "No retrieved context."}\n\nQuestion:\n${question}`
+  return `You are Canopy Hub's internal knowledge assistant. Answer only from the supplied context. If the context does not contain enough information, say that the knowledge base does not have enough information and suggest where to look in Canopy Hub. Keep answers concise. ${INLINE_CITATION_INSTRUCTIONS} Use the smallest number of citations needed; for simple navigation or factual lookup questions, usually cite only one source. Do not list every related source unless the user asks for options, all links, or a list. When the question asks for a page, document, newsletter, employee, branch, email, or phone number, include the exact value and link to the relevant Hub source when available.\n\n${miloPermissionInstructions(userContext)}\n\nContext:\n${context || "No retrieved context."}\n\nQuestion:\n${question}`
 }
 
 function getResponseText(response: unknown) {
