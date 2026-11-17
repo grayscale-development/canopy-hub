@@ -48,21 +48,6 @@ interface ChatMessage {
 }
 
 const activeThreadKey = "milo-active-thread"
-const InsideMarkdownLink = React.createContext(false)
-
-function LinkableText({
-  children,
-  linkText,
-}: {
-  children: React.ReactNode
-  linkText: (text: string) => React.ReactNode
-}) {
-  const insideLink = React.useContext(InsideMarkdownLink)
-  return React.Children.map(children, (child) =>
-    typeof child === "string" && !insideLink ? linkText(child) : child
-  )
-}
-
 function MessageContent({
   content,
   citations = [],
@@ -72,89 +57,13 @@ function MessageContent({
   citations?: Citation[]
   onNavigate?: () => void
 }) {
-  const references = citations
-    .flatMap((citation) => {
-      if (!citation.url || !/^(?:\/(?!\/)|https?:\/\/)/i.test(citation.url))
-        return []
-      const tag = /^Tag: (.+) \((.+)\)$/.exec(citation.title)
-      const names = [citation.title, ...(tag ? [tag[1]] : [])]
-      return names
-        .filter((name) => name.length >= 3)
-        .map((name) => ({ name, url: citation.url! }))
-    })
-    .sort((a, b) => b.name.length - a.name.length)
-
-  function linkText(text: string) {
-    if (!references.length) return text
-    const escaped = references.map(({ name }) =>
-      name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    )
-    const pattern = new RegExp(
-      `(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`,
-      "giu"
-    )
-    const matches = [...text.matchAll(pattern)]
-    return text.split(pattern).flatMap((part, index, parts) => {
-      const result: React.ReactNode[] = [part]
-      if (index < parts.length - 1) {
-        const match = matches[index][0]
-        const reference = references.find(
-          ({ name }) => name.toLocaleLowerCase() === match.toLocaleLowerCase()
-        )!
-        result.push(
-          <Link
-            key={`${index}-${match}`}
-            href={reference.url}
-            onClick={onNavigate}
-            className="text-primary underline underline-offset-4 hover:no-underline"
-          >
-            {match}
-          </Link>
-        )
-      }
-      return result
-    })
-  }
-
   return (
     <div className="space-y-3 text-sm leading-6 break-words">
       <ReactMarkdown
         components={{
-          p: ({ children }) => (
-            <p>
-              <LinkableText linkText={linkText}>{children}</LinkableText>
-            </p>
-          ),
-          strong: ({ children }) => (
-            <strong>
-              <LinkableText linkText={linkText}>{children}</LinkableText>
-            </strong>
-          ),
-          em: ({ children }) => (
-            <em>
-              <LinkableText linkText={linkText}>{children}</LinkableText>
-            </em>
-          ),
-          li: ({ children }) => (
-            <li>
-              <LinkableText linkText={linkText}>{children}</LinkableText>
-            </li>
-          ),
-          h1: ({ children }) => (
-            <h3 className="font-semibold">
-              <LinkableText linkText={linkText}>{children}</LinkableText>
-            </h3>
-          ),
-          h2: ({ children }) => (
-            <h3 className="font-semibold">
-              <LinkableText linkText={linkText}>{children}</LinkableText>
-            </h3>
-          ),
-          h3: ({ children }) => (
-            <h3 className="font-semibold">
-              <LinkableText linkText={linkText}>{children}</LinkableText>
-            </h3>
-          ),
+          h1: ({ children }) => <h3 className="font-semibold">{children}</h3>,
+          h2: ({ children }) => <h3 className="font-semibold">{children}</h3>,
+          h3: ({ children }) => <h3 className="font-semibold">{children}</h3>,
           ul: ({ children }) => (
             <ul className="list-disc space-y-1 pl-5">{children}</ul>
           ),
@@ -168,9 +77,7 @@ function MessageContent({
                 onClick={onNavigate}
                 className="text-primary underline underline-offset-4 hover:no-underline"
               >
-                <InsideMarkdownLink.Provider value>
-                  {children}
-                </InsideMarkdownLink.Provider>
+                {children}
               </Link>
             ) : (
               <>{children}</>

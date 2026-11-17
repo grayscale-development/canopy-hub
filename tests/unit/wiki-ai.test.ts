@@ -302,8 +302,12 @@ describe("wiki AI orchestration", () => {
     const calls = JSON.stringify(
       aiProvider.createAgentResponseWithOpenAI.mock.calls
     )
-    expect(calls).toContain("linking its page or source name")
-    expect(calls).toContain("Never use numbered citation markers")
+    expect(calls).toContain(
+      "Cite each page once, naturally at its first mention"
+    )
+    expect(calls).toContain(
+      "Never repeat a page link or use numbered citation markers"
+    )
   })
 
   it("preloads procedure questions and only cites final supporting sources", async () => {
@@ -385,7 +389,7 @@ describe("wiki AI orchestration", () => {
     })
 
     expect(result).toMatchObject({
-      answer: "HOW TO CANCEL A LOAN: Step 1...",
+      answer: "HOW TO [CANCEL A LOAN](/wiki/1/9/22): Step 1...",
       model: "fake-chat",
       citations: [
         {
@@ -453,7 +457,7 @@ describe("wiki AI orchestration", () => {
       question: "Where are returned checks tracked?",
     })
     expect(result.answer).toBe(
-      "Track returned checks in the refund ledger [Refunds](/wiki/1/2). The CEO approves every refund.\n\nSome details could not be verified in the wiki."
+      "Track returned checks in the refund ledger. The CEO approves every refund.\n\nSome details could not be verified in the wiki."
     )
     expect(result.citations).toMatchObject([
       { snippet: "Track returned checks in the refund ledger." },
@@ -510,7 +514,7 @@ describe("wiki AI orchestration", () => {
         question: "Where is the Wiki?",
       })
     ).resolves.toMatchObject({
-      answer: "Wiki documentation lives at [Wiki](/wiki).",
+      answer: "[Wiki](/wiki) documentation lives at Wiki.",
       model: "fake-chat",
       citations: [
         {
@@ -539,8 +543,12 @@ describe("wiki AI orchestration", () => {
     const calls = JSON.stringify(
       aiProvider.createChatResponseWithOpenAI.mock.calls
     )
-    expect(calls).toContain("linking its page or source name")
-    expect(calls).toContain("Never use numbered citation markers")
+    expect(calls).toContain(
+      "Cite each page once, naturally at its first mention"
+    )
+    expect(calls).toContain(
+      "Never repeat a page link or use numbered citation markers"
+    )
     expect(calls).not.toContain("cite sources using bracket numbers")
   })
   it("indexes draft pages and assets as active while preserving visibility metadata", async () => {
