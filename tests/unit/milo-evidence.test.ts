@@ -21,7 +21,7 @@ describe("Milo evidence", () => {
       [source]
     )
     expect(result.answer).toBe(
-      "Track returned checks in the refund ledger. [1]\n\nThe CEO approves every refund.\n\nSome details could not be verified in the wiki."
+      "Track returned checks in the refund ledger [Refunds](/wiki/1/2#servicing-refund-status).\n\nThe CEO approves every refund.\n\nSome details could not be verified in the wiki."
     )
     expect(result.citations).toMatchObject([
       {
@@ -36,7 +36,7 @@ describe("Milo evidence", () => {
       [source]
     )
     expect(result.answer).toBe(
-      "Track returned checks in the refund ledger. [1] The CEO approves every refund.\n\nSome details could not be verified in the wiki."
+      "Track returned checks in the refund ledger [Refunds](/wiki/1/2#servicing-refund-status). The CEO approves every refund.\n\nSome details could not be verified in the wiki."
     )
   })
   it("recognizes funding page paths, tags, and section names as references", () => {
@@ -63,7 +63,9 @@ describe("Milo evidence", () => {
       [funding, closing],
       [funding, closing, tag]
     )
-    expect(result.answer).toBe(answer)
+    expect(result.answer).toBe(
+      "The best match is [Funding Checklist](/wiki/1/16/17).\n\n- [Closing Desk Notes](/wiki/1/16/18)\n- Hub Process tag, section v2.2 Test Section"
+    )
     expect(result.citations.map((item) => item.url)).toEqual([
       funding.url,
       closing.url,

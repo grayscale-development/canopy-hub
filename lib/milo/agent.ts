@@ -14,6 +14,7 @@ import {
   hasRetrievalConfidence,
   sourceUrl,
 } from "@/lib/milo/evidence"
+import { INLINE_CITATION_INSTRUCTIONS } from "@/lib/milo/inline-citations"
 import {
   callMiloMcpTool,
   MILO_MCP_TOOLS,
@@ -68,8 +69,8 @@ Rules:
 - Prefer db_aggregate for counts, totals, averages, and grouped operational summaries.
 - When the user asks what documents or files are available, call storage_list for Newsletters and Misc before answering. Do not answer from Wiki assets alone unless the user specifically asks about Wiki uploads.
 - Prefer storage_signed_url when the user asks to open a document or file.
-- Keep answers concise and include exact names, emails, phone numbers, routes, and signed URLs when tools provide them.
-- Do not invent citations. Mention source names or links from tool output in the answer.
+- Keep answers concise and include exact names, emails, and phone numbers when tools provide them.
+- ${INLINE_CITATION_INSTRUCTIONS}
 - You are read-only. Never claim to update, upload, delete, sync, or change data.`
 
 const MCP_TOOL_DESCRIPTION = [
