@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import ReactMarkdown from "react-markdown"
 import {
   Loader2Icon,
   PaperclipIcon,
@@ -46,58 +47,174 @@ interface ChatMessage {
 }
 
 const activeThreadKey = "milo-active-thread"
+const InsideMarkdownLink = React.createContext(false)
 
-function MessageContent({ content }: { content: string }) {
-  return <p className="text-sm leading-6 whitespace-pre-wrap">{content}</p>
+function LinkableText({
+  children,
+  linkText,
+}: {
+  children: React.ReactNode
+  linkText: (text: string) => React.ReactNode
+}) {
+  const insideLink = React.useContext(InsideMarkdownLink)
+  return React.Children.map(children, (child) =>
+    typeof child === "string" && !insideLink ? linkText(child) : child
+  )
 }
 
-function ResourceLink({
-  citation,
+function WikiCode({
+  children,
+  url,
   onNavigate,
-  number,
 }: {
-  citation: Citation
-  number?: number
+  children: React.ReactNode
+  url?: string
   onNavigate?: () => void
 }) {
-  const content = (
-    <>
-      <span className="block font-medium text-foreground">
-        {number ? `[${number}] ` : ""}
-        {citation.title}
-      </span>
-      {citation.snippet ? (
-        <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-          “{citation.snippet}”
-        </span>
-      ) : null}
-      {citation.updatedAt && !Number.isNaN(Date.parse(citation.updatedAt)) ? (
-        <span className="mt-1 block text-xs text-muted-foreground">
-          Updated{" "}
-          {new Date(citation.updatedAt).toLocaleDateString(undefined, {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-            timeZone: "UTC",
-          })}
-          {citation.updatedBy ? ` by ${citation.updatedBy}` : ""}
-        </span>
-      ) : null}
-    </>
+  const insideLink = React.useContext(InsideMarkdownLink)
+  return url && !insideLink ? (
+    <Link
+      href={url}
+      onClick={onNavigate}
+      className="text-primary underline underline-offset-4 hover:no-underline"
+    >
+      {children}
+    </Link>
+  ) : (
+    <code>{children}</code>
   )
+}
 
-  if (!citation.url) {
-    return <div className="rounded-md border p-3">{content}</div>
+function MessageContent({
+  content,
+  citations = [],
+  onNavigate,
+}: {
+  content: string
+  citations?: Citation[]
+  onNavigate?: () => void
+}) {
+  const references = citations
+    .flatMap((citation, index) => {
+      if (!citation.url || !/^(?:\/(?!\/)|https?:\/\/)/i.test(citation.url))
+        return []
+      const tag = /^Tag: (.+) \((.+)\)$/.exec(citation.title)
+      const names = [citation.title, ...(tag ? [tag[1]] : []), `[${index + 1}]`]
+      const path = citation.url.split("#")[0]
+      if (/^\/wiki\/\d+(?:\/\d+)*$/.test(path)) names.push(path)
+      return names
+        .filter((name) => name.length >= 3)
+        .map((name) => ({ name, url: citation.url! }))
+    })
+    .sort((a, b) => b.name.length - a.name.length)
+
+  function linkText(text: string) {
+    if (!references.length) return text
+    const escaped = references.map(({ name }) =>
+      name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    )
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`,
+      "giu"
+    )
+    const matches = [...text.matchAll(pattern)]
+    return text.split(pattern).flatMap((part, index, parts) => {
+      const result: React.ReactNode[] = [part]
+      if (index < parts.length - 1) {
+        const match = matches[index][0]
+        const reference = references.find(
+          ({ name }) => name.toLocaleLowerCase() === match.toLocaleLowerCase()
+        )!
+        result.push(
+          <Link
+            key={`${index}-${match}`}
+            href={reference.url}
+            onClick={onNavigate}
+            className="text-primary underline underline-offset-4 hover:no-underline"
+          >
+            {match}
+          </Link>
+        )
+      }
+      return result
+    })
   }
 
   return (
-    <Link
-      href={citation.url}
-      onClick={onNavigate}
-      className="block cursor-pointer rounded-md border p-3 transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-    >
-      {content}
-    </Link>
+    <div className="space-y-3 text-sm leading-6 break-words">
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => (
+            <p>
+              <LinkableText linkText={linkText}>{children}</LinkableText>
+            </p>
+          ),
+          strong: ({ children }) => (
+            <strong>
+              <LinkableText linkText={linkText}>{children}</LinkableText>
+            </strong>
+          ),
+          em: ({ children }) => (
+            <em>
+              <LinkableText linkText={linkText}>{children}</LinkableText>
+            </em>
+          ),
+          li: ({ children }) => (
+            <li>
+              <LinkableText linkText={linkText}>{children}</LinkableText>
+            </li>
+          ),
+          h1: ({ children }) => (
+            <h3 className="font-semibold">
+              <LinkableText linkText={linkText}>{children}</LinkableText>
+            </h3>
+          ),
+          h2: ({ children }) => (
+            <h3 className="font-semibold">
+              <LinkableText linkText={linkText}>{children}</LinkableText>
+            </h3>
+          ),
+          h3: ({ children }) => (
+            <h3 className="font-semibold">
+              <LinkableText linkText={linkText}>{children}</LinkableText>
+            </h3>
+          ),
+          ul: ({ children }) => (
+            <ul className="list-disc space-y-1 pl-5">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="list-decimal space-y-1 pl-5">{children}</ol>
+          ),
+          code: ({ children }) => {
+            const text = String(children)
+            const reference = references.find(
+              ({ name }) => name === text && /^\/wiki\/\d/.test(name)
+            )
+            return (
+              <WikiCode url={reference?.url} onNavigate={onNavigate}>
+                {children}
+              </WikiCode>
+            )
+          },
+          a: ({ href, children }) =>
+            href ? (
+              <Link
+                href={href}
+                onClick={onNavigate}
+                className="text-primary underline underline-offset-4 hover:no-underline"
+              >
+                <InsideMarkdownLink.Provider value>
+                  {children}
+                </InsideMarkdownLink.Provider>
+              </Link>
+            ) : (
+              <>{children}</>
+            ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   )
 }
 
@@ -120,10 +237,16 @@ export function WikiChat({
   const [file, setFile] = React.useState<File | null>(null)
   const [fileError, setFileError] = React.useState("")
   const fileInput = React.useRef<HTMLInputElement>(null)
+  const threadView = React.useRef<HTMLDivElement>(null)
   const [pending, setPending] = React.useState(false)
   const [loadingHistory, setLoadingHistory] = React.useState(true)
   const consumedPromptRef = React.useRef<string | null>(null)
   const isMountedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (threadView.current)
+      threadView.current.scrollTop = threadView.current.scrollHeight
+  }, [messages.length])
 
   React.useEffect(() => {
     isMountedRef.current = true
@@ -354,6 +477,9 @@ export function WikiChat({
   }
 
   const answers = messages.filter((message) => message.role === "assistant")
+  const questions = answers.map(
+    (answer) => messages[messages.indexOf(answer) - 1]
+  )
   async function flagAnswer(answer: ChatMessage, reason: string) {
     if (!answer.serverId || flagPending) return
     setFlagPending(true)
@@ -412,11 +538,24 @@ export function WikiChat({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <div
+        ref={threadView}
+        className="min-h-0 flex-1 overflow-y-auto px-6 py-5"
+      >
         {answers.length ? (
           <div className="space-y-6">
             {answers.map((answer, index) => (
               <section key={answer.id}>
+                {questions[index]?.role === "user" ? (
+                  <div className="mb-6">
+                    <h3 className="mb-1 text-sm font-medium text-muted-foreground">
+                      Your question
+                    </h3>
+                    <p className="text-sm leading-6 font-medium break-words whitespace-pre-wrap">
+                      {questions[index].content}
+                    </p>
+                  </div>
+                ) : null}
                 <h3 className="mb-2 text-sm font-medium text-muted-foreground">
                   {index ? "Follow-up answer" : "Answer"}
                 </h3>
@@ -433,7 +572,11 @@ export function WikiChat({
                     (card) =>
                       card.type === "error" && card.message === answer.content
                   ) ? (
-                  <MessageContent content={answer.content} />
+                  <MessageContent
+                    content={answer.content}
+                    citations={answer.citations}
+                    onNavigate={onNavigate}
+                  />
                 ) : null}
                 <div
                   aria-live="polite"
@@ -449,23 +592,6 @@ export function WikiChat({
                     />
                   ))}
                 </div>
-                {!pending && answer.citations?.length ? (
-                  <div className="mt-3 space-y-2">
-                    <h4 className="text-sm font-medium text-muted-foreground">
-                      {answer.abstained ? "Closest pages" : "Sources"}
-                    </h4>
-                    {answer.citations.map((citation, citationIndex) => (
-                      <ResourceLink
-                        key={citationIndex}
-                        citation={citation}
-                        number={
-                          answer.abstained ? undefined : citationIndex + 1
-                        }
-                        onNavigate={onNavigate}
-                      />
-                    ))}
-                  </div>
-                ) : null}
                 {answer.abstained && !pending ? (
                   <div className="mt-3">
                     <Button

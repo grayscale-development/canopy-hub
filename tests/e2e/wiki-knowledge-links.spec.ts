@@ -3,6 +3,7 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
+import { mockMiloChatApi } from "./helpers"
 import { signInAsSeededUser } from "./wiki-reviewed-helpers"
 
 test("opens a current Wiki citation from an old indexed URL @smoke", async ({
@@ -26,13 +27,14 @@ test("opens a current Wiki citation from an old indexed URL @smoke", async ({
   expect(result?.url).toMatch(/^\/wiki\/(\d+\/)*\d+$/)
 
   // Fake only the AI response: the citation URL came from the real search API.
+  await mockMiloChatApi(page)
   await page.route("**/api/wiki/chat", (route) =>
     route.fulfill({
       status: 200,
       contentType: "text/event-stream",
       body: [
         { type: "meta", threadId: "local-fixture" },
-        { type: "token", token: "See the funding checklist." },
+        { type: "token", token: "See the Funding Checklist." },
         {
           type: "done",
           threadId: "local-fixture",

@@ -880,10 +880,12 @@ describe("/api/wiki/chat route", () => {
     expect(
       (await readSseEvents(response)).some((event) => event.type === "card")
     ).toBe(false)
-    expect(testState.tables.ai_chat_messages.at(-1)?.metadata).toEqual({})
+    expect(testState.tables.ai_chat_messages.at(-1)?.metadata).toEqual({
+      citationOrder: [expect.any(String)],
+    })
   })
 
-  it("resolves saved citations after moves and omits inaccessible or unidentified old Wiki links", async () => {
+  it("resolves saved citations after moves and preserves numbering without exposing inaccessible links", async () => {
     testState.user = { id: "user-1" }
     testState.tables.ai_chat_threads = [
       { id: "thread", user_id: "user-1", title: "Chat" },
@@ -894,17 +896,12 @@ describe("/api/wiki/chat route", () => {
         thread_id: "thread",
         role: "assistant",
         content: "Answer",
+        metadata: { citationOrder: ["moved", "denied", "unknown"] },
       },
     ]
     testState.tables.ai_chat_citations = [
       {
-        message_id: "message",
-        title: "Moved",
-        url: "/wiki/old",
-        snippet: "Text",
-        knowledge_source_id: "source",
-      },
-      {
+        id: "denied",
         message_id: "message",
         title: "Denied",
         url: "/wiki/old/denied",
@@ -912,6 +909,15 @@ describe("/api/wiki/chat route", () => {
         knowledge_source_id: "denied",
       },
       {
+        id: "moved",
+        message_id: "message",
+        title: "Moved",
+        url: "/wiki/old",
+        snippet: "Text",
+        knowledge_source_id: "source",
+      },
+      {
+        id: "unknown",
         message_id: "message",
         title: "Unknown",
         url: "/wiki/old/unknown",
@@ -927,6 +933,8 @@ describe("/api/wiki/chat route", () => {
     const body = await response.json()
     expect(body.messages[0].citations).toEqual([
       { title: "Moved", url: "/wiki/1/9/22", snippet: "Text" },
+      { title: "", url: null, snippet: "" },
+      { title: "", url: null, snippet: "" },
     ])
   })
 
