@@ -15,11 +15,22 @@ test("sidebar filters archived results and keeps the empty state compact", async
   const ids: string[] = []
   const stamp = crypto.randomUUID().slice(0, 8)
   const shots = process.env.CANOPY_123_SHOTS
+  const countShots = process.env.CANOPY_124_SHOTS
   const shot = async (name: string) => {
     if (shots) {
       await page.mouse.move(5, 5)
       await page.screenshot({
         path: `${shots}/${name}.png`,
+        animations: "disabled",
+        style: "nextjs-portal { visibility: hidden }",
+      })
+    }
+  }
+  const countShot = async (name: string) => {
+    if (countShots) {
+      await page.mouse.move(5, 5)
+      await page.screenshot({
+        path: `${countShots}/${name}.png`,
         animations: "disabled",
         style: "nextjs-portal { visibility: hidden }",
       })
@@ -73,6 +84,30 @@ test("sidebar filters archived results and keeps the empty state compact", async
     await enableEditorMode(page)
     const sidebar = page.locator("[data-wiki-sidebar-scroll]")
     const header = sidebar.locator("..")
+    const sectionArea = sidebar.locator("section").filter({
+      has: page.getByRole("link", { name: `Atlas ${stamp}` }),
+    })
+    const sectionToggle = sectionArea.getByRole("button", {
+      name: `Toggle Atlas ${stamp}`,
+    })
+    if ((await sectionToggle.getAttribute("aria-expanded")) === "false") {
+      await sectionToggle.click()
+    }
+    const sectionArchive = sectionArea
+      .getByRole("button", { name: "Toggle Archived" })
+      .locator("..")
+    const globalArchive = sidebar
+      .getByRole("button", { name: "Toggle Archive", exact: true })
+      .locator("..")
+    await expect(sectionArchive.getByText("2", { exact: true })).toBeVisible()
+    await expect(globalArchive.locator("span.rounded-full")).toHaveText(
+      /^[1-9]\d*$/
+    )
+    await countShot("01-unfiltered-desktop")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(sectionArchive.getByText("2", { exact: true })).toBeVisible()
+    await countShot("02-unfiltered-mobile")
+    await page.setViewportSize({ width: 1440, height: 900 })
     await header.getByRole("button", { name: "Filter wiki navigation" }).click()
     const filter = header.getByRole("textbox", {
       name: "Filter sections, groups, and pages",
@@ -101,14 +136,19 @@ test("sidebar filters archived results and keeps the empty state compact", async
     await filter.fill(`legacy ${stamp}`)
     const archived = sidebar.getByRole("link", { name: `Legacy ${stamp}` })
     await expect(archived).toBeVisible()
+    await expect(globalArchive.getByText("1", { exact: true })).toBeVisible()
     await expect(sidebar.getByText("No matches.")).toHaveCount(0)
     await expect(
       sidebar.getByRole("link", { name: `Retired ${stamp}` })
     ).toHaveCount(0)
     await shot("03-manager-archive-mobile")
+    await countShot("03-filtered-mobile")
     await page.setViewportSize({ width: 1440, height: 900 })
     await shot("04-manager-archive-desktop")
+    await countShot("04-filtered-desktop")
     await filter.fill(`atlas ${stamp}`)
+    await expect(sectionArchive.getByText("2", { exact: true })).toBeVisible()
+    await expect(globalArchive.getByText("2", { exact: true })).toBeVisible()
     await expect(
       sidebar.getByRole("link", { name: `Legacy ${stamp}` })
     ).toHaveCount(2)

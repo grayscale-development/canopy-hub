@@ -128,6 +128,15 @@ function ArchiveItems({
   )
 }
 
+function ArchiveCount({ count }: { count: number }) {
+  if (!count) return null
+  return (
+    <span className="mr-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+      {count}
+    </span>
+  )
+}
+
 export function SectionArchive({
   section,
   nodes,
@@ -156,13 +165,15 @@ export function SectionArchive({
     <div>
       <SidebarAccordionHeader
         label="Archived"
-        title={`Archived (${items.length})`}
+        title="Archived"
         contentId={contentId}
         isOpen={isOpen}
         setOpen={setOpen}
         tone="group"
         disabled={filtering}
-      />
+      >
+        <ArchiveCount count={items.length} />
+      </SidebarAccordionHeader>
       <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
         <ArchiveItems items={items} nodes={nodes} filtering={filtering} />
       </div>
@@ -201,13 +212,15 @@ export function GlobalWikiArchive({
     <section className="space-y-1">
       <SidebarAccordionHeader
         label="Archive"
-        title={`Archive (${archived.length})`}
+        title="Archive"
         contentId={contentId}
         isOpen={isOpen}
         setOpen={setOpen}
         tone="section"
         disabled={filtering}
-      />
+      >
+        <ArchiveCount count={archived.length} />
+      </SidebarAccordionHeader>
       <div id={contentId} hidden={!isOpen} className="space-y-1">
         {!filtering ? (
           <div className="px-2 py-1">
