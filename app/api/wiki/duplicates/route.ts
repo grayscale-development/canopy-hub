@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 
-import { BETA_1_PERMISSION } from "@/lib/permission-codes"
+import {
+  BETA_1_PERMISSION,
+  WIKI_DUPLICATES_INSPECT_PERMISSION,
+} from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { WIKI_MANAGE_PERMISSION } from "@/lib/wiki"
@@ -19,9 +22,11 @@ export async function POST(request: Request) {
   if (!user)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const permissions = await Promise.all(
-    [BETA_1_PERMISSION, WIKI_MANAGE_PERMISSION].map((code) =>
-      userHasPermissionCode({ supabase, userId: user.id, code })
-    )
+    [
+      BETA_1_PERMISSION,
+      WIKI_MANAGE_PERMISSION,
+      WIKI_DUPLICATES_INSPECT_PERMISSION,
+    ].map((code) => userHasPermissionCode({ supabase, userId: user.id, code }))
   )
   if (permissions.some((allowed) => !allowed))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })

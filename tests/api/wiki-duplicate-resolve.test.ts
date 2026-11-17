@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const state = vi.hoisted(() => ({
   allowed: true,
+  inspector: true,
   staleRpc: false,
   calls: [] as Array<Record<string, unknown>>,
   current: "rev-1",
@@ -41,7 +42,8 @@ const blocks = [
   },
 ]
 vi.mock("@/lib/permissions", () => ({
-  userHasPermissionCode: async () => state.allowed,
+  userHasPermissionCode: async ({ code }: { code: string }) =>
+    state.allowed && (code !== "wiki.duplicates.inspect" || state.inspector),
 }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
 vi.mock("@/lib/wiki", async (importOriginal) => ({
@@ -91,6 +93,7 @@ const request = (targetTitle = "Checklist") =>
   })
 beforeEach(() => {
   state.allowed = true
+  state.inspector = true
   state.current = "rev-1"
   state.targetCurrent = "rev-2"
   state.targetTitle = "Checklist"
@@ -98,6 +101,10 @@ beforeEach(() => {
   state.calls = []
 })
 describe("duplicate replacement API", () => {
+  it("requires the duplicate inspection permission", async () => {
+    state.inspector = false
+    expect((await POST(request())).status).toBe(403)
+  })
   it("saves the exact replacement as a reviewed revision with a change note", async () => {
     expect((await POST(request())).status).toBe(200)
     expect(state.calls).toHaveLength(1)

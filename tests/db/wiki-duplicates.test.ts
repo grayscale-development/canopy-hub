@@ -21,6 +21,7 @@ const dbDescribe =
 dbDescribe("duplicate detection local RLS", { timeout: 60_000 }, () => {
   let admin: SupabaseClient
   let manager: SupabaseClient
+  let inspector: SupabaseClient
   let viewer: SupabaseClient
   const folderId = randomUUID()
   const sourceId = randomUUID()
@@ -58,6 +59,7 @@ dbDescribe("duplicate detection local RLS", { timeout: 60_000 }, () => {
       return client
     }
     manager = await signIn("wiki-manager@canopy.test")
+    inspector = await signIn("wiki-duplicates-inspector@canopy.test")
     viewer = await signIn("standard@canopy.test")
     const { error: folderError } = await admin.from("wiki_nodes").insert({
       id: folderId,
@@ -148,8 +150,16 @@ dbDescribe("duplicate detection local RLS", { timeout: 60_000 }, () => {
         body: JSON.stringify({ nodeId: sourceId }),
       })
     )
-    expect(managerResponse.status).toBe(200)
-    expect(await managerResponse.text()).toContain(`Draft ${token}`)
+    expect(managerResponse.status).toBe(403)
+    state.client = inspector
+    const inspectorResponse = await POST(
+      new Request("http://localhost/api/wiki/duplicates", {
+        method: "POST",
+        body: JSON.stringify({ nodeId: sourceId }),
+      })
+    )
+    expect(inspectorResponse.status).toBe(200)
+    expect(await inspectorResponse.text()).toContain(`Draft ${token}`)
     const viewerResult = await detectWikiDuplicates(
       viewer as SupabaseWikiClient,
       viewerId,

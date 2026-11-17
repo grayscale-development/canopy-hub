@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const state = vi.hoisted(() => ({
   user: "manager" as string | null,
   allowed: true,
+  inspector: true,
   nodes: [] as Record<string, unknown>[],
   revisions: [] as Record<string, unknown>[],
   vectors: [] as Record<string, unknown>[],
@@ -20,7 +21,8 @@ vi.mock("@/lib/wiki-ai", async () => {
   }
 })
 vi.mock("@/lib/permissions", () => ({
-  userHasPermissionCode: async () => state.allowed,
+  userHasPermissionCode: async ({ code }: { code: string }) =>
+    state.allowed && (code !== "wiki.duplicates.inspect" || state.inspector),
 }))
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
@@ -94,6 +96,7 @@ const node = (id: string, revision: string, short: number) => ({
 beforeEach(() => {
   state.user = `manager-${crypto.randomUUID()}`
   state.allowed = true
+  state.inspector = true
   state.calls = 0
   state.embeddingFails = false
   state.nodes = [node(source, "rev1", 1), node(other, "rev2", 2)]
@@ -108,6 +111,10 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe("duplicate route", () => {
+  it("requires the duplicate inspection permission", async () => {
+    state.inspector = false
+    expect((await POST(request({ nodeId: source }))).status).toBe(403)
+  })
   it("requires an editor and validates input", async () => {
     state.user = null
     expect((await POST(request({ nodeId: source }))).status).toBe(401)
