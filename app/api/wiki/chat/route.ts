@@ -167,7 +167,7 @@ export async function GET(request: Request) {
     ? await supabase
         .from("ai_chat_citations")
         .select(
-          "message_id,title,url,snippet,knowledge_source_id,knowledge_chunk_id"
+          "id,message_id,title,url,snippet,knowledge_source_id,knowledge_chunk_id"
         )
         .in("message_id", messageIds)
         .order("created_at", { ascending: true })
@@ -199,12 +199,34 @@ export async function GET(request: Request) {
       updatedBy?: string
     }>
   >()
-  for (const citation of citations ?? []) {
+  const citationOrder = new Map(
+    (messages ?? []).map((message) => [
+      message.id,
+      Array.isArray(message.metadata?.citationOrder)
+        ? message.metadata.citationOrder
+        : [],
+    ])
+  )
+  const orderedCitations = [...(citations ?? [])].sort((a, b) => {
+    if (a.message_id !== b.message_id)
+      return a.message_id.localeCompare(b.message_id)
+    const order = citationOrder.get(a.message_id) ?? []
+    const aIndex = order.indexOf(a.id)
+    const bIndex = order.indexOf(b.id)
+    return aIndex < 0 || bIndex < 0 ? 0 : aIndex - bIndex
+  })
+  for (const citation of orderedCitations) {
     if (wikiCitations.includes(citation)) {
       const url = citation.knowledge_source_id
         ? wikiUrls.get(citation.knowledge_source_id)
         : null
-      if (!url) continue
+      if (!url) {
+        // Keep citation numbers stable without exposing inaccessible source details.
+        const existing = citationsByMessage.get(citation.message_id) ?? []
+        existing.push({ title: "", url: null, snippet: "" })
+        citationsByMessage.set(citation.message_id, existing)
+        continue
+      }
       citation.url =
         url +
         (citation.url?.includes("#")
@@ -547,9 +569,7 @@ export async function POST(request: Request) {
           "That's the limit for adjustments to this proposal. Start a new chat to make more changes."
       } else {
         const feedback = [...(previousState.feedback ?? []), message]
-        const { prepareMiloProposal } = await import(
-          "@/lib/milo/proposed-edit"
-        )
+        const { prepareMiloProposal } = await import("@/lib/milo/proposed-edit")
         const prepared = await prepareMiloProposal({
           supabase,
           pageId: previousState.pageId,
@@ -730,6 +750,8 @@ export async function POST(request: Request) {
         updatedBy: citation.updatedBy,
       }))
     if (citationDetails.length) metadata.citationDetails = citationDetails
+    const citationIds = result.citations.map(() => crypto.randomUUID())
+    if (citationIds.length) metadata.citationOrder = citationIds
     delete metadata.cards
     if (cards.length)
       metadata.cards = cards.map((card) => miloCardSchema.parse(card))
@@ -769,7 +791,8 @@ export async function POST(request: Request) {
       const { error: citationError } = await supabase
         .from("ai_chat_citations")
         .insert(
-          result.citations.map((citation) => ({
+          result.citations.map((citation, index) => ({
+            id: citationIds[index],
             message_id: assistantMessage.id,
             knowledge_source_id: citation.knowledgeSourceId ?? null,
             knowledge_chunk_id: citation.knowledgeChunkId ?? null,

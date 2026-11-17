@@ -57,9 +57,10 @@ describe("WikiChatModalProvider", () => {
     fetchMock.mockClear()
     resolveResponse = null
     vi.stubGlobal("fetch", fetchMock)
+    let messageId = 0
     vi.stubGlobal("crypto", {
       ...window.crypto,
-      randomUUID: () => "test-message-id",
+      randomUUID: () => `test-message-${++messageId}`,
     })
   })
 
@@ -103,12 +104,15 @@ describe("WikiChatModalProvider", () => {
     })
 
     expect(
-      await screen.findByText("The loan policy is in the Wiki.")
+      await screen.findByRole("link", { name: /loan policy/i })
     ).toBeVisible()
+    expect(screen.getByText("Where is the loan policy?")).toBeVisible()
     expect(screen.getByText("Please try again.")).toBeVisible()
-    expect(screen.getByRole("heading", { name: "Sources" })).toBeVisible()
+    expect(
+      screen.queryByRole("heading", { name: "Sources" })
+    ).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole("link", { name: /Loan policy/ }))
+    await user.click(screen.getByRole("link", { name: /loan policy/i }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   })
 

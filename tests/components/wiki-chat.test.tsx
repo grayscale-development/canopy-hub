@@ -45,9 +45,10 @@ describe("WikiChat", () => {
       .mockResolvedValueOnce(streamedResponse("thread-1", "First answer."))
       .mockResolvedValueOnce(streamedResponse("thread-1", "Follow-up answer."))
     vi.stubGlobal("fetch", fetchMock)
+    let messageId = 0
     vi.stubGlobal("crypto", {
       ...window.crypto,
-      randomUUID: () => "test-message-id",
+      randomUUID: () => `test-message-${++messageId}`,
     })
   })
 
@@ -62,6 +63,7 @@ describe("WikiChat", () => {
     render(<WikiChat queuedPrompt="What is Milo?" />)
 
     expect(await screen.findByText("First answer.")).toBeVisible()
+    expect(screen.getByText("What is Milo?")).toBeVisible()
 
     await user.type(
       screen.getByRole("textbox", { name: "Ask a follow-up" }),
@@ -70,12 +72,111 @@ describe("WikiChat", () => {
     await user.click(screen.getByRole("button", { name: "Send follow-up" }))
 
     expect(await screen.findByText("Follow-up answer.")).toBeVisible()
+    expect(screen.getByText("Tell me more")).toBeVisible()
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/wiki/chat",
       expect.objectContaining({
         body: JSON.stringify({ threadId: "thread-1", message: "Tell me more" }),
       })
     )
+  })
+
+  it("renders markdown, references and the restored question inline", async () => {
+    sessionStorage.setItem("milo-active-thread", "thread-1")
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        messages: [
+          {
+            id: "question",
+            role: "user",
+            content: "tell me about the funding process",
+          },
+          {
+            id: "answer",
+            role: "assistant",
+            content:
+              "The best match is **Funding Checklist**: `/wiki/1/16/17`. [1]\n\n- *Closing Desk Notes*\n- [Hub Process](/wiki/tags?tag=Hub%20Process)\n- [**Manual**](/wiki/1/16/19)\n- [`/wiki/1/16/17`](/wiki/1/16/17)",
+            citations: [
+              {
+                title: "Funding Checklist",
+                url: "/wiki/1/16/17",
+                snippet: "Funding steps",
+              },
+              {
+                title: "Closing Desk Notes",
+                url: "/wiki/1/16/18",
+                snippet: "Closing notes",
+              },
+              { title: "Manual", url: "/wiki/1/16/19", snippet: "Manual" },
+            ],
+          },
+        ],
+      }),
+    })
+    const onNavigate = vi.fn()
+    render(<WikiChat onNavigate={onNavigate} />)
+    expect(
+      await screen.findByText("tell me about the funding process")
+    ).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: "Funding Checklist" })
+    ).toHaveAttribute("href", "/wiki/1/16/17")
+    expect(screen.getAllByRole("link", { name: "/wiki/1/16/17" })).toHaveLength(
+      2
+    )
+    expect(screen.getByRole("link", { name: "Manual" })).toHaveAttribute(
+      "href",
+      "/wiki/1/16/19"
+    )
+    expect(document.querySelector("a a")).toBeNull()
+    expect(screen.getByRole("link", { name: "[1]" })).toHaveAttribute(
+      "href",
+      "/wiki/1/16/17"
+    )
+    expect(
+      screen.getByRole("link", { name: "Closing Desk Notes" }).closest("em")
+    ).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Hub Process" })).toHaveAttribute(
+      "href",
+      "/wiki/tags?tag=Hub%20Process"
+    )
+    expect(screen.getByRole("list")).toBeInTheDocument()
+    expect(screen.queryByText("Sources")).not.toBeInTheDocument()
+    const link = screen.getByRole("link", { name: "Funding Checklist" })
+    link.addEventListener("click", (event) => event.preventDefault(), {
+      once: true,
+    })
+    await userEvent.click(link)
+    expect(onNavigate).toHaveBeenCalled()
+  })
+
+  it("keeps citation numbers aligned when an earlier source is unavailable", async () => {
+    sessionStorage.setItem("milo-active-thread", "thread-1")
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        messages: [
+          {
+            id: "answer",
+            role: "assistant",
+            content: "## Policy [2]\n\nDetails [1] and [2].",
+            citations: [
+              { title: "", url: null, snippet: "" },
+              { title: "Policy", url: "/wiki/1/2", snippet: "Policy" },
+            ],
+          },
+        ],
+      }),
+    })
+    render(<WikiChat />)
+    expect(await screen.findAllByRole("link", { name: "[2]" })).toHaveLength(2)
+    expect(
+      screen.getByRole("heading", { name: "Policy [2]" }).querySelector("a")
+    ).toHaveAttribute("href", "/wiki/1/2")
+    expect(screen.queryByRole("link", { name: "[1]" })).not.toBeInTheDocument()
   })
 
   it("saves a rating, lets it change, and restores it with the conversation", async () => {
