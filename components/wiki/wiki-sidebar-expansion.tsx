@@ -240,7 +240,11 @@ export function SidebarAccordionHeader({
           type="button"
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className={cn(labelClassName, "cursor-pointer")}
+          disabled={disabled}
+          className={cn(
+            labelClassName,
+            "cursor-pointer disabled:cursor-default"
+          )}
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setOpen((current) => !current)
