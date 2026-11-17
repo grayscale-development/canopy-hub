@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -16,6 +17,7 @@ import { useWikiEditMode } from "@/components/wiki/wiki-edit-mode"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { isUnarchivedWikiBranch, type WikiNodeRow } from "@/lib/wiki"
 import { buildNumericWikiPath } from "@/lib/wiki-paths"
+import { parseWikiAlertRecommendation } from "@/lib/wiki-alert-recommendation"
 
 type Alert = {
   id: string
@@ -117,6 +119,36 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
     setBusy(null)
   }
 
+  async function apply(id: string) {
+    setBusy(id)
+    setError(null)
+    try {
+      const response = await fetch("/api/wiki/alerts/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      })
+      const result = await response.json()
+      if (!response.ok)
+        throw new Error(result.error || "Could not apply this recommendation.")
+      requestId.current++
+      setAlerts(
+        (current) => current?.filter((alert) => alert.id !== id) ?? null
+      )
+      toast.success(
+        "Recommendation applied. To undo, turn on editor mode, select Last updated below the page, and restore an earlier version."
+      )
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Could not apply this recommendation."
+      )
+    } finally {
+      setBusy(null)
+    }
+  }
+
   function pageLink(id: string) {
     const node = nodes.find((item) => item.id === id)
     return node
@@ -178,6 +210,13 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
           const first = pageLink(alert.page_id)
           const second = pageLink(alert.other_page_id)
           const recommendation = alert.recommendation
+          const applicable = parseWikiAlertRecommendation(
+            recommendation,
+            alert.page_id,
+            alert.other_page_id
+          )
+          const editPage =
+            applicable?.targetPageId === alert.other_page_id ? second : first
           const summary =
             recommendation &&
             typeof recommendation === "object" &&
@@ -219,13 +258,18 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
                 {summary || "These pages may contain duplicate information."}
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" disabled>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!applicable || busy !== null}
+                  onClick={() => void apply(alert.id)}
+                >
                   Apply recommendation
                 </Button>
-                {first?.editable ? (
+                {editPage?.editable ? (
                   <Button variant="outline" size="sm" asChild>
                     <Link
-                      href={first.path}
+                      href={editPage.path}
                       onClick={() => {
                         setEditorMode(true)
                         setOpen(false)
@@ -244,11 +288,13 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
                   Dismiss
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {summary
-                  ? "This recommendation cannot be applied yet."
-                  : "No applicable recommendation yet."}
-              </p>
+              {!applicable ? (
+                <p className="text-xs text-muted-foreground">
+                  {summary
+                    ? "This recommendation cannot be applied yet."
+                    : "No applicable recommendation yet."}
+                </p>
+              ) : null}
             </div>
           )
         })}
