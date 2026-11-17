@@ -121,20 +121,17 @@ describe("WikiChat", () => {
       await screen.findByText("tell me about the funding process")
     ).toBeVisible()
     expect(
-      screen.getByRole("link", { name: "Funding Checklist" })
+      screen.getAllByRole("link", { name: "Funding Checklist" })[0]
     ).toHaveAttribute("href", "/wiki/1/16/17")
-    expect(screen.getAllByRole("link", { name: "/wiki/1/16/17" })).toHaveLength(
-      2
-    )
+    expect(
+      screen.queryByRole("link", { name: "/wiki/1/16/17" })
+    ).not.toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(/\[\d+\]|\/wiki\/1\/16\/17/)
     expect(screen.getByRole("link", { name: "Manual" })).toHaveAttribute(
       "href",
       "/wiki/1/16/19"
     )
     expect(document.querySelector("a a")).toBeNull()
-    expect(screen.getByRole("link", { name: "[1]" })).toHaveAttribute(
-      "href",
-      "/wiki/1/16/17"
-    )
     expect(
       screen.getByRole("link", { name: "Closing Desk Notes" }).closest("em")
     ).toBeInTheDocument()
@@ -144,7 +141,7 @@ describe("WikiChat", () => {
     )
     expect(screen.getByRole("list")).toBeInTheDocument()
     expect(screen.queryByText("Sources")).not.toBeInTheDocument()
-    const link = screen.getByRole("link", { name: "Funding Checklist" })
+    const link = screen.getAllByRole("link", { name: "Funding Checklist" })[0]
     link.addEventListener("click", (event) => event.preventDefault(), {
       once: true,
     })
@@ -172,11 +169,11 @@ describe("WikiChat", () => {
       }),
     })
     render(<WikiChat />)
-    expect(await screen.findAllByRole("link", { name: "[2]" })).toHaveLength(2)
+    expect(await screen.findByRole("heading", { name: "Policy" })).toBeVisible()
     expect(
-      screen.getByRole("heading", { name: "Policy [2]" }).querySelector("a")
+      screen.getByRole("heading", { name: "Policy" }).querySelector("a")
     ).toHaveAttribute("href", "/wiki/1/2")
-    expect(screen.queryByRole("link", { name: "[1]" })).not.toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(/\[\d+\]/)
   })
 
   it("saves a rating, lets it change, and restores it with the conversation", async () => {

@@ -25,6 +25,7 @@ import {
   type MiloStreamEvent,
 } from "@/lib/milo/chat-cards"
 import { cn } from "@/lib/utils"
+import { inlineCitations } from "@/lib/milo/inline-citations"
 
 interface Citation {
   title: string
@@ -62,29 +63,6 @@ function LinkableText({
   )
 }
 
-function WikiCode({
-  children,
-  url,
-  onNavigate,
-}: {
-  children: React.ReactNode
-  url?: string
-  onNavigate?: () => void
-}) {
-  const insideLink = React.useContext(InsideMarkdownLink)
-  return url && !insideLink ? (
-    <Link
-      href={url}
-      onClick={onNavigate}
-      className="text-primary underline underline-offset-4 hover:no-underline"
-    >
-      {children}
-    </Link>
-  ) : (
-    <code>{children}</code>
-  )
-}
-
 function MessageContent({
   content,
   citations = [],
@@ -95,13 +73,11 @@ function MessageContent({
   onNavigate?: () => void
 }) {
   const references = citations
-    .flatMap((citation, index) => {
+    .flatMap((citation) => {
       if (!citation.url || !/^(?:\/(?!\/)|https?:\/\/)/i.test(citation.url))
         return []
       const tag = /^Tag: (.+) \((.+)\)$/.exec(citation.title)
-      const names = [citation.title, ...(tag ? [tag[1]] : []), `[${index + 1}]`]
-      const path = citation.url.split("#")[0]
-      if (/^\/wiki\/\d+(?:\/\d+)*$/.test(path)) names.push(path)
+      const names = [citation.title, ...(tag ? [tag[1]] : [])]
       return names
         .filter((name) => name.length >= 3)
         .map((name) => ({ name, url: citation.url! }))
@@ -185,17 +161,6 @@ function MessageContent({
           ol: ({ children }) => (
             <ol className="list-decimal space-y-1 pl-5">{children}</ol>
           ),
-          code: ({ children }) => {
-            const text = String(children)
-            const reference = references.find(
-              ({ name }) => name === text && /^\/wiki\/\d/.test(name)
-            )
-            return (
-              <WikiCode url={reference?.url} onNavigate={onNavigate}>
-                {children}
-              </WikiCode>
-            )
-          },
           a: ({ href, children }) =>
             href ? (
               <Link
@@ -212,7 +177,7 @@ function MessageContent({
             ),
         }}
       >
-        {content}
+        {inlineCitations(content, citations)}
       </ReactMarkdown>
     </div>
   )
