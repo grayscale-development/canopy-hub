@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto"
 import { mkdirSync } from "node:fs"
 import path from "node:path"
 import { expect, test } from "@playwright/test"
-import { mockMiloChatApi, signInAsLocalDev } from "./helpers"
+import { mockMiloChatApi } from "./helpers"
 import {
   createReviewedPage,
   enableEditorMode,
   serviceWiki,
+  signInAsSeededUser,
 } from "./wiki-reviewed-helpers"
 
 test("duplicate markers follow saved passages and remain accessible @wiki", async ({
@@ -81,7 +82,7 @@ test("duplicate markers follow saved passages and remain accessible @wiki", asyn
         },
       })
     })
-    await signInAsLocalDev(page)
+    await signInAsSeededUser(page, "wiki-duplicates-inspector@canopy.test")
     await page.goto(fixture.path)
     await expect(page.getByText(firstText)).toBeVisible()
     await expect(

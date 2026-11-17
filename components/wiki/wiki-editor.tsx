@@ -87,6 +87,7 @@ export function WikiEditor({
   nodes = [],
   revision,
   canManage,
+  canInspectDuplicates = false,
   lastUpdatedAt,
   lastUpdatedBy,
   showStatusControl = false,
@@ -101,6 +102,7 @@ export function WikiEditor({
   nodes?: WikiNodeRow[]
   revision: WikiRevisionRow | null
   canManage: boolean
+  canInspectDuplicates?: boolean
   lastUpdatedAt?: string | null
   lastUpdatedBy?: string
   showStatusControl?: boolean
@@ -127,6 +129,7 @@ export function WikiEditor({
       nodes={nodes}
       revision={revision}
       canManage={canManage}
+      canInspectDuplicates={canInspectDuplicates}
       lastUpdatedAt={lastUpdatedAt}
       lastUpdatedBy={lastUpdatedBy}
       showStatusControl={showStatusControl}
@@ -145,6 +148,7 @@ function WikiEditorMounted({
   nodes,
   revision,
   canManage,
+  canInspectDuplicates = false,
   lastUpdatedAt,
   lastUpdatedBy,
   showStatusControl = false,
@@ -159,6 +163,7 @@ function WikiEditorMounted({
   nodes: WikiNodeRow[]
   revision: WikiRevisionRow | null
   canManage: boolean
+  canInspectDuplicates?: boolean
   lastUpdatedAt?: string | null
   lastUpdatedBy?: string
   showStatusControl?: boolean
@@ -367,7 +372,7 @@ function WikiEditorMounted({
           {canEditPage ? headerActions : null}
         </div>
       </WikiViewModeTitleSpacing>
-      {canEditPage ? (
+      {canEditPage && canInspectDuplicates ? (
         <WikiDuplicates
           key={`${node.id}:${revision?.id}:${duplicateVersion}`}
           nodeId={node.id}

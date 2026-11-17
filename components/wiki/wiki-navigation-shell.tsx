@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
+import { WikiAlerts } from "@/components/wiki/wiki-alerts"
 import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar"
 import {
   Breadcrumb,
@@ -60,7 +61,15 @@ function WikiBreadcrumbs({ breadcrumbs }: { breadcrumbs: WikiNodeRow[] }) {
   )
 }
 
-export function WikiHeader({ nodes }: { nodes: WikiNodeRow[] }) {
+export function WikiHeader({
+  nodes,
+  archivedNodes = [],
+  canManageWiki = false,
+}: {
+  nodes: WikiNodeRow[]
+  archivedNodes?: WikiNodeRow[]
+  canManageWiki?: boolean
+}) {
   const pathname = usePathname()
   const path = getWikiPathSegments(pathname)
   const node = resolveNumericWikiPath(nodes, path)?.node
@@ -75,46 +84,53 @@ export function WikiHeader({ nodes }: { nodes: WikiNodeRow[] }) {
         orientation="vertical"
         className="mr-2 data-vertical:h-4 data-vertical:self-auto"
       />
-      {breadcrumbs.length ? (
-        <WikiBreadcrumbs breadcrumbs={breadcrumbs} />
-      ) : repository ? (
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Link href="/wiki">Wiki</Link>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>{repository.title}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      ) : isTagsDirectory ? (
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Link href="/wiki">Wiki</Link>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>Tags</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      ) : (
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbPage>Wiki</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      )}
-      <HeaderFeedbackButton className="ml-auto" />
+      <div className="min-w-0 overflow-hidden">
+        {breadcrumbs.length ? (
+          <WikiBreadcrumbs breadcrumbs={breadcrumbs} />
+        ) : repository ? (
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/wiki">Wiki</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{repository.title}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        ) : isTagsDirectory ? (
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/wiki">Wiki</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Tags</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        ) : (
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbPage>Wiki</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        )}
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {canManageWiki ? (
+          <WikiAlerts nodes={[...nodes, ...archivedNodes]} />
+        ) : null}
+        <HeaderFeedbackButton />
+      </div>
     </header>
   )
 }

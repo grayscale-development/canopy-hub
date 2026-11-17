@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const state = vi.hoisted(() => ({
   user: "user" as string | null,
   allowed: true,
+  inspector: true,
   rows: new Set<string>(),
 }))
 vi.mock("@/lib/permissions", () => ({
-  userHasPermissionCode: async () => state.allowed,
+  userHasPermissionCode: async ({ code }: { code: string }) =>
+    state.allowed && (code !== "wiki.duplicates.inspect" || state.inspector),
 }))
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
@@ -59,9 +61,15 @@ const request = (data: unknown = body) =>
 beforeEach(() => {
   state.user = "user"
   state.allowed = true
+  state.inspector = true
   state.rows.clear()
 })
 describe("duplicate dismissals API", () => {
+  it("requires the duplicate inspection permission", async () => {
+    state.inspector = false
+    expect((await POST(request())).status).toBe(403)
+    expect((await DELETE(request())).status).toBe(403)
+  })
   it("requires a signed-in manager and validates input", async () => {
     state.user = null
     expect((await POST(request())).status).toBe(401)
