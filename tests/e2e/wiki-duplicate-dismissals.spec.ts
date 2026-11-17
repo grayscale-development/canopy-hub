@@ -3,11 +3,12 @@ import { mkdirSync } from "node:fs"
 import path from "node:path"
 import { expect, test } from "@playwright/test"
 
-import { mockMiloChatApi, signInAsLocalDev } from "./helpers"
+import { mockMiloChatApi } from "./helpers"
 import {
   createReviewedPage,
   enableEditorMode,
   serviceWiki,
+  signInAsSeededUser,
 } from "./wiki-reviewed-helpers"
 
 test("mark intentional, show dismissed, and undo @wiki", async ({ page }) => {
@@ -96,7 +97,7 @@ test("mark intentional, show dismissed, and undo @wiki", async ({ page }) => {
         },
       })
     })
-    await signInAsLocalDev(page)
+    await signInAsSeededUser(page, "wiki-duplicates-inspector@canopy.test")
     await page.goto(fixture.path)
     await enableEditorMode(page)
     await page.getByRole("button", { name: "Check for duplicates" }).click()

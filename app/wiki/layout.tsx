@@ -82,7 +82,11 @@ export default async function WikiLayout({
       <WikiEditModeProvider canManageWiki={canManageWiki} availableTags={tags}>
         <AppSidebar activePath="/wiki" />
         <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
-          <WikiHeader nodes={nodes} />
+          <WikiHeader
+            nodes={nodes}
+            archivedNodes={archivedNodes}
+            canManageWiki={canManageWiki}
+          />
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
             {!isSetupRequired ? (
               <WikiRepositoryNavigation

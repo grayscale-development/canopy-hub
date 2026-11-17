@@ -14,6 +14,7 @@ const dbDescribe =
 dbDescribe("duplicate resolution local RLS", { timeout: 60_000 }, () => {
   let admin: SupabaseClient
   let manager: SupabaseClient
+  let inspector: SupabaseClient
   let viewer: SupabaseClient
   const folderId = randomUUID()
   const pageId = randomUUID()
@@ -43,6 +44,7 @@ dbDescribe("duplicate resolution local RLS", { timeout: 60_000 }, () => {
       return client
     }
     manager = await signIn("wiki-manager@canopy.test")
+    inspector = await signIn("wiki-duplicates-inspector@canopy.test")
     viewer = await signIn("standard@canopy.test")
     const folder = await admin
       .from("wiki_nodes")
@@ -146,13 +148,15 @@ dbDescribe("duplicate resolution local RLS", { timeout: 60_000 }, () => {
       })
     state.client = viewer
     expect((await POST(request())).status).toBe(403)
+    state.client = manager
+    expect((await POST(request())).status).toBe(403)
     let node = await admin
       .from("wiki_nodes")
       .select("current_revision_id")
       .eq("id", pageId)
       .single()
     expect(node.data?.current_revision_id).toBe(revisionId)
-    state.client = manager
+    state.client = inspector
     expect((await POST(request(randomUUID()))).status).toBe(409)
     expect((await POST(request())).status).toBe(200)
     node = await admin

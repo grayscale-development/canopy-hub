@@ -12,6 +12,7 @@ const TEST_USERS = {
   admin: "admin@canopy.test",
   settings: "settings@canopy.test",
   wikiManager: "wiki-manager@canopy.test",
+  wikiInspector: "wiki-duplicates-inspector@canopy.test",
   standard: "standard@canopy.test",
 } as const
 
@@ -949,6 +950,11 @@ async function seedLocalData({
     TEST_USERS.wikiManager,
     "Wiki Manager Test"
   )
+  const wikiInspector = await ensureUser(
+    supabase,
+    TEST_USERS.wikiInspector,
+    "Wiki Inspector Test"
+  )
   const standard = await ensureUser(
     supabase,
     TEST_USERS.standard,
@@ -979,6 +985,11 @@ async function seedLocalData({
     codes: ["wiki.manage", "beta.1"],
   })
 
+  await grantPermissions({
+    supabase,
+    userId: wikiInspector.id,
+    codes: ["wiki.manage", "wiki.duplicates.inspect", "beta.1"],
+  })
   await grantPermissions({
     supabase,
     userId: standard.id,
