@@ -169,12 +169,14 @@ function renderSidebar(
   selectedRepositorySlug: string,
   activePath = selectedRepositorySlug,
   sidebarNodes: WikiNodeRow[] = nodes,
-  canManage = canManageWiki
+  canManage = canManageWiki,
+  archivedNodes: WikiNodeRow[] = []
 ) {
   return render(
     <TooltipProvider>
       <WikiRepositorySidebar
         nodes={sidebarNodes}
+        archivedNodes={archivedNodes}
         activePath={activePath}
         selectedRepositorySlug={selectedRepositorySlug}
         canManageWiki={canManage}
@@ -251,9 +253,7 @@ describe("WikiRepositorySidebar", () => {
       name: "Filter sections, groups, and pages",
     })
     await user.type(input, "xyz")
-    expect(
-      screen.getByText('No pages, sections, or groups match "xyz"')
-    ).toBeVisible()
+    expect(screen.getByText("No matches.")).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Clear filter" }))
     expect(input).toHaveFocus()
     expect(input).toHaveValue("")
@@ -314,12 +314,125 @@ describe("WikiRepositorySidebar", () => {
       }),
       "final review"
     )
-    expect(
-      screen.getByText('No pages, sections, or groups match "final review"')
-    ).toBeVisible()
+    expect(screen.getByText("No matches.")).toBeVisible()
     expect(
       screen.queryByRole("link", { name: "Final Review" })
     ).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Clear filter" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Toggle Archive" })).toBeNull()
+  })
+
+  it("filters both archives and restores their saved expansion when cleared", async () => {
+    const user = userEvent.setup()
+    const archived = [
+      node({
+        id: "old-review",
+        short_id: 11,
+        parent_id: "canopy-operations",
+        type: "page",
+        title: "Old Réview",
+        status: "archived",
+      }),
+      node({
+        id: "old-guide",
+        short_id: 12,
+        parent_id: "canopy-operations",
+        type: "page",
+        title: "Old Guide",
+        status: "archived",
+      }),
+      node({
+        id: "other",
+        short_id: 13,
+        parent_id: "canopy-hub",
+        type: "page",
+        title: "Other",
+        status: "archived",
+      }),
+    ]
+    renderSidebar("canopy-wiki", "1", nodes, true, archived)
+    await user.click(
+      screen.getByRole("button", { name: "Filter wiki navigation" })
+    )
+    const input = screen.getByRole("textbox", {
+      name: "Filter sections, groups, and pages",
+    })
+    await user.type(input, "final")
+    expect(screen.getByRole("link", { name: "Final Review" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: "Toggle Archive" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Toggle Archived" })).toBeNull()
+
+    await user.clear(input)
+    await user.type(input, "review")
+    expect(
+      screen.getByRole("button", { name: "Toggle Archive" })
+    ).toHaveAttribute("aria-expanded", "true")
+    expect(
+      screen.getByRole("button", { name: "Toggle Archived" })
+    ).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getAllByRole("link", { name: "Old Réview" })).toHaveLength(2)
+    expect(screen.queryByRole("link", { name: "Old Guide" })).toBeNull()
+    expect(screen.queryByRole("link", { name: "Other" })).toBeNull()
+    expect(screen.queryByText("No matches.")).toBeNull()
+    await user.clear(input)
+    expect(
+      screen.getByRole("button", { name: "Toggle Archive" })
+    ).toHaveAttribute("aria-expanded", "false")
+    expect(
+      screen
+        .getAllByRole("button", { name: "Toggle Archived" })
+        .every((button) => button.getAttribute("aria-expanded") === "false")
+    ).toBe(true)
+    await user.click(screen.getByRole("button", { name: "Toggle Archive" }))
+    expect(screen.getByRole("link", { name: "Old Guide" })).toBeVisible()
+    expect(screen.getByRole("link", { name: "Other" })).toBeVisible()
+  })
+
+  it("finds archive-only matches by title or ancestor without a false empty state", async () => {
+    const user = userEvent.setup()
+    const archived = [
+      node({
+        id: "retired",
+        short_id: 11,
+        parent_id: "canopy-hub",
+        type: "page",
+        title: "Retired Résumé",
+        status: "archived",
+      }),
+      node({
+        id: "closed-folder",
+        short_id: 12,
+        parent_id: "canopy-root",
+        title: "Old Policies",
+        status: "archived",
+      }),
+      node({
+        id: "closed-page",
+        short_id: 13,
+        parent_id: "closed-folder",
+        type: "page",
+        title: "Reference",
+        status: "archived",
+      }),
+    ]
+    renderSidebar("canopy-wiki", "1", nodes, true, archived)
+    await user.click(
+      screen.getByRole("button", { name: "Filter wiki navigation" })
+    )
+    const input = screen.getByRole("textbox", {
+      name: "Filter sections, groups, and pages",
+    })
+    await user.type(input, "resume retired")
+    expect(screen.getByRole("link", { name: "Retired Résumé" })).toBeVisible()
+    expect(screen.getByText("1 result")).toBeInTheDocument()
+    expect(screen.queryByText("No matches.")).toBeNull()
+    await user.keyboard("{ArrowDown}")
+    expect(screen.getByRole("link", { name: "Retired Résumé" })).toHaveFocus()
+    await user.clear(input)
+    await user.type(input, "policies old")
+    expect(screen.getByRole("link", { name: "Old Policies" })).toBeVisible()
+    expect(screen.getByRole("link", { name: "Reference" })).toBeVisible()
+    expect(screen.queryByRole("link", { name: "Retired Résumé" })).toBeNull()
   })
 
   it("uses a static repository heading and contextual create controls", () => {

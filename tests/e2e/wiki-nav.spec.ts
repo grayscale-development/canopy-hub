@@ -31,6 +31,7 @@ test("sidebar filter finds pages without changing saved expansion @wiki", async 
   })
   try {
     await page.setViewportSize({ width: 1440, height: 900 })
+    await mockMiloChatApi(page)
     await page.emulateMedia({ colorScheme: "light" })
     await signInAsSeededUser(page, "standard@canopy.test")
     await page.goto("/wiki/1")
@@ -89,11 +90,7 @@ test("sidebar filter finds pages without changing saved expansion @wiki", async 
     await expect(result).toBeFocused()
     await input.focus()
     await input.fill("no-such-sidebar-result")
-    await expect(
-      sidebar.getByText(
-        'No pages, sections, or groups match "no-such-sidebar-result"'
-      )
-    ).toBeVisible()
+    await expect(sidebar.getByText("No matches.")).toBeVisible()
     await screenshot("02-desktop-empty.png")
     await sidebar.getByRole("button", { name: "Clear filter" }).click()
     await expect(input).toBeFocused()
