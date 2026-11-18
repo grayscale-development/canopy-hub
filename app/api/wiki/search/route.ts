@@ -12,6 +12,7 @@ export const runtime = "nodejs"
 
 const WIKI_SEARCH_SOURCE_TYPES = [
   "newsletter",
+  "document",
   "report",
   "support",
   "site",
@@ -44,6 +45,8 @@ function formatSourceType(value: string) {
       return "Asset"
     case "newsletter":
       return "Newsletter"
+    case "document":
+      return "Document"
     case "report":
       return "Report"
     case "support":
@@ -99,7 +102,9 @@ export async function GET(request: NextRequest) {
   for (const row of rows) {
     if (
       !canAccessBeta1 &&
-      (row.source_url?.startsWith("/wiki") || row.source_id === "wiki")
+      (BETA_SEARCH_SOURCE_TYPES.includes(row.source_type) ||
+        row.source_url?.startsWith("/wiki") ||
+        row.source_id === "wiki")
     ) {
       continue
     }
@@ -113,7 +118,14 @@ export async function GET(request: NextRequest) {
   const selectedRows = await resolveWikiKnowledgeRows(supabase, [
     ...bySource.values(),
   ])
-  const knowledgeResults = selectedRows.slice(0, 8).map((row) => ({
+  const orderedRows = canAccessBeta1
+    ? [...selectedRows].sort(
+        (a, b) =>
+          Number(a.source_type !== "wiki_page") -
+          Number(b.source_type !== "wiki_page")
+      )
+    : selectedRows
+  const knowledgeResults = orderedRows.slice(0, 8).map((row) => ({
     id: row.source_id,
     title: row.source_title || "Untitled",
     url: row.source_url || "/home",

@@ -19,6 +19,13 @@ import {
 } from "@/lib/milo/source-limits"
 import { WikiChatCard } from "@/components/wiki/wiki-chat-card"
 import {
+  fetchMiloResults,
+  MiloSearchResults,
+  searchableQuery,
+  useMiloSearch,
+  type MiloSearchResult,
+} from "@/components/wiki/milo-search-results"
+import {
   cardEventSchema,
   displayCard,
   type DisplayCard,
@@ -45,6 +52,7 @@ interface ChatMessage {
   abstained?: boolean
   flagged?: boolean
   rating?: "up" | "down"
+  matchingPages?: MiloSearchResult[]
 }
 
 const activeThreadKey = "milo-active-thread"
@@ -117,6 +125,8 @@ export function WikiChat({
   const threadView = React.useRef<HTMLDivElement>(null)
   const [pending, setPending] = React.useState(false)
   const [loadingHistory, setLoadingHistory] = React.useState(true)
+  const search = useMiloSearch(input, pending || loadingHistory)
+  const searchRequests = React.useRef(new Set<AbortController>())
   const consumedPromptRef = React.useRef<string | null>(null)
   const isMountedRef = React.useRef(false)
 
@@ -142,8 +152,11 @@ export function WikiChat({
 
   React.useEffect(() => {
     isMountedRef.current = true
+    const requests = searchRequests.current
     return () => {
       isMountedRef.current = false
+      for (const controller of requests) controller.abort()
+      requests.clear()
     }
   }, [])
 
@@ -203,6 +216,11 @@ export function WikiChat({
         return
       }
 
+      const matchingQuery = searchableQuery(questionValue)
+      const cachedResults =
+        search.completed && search.query === matchingQuery
+          ? search.results
+          : null
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -212,7 +230,12 @@ export function WikiChat({
       setMessages((current) => [
         ...current,
         userMessage,
-        { id: assistantId, role: "assistant", content: "" },
+        {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          matchingPages: cachedResults ?? [],
+        },
       ])
       setPending(true)
 
@@ -223,7 +246,7 @@ export function WikiChat({
           if (threadId) form.set("threadId", threadId)
           form.set("file", attachment)
         }
-        const response = await fetch("/api/wiki/chat", {
+        const chatRequest = fetch("/api/wiki/chat", {
           method: "POST",
           ...(form
             ? { body: form }
@@ -233,6 +256,25 @@ export function WikiChat({
               }),
         })
 
+        if (matchingQuery && !cachedResults) {
+          const controller = new AbortController()
+          searchRequests.current.add(controller)
+          void fetchMiloResults(matchingQuery, controller.signal)
+            .then((results) => {
+              if (!controller.signal.aborted && isMountedRef.current) {
+                setMessages((current) =>
+                  current.map((message) =>
+                    message.id === assistantId
+                      ? { ...message, matchingPages: results }
+                      : message
+                  )
+                )
+              }
+            })
+            .catch(() => {})
+            .finally(() => searchRequests.current.delete(controller))
+        }
+        const response = await chatRequest
         if (!response.ok || !response.body) {
           const payload = (await response.json().catch(() => null)) as {
             error?: string
@@ -340,7 +382,7 @@ export function WikiChat({
         }
       }
     },
-    [pending, threadId]
+    [pending, threadId, search.completed, search.query, search.results]
   )
 
   React.useEffect(() => {
@@ -449,6 +491,40 @@ export function WikiChat({
                     </p>
                   </div>
                 ) : null}
+                {(() => {
+                  const renderedAnswer = inlineCitations(
+                    answer.content,
+                    answer.citations ?? []
+                  )
+                  const links = new Set(
+                    Array.from(
+                      renderedAnswer.matchAll(/\]\(([^\s)]+)\)/g),
+                      (match) => match[1]
+                    )
+                  )
+                  const matches = (answer.matchingPages ?? []).filter(
+                    (result) => !links.has(result.url)
+                  )
+                  return matches.length ? (
+                    <div className="mb-4 text-sm">
+                      <h3 className="mb-1 font-medium text-muted-foreground">
+                        Matching pages
+                      </h3>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1">
+                        {matches.map((result) => (
+                          <Link
+                            key={`${result.type}-${result.id}`}
+                            href={result.url}
+                            onClick={onNavigate}
+                            className="text-sidebar-primary underline underline-offset-4 hover:no-underline dark:text-chart-2"
+                          >
+                            {result.title}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null
+                })()}
                 <h3 className="mb-2 text-sm font-medium text-muted-foreground">
                   {index ? "Follow-up answer" : "Answer"}
                 </h3>
@@ -641,6 +717,7 @@ export function WikiChat({
       </div>
 
       <form onSubmit={askQuestion} className="border-t p-4">
+        <MiloSearchResults search={search} onNavigate={() => setInput("")} />
         {file ? (
           <div className="mb-2 flex items-center gap-2 text-sm">
             <span className="min-w-0 truncate">{file.name}</span>
@@ -692,7 +769,25 @@ export function WikiChat({
           <textarea
             ref={composer}
             value={input}
-            onChange={(event) => setInput(event.currentTarget.value)}
+            onChange={(event) => {
+              search.clearSelection()
+              setInput(event.currentTarget.value)
+            }}
+            onKeyDown={(event) => {
+              if (search.onKeyDown(event)) {
+                if (event.key === "Enter") setInput("")
+                return
+              }
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault()
+                void sendQuestion(input, file)
+              }
+            }}
+            {...search.inputProps}
             rows={Math.min(8, Math.max(1, input.split("\n").length))}
             placeholder="Ask a question or paste source text"
             aria-label="Ask a follow-up"

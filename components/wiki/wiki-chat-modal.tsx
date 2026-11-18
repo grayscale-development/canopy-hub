@@ -25,6 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { WikiChat } from "@/components/wiki/wiki-chat"
+import { MiloSearchOnly } from "@/components/wiki/milo-search-results"
 
 interface WikiChatModalContextValue {
   openWithPrompt: (prompt: string) => void
@@ -261,7 +262,7 @@ export function WikiChatModalProvider({
       y: event.clientY,
       moved: false,
     }
-    event.currentTarget.setPointerCapture(event.pointerId)
+    event.currentTarget.setPointerCapture?.(event.pointerId)
   }
   const moveDrag = (event: React.PointerEvent<HTMLElement>) => {
     const current = drag.current
@@ -401,11 +402,11 @@ export function WikiChatModalProvider({
     (prompt: string) => {
       const trimmedPrompt = prompt.trim()
       if (!trimmedPrompt) return
-      setDraftRequest({ value: "" })
-      setQueuedPrompt(trimmedPrompt)
+      setDraftRequest({ value: canUseMilo ? "" : trimmedPrompt })
+      setQueuedPrompt(canUseMilo ? trimmedPrompt : null)
       setOpen(true)
     },
-    [setOpen]
+    [canUseMilo, setOpen]
   )
 
   const openWithDraft = React.useCallback(
@@ -445,7 +446,7 @@ export function WikiChatModalProvider({
   React.useEffect(() => {
     if (available && isOpen && cachedForUser === cacheKey) {
       const composer = document.querySelector<HTMLTextAreaElement>(
-        `#${panelId} textarea[aria-label="Ask a follow-up"]:not(:disabled)`
+        `#${panelId} textarea:not(:disabled)`
       )
       ;(composer ?? closeRef.current)?.focus()
     }
@@ -536,7 +537,7 @@ export function WikiChatModalProvider({
               onLostPointerCapture={(event) => endDrag(event, true)}
             >
               <h2 id="milo-panel-title" className="font-semibold">
-                Milo
+                {canUseMilo ? "Milo" : "Search"}
               </h2>
               <div className="flex items-center gap-1">
                 <DropdownMenu>
@@ -596,9 +597,10 @@ export function WikiChatModalProvider({
                   onQueuedPromptConsumed={() => setQueuedPrompt(null)}
                 />
               ) : (
-                <p className="p-4 text-sm text-muted-foreground">
-                  Search coming soon
-                </p>
+                <MiloSearchOnly
+                  draftRequest={draftRequest}
+                  autoFocus={isOpen}
+                />
               ))}
           </section>
         </>

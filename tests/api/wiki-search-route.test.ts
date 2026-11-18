@@ -196,4 +196,105 @@ describe("wiki tag search", () => {
     )
     expect((await response.json()).results).toEqual([])
   })
+  it("prioritizes wiki pages ahead of other indexed types for beta users", async () => {
+    state.canAccess = true
+    vi.stubEnv("OPENAI_EMBEDDING_MODEL", "")
+    state.knowledge = [
+      {
+        source_id: "person",
+        source_type: "employee",
+        source_title: "Person",
+        source_url: "/people",
+        content: "Team",
+        similarity: 1,
+      },
+      {
+        source_id: "source",
+        source_type: "wiki_page",
+        source_title: "Page",
+        source_url: "/wiki/old",
+        content: "Team",
+        similarity: 0.5,
+      },
+    ]
+    const response = await GET(
+      new NextRequest("http://localhost/api/wiki/search?q=team")
+    )
+    const results = (await response.json()).results
+    expect(results.map((item: { type: string }) => item.type)).toEqual([
+      "wiki_page",
+      "employee",
+    ])
+  })
+  it("returns non-wiki sources without beta access and excludes wiki rows", async () => {
+    state.canAccess = false
+    state.knowledge = [
+      {
+        source_id: "employee",
+        source_type: "employee",
+        source_title: "A person",
+        source_url: "/employee/1",
+        content: "Team",
+        similarity: 1,
+      },
+      {
+        source_id: "branch",
+        source_type: "branch",
+        source_title: "A branch",
+        source_url: "/branch/1",
+        content: "Branch",
+        similarity: 0.9,
+      },
+      {
+        source_id: "newsletter",
+        source_type: "newsletter",
+        source_title: "Newsletter",
+        source_url: "/newsletters/open?file=one",
+        content: "News",
+        similarity: 0.8,
+      },
+      {
+        source_id: "document",
+        source_type: "document",
+        source_title: "Document",
+        source_url: "/documents/1",
+        content: "Document",
+        similarity: 0.75,
+      },
+      {
+        source_id: "wiki-hidden",
+        source_type: "wiki_page",
+        source_title: "Hidden",
+        source_url: "/home",
+        content: "Private",
+        similarity: 0.7,
+      },
+      {
+        source_id: "wiki-link",
+        source_type: "site",
+        source_title: "Wiki",
+        source_url: "/wiki",
+        content: "Wiki",
+        similarity: 0.6,
+      },
+    ]
+    const response = await GET(
+      new NextRequest("http://localhost/api/wiki/search?q=team")
+    )
+    const results = (await response.json()).results
+    expect(results.map((item: { type: string }) => item.type)).toEqual([
+      "employee",
+      "branch",
+      "newsletter",
+      "document",
+    ])
+    const types = state.calls.find(
+      (call) => call.name === "match_knowledge_chunks_keyword"
+    )?.args.source_types as string[]
+    expect(types).toEqual(
+      expect.arrayContaining(["employee", "branch", "newsletter", "document"])
+    )
+    expect(types).not.toContain("wiki_page")
+    expect(types).not.toContain("wiki_asset")
+  })
 })
