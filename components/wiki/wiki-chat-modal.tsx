@@ -246,6 +246,8 @@ export function WikiChatModalProvider({
   ) => {
     if (window.innerWidth < 640 || !event.isPrimary || event.button !== 0)
       return
+    // Portalled children (the corner menu) bubble React events through here.
+    if (!event.currentTarget.contains(event.target as Node)) return
     if (
       header &&
       (event.target as HTMLElement).closest(
