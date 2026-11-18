@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useEffect, useRef } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -17,6 +17,7 @@ import type { WikiNodeRow } from "@/lib/wiki"
 const blockNoteState = vi.hoisted(() => ({
   onChange: () => () => undefined,
   emitMountChange: true,
+  nextDocument: [{ type: "paragraph", content: "Updated wiki content." }],
   document: [
     {
       type: "paragraph",
@@ -54,9 +55,7 @@ vi.mock("@blocknote/shadcn", () => ({
         data-testid="blocknote-view"
         data-editable={String(editable)}
         onClick={() => {
-          blockNoteState.document = [
-            { type: "paragraph", content: "Updated wiki content." },
-          ]
+          blockNoteState.document = blockNoteState.nextDocument
           onChange?.()
         }}
       />
@@ -124,6 +123,9 @@ describe("WikiEditor", () => {
     vi.clearAllMocks()
     window.localStorage.clear()
     blockNoteState.emitMountChange = true
+    blockNoteState.nextDocument = [
+      { type: "paragraph", content: "Updated wiki content." },
+    ]
     blockNoteState.document = [
       {
         type: "paragraph",
@@ -323,8 +325,10 @@ describe("WikiEditor", () => {
     window.dispatchEvent(dirtyEvent)
     expect(dirtyEvent.defaultPrevented).toBe(true)
     await user.click(screen.getByRole("button", { name: "Save Changes" }))
-    await screen.findByTestId("blocknote-view")
-    expect(toast.success).toHaveBeenCalledWith("Saved")
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Saved")
+      expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument()
+    })
     const cleanEvent = new Event("beforeunload", { cancelable: true })
     window.dispatchEvent(cleanEvent)
     expect(cleanEvent.defaultPrevented).toBe(false)
@@ -347,10 +351,11 @@ describe("WikiEditor", () => {
     )
     await user.click(screen.getByTestId("blocknote-view"))
     await user.click(screen.getByRole("button", { name: "Save Changes" }))
-    blockNoteState.document = [
+    blockNoteState.nextDocument = [
       { type: "paragraph", content: "More changes during save" },
     ]
-    resolveSave({ ok: true, message: "Saved." })
+    await user.click(screen.getByTestId("blocknote-view"))
+    await act(async () => resolveSave({ ok: true, message: "Saved." }))
     expect(
       await screen.findByRole("button", { name: "Save Changes" })
     ).toBeEnabled()
@@ -392,10 +397,8 @@ describe("WikiEditor", () => {
     expect(saveWikiPageAction).toHaveBeenCalledTimes(1)
     expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled()
 
-    resolveSave({ ok: true, message: "Saved." })
-    expect(
-      await screen.findByRole("button", { name: "Edit page tags" })
-    ).toBeVisible()
+    await act(async () => resolveSave({ ok: true, message: "Saved." }))
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument()
   })
 
   it("shows Save Changes when a new page receives pasted text as the first change", async () => {
@@ -414,13 +417,17 @@ describe("WikiEditor", () => {
       screen.queryByRole("button", { name: "Save Changes" })
     ).not.toBeInTheDocument()
 
-    blockNoteState.document = [
+    blockNoteState.nextDocument = [
       { type: "paragraph", content: "Pasted funding checklist text." },
     ]
     await user.click(screen.getByTestId("blocknote-view"))
 
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeVisible()
     expect(screen.getByText("Unsaved changes")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Save Changes" }))
+    expect(vi.mocked(saveWikiPageAction).mock.calls[0][0].get("blocks")).toBe(
+      JSON.stringify(blockNoteState.nextDocument)
+    )
   })
 
   it("does not show Save Changes after only the editor's initialization change", async () => {

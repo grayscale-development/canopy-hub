@@ -19,7 +19,7 @@
     "test:db:reset": "supabase db reset --local",
     "test:db:seed": "tsx tests/setup/seed-local-supabase.ts",
     "test:milo-evals": "node scripts/run-milo-evals.mjs",
-    "test:db": "pnpm test:db:reset && pnpm test:db:seed && CANOPY_DB_TESTS=1 vitest run tests/db",
+    "test:db": "node scripts/wait-local-supabase.mjs && npx --yes supabase@2.67.1 db reset --local && node scripts/wait-local-supabase.mjs && corepack pnpm test:db:seed && node scripts/run-db-tests.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
     "test:ci": "pnpm audit --prod && pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm test:functions && pnpm build"
