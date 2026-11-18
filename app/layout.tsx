@@ -52,7 +52,11 @@ export default async function RootLayout({
       <body>
         <ThemeProvider>
           <TooltipProvider>
-            <WikiChatModalProvider signedIn={!!user} canUseMilo={canUseMilo}>
+            <WikiChatModalProvider
+              signedIn={!!user}
+              userId={user?.id ?? null}
+              canUseMilo={canUseMilo}
+            >
               {children}
             </WikiChatModalProvider>
           </TooltipProvider>

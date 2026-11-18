@@ -35,7 +35,11 @@ function Harness({
 }) {
   return (
     <TooltipProvider>
-      <WikiChatModalProvider signedIn={signedIn} canUseMilo={canUseMilo}>
+      <WikiChatModalProvider
+        signedIn={signedIn}
+        userId={signedIn ? "test-user" : null}
+        canUseMilo={canUseMilo}
+      >
         <WikiHeaderSearch />
         <InnerControl />
         <DropdownMenu>
@@ -82,6 +86,12 @@ function stream(answer: string) {
 describe("floating Milo", () => {
   beforeEach(() => {
     localStorage.clear()
+    if (!HTMLElement.prototype.setPointerCapture) {
+      Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+        configurable: true,
+        value: () => {},
+      })
+    }
     route.pathname = "/home"
     vi.stubGlobal(
       "fetch",
@@ -101,7 +111,7 @@ describe("floating Milo", () => {
   it("toggles by launcher and shortcut, focuses the composer and returns focus", async () => {
     const user = userEvent.setup()
     render(<Harness />)
-    const launcher = screen.getByRole("button", { name: "Ask Milo" })
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
     expect(launcher).toHaveAttribute("aria-expanded", "false")
     expect(
       document.getElementById(launcher.getAttribute("aria-controls")!)
@@ -135,7 +145,7 @@ describe("floating Milo", () => {
   it("lets a Radix menu handle Escape before closing the panel", async () => {
     const user = userEvent.setup()
     render(<Harness />)
-    await user.click(screen.getByRole("button", { name: "Ask Milo" }))
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
     await user.click(screen.getByRole("button", { name: "Open menu" }))
     expect(
       await screen.findByRole("menuitem", { name: "Menu item" })
@@ -162,7 +172,7 @@ describe("floating Milo", () => {
     await user.click(link)
     expect(dialog).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Close" }))
-    await user.click(screen.getByRole("button", { name: "Ask Milo" }))
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
     expect(screen.getByText("Where is the loan policy?")).toBeVisible()
   })
 
@@ -190,7 +200,7 @@ describe("floating Milo", () => {
     const { unmount } = render(<Harness />)
     expect(await screen.findByText(/Milo moved here/)).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Dismiss Milo tip" }))
-    await user.click(screen.getByRole("button", { name: "Ask Milo" }))
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
     await user.click(screen.getByRole("button", { name: "Close" }))
     await user.click(screen.getByRole("button", { name: "Open draft" }))
     expect(
@@ -202,6 +212,109 @@ describe("floating Milo", () => {
     expect(screen.queryByText(/Milo moved here/)).toBeNull()
   })
 
+  it("keeps a small pointer movement as a click and snaps a drag without opening", async () => {
+    const writes: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url === "/api/milo/preferences" && init?.method === "PUT") {
+          writes.push(JSON.parse(String(init.body)).corner)
+          return Promise.resolve({ ok: true })
+        }
+        if (url === "/api/milo/preferences")
+          return Promise.resolve({ ok: false })
+        return Promise.resolve(stream("answer"))
+      })
+    )
+    render(<Harness />)
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
+    const pointer = (type: string, x: number, y: number) => {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        clientX: x,
+        clientY: y,
+      })
+      Object.defineProperties(event, {
+        pointerId: { value: 1 },
+        isPrimary: { value: true },
+      })
+      fireEvent(launcher, event)
+    }
+    pointer("pointerdown", 900, 700)
+    pointer("pointermove", 897, 699)
+    pointer("pointerup", 897, 699)
+    fireEvent.click(launcher)
+    expect(screen.getByRole("dialog", { name: "Milo" })).toBeVisible()
+    await userEvent.click(screen.getByRole("button", { name: "Close" }))
+    pointer("pointerdown", 900, 700)
+    pointer("pointermove", 20, 20)
+    pointer("pointerup", 20, 20)
+    fireEvent.click(launcher)
+    expect(screen.queryByRole("dialog", { name: "Milo" })).toBeNull()
+    await waitFor(() => expect(writes).toEqual(["top-left"]))
+    expect(launcher.parentElement).toHaveClass("top-20", "left-4")
+  })
+
+  it("replaces the cached corner with the server preference", async () => {
+    localStorage.setItem("milo-corner:test-user", "top-left")
+    let finishRead!: (value: unknown) => void
+    const get = new Promise((resolve) => {
+      finishRead = resolve
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => get)
+    )
+    render(<Harness />)
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
+    expect(launcher.parentElement).toHaveClass("top-20", "left-4")
+    await act(async () => {
+      finishRead({ ok: true, json: async () => ({ corner: "bottom-right" }) })
+      await get
+    })
+    await waitFor(() => expect(launcher.parentElement).toHaveClass("right-4"))
+    expect(localStorage.getItem("milo-corner:test-user")).toBe("bottom-right")
+  })
+
+  it("uses the cached corner and does not let a stale server read overwrite a move", async () => {
+    localStorage.setItem("milo-corner:test-user", "top-left")
+    let finishRead!: (value: unknown) => void
+    const get = new Promise((resolve) => {
+      finishRead = resolve
+    })
+    const requests: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url === "/api/milo/preferences" && init?.method === "PUT") {
+          requests.push(JSON.parse(String(init.body)).corner)
+          return Promise.resolve({ ok: true })
+        }
+        if (url === "/api/milo/preferences") return get
+        return Promise.resolve(stream("answer"))
+      })
+    )
+    const user = userEvent.setup()
+    render(<Harness />)
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
+    await waitFor(() =>
+      expect(launcher.parentElement).toHaveClass("top-20", "left-4")
+    )
+    await user.click(launcher)
+    await user.click(screen.getByRole("button", { name: "Move to corner" }))
+    await user.click(screen.getByRole("menuitemradio", { name: "Bottom left" }))
+    expect(localStorage.getItem("milo-corner:test-user")).toBe("bottom-left")
+    await waitFor(() => expect(requests).toEqual(["bottom-left"]))
+    await act(async () => {
+      finishRead({ ok: true, json: async () => ({ corner: "top-right" }) })
+      await get
+    })
+    expect(screen.getByRole("dialog", { name: "Milo" })).toHaveClass(
+      "sm:left-6"
+    )
+  })
+
   it("gates login and signed-out users and shows a placeholder without beta access", async () => {
     const user = userEvent.setup()
     const view = render(<Harness signedIn={false} />)
@@ -211,8 +324,8 @@ describe("floating Milo", () => {
     expect(screen.queryByRole("button", { name: "Ask Milo" })).toBeNull()
     route.pathname = "/home"
     view.rerender(<Harness canUseMilo={false} />)
-    await user.click(screen.getByRole("button", { name: "Ask Milo" }))
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
     expect(screen.getByText("Search coming soon")).toBeVisible()
-    expect(fetch).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalledWith("/api/wiki/chat", expect.anything())
   })
 })

@@ -469,7 +469,10 @@ function WikiEditorMounted({
         )}
       </div>
       {canEditPage && isDirty ? (
-        <div className="fixed right-6 bottom-6 z-40 flex items-center gap-3 rounded-lg bg-background p-2 shadow-xl">
+        <div
+          data-milo-avoid="bottom-right"
+          className="fixed right-6 bottom-6 z-40 flex items-center gap-3 rounded-lg bg-background p-2 shadow-xl"
+        >
           <span className="text-sm text-muted-foreground">Unsaved changes</span>
           <Button
             type="button"
