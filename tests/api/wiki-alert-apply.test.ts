@@ -8,6 +8,10 @@ const state = vi.hoisted(() => ({
   blocks: [] as unknown[],
   calls: [] as Record<string, unknown>[],
   updates: [] as Record<string, unknown>[],
+  logs: [] as Record<string, unknown>[],
+  failUpdate: false,
+  failLog: false,
+  user: true,
 }))
 const recommendation = {
   version: 1,
@@ -49,7 +53,11 @@ vi.mock("@/lib/wiki", async (original) => ({
 }))
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "manager" } } }) },
+    auth: {
+      getUser: async () => ({
+        data: { user: state.user ? { id: "manager" } : null },
+      }),
+    },
     from: (table: string) => {
       const query = {
         select: () => query,
@@ -71,12 +79,22 @@ vi.mock("@/lib/supabase/server", () => ({
                     other_page_id: "b",
                     recommendation: state.recommendation,
                   },
-          error: null,
+          error:
+            table === "wiki_alerts" && state.updates.length && state.failUpdate
+              ? new Error("failed")
+              : null,
         }),
       }
       return query
     },
-    rpc: async (_name: string, args: Record<string, unknown>) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === "log_user_ai_action") {
+        state.logs.push(args)
+        return {
+          data: null,
+          error: state.failLog ? new Error("private detail") : null,
+        }
+      }
       state.calls.push(args)
       return { data: "new-revision", error: null }
     },
@@ -103,6 +121,10 @@ beforeEach(() => {
   ]
   state.calls = []
   state.updates = []
+  state.logs = []
+  state.failUpdate = false
+  state.failLog = false
+  state.user = true
 })
 describe("apply alert", () => {
   it("creates a reviewed link revision without archiving the canonical page and marks the alert applied", async () => {
@@ -118,6 +140,13 @@ describe("apply alert", () => {
       status: "applied",
       applied_by: "manager",
     })
+    expect(state.logs).toEqual([
+      {
+        p_action_type: "alert_apply",
+        p_target_page_id: "a",
+        p_target_alert_id: "alert",
+      },
+    ])
   })
   it("rejects a stale page", async () => {
     state.current = "newer"
@@ -125,6 +154,7 @@ describe("apply alert", () => {
     expect(response.status).toBe(409)
     expect((await response.json()).error).toMatch(/page changed/i)
     expect(state.calls).toEqual([])
+    expect(state.logs).toEqual([])
   })
   it("rejects invalid or closed alerts and nonexistent blocks", async () => {
     state.recommendation = null
@@ -135,10 +165,27 @@ describe("apply alert", () => {
     state.status = "dismissed"
     expect((await POST(request())).status).toBe(400)
     expect(state.calls).toEqual([])
+    expect(state.logs).toEqual([])
   })
   it("refuses non-managers", async () => {
     state.allowed = false
     expect((await POST(request())).status).toBe(403)
     expect(state.calls).toEqual([])
+    expect(state.logs).toEqual([])
+  })
+  it("does not log an unauthenticated request or a failed alert update", async () => {
+    state.user = false
+    expect((await POST(request())).status).toBe(401)
+    state.user = true
+    state.failUpdate = true
+    expect((await POST(request())).status).toBe(500)
+    expect(state.logs).toEqual([])
+  })
+  it("returns success when logging fails without exposing the database error", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    state.failLog = true
+    expect((await POST(request())).status).toBe(200)
+    expect(error).toHaveBeenCalledWith("AI action log write failed")
+    error.mockRestore()
   })
 })

@@ -97,6 +97,27 @@ describe("wiki AI orchestration", () => {
     )
   })
 
+  it("does not log when answer generation fails", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    aiProvider.createAgentResponseWithOpenAI.mockRejectedValueOnce(
+      new Error("agent unavailable")
+    )
+    const rpc = vi
+      .fn()
+      .mockResolvedValue({ error: { message: "retrieval failed" } })
+    await expect(
+      answerKnowledgeQuestion({
+        userContext,
+        supabase: { rpc } as never,
+        question: "Where are the lending procedures?",
+      })
+    ).rejects.toThrow("retrieval failed")
+    expect(rpc).not.toHaveBeenCalledWith(
+      "log_user_ai_action",
+      expect.anything()
+    )
+  })
+
   it("answers short greetings without retrieving knowledge or calling OpenAI", async () => {
     const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
     const supabase = {
@@ -114,7 +135,11 @@ describe("wiki AI orchestration", () => {
       model: null,
       citations: [],
     })
-    expect(supabase.rpc).not.toHaveBeenCalled()
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "log_user_ai_action",
+      expect.objectContaining({ p_action_type: "milo_answer" })
+    )
+    expect(supabase.rpc).toHaveBeenCalledTimes(1)
     expect(aiProvider.createChatResponseWithOpenAI).not.toHaveBeenCalled()
   })
 
@@ -157,7 +182,10 @@ describe("wiki AI orchestration", () => {
       model: null,
       citations: [],
     })
-    expect(supabase.rpc).not.toHaveBeenCalled()
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "log_user_ai_action",
+      expect.objectContaining({ p_action_type: "milo_answer" })
+    )
     expect(aiProvider.createChatResponseWithOpenAI).not.toHaveBeenCalled()
   })
 
@@ -179,7 +207,10 @@ describe("wiki AI orchestration", () => {
       model: null,
       citations: [],
     })
-    expect(supabase.rpc).not.toHaveBeenCalled()
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "log_user_ai_action",
+      expect.objectContaining({ p_action_type: "milo_answer" })
+    )
     expect(aiProvider.createChatResponseWithOpenAI).not.toHaveBeenCalled()
   })
 
@@ -274,7 +305,10 @@ describe("wiki AI orchestration", () => {
       expect.objectContaining({ bucket: "Newsletters" }),
       expect.anything()
     )
-    expect(supabase.rpc).not.toHaveBeenCalled()
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "log_user_ai_action",
+      expect.objectContaining({ p_action_type: "milo_answer" })
+    )
     expect(aiProvider.createChatResponseWithOpenAI).not.toHaveBeenCalled()
     expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -542,7 +576,10 @@ describe("wiki AI orchestration", () => {
         ]),
       })
     )
-    expect(supabase.rpc).not.toHaveBeenCalled()
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "log_user_ai_action",
+      expect.objectContaining({ p_action_type: "milo_answer" })
+    )
   })
 
   it("warns about an unsupported sentence from the fake agent while citing the supported sentence", async () => {
