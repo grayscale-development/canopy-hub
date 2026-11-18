@@ -8,7 +8,9 @@ vi.mock("@/lib/ai/provider", () => ({
 import { detectWikiDuplicates } from "@/lib/wiki-duplicates"
 import { createChatResponseWithOpenAI } from "@/lib/ai/provider"
 import {
+  ALERT_RECOMMENDATION_INSTRUCTIONS,
   alertPageHash,
+  buildAlertRecommendationPrompt,
   closedPairUnchanged,
   scanWikiAlerts,
 } from "@/lib/wiki-alert-scan"
@@ -134,6 +136,46 @@ function duplicate(revisionId: string, matches = ["c"]) {
 }
 
 describe("alerts scan", () => {
+  it("keeps recommendation instructions stable across pages", () => {
+    const firstData = {
+      pageTitle: "First page",
+      passage: "First passage",
+      canonicalTitle: "First canonical page",
+      canonicalPath: "/wiki/first",
+      match: "First match",
+    }
+    const first = buildAlertRecommendationPrompt(
+      ALERT_RECOMMENDATION_INSTRUCTIONS,
+      firstData
+    )
+    const second = buildAlertRecommendationPrompt(
+      ALERT_RECOMMENDATION_INSTRUCTIONS,
+      {
+        pageTitle: "Second page",
+        passage: "Second passage",
+        canonicalTitle: "Second canonical page",
+        canonicalPath: "/wiki/second",
+        match: "Second match",
+      }
+    )
+    const changed = buildAlertRecommendationPrompt(
+      `${ALERT_RECOMMENDATION_INSTRUCTIONS}\nNew rule`,
+      firstData
+    )
+
+    expect(Buffer.from(first.instructions)).toEqual(
+      Buffer.from(second.instructions)
+    )
+    expect(Buffer.from(first.instructions)).not.toEqual(
+      Buffer.from(changed.instructions)
+    )
+    expect(JSON.parse(first.input)).toEqual(firstData)
+    expect(JSON.parse(second.input)).toMatchObject({
+      pageTitle: "Second page",
+      passage: "Second passage",
+    })
+  })
+
   it("continues after a page detection error and retains the previous watermark for retry", async () => {
     vi.mocked(detectWikiDuplicates).mockImplementation(
       async (_client, _user, id) => {
@@ -239,6 +281,12 @@ describe("alerts scan", () => {
       canonicalPath: "/wiki/2",
     })
     expect(createChatResponseWithOpenAI).toHaveBeenCalledTimes(1)
+    expect(createChatResponseWithOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instructions: ALERT_RECOMMENDATION_INSTRUCTIONS,
+        prompt_cache_key: "wiki-alert-recommendation",
+      })
+    )
     expect(
       vi.mocked(createChatResponseWithOpenAI).mock.calls[0][0].input
     ).toContain("A matching canonical passage.")

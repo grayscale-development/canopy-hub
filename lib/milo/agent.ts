@@ -53,7 +53,7 @@ export interface MiloAgentAnswer {
 
 const MAX_AGENT_STEPS = 5
 
-const MILO_AGENT_INSTRUCTIONS = `You are Milo, Canopy Hub's internal assistant.
+export const MILO_AGENT_INSTRUCTIONS = `You are Milo, Canopy Hub's internal assistant.
 
 Use the available Milo MCP tools when the user asks about employees, branches, support contacts, documents, newsletters, reports, wiki content, dashboard/operational data, or where to find something in Canopy Hub.
 
@@ -72,6 +72,24 @@ Rules:
 - Keep answers concise and include exact names, emails, and phone numbers when tools provide them.
 - ${INLINE_CITATION_INSTRUCTIONS}
 - You are read-only. Never claim to update, upload, delete, sync, or change data.`
+
+export function buildMiloAgentPrompt(
+  instructions: string,
+  {
+    question,
+    researchBrief,
+    userContext,
+  }: { question: string; researchBrief: string; userContext: MiloUserContext }
+) {
+  const input: ResponseInputItem[] = [
+    { role: "developer", content: miloPermissionInstructions(userContext) },
+    {
+      role: "user",
+      content: `${researchBrief}\n\nUser question:\n${question}`,
+    },
+  ]
+  return { instructions, input }
+}
 
 const MCP_TOOL_DESCRIPTION = [
   "Call one read-only tool on Canopy Hub's internal Milo MCP server.",
@@ -513,12 +531,12 @@ export async function answerMiloQuestionWithAgent({
 }): Promise<MiloAgentAnswer> {
   const model = getChatModel()
   const initialResearch = await buildInitialResearchBrief(question, supabase)
-  let input: ResponseInputItem[] = [
-    {
-      role: "user",
-      content: `${initialResearch.brief}\n\nUser question:\n${question}`,
-    },
-  ]
+  const prompt = buildMiloAgentPrompt(MILO_AGENT_INSTRUCTIONS, {
+    question,
+    researchBrief: initialResearch.brief,
+    userContext,
+  })
+  let input = prompt.input
   const toolCalls: MiloAgentAnswer["metadata"]["toolCalls"] = [
     ...initialResearch.toolCalls,
   ]
@@ -528,8 +546,9 @@ export async function answerMiloQuestionWithAgent({
   for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
     response = await createAgentResponseWithOpenAI({
       model,
-      instructions: `${MILO_AGENT_INSTRUCTIONS}\n\n${miloPermissionInstructions(userContext)}`,
+      instructions: prompt.instructions,
       input,
+      prompt_cache_key: "milo-agent",
       tools: [MILO_MCP_PROXY_TOOL],
       tool_choice: "auto",
       parallel_tool_calls: false,
