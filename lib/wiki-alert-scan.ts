@@ -2,6 +2,7 @@ import "server-only"
 
 import { createHash } from "node:crypto"
 
+import { logAiAction } from "@/lib/ai-action-log"
 import { createChatResponseWithOpenAI, getChatModel } from "@/lib/ai/provider"
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { detectWikiDuplicates } from "@/lib/wiki-duplicates"
@@ -344,8 +345,14 @@ export async function scanWikiAlerts(supabase: Client) {
                   .select("id")
                   .single()
             if (saved.error) throw saved.error
-            if (saved.data) written++
-            else {
+            if (saved.data) {
+              written++
+              await logAiAction(supabase, {
+                type: "alert_recommendation",
+                pageId: page.id,
+                alertId: saved.data.id,
+              })
+            } else {
               hadFailure = true
               skipped++
             }
