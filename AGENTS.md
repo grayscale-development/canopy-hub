@@ -4,6 +4,7 @@
 
 - Issues use a **For Zach** section (what, why, points, needs), a `---` separator, then **Engineering notes (for Grayscale)**. The board's Owner field is Zach or Grayscale.
 - Prepare issue status comments and post them when Zach has approved that action; do not skip status updates. Grayscale records time in the canopy-board time log.
+- When CI fails, read the relevant `failure-summary-*` artifact before handoff; use the failed job log for details if the summary is unavailable or incomplete.
 - Work on issues of 3 points or less; split larger work into an epic and child issues. Use the v2.2 milestone.
 - Branch from `v2.2` and target `v2.2` in the PR. Include `Closes <issue url>` in the PR body. Push, open PRs, and make other outward changes only with Zach's approval for each action.
 
