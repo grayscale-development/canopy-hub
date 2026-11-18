@@ -1,5 +1,7 @@
 # Supabase security acceptance
 
+See [vendor keys and rotation](vendor-keys.md) for credential locations and the rotation checklist.
+
 The security migration preserves existing permission assignments. Reports remain
 available to signed-in users, matching the current product access model. Anonymous
 roles cannot read reports or invoke application RPCs. Backend source configuration,
