@@ -2,6 +2,8 @@
 
 The alerts scan is manually triggered with `POST /api/wiki/alerts/scan` and an `Authorization: Bearer <secret>` header matching `CANOPY_ALERTS_SCAN_SECRET`. Staging requires the staging Supabase project and `CANOPY_ALLOW_STAGING_ALERTS_JOB=true`. Production requires its own explicit enable flag; missing or invalid configuration is denied before database work. No cron is configured here. The scan checks pages updated since its last successful watermark. The block replacement is deterministic; a configured chat model may write its summary and change note, with deterministic text as the fallback. Managers can apply the replacement and restore an earlier revision through page history.
 
+The scan uses `service_role` SELECT access to wiki nodes, page revisions, and duplicate dismissals.
+
 ## Enabling the morning scan at release
 
 Do not enable this before Zach's approval on #52. At release, set `CANOPY_ALERTS_SCAN_SECRET` and `CANOPY_ALLOW_PRODUCTION_ALERTS_JOB=true` on the production project. Do not set `CANOPY_ALLOW_STAGING_ALERTS_JOB` on production. Without the production flag set to exactly `true`, the job is denied even with a valid secret.
