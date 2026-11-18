@@ -2,7 +2,6 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import { DivisionBranchesDataTable } from "@/components/division/division-branches-data-table"
 import { DivisionEmployeesTable } from "@/components/division/division-employees-table"
 import { FilesTableWithDetails } from "@/components/file-viewer/files-table-with-details"
@@ -118,7 +117,6 @@ export default async function DivisionPage({
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
         </header>
 
         <div className="flex flex-1 flex-col gap-4 p-4">

@@ -11,7 +11,6 @@ import {
 import { CopyEmailButton } from "@/app/department-directory/copy-email-button"
 import { SupportSearchInput } from "@/app/department-directory/support-search-input"
 import { AppSidebar } from "@/components/app-sidebar"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import {
   Breadcrumb,
@@ -452,7 +451,6 @@ export default async function SupportPage({
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
         </header>
 
         <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 p-4 md:p-6">

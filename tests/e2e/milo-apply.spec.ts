@@ -43,14 +43,12 @@ for (const viewport of [
       .in("code", ["beta.1", "wiki.manage"])
     if (permissions.error || permissions.data.length !== 2)
       throw permissions.error ?? new Error("Missing permissions")
-    const grants = await admin
-      .from("user_permissions")
-      .insert(
-        permissions.data.map((permission) => ({
-          user_id: user.id,
-          permission_id: permission.id,
-        }))
-      )
+    const grants = await admin.from("user_permissions").insert(
+      permissions.data.map((permission) => ({
+        user_id: user.id,
+        permission_id: permission.id,
+      }))
+    )
     if (grants.error) throw grants.error
     const { data: thread, error: threadError } = await admin
       .from("ai_chat_threads")
@@ -118,15 +116,14 @@ for (const viewport of [
     )
     await signInAsSeededUser(page, email)
     await page.goto("/home")
-    const search = page.getByRole("textbox", { name: "Ask Milo" }).last()
-    const dialog = page.getByRole("dialog", { name: "Ask Milo" })
-    await expect(async () => {
-      await search.fill(
+    await page.getByRole("button", { name: "Ask Milo", exact: true }).click()
+    const dialog = page.getByRole("dialog", { name: "Milo" })
+    await dialog
+      .getByRole("textbox", { name: "Ask a follow-up" })
+      .fill(
         "Update the wiki\nFrom: Alex\nSend new requests to the operations team."
       )
-      await search.press("Enter")
-      await expect(dialog).toBeVisible({ timeout: 2000 })
-    }).toPass({ timeout: 20000 })
+    await dialog.getByRole("button", { name: "Send follow-up" }).click()
     await dialog.getByRole("button", { name: "Yes, this one" }).click()
     const proposed = dialog.getByRole("region", {
       name: `Proposed edit: ${title}`,

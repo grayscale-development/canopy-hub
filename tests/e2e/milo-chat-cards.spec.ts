@@ -69,13 +69,12 @@ for (const viewport of [
       })
     })
     await signInAsLocalDev(page)
-    const search = page.getByRole("textbox", { name: "Ask Milo" }).last()
-    const dialog = page.getByRole("dialog", { name: "Ask Milo" })
-    await expect(async () => {
-      await search.fill("Update the policy")
-      await search.press("Enter")
-      await expect(dialog).toBeVisible({ timeout: 2000 })
-    }).toPass({ timeout: 20000 })
+    await page.getByRole("button", { name: "Ask Milo", exact: true }).click()
+    const dialog = page.getByRole("dialog", { name: "Milo" })
+    await dialog
+      .getByRole("textbox", { name: "Ask a follow-up" })
+      .fill("Update the policy")
+    await dialog.getByRole("button", { name: "Send follow-up" }).click()
     await expect(dialog.getByText("Is this the page you mean?")).toBeVisible()
     await expect(
       dialog.getByRole("link", { name: "Loan policy" })
