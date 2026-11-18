@@ -266,7 +266,7 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
         request.url().endsWith("/api/wiki/chat") && request.method() === "POST"
     )
     await missingPage.getByRole("button", { name: "Search" }).click()
-    const dialog = page.getByRole("dialog", { name: "Ask Milo" })
+    const dialog = page.getByRole("dialog", { name: "Milo" })
     await expect(dialog).toBeVisible()
     expect((await chatRequest).postDataJSON()).toMatchObject({
       message: "old loan guide closing",

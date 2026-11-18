@@ -43,12 +43,11 @@ for (const viewport of [
       })
     })
     await signInAsLocalDev(page)
-    const dialog = page.getByRole("dialog", { name: "Ask Milo" })
+    const dialog = page.getByRole("dialog", { name: "Milo" })
     await expect(async () => {
       if (!(await dialog.isVisible()))
         await page
-          .getByRole("button", { name: "Open Milo chat" })
-          .last()
+          .getByRole("button", { name: "Ask Milo", exact: true })
           .click()
       await expect(dialog).toBeVisible({ timeout: 2000 })
     }).toPass({ timeout: 20000 })

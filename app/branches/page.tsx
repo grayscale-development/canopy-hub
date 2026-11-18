@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import { BranchesTable } from "@/components/branches/branches-table"
 import {
   Breadcrumb,
@@ -58,7 +57,6 @@ export default async function BranchesPage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
         </header>
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">

@@ -39,7 +39,7 @@ describe("WikiChat", () => {
   const fetchMock = vi.fn()
 
   beforeEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
     fetchMock.mockReset()
     fetchMock
       .mockResolvedValueOnce(streamedResponse("thread-1", "First answer."))
@@ -82,7 +82,7 @@ describe("WikiChat", () => {
   })
 
   it("renders markdown, references and the restored question inline", async () => {
-    sessionStorage.setItem("milo-active-thread", "thread-1")
+    localStorage.setItem("milo-active-thread", "thread-1")
     fetchMock.mockReset()
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -150,7 +150,7 @@ describe("WikiChat", () => {
   })
 
   it("keeps citation numbers aligned when an earlier source is unavailable", async () => {
-    sessionStorage.setItem("milo-active-thread", "thread-1")
+    localStorage.setItem("milo-active-thread", "thread-1")
     fetchMock.mockReset()
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -178,7 +178,7 @@ describe("WikiChat", () => {
 
   it("saves a rating, lets it change, and restores it with the conversation", async () => {
     fetchMock.mockReset()
-    sessionStorage.setItem("milo-active-thread", "thread-1")
+    localStorage.setItem("milo-active-thread", "thread-1")
     const history = (rating?: string) => ({
       ok: true,
       json: async () => ({

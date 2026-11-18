@@ -35,6 +35,18 @@ test("home shell has no serious accessibility violations @a11y", async ({
   await expectNoSeriousAccessibilityViolations("/home", page)
 })
 
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`floating Milo has no serious accessibility violations in ${colorScheme} @a11y`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme })
+    await signInAsLocalDev(page)
+    await page.getByRole("button", { name: "Ask Milo", exact: true }).click()
+    await expect(page.getByRole("dialog", { name: "Milo" })).toBeVisible()
+    await expectNoSeriousAccessibilityViolations("floating Milo", page)
+  })
+}
+
 test("numeric wiki routes have no serious accessibility violations @a11y @smoke", async ({
   page,
 }) => {

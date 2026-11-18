@@ -47,11 +47,12 @@ test("opens a current Wiki citation from an old indexed URL @smoke", async ({
         .join(""),
     })
   )
-  const headerSearch = page
-    .locator("header")
-    .getByRole("textbox", { name: "Ask Milo" })
-  await headerSearch.fill("funding checklist")
-  await headerSearch.press("Enter")
+  await page.getByRole("button", { name: "Ask Milo", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Milo" })
+  await dialog
+    .getByRole("textbox", { name: "Ask a follow-up" })
+    .fill("funding checklist")
+  await dialog.getByRole("button", { name: "Send follow-up" }).click()
   const citation = page.getByRole("link", { name: /Funding Checklist/ })
   await expect(citation).toHaveAttribute("href", result.url)
   const shots = process.env.CANOPY_KNOWLEDGE_SHOTS

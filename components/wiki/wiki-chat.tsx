@@ -75,7 +75,7 @@ function MessageContent({
               <Link
                 href={href}
                 onClick={onNavigate}
-                className="text-primary underline underline-offset-4 hover:no-underline"
+                className="text-sidebar-primary underline underline-offset-4 hover:no-underline dark:text-chart-2"
               >
                 {children}
               </Link>
@@ -94,12 +94,16 @@ export function WikiChat({
   className,
   queuedPrompt,
   initialDraft = "",
+  draftRequest,
+  autoFocus = false,
   onQueuedPromptConsumed,
   onNavigate,
 }: {
   className?: string
   queuedPrompt?: string | null
   initialDraft?: string
+  draftRequest?: { value: string }
+  autoFocus?: boolean
   onQueuedPromptConsumed?: () => void
   onNavigate?: () => void
 }) {
@@ -109,11 +113,27 @@ export function WikiChat({
   const [file, setFile] = React.useState<File | null>(null)
   const [fileError, setFileError] = React.useState("")
   const fileInput = React.useRef<HTMLInputElement>(null)
+  const composer = React.useRef<HTMLTextAreaElement>(null)
   const threadView = React.useRef<HTMLDivElement>(null)
   const [pending, setPending] = React.useState(false)
   const [loadingHistory, setLoadingHistory] = React.useState(true)
   const consumedPromptRef = React.useRef<string | null>(null)
   const isMountedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (draftRequest) setInput(draftRequest.value)
+  }, [draftRequest])
+
+  React.useEffect(() => {
+    if (
+      autoFocus &&
+      !pending &&
+      !loadingHistory &&
+      document.activeElement?.getAttribute("aria-label") === "Close"
+    ) {
+      composer.current?.focus()
+    }
+  }, [autoFocus, loadingHistory, pending])
 
   React.useEffect(() => {
     if (threadView.current)
@@ -131,13 +151,15 @@ export function WikiChat({
     let active = true
     async function restoreThread() {
       try {
-        const saved = sessionStorage.getItem(activeThreadKey)
+        const saved = localStorage.getItem(activeThreadKey)
         if (!saved) return
         const response = await fetch(
           `/api/wiki/chat?threadId=${encodeURIComponent(saved)}`
         )
         if (!response.ok) {
-          sessionStorage.removeItem(activeThreadKey)
+          if (response.status === 403 || response.status === 404) {
+            localStorage.removeItem(activeThreadKey)
+          }
           return
         }
         const data = await response.json()
@@ -246,7 +268,7 @@ export function WikiChat({
             if (data.type === "meta") {
               setThreadId(data.threadId)
               try {
-                sessionStorage.setItem(activeThreadKey, data.threadId)
+                localStorage.setItem(activeThreadKey, data.threadId)
               } catch {
                 /* Storage is optional. */
               }
@@ -323,12 +345,11 @@ export function WikiChat({
 
   React.useEffect(() => {
     const prompt = queuedPrompt?.trim()
-    if (
-      !prompt ||
-      pending ||
-      loadingHistory ||
-      consumedPromptRef.current === prompt
-    ) {
+    if (!prompt) {
+      consumedPromptRef.current = null
+      return
+    }
+    if (pending || loadingHistory || consumedPromptRef.current === prompt) {
       return
     }
 
@@ -431,25 +452,27 @@ export function WikiChat({
                 <h3 className="mb-2 text-sm font-medium text-muted-foreground">
                   {index ? "Follow-up answer" : "Answer"}
                 </h3>
-                {pending && !answer.content && !answer.cards?.length ? (
-                  <div
-                    className="flex h-12 items-center"
-                    aria-label="Milo is thinking"
-                  >
-                    <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-                    <span className="sr-only">Loading answer</span>
-                  </div>
-                ) : answer.content &&
-                  !answer.cards?.some(
-                    (card) =>
-                      card.type === "error" && card.message === answer.content
-                  ) ? (
-                  <MessageContent
-                    content={answer.content}
-                    citations={answer.citations}
-                    onNavigate={onNavigate}
-                  />
-                ) : null}
+                <div aria-live="polite">
+                  {pending && !answer.content && !answer.cards?.length ? (
+                    <div
+                      className="flex h-12 items-center"
+                      aria-label="Milo is thinking"
+                    >
+                      <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
+                      <span className="sr-only">Loading answer</span>
+                    </div>
+                  ) : answer.content &&
+                    !answer.cards?.some(
+                      (card) =>
+                        card.type === "error" && card.message === answer.content
+                    ) ? (
+                    <MessageContent
+                      content={answer.content}
+                      citations={answer.citations}
+                      onNavigate={onNavigate}
+                    />
+                  ) : null}
+                </div>
                 <div
                   aria-live="polite"
                   className={cn(answer.cards?.length && "mt-3 space-y-3")}
@@ -667,6 +690,7 @@ export function WikiChat({
             <PaperclipIcon />
           </Button>
           <textarea
+            ref={composer}
             value={input}
             onChange={(event) => setInput(event.currentTarget.value)}
             rows={Math.min(8, Math.max(1, input.split("\n").length))}
