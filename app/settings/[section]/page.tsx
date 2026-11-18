@@ -4,7 +4,6 @@ import { redirect } from "next/navigation"
 import { AdvancedSyncCard } from "@/app/settings/[section]/advanced-sync-card"
 import { MiloFlagsCard } from "@/app/settings/[section]/milo-flags-card"
 import { PermissionsTable } from "@/app/settings/[section]/permissions-table"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
 import {
@@ -226,7 +225,6 @@ export default async function SettingsSubPage({
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <HeaderFeedbackButton className="ml-auto" />
       </header>
 
       <div className="flex flex-1 flex-col gap-4 p-4">

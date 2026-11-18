@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import { WikiAlerts } from "@/components/wiki/wiki-alerts"
 import { WikiRepositorySidebar } from "@/components/wiki/wiki-repository-sidebar"
 import {
@@ -129,7 +128,6 @@ export function WikiHeader({
         {canManageWiki ? (
           <WikiAlerts nodes={[...nodes, ...archivedNodes]} />
         ) : null}
-        <HeaderFeedbackButton />
       </div>
     </header>
   )

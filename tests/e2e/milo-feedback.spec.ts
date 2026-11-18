@@ -25,7 +25,7 @@ test("rates a Milo answer on desktop and narrow screens", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" })
     await signInAsSeededUser(page, email)
     await page.goto("/wiki/999999999")
-    await page.evaluate(() => sessionStorage.clear())
+    await page.evaluate(() => localStorage.clear())
     await mockMiloChatApi(page)
     let shared = 0
     await page.route("**/api/wiki/chat/flag", async (route) => {
@@ -46,7 +46,7 @@ test("rates a Milo answer on desktop and narrow screens", async ({ page }) => {
       .last()
       .getByRole("button", { name: "Search" })
       .click()
-    const dialog = page.getByRole("dialog", { name: "Ask Milo" })
+    const dialog = page.getByRole("dialog", { name: "Milo" })
     const up = dialog.getByRole("button", {
       name: "Helpful answer",
       exact: true,
@@ -87,7 +87,7 @@ test("rates a Milo answer on desktop and narrow screens", async ({ page }) => {
     expect(shared).toBe(1)
     await dialog.getByRole("button", { name: "Close" }).click()
     await expect(dialog).toBeHidden()
-    await page.evaluate(() => sessionStorage.clear())
+    await page.evaluate(() => localStorage.clear())
     await page.unrouteAll({ behavior: "wait" })
   }
 })

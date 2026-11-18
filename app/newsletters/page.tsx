@@ -4,7 +4,6 @@ import { redirect } from "next/navigation"
 import { NewsletterUploadButton } from "@/components/newsletters/newsletter-upload-button"
 import { NewslettersPageContent } from "@/components/newsletters/newsletters-page-content"
 import { AppSidebar } from "@/components/app-sidebar"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
 import {
@@ -84,7 +83,6 @@ export default async function NewslettersPage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
         </header>
 
         <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-4 md:p-6">

@@ -6,20 +6,16 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WikiChatModalProvider } from "@/components/wiki/wiki-chat-modal"
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
+import { userHasPermissionCode } from "@/lib/permissions"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
-
-const fontMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-})
+const fontMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const metadata: Metadata = {
-  title: {
-    default: "Canopy Hub",
-    template: "Canopy Hub | %s",
-  },
+  title: { default: "Canopy Hub", template: "Canopy Hub | %s" },
   icons: {
     icon: "/canopy-logo-cube-100.png",
     shortcut: "/canopy-logo-cube-100.png",
@@ -27,11 +23,21 @@ export const metadata: Metadata = {
   },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const canUseMilo = user
+    ? await userHasPermissionCode({
+        supabase,
+        userId: user.id,
+        code: BETA_1_PERMISSION,
+      }).catch(() => false)
+    : false
+
   return (
     <html
       lang="en"
@@ -45,9 +51,11 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <WikiChatModalProvider>
-            <TooltipProvider>{children}</TooltipProvider>
-          </WikiChatModalProvider>
+          <TooltipProvider>
+            <WikiChatModalProvider signedIn={!!user} canUseMilo={canUseMilo}>
+              {children}
+            </WikiChatModalProvider>
+          </TooltipProvider>
           <Toaster position="top-center" offset={24} />
         </ThemeProvider>
       </body>

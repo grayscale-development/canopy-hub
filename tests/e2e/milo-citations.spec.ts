@@ -30,7 +30,7 @@ test("renders the funding answer and a calm missing-answer state", async ({
       await page.emulateMedia({ colorScheme: "light" })
       await signInAsSeededUser(page, email)
       await page.goto("/wiki/999999999")
-      await page.evaluate(() => sessionStorage.clear())
+      await page.evaluate(() => localStorage.clear())
       await mockMiloChatApi(page)
       let abstained = false
       const funding = {
@@ -94,7 +94,7 @@ Funding Checklist: ${fixture.path} has more details. [3]`
         .last()
         .getByRole("button", { name: "Search" })
         .click()
-      const dialog = page.getByRole("dialog", { name: "Ask Milo" })
+      const dialog = page.getByRole("dialog", { name: "Milo" })
       await expect(
         dialog.getByText("tell me about the funding process")
       ).toBeVisible()
@@ -131,13 +131,14 @@ Funding Checklist: ${fixture.path} has more details. [3]`
           ),
         })
       await citation.click()
-      await expect(dialog).toBeHidden()
+      await expect(dialog).toBeVisible()
       await expect(page).toHaveURL(new RegExp(`${fixture.path}$`))
       await expect(page.getByRole("main").last()).toContainText(
         "Funding Checklist"
       )
+      await dialog.getByRole("button", { name: "Close" }).click()
+      await page.evaluate(() => localStorage.clear())
       await page.goto("/wiki/999999999")
-      await page.evaluate(() => sessionStorage.clear())
       abstained = true
       await page
         .getByRole("textbox", { name: "Search with Milo" })
