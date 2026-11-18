@@ -278,12 +278,130 @@ describe("wiki AI orchestration", () => {
     expect(aiProvider.createChatResponseWithOpenAI).not.toHaveBeenCalled()
     expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
       expect.objectContaining({
-        instructions: expect.stringContaining('"wiki.manage":false'),
+        instructions: expect.not.stringContaining('"wiki.manage":false'),
+        prompt_cache_key: "milo-agent",
+        input: [
+          expect.objectContaining({
+            role: "developer",
+            content: expect.stringContaining('"wiki.manage":false'),
+          }),
+          expect.objectContaining({
+            role: "user",
+            content: expect.stringMatching(
+              /User question:\nwhat documents are available$/
+            ),
+          }),
+        ],
       })
     )
     expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
       expect.objectContaining({
-        instructions: expect.stringContaining("draft proposed text"),
+        input: expect.arrayContaining([
+          expect.objectContaining({
+            role: "developer",
+            content: expect.stringContaining("draft proposed text"),
+          }),
+        ]),
+      })
+    )
+  })
+
+  it("keeps the Milo instruction prefix stable across users and research", async () => {
+    const { buildMiloAgentPrompt, MILO_AGENT_INSTRUCTIONS } =
+      await import("@/lib/milo/agent")
+    const first = buildMiloAgentPrompt(MILO_AGENT_INSTRUCTIONS, {
+      question: "Where is the first page?",
+      researchBrief: "First page text",
+      userContext,
+    })
+    const second = buildMiloAgentPrompt(MILO_AGENT_INSTRUCTIONS, {
+      question: "Where is the second page?",
+      researchBrief: "Second page text",
+      userContext: {
+        ...userContext,
+        capabilities: { ...userContext.capabilities, "wiki.manage": true },
+        wikiManagers: ["A manager"],
+      },
+    })
+    const changed = buildMiloAgentPrompt(
+      `${MILO_AGENT_INSTRUCTIONS}\nNew rule`,
+      {
+        question: "Where is the first page?",
+        researchBrief: "First page text",
+        userContext,
+      }
+    )
+
+    expect(Buffer.from(first.instructions)).toEqual(
+      Buffer.from(second.instructions)
+    )
+    expect(Buffer.from(first.instructions)).not.toEqual(
+      Buffer.from(changed.instructions)
+    )
+    expect(first.input).not.toEqual(second.input)
+    expect(first.input).toEqual([
+      expect.objectContaining({
+        role: "developer",
+        content: expect.stringContaining('"wiki.manage":false'),
+      }),
+      {
+        role: "user",
+        content: "First page text\n\nUser question:\nWhere is the first page?",
+      },
+    ])
+    expect(second.input[0]).toEqual(
+      expect.objectContaining({
+        role: "developer",
+        content: expect.stringContaining("A manager"),
+      })
+    )
+  })
+
+  it("retains the prompt and tool results across agent steps", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    aiProvider.createAgentResponseWithOpenAI
+      .mockResolvedValueOnce({
+        output: [
+          {
+            type: "function_call",
+            name: "milo_mcp_call",
+            call_id: "call-1",
+            arguments: JSON.stringify({
+              toolName: "db_search",
+              arguments: { query: "help" },
+            }),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ output_text: "No data.", output: [] })
+
+    await answerKnowledgeQuestion({
+      userContext,
+      supabase: { rpc: vi.fn() } as never,
+      question: "Where can I find help?",
+    })
+
+    expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledTimes(2)
+    expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        prompt_cache_key: "milo-agent",
+        input: expect.arrayContaining([
+          expect.objectContaining({
+            role: "developer",
+            content: expect.stringContaining('"wiki.manage":false'),
+          }),
+          expect.objectContaining({
+            role: "user",
+            content: expect.stringMatching(
+              /User question:\nWhere can I find help\?$/
+            ),
+          }),
+          expect.objectContaining({
+            type: "function_call_output",
+            call_id: "call-1",
+          }),
+        ]),
       })
     )
   })

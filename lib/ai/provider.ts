@@ -91,12 +91,21 @@ export async function createEmbeddingsWithOpenAI(
 export async function createChatResponseWithOpenAI({
   model,
   input,
+  instructions,
+  prompt_cache_key,
 }: {
   model: string
   input: string
+  instructions?: string
+  prompt_cache_key?: string
 }) {
   const client = getOpenAIClient()
-  return client.responses.create({ model, input })
+  return client.responses.create({
+    model,
+    input,
+    instructions,
+    prompt_cache_key,
+  })
 }
 
 export async function createTranscriptionWithOpenAI(file: File) {
