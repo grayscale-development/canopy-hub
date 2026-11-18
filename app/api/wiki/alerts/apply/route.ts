@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { logAiAction } from "@/lib/ai-action-log"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -133,5 +134,10 @@ export async function POST(request: Request) {
       },
       { status: 500 }
     )
+  await logAiAction(supabase, {
+    type: "alert_apply",
+    pageId: page.id,
+    alertId: row.id,
+  })
   return result
 }

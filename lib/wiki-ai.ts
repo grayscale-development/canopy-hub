@@ -2,6 +2,7 @@ import "server-only"
 
 import crypto from "node:crypto"
 
+import { logAiAction } from "@/lib/ai-action-log"
 import {
   createChatResponseWithOpenAI,
   createEmbeddingsWithOpenAI,
@@ -889,7 +890,17 @@ function getResponseText(response: unknown) {
   return ""
 }
 
-export async function answerKnowledgeQuestion({
+export async function answerKnowledgeQuestion(params: {
+  supabase: SupabaseWikiClient
+  question: string
+  userContext: MiloUserContext
+}) {
+  const answer = await generateKnowledgeAnswer(params)
+  await logAiAction(params.supabase, { type: "milo_answer" })
+  return answer
+}
+
+async function generateKnowledgeAnswer({
   supabase,
   question,
   userContext,

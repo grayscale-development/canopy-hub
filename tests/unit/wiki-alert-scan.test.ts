@@ -26,6 +26,8 @@ function scanClient(
     watermark?: string | null
     failAlert?: string
     failState?: boolean
+    openAlert?: boolean
+    failLog?: boolean
   } = {}
 ) {
   const state =
@@ -34,6 +36,7 @@ function scanClient(
       : { last_page_updated_at: options.watermark }
   const stateWrites: Record<string, unknown>[] = []
   const alerts: Record<string, unknown>[] = []
+  const actionLogs: Record<string, unknown>[] = []
   const pages = [
     { id: "a", title: "Target", current_revision_id: "rev-a" },
     { id: "b", title: "Second", current_revision_id: "rev-b" },
@@ -62,6 +65,8 @@ function scanClient(
           return query
         },
         maybeSingle: async () => {
+          if (table === "wiki_alerts" && operation === "update")
+            return { data: { id: "existing-alert" }, error: null }
           if (table === "wiki_alert_scan_state" && operation !== "read") {
             stateWrites.push(values)
             if (options.failState)
@@ -97,18 +102,28 @@ function scanClient(
           return { data: null, error: null }
         },
         then: (resolve: (value: unknown) => unknown) => {
+          if (table === "ai_action_log" && operation === "insert")
+            actionLogs.push(values)
           if (table === "wiki_alert_scan_state" && operation !== "read")
             stateWrites.push(values)
           return Promise.resolve({
-            data: table === "wiki_nodes" ? pages : [],
-            error: null,
+            data:
+              table === "wiki_nodes"
+                ? pages
+                : table === "wiki_alerts" && options.openAlert
+                  ? [{ id: "existing-alert", status: "open", page_id: "a" }]
+                  : [],
+            error:
+              table === "ai_action_log" && options.failLog
+                ? new Error("private detail")
+                : null,
           }).then(resolve)
         },
       }
       return query
     },
   } as unknown as Parameters<typeof scanWikiAlerts>[0]
-  return { client, stateWrites, alerts }
+  return { client, stateWrites, alerts, actionLogs }
 }
 
 function duplicate(revisionId: string, matches = ["c"]) {
@@ -183,7 +198,7 @@ describe("alerts scan", () => {
         return duplicate("rev-b")
       }
     )
-    const { client, alerts, stateWrites } = scanClient({
+    const { client, alerts, actionLogs, stateWrites } = scanClient({
       watermark: "2026-11-01T00:00:00Z",
     })
     const result = await scanWikiAlerts(client)
@@ -193,6 +208,14 @@ describe("alerts scan", () => {
       skippedCount: 1,
     })
     expect(alerts).toHaveLength(1)
+    expect(actionLogs).toEqual([
+      {
+        action_type: "alert_recommendation",
+        target_page_id: "b",
+        target_alert_id: "alert",
+        summary: "Recommended replacing a duplicated passage",
+      },
+    ])
     expect(stateWrites).toEqual([
       {
         last_success_at: expect.any(String),
@@ -241,14 +264,40 @@ describe("alerts scan", () => {
       async (_client, _user, id) =>
         id === "a" ? duplicate("rev-a", ["c", "d"]) : duplicate("rev-b", [])
     )
-    const { client, alerts, stateWrites } = scanClient({
+    const { client, alerts, actionLogs, stateWrites } = scanClient({
       watermark: "2026-11-01T00:00:00Z",
       failAlert: "c",
     })
     const result = await scanWikiAlerts(client)
     expect(result).toMatchObject({ written: 1, skippedCount: 1 })
     expect(alerts[0].other_page_id).toBe("d")
+    expect(actionLogs).toHaveLength(1)
     expect(stateWrites[0].last_page_updated_at).toBe("2026-11-01T00:00:00Z")
+  })
+
+  it("logs an updated recommendation and keeps scan success if logging fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.mocked(detectWikiDuplicates).mockImplementation(
+      async (_client, _user, id) =>
+        id === "a" ? duplicate("rev-a") : duplicate("rev-b", [])
+    )
+    const { client, actionLogs } = scanClient({
+      openAlert: true,
+      failLog: true,
+    })
+    expect(await scanWikiAlerts(client)).toMatchObject({
+      written: 1,
+      skippedCount: 0,
+    })
+    expect(actionLogs).toEqual([
+      {
+        action_type: "alert_recommendation",
+        target_page_id: "a",
+        target_alert_id: "existing-alert",
+        summary: "Recommended replacing a duplicated passage",
+      },
+    ])
+    expect(error).toHaveBeenCalledWith("AI action log write failed")
   })
 
   it("inserts the first watermark and uses model text without changing the edit", async () => {
@@ -349,6 +398,7 @@ describe("alerts scan", () => {
     expect(detectWikiDuplicates).not.toHaveBeenCalled()
     expect(createChatResponseWithOpenAI).not.toHaveBeenCalled()
     expect(client.from).not.toHaveBeenCalledWith("wiki_alerts")
+    expect(client.from).not.toHaveBeenCalledWith("ai_action_log")
     expect(writes).toEqual([{ last_success_at: expect.any(String) }])
   })
   it("keeps dismissed or applied pairs closed until either revision changes, in either order", () => {
