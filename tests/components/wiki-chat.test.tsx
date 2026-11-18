@@ -4,6 +4,8 @@ import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
 import { WikiChat } from "@/components/wiki/wiki-chat"
 
 function streamedResponse(
@@ -41,9 +43,15 @@ describe("WikiChat", () => {
   beforeEach(() => {
     localStorage.clear()
     fetchMock.mockReset()
-    fetchMock
-      .mockResolvedValueOnce(streamedResponse("thread-1", "First answer."))
-      .mockResolvedValueOnce(streamedResponse("thread-1", "Follow-up answer."))
+    let chats = 0
+    fetchMock.mockImplementation(async (url: string) =>
+      url.startsWith("/api/wiki/search")
+        ? { ok: true, json: async () => ({ results: [] }) }
+        : streamedResponse(
+            "thread-1",
+            chats++ ? "Follow-up answer." : "First answer."
+          )
+    )
     vi.stubGlobal("fetch", fetchMock)
     let messageId = 0
     vi.stubGlobal("crypto", {
@@ -73,7 +81,7 @@ describe("WikiChat", () => {
 
     expect(await screen.findByText("Follow-up answer.")).toBeVisible()
     expect(screen.getByText("Tell me more")).toBeVisible()
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       "/api/wiki/chat",
       expect.objectContaining({
         body: JSON.stringify({ threadId: "thread-1", message: "Tell me more" }),
@@ -222,6 +230,11 @@ describe("WikiChat", () => {
 
   it("renders cards safely, submits actions, and restores applied cards on reload", async () => {
     fetchMock.mockReset()
+    fetchMock.mockImplementation(async (url: string) =>
+      url.startsWith("/api/wiki/search")
+        ? { ok: true, json: async () => ({ results: [] }) }
+        : { ok: true, json: async () => ({ status: "not-implemented" }) }
+    )
     fetchMock.mockResolvedValueOnce(
       streamedResponse("thread-1", "Review these.", [
         {
@@ -240,10 +253,6 @@ describe("WikiChat", () => {
         { type: "future-card", text: "<img src=x onerror=alert(1)>" },
       ])
     )
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ status: "not-implemented" }),
-    })
     const user = userEvent.setup()
     const view = render(<WikiChat queuedPrompt="Edit policy" />)
     expect(await screen.findByText("Is this the page?")).toBeVisible()
