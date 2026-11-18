@@ -317,8 +317,16 @@ export function WikiChatModalProvider({
     obstruction?.top ?? null,
     overlapsBar
   )
+  // On phones the panel is full screen, but it stops above the editor's Save bar.
+  const phoneAboveBar = isOpen && !desktop && obstruction !== null
   const positionStyle = {
     "--milo-bottom": `${bottomOffset}px`,
+    ...(phoneAboveBar && obstruction
+      ? {
+          bottom: miloBottomOffset(0, viewport.height, obstruction.top, true),
+          height: "auto",
+        }
+      : {}),
     visibility: cacheKey && cachedForUser === cacheKey ? undefined : "hidden",
     transform: dragOffset
       ? `translate(${dragOffset.x}px, ${dragOffset.y}px)`
