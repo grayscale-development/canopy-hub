@@ -273,7 +273,7 @@ async function completeWikiVideoImport({
       return NextResponse.json(
         {
           error:
-            "We could not safely apply those instructions. Try describing the exact change again.",
+            "We could not match that to this page. Name the exact sentence or section to change, then try again.",
         },
         { status: 422 }
       )
@@ -1202,7 +1202,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "We could not safely apply those instructions. Try describing the exact change again.",
+          "We could not match that to this page. Name the exact sentence or section to change, then try again.",
       },
       { status: 422 }
     )
@@ -1210,7 +1210,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "We could not safely apply those instructions. Try describing the exact change again.",
+          "We could not match that to this page. Name the exact sentence or section to change, then try again.",
       },
       { status: 422 }
     )
