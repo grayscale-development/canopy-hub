@@ -99,7 +99,7 @@ test("rates a Milo answer on desktop and narrow screens", async ({ page }) => {
     ).toBeVisible()
     await expect(down).toHaveAttribute("aria-pressed", "true")
     expect(shared).toBe(1)
-    await dialog.getByRole("button", { name: "Close" }).click()
+    await dialog.getByRole("button", { name: "Minimize Milo" }).click()
     await expect(dialog).toBeHidden()
     await page.evaluate(() => localStorage.clear())
     await page.unrouteAll({ behavior: "wait" })

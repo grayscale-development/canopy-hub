@@ -34,6 +34,14 @@ test("send and streaming follow the bottom until the reader scrolls up", async (
                   token: (event as CustomEvent<string>).detail,
                 })
               )
+              window.addEventListener(
+                "test-milo-finish",
+                () => {
+                  send({ type: "done", threadId: "fake-stream", citations: [] })
+                  controller.close()
+                },
+                { once: true }
+              )
             },
           }),
           { headers: { "content-type": "text/event-stream" } }
@@ -88,14 +96,30 @@ test("send and streaming follow the bottom until the reader scrolls up", async (
     panel.getByRole("button", { name: "Jump to latest" })
   ).toBeVisible()
   const before = await scroll.evaluate((el) => el.scrollTop)
+  await panel.getByRole("button", { name: "Minimize Milo" }).click()
+  const launcher = page.getByRole("button", { name: "Ask Milo", exact: true })
+  await expect(launcher).toHaveAccessibleDescription("Chat in progress")
   await token("\n\nSecond chunk while reading")
-  await expect(panel.getByText(/Second chunk while reading/)).toBeAttached()
+  await expect(
+    page.locator("#milo-panel").getByText(/Second chunk while reading/)
+  ).toBeAttached()
+  await launcher.click()
+  await expect(panel).toBeVisible()
   expect(await scroll.evaluate((el) => el.scrollTop)).toBeCloseTo(before, 0)
   await panel.getByRole("button", { name: "Jump to latest" }).click()
   await expect.poll(distance).toBeLessThan(2)
   await token("\n\nThird chunk while pinned")
   await expect(panel.getByText(/Third chunk while pinned/)).toBeAttached()
   await expect.poll(distance).toBeLessThan(2)
+  await panel.getByRole("button", { name: "Minimize Milo" }).click()
+  await page.evaluate(() => window.dispatchEvent(new Event("test-milo-finish")))
+  await expect(launcher).toHaveAccessibleDescription(
+    "Chat in progress. New response available"
+  )
+  await launcher.click()
+  await expect(panel.getByText(/Third chunk while pinned/)).toBeVisible()
+  await panel.getByRole("button", { name: "Minimize Milo" }).click()
+  await expect(launcher).toHaveAccessibleDescription("Chat in progress")
 })
 
 test("opening a saved chat starts at its latest message", async ({ page }) => {
