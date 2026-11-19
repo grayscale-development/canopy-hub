@@ -238,7 +238,7 @@ export function WikiTagsManage({
           {notice}
         </p>
       ) : null}
-      <Table className="table-fixed">
+      <Table className="sm:table-fixed">
         <TableHeader>
           <TableRow>
             <TableHead className="sm:w-[45%]">Tag</TableHead>
@@ -324,7 +324,7 @@ export function WikiTagsManage({
                       />
                       <WikiTagPill
                         scope={tag.scope}
-                        className="max-w-full break-all"
+                        className="max-w-full break-words"
                       >
                         {tag.name}
                       </WikiTagPill>
