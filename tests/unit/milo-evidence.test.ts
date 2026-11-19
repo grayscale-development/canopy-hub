@@ -15,6 +15,23 @@ const source = {
 }
 
 describe("Milo evidence", () => {
+  it("does not warn about a fully supported answer or an introduction", () => {
+    const result = checkAnswer(
+      "Here are the details:\nTrack returned checks in the refund ledger.\n\nIf you want, I can also find more details.",
+      [source]
+    )
+    expect(result.answer).not.toContain("could not be verified")
+    expect(result.answer).not.toContain("I can also")
+    expect(result.citations).toHaveLength(1)
+  })
+
+  it("does not preserve invented links", () => {
+    expect(
+      checkAnswer("See [Refunds](/wiki/1/2) and [Invented](/wiki/999).", [
+        source,
+      ]).answer
+    ).not.toContain("](/wiki/999)")
+  })
   it("cites supported details and warns once about unsupported details", () => {
     const result = checkAnswer(
       "Track returned checks in the refund ledger.\n\nThe CEO approves every refund.",

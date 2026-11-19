@@ -125,3 +125,64 @@ export async function createAgentResponseWithOpenAI(
   const client = getOpenAIClient()
   return client.responses.create(params, options)
 }
+
+// Each Responses API step is streamed. Tool calls are handled by the caller.
+export async function streamMiloResponse(
+  params: ResponseCreateParamsNonStreaming,
+  onToken: (token: string) => void,
+  signal?: AbortSignal
+): Promise<unknown> {
+  if (params.model === "fake-chat") {
+    const tokens = [
+      "Please check ",
+      "the linked wiki page ",
+      "for the latest details.",
+    ]
+    let output = ""
+    for (const token of tokens) {
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new DOMException("Aborted", "AbortError"))
+          return
+        }
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", abort)
+          resolve()
+        }, 500)
+        function abort() {
+          clearTimeout(timer)
+          reject(new DOMException("Aborted", "AbortError"))
+        }
+        signal?.addEventListener("abort", abort, { once: true })
+      })
+      output += token
+      onToken(token)
+    }
+    return { output_text: output, output: [] }
+  }
+  const client = getOpenAIClient()
+  const stream = await client.responses.create(
+    { ...params, stream: true },
+    { signal, maxRetries: 0 }
+  )
+  let response: unknown
+  let hasCall = false
+  let outputText = ""
+  for await (const event of stream) {
+    if (
+      event.type === "response.output_item.added" &&
+      event.item.type === "function_call"
+    )
+      hasCall = true
+    if (event.type === "response.output_text.delta") {
+      outputText += event.delta
+      if (!hasCall) onToken(event.delta)
+    }
+    if (event.type === "response.completed") response = event.response
+    if (event.type === "response.failed" || event.type === "error")
+      throw new Error("Milo could not complete the answer.")
+  }
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+  if (!response) throw new Error("Milo's response ended unexpectedly.")
+  return { ...(response as object), output_text: outputText }
+}

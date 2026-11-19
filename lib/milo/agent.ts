@@ -8,7 +8,15 @@ import type {
 
 import type { createSupabaseServerClient } from "@/lib/supabase/server"
 
-import { createAgentResponseWithOpenAI, getChatModel } from "@/lib/ai/provider"
+import {
+  createAgentResponseWithOpenAI,
+  getChatModel,
+  streamMiloResponse,
+} from "@/lib/ai/provider"
+import {
+  followUpRetrievalQuery,
+  type MiloHistoryTurn,
+} from "@/lib/milo/history"
 import {
   checkAnswer,
   hasRetrievalConfidence,
@@ -75,6 +83,7 @@ Rules:
 - When the user asks what documents or files are available, call storage_list for Newsletters and Misc before answering. Do not answer from Wiki assets alone unless the user specifically asks about Wiki uploads.
 - Prefer storage_signed_url when the user asks to open a document or file.
 - Keep answers concise and include exact names, emails, and phone numbers when tools provide them.
+- Do not offer unsolicited follow-up capabilities.
 - ${INLINE_CITATION_INSTRUCTIONS}
 - You are read-only. Never claim to update, upload, delete, sync, or change data.`
 
@@ -84,10 +93,19 @@ export function buildMiloAgentPrompt(
     question,
     researchBrief,
     userContext,
-  }: { question: string; researchBrief: string; userContext: MiloUserContext }
+    history = [],
+  }: {
+    question: string
+    researchBrief: string
+    userContext: MiloUserContext
+    history?: MiloHistoryTurn[]
+  }
 ) {
   const input: ResponseInputItem[] = [
     { role: "developer", content: miloPermissionInstructions(userContext) },
+    ...history.map(
+      (turn): ResponseInputItem => ({ role: turn.role, content: turn.content })
+    ),
     {
       role: "user",
       content: `${researchBrief}\n\nUser question:\n${question}`,
@@ -293,7 +311,7 @@ function addUniqueResearchCall(
   }
 }
 
-function buildInitialResearchCalls(
+export function buildInitialResearchCalls(
   question: string
 ): InitialResearchToolCall[] {
   const calls: InitialResearchToolCall[] = []
@@ -301,6 +319,18 @@ function buildInitialResearchCalls(
   const focusedQueryVariants = getSearchQueryVariants(focusedQuery)
   const procedureQuestion = isProcedureQuestion(question)
   const documentQuestion = isDocumentQuestion(question)
+
+  const tagPhrase =
+    /\btagged\s+(?:["“]([^"”]+)["”]|((?:[A-Z][\p{L}\p{N}'-]*)(?:\s+[A-Z][\p{L}\p{N}'-]*)*))/u.exec(
+      question
+    )
+  const tagQuery = tagPhrase?.[1] ?? tagPhrase?.[2]
+  if (tagQuery)
+    addUniqueResearchCall(calls, {
+      toolName: "wiki_tag_search",
+      arguments: { query: tagQuery, limit: 8 },
+      reason: "Find pages assigned to the requested tag.",
+    })
 
   for (const query of getSearchQueryVariants(question)) {
     addUniqueResearchCall(calls, {
@@ -462,7 +492,9 @@ function formatResearchSources(sources: MiloSourceCard[]) {
 async function buildInitialResearchBrief(
   question: string,
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  pageContext?: MiloCurrentPage
+  pageContext?: MiloCurrentPage,
+  onStatus?: (status: string) => void,
+  signal?: AbortSignal
 ): Promise<InitialResearchResult> {
   const calls = buildInitialResearchCalls(question)
   const sources: MiloSourceCard[] = []
@@ -474,6 +506,8 @@ async function buildInitialResearchBrief(
   }
 
   for (const call of calls) {
+    signal?.throwIfAborted()
+    onStatus?.(toolStatus(call.toolName))
     const result = await callMiloMcpTool(
       call.toolName,
       call.arguments,
@@ -511,6 +545,14 @@ async function buildInitialResearchBrief(
   }
 }
 
+function toolStatus(toolName: string) {
+  if (toolName === "knowledge_search" || toolName === "wiki_tag_search")
+    return "Searching the wiki…"
+  if (toolName.startsWith("storage_")) return "Checking documents…"
+  if (toolName === "db_search") return "Looking that up…"
+  return "Looking that up…"
+}
+
 function toCitations(sources: MiloSourceCard[]): MiloAgentCitation[] {
   const seen = new Set<string>()
   const citations: MiloAgentCitation[] = []
@@ -540,22 +582,33 @@ export async function answerMiloQuestionWithAgent({
   supabase,
   userContext,
   pageContext,
+  history = [],
+  onToken,
+  onStatus,
+  signal,
 }: {
   question: string
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userContext: MiloUserContext
   pageContext?: MiloCurrentPage
+  history?: MiloHistoryTurn[]
+  onToken?: (token: string) => void
+  onStatus?: (status: string) => void
+  signal?: AbortSignal
 }): Promise<MiloAgentAnswer> {
   const model = getChatModel()
   const initialResearch = await buildInitialResearchBrief(
-    question,
+    followUpRetrievalQuery(question, history),
     supabase,
-    pageContext
+    pageContext,
+    onStatus,
+    signal
   )
   const prompt = buildMiloAgentPrompt(MILO_AGENT_INSTRUCTIONS, {
     question,
     researchBrief: initialResearch.brief,
     userContext,
+    history,
   })
   let input = prompt.input
   const toolCalls: MiloAgentAnswer["metadata"]["toolCalls"] = [
@@ -563,21 +616,32 @@ export async function answerMiloQuestionWithAgent({
   ]
   const sources: MiloSourceCard[] = [...initialResearch.sources]
   let response: unknown = null
+  let finalParams:
+    | Parameters<typeof createAgentResponseWithOpenAI>[0]
+    | undefined
 
   for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
-    response = await createAgentResponseWithOpenAI({
+    signal?.throwIfAborted()
+    const params = {
       model,
       instructions: prompt.instructions,
       input,
       prompt_cache_key: "milo-agent",
       tools: [MILO_MCP_PROXY_TOOL],
-      tool_choice: "auto",
+      tool_choice: "auto" as const,
       parallel_tool_calls: false,
-      store: false,
-    })
+      store: false as const,
+    }
+    response =
+      onToken && model === "fake-chat"
+        ? { output_text: "Ready to answer.", output: [] }
+        : signal
+          ? await createAgentResponseWithOpenAI(params, { signal })
+          : await createAgentResponseWithOpenAI(params)
 
     const functionCalls = getResponseFunctionCalls(response)
     if (!functionCalls.length) {
+      finalParams = params
       break
     }
 
@@ -588,8 +652,11 @@ export async function answerMiloQuestionWithAgent({
 
       try {
         const args = parseProxyArguments(functionCall.arguments)
+        signal?.throwIfAborted()
+        onStatus?.(toolStatus(args.toolName))
         output = await callMiloMcpTool(args.toolName, args.arguments, supabase)
       } catch (error) {
+        if (signal?.aborted) throw error
         output = {
           ok: false,
           toolName: "db_schema",
@@ -617,14 +684,24 @@ export async function answerMiloQuestionWithAgent({
     input = [...input, ...getResponseOutputItems(response), ...functionOutputs]
   }
 
-  const answer = getResponseText(response)
-  if (!answer) {
-    throw new Error("Milo agent did not return an answer.")
-  }
-
   const chunks = sources.filter((source) => source.knowledgeChunkId)
+  const requestedTag = /\btagged\s+["“]?([^?.,"”]+)/i
+    .exec(question)?.[1]
+    ?.trim()
+    .toLowerCase()
+  const hasTagEvidence =
+    /\btag(?:ged|s)?\b/i.test(question) &&
+    sources.some(
+      (source) =>
+        source.url?.startsWith("/wiki/tags?") &&
+        (hasRetrievalConfidence(question, [source]) ||
+          Boolean(
+            requestedTag && source.title.toLowerCase().includes(requestedTag)
+          ))
+    )
   const confident =
-    hasRetrievalConfidence(question, chunks) ||
+    hasRetrievalConfidence(followUpRetrievalQuery(question, history), chunks) ||
+    hasTagEvidence ||
     (!!pageContext &&
       /\b(?:this|current) page\b/i.test(question) &&
       chunks.some((source) => source.url === pageContext.url))
@@ -653,6 +730,15 @@ export async function answerMiloQuestionWithAgent({
       },
     }
   }
+  if (onToken && finalParams) {
+    response = await streamMiloResponse(
+      { ...finalParams, tool_choice: "none" },
+      onToken,
+      signal
+    )
+  }
+  const answer = getResponseText(response)
+  if (!answer) throw new Error("Milo agent did not return an answer.")
   const checked = checkAnswer(answer, chunks, sources)
   return {
     answer: checked.answer,

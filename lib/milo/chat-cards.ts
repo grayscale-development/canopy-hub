@@ -60,7 +60,8 @@ export const miloCardSchema = z.discriminatedUnion("type", [
 
 export type MiloCard = z.infer<typeof miloCardSchema>
 export type MiloStreamEvent =
-  | { type: "meta"; threadId: string }
+  | { type: "meta"; threadId: string; userMessageId?: string }
+  | { type: "status"; text: string }
   | { type: "token"; token: string }
   | { type: "card"; messageId: string; card: MiloCard }
   | {
@@ -76,6 +77,9 @@ export type MiloStreamEvent =
         updatedBy?: string
       }>
       abstained?: boolean
+      answer?: string
+      trustedLinks?: boolean
+      error?: boolean
     }
 
 // This JSON schema is the wire contract for known card payloads.
