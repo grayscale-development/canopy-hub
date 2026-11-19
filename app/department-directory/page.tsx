@@ -460,7 +460,7 @@ export default async function SupportPage({
               alt=""
               fill
               sizes="(min-width: 1280px) 1280px, 100vw"
-              className="object-cover"
+              className="hidden object-cover sm:block"
               priority
             />
             <div className="absolute inset-0 bg-black/65 dark:bg-black/75" />
@@ -656,6 +656,15 @@ export default async function SupportPage({
                     })}
                   </div>
                 </section>
+              ) : null}
+
+              {!query &&
+              !filteredGeneralHelpSection &&
+              filteredRushSections.length === 0 &&
+              filteredDepartments.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                  No departments yet.
+                </div>
               ) : null}
 
               {!hasSearchResults ? (

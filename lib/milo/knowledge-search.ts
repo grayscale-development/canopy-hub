@@ -76,6 +76,8 @@ export async function searchKnowledge(
     let rank = 0
     let previousSimilarity: number | undefined
     list.forEach((row, index) => {
+      // Exclude the retired Bridge page even before the next full reindex.
+      if (row.source_type === "site" && row.source_url === "/bridge") return
       if (index === 0 || row.similarity !== previousSimilarity) rank = index + 1
       previousSimilarity = row.similarity
       const existing = fused.get(row.chunk_id)

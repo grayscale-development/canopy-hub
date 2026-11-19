@@ -44,10 +44,7 @@ export function ShufflePlayer({
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
 
   const activeReport = playlist[activeIndex] ?? reports[0]
-  const secondsUntilNext = Math.max(
-    0,
-    Math.ceil((nextSwitchAt - now) / 1000)
-  )
+  const secondsUntilNext = Math.max(0, Math.ceil((nextSwitchAt - now) / 1000))
 
   const showHeaderTemporarily = React.useCallback(() => {
     setIsHeaderVisible(true)
@@ -153,7 +150,7 @@ export function ShufflePlayer({
   return (
     <main className="flex h-screen flex-col bg-background">
       <header
-        className={`fixed inset-x-0 top-0 z-50 flex h-14 items-center gap-3 border-b bg-background/95 px-4 shadow-sm backdrop-blur transition-transform duration-300 ${
+        className={`fixed inset-x-0 top-0 z-50 flex flex-col items-start gap-2 border-b bg-background/95 px-4 py-2 shadow-sm backdrop-blur transition-transform duration-300 sm:h-14 sm:flex-row sm:items-center sm:gap-3 sm:py-0 ${
           isHeaderVisible ? "translate-y-0" : "-translate-y-full"
         }`}
       >
@@ -167,14 +164,16 @@ export function ShufflePlayer({
               : ""}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleNextReport}>
-          <SkipForwardIcon />
-          Next
-        </Button>
-        <Button variant="outline" size="sm" onClick={enterFullscreen}>
-          {isFullscreen ? <Minimize2Icon /> : <Maximize2Icon />}
-          {isFullscreen ? "Exit full screen" : "Full screen"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={handleNextReport}>
+            <SkipForwardIcon />
+            Next
+          </Button>
+          <Button variant="outline" size="sm" onClick={enterFullscreen}>
+            {isFullscreen ? <Minimize2Icon /> : <Maximize2Icon />}
+            {isFullscreen ? "Exit full screen" : "Full screen"}
+          </Button>
+        </div>
       </header>
       <iframe
         ref={iframeRef}

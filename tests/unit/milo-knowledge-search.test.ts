@@ -70,6 +70,22 @@ describe("Milo hybrid retrieval", () => {
     )
   })
 
+  it("filters the retired Bridge site source before reindexing", async () => {
+    const bridge = {
+      ...row("bridge", 1),
+      source_type: "site",
+      source_url: "/bridge",
+    }
+    const home = {
+      ...row("home", 0.9),
+      source_type: "site",
+      source_url: "/home",
+    }
+    const rpc = vi.fn(async () => ({ data: [bridge, home], error: null }))
+    const result = await searchKnowledge({ rpc } as never, "Bridge")
+    expect(result.map((item) => item.source_url)).toEqual(["/home"])
+  })
+
   it("falls back to keyword and breaks ties by publication then date", async () => {
     provider.createEmbeddingsWithOpenAI.mockRejectedValueOnce(
       new Error("offline")

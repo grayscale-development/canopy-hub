@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -50,6 +51,16 @@ export default async function BridgePage() {
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">
             <h1 className="text-3xl font-semibold tracking-tight">Bridge</h1>
+          </div>
+          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+            <h2 className="font-semibold text-foreground">Coming soon</h2>
+            <p className="mt-2">Bridge isn&apos;t available yet.</p>
+            <Link
+              href="/home"
+              className="mt-3 inline-block text-primary underline underline-offset-4"
+            >
+              Go to Home
+            </Link>
           </div>
         </div>
       </SidebarInset>

@@ -32,13 +32,23 @@ export default async function FundedLoansByLoanProgramViewPage() {
   return (
     <main className="min-h-screen bg-background p-4 text-foreground md:p-6">
       <div className="mx-auto w-full max-w-[1900px]">
-        {loadError || !summary ? (
-          <div className="rounded-xl border bg-card p-6 text-sm text-destructive">
-            {loadError ?? "Data load failed."}
-          </div>
-        ) : summary.rows.length === 0 ? (
-          <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
-            No funded loan program data is available for the previous month.
+        {loadError || !summary || summary.rows.length === 0 ? (
+          <div className="space-y-4">
+            <header>
+              <h1 className="text-2xl font-semibold">
+                Funded Loans by Loan Program
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {summary?.monthLabel ?? "Previous month"}
+              </p>
+            </header>
+            <div
+              className={`rounded-xl border bg-card p-6 text-sm ${loadError || !summary ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              {loadError || !summary
+                ? (loadError ?? "Data load failed.")
+                : "No funded loan program data is available for the previous month."}
+            </div>
           </div>
         ) : (
           <FundedLoansByProgramExpandedView

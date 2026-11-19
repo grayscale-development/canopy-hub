@@ -74,6 +74,14 @@ const hubData = vi.hoisted(() => ({
 
 vi.mock("@/lib/hub-data", () => hubData)
 
+vi.mock("@/lib/support-directory-data", () => ({
+  fetchSupportDirectoryData: async () => ({
+    generalHelpSection: null,
+    rushSections: [],
+    departments: [],
+  }),
+}))
+
 const userContext = {
   capabilities: {
     "beta.1": true,
@@ -1001,6 +1009,36 @@ describe("wiki AI orchestration", () => {
     )
     expect(calls).not.toContain("cite sources using bracket numbers")
   })
+  it("omits Bridge from curated site pages and archives the old entry", async () => {
+    const { indexCuratedSiteKnowledge } = await import("@/lib/wiki-ai")
+    const sources: Array<Record<string, unknown>> = []
+    const updates: Array<Record<string, unknown>> = []
+    const chain = {
+      select: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+      upsert: vi.fn((source) => {
+        sources.push(source)
+        return chain
+      }),
+      single: vi.fn(async () => ({ data: { id: "source" }, error: null })),
+      delete: vi.fn(() => chain),
+      update: vi.fn((update) => {
+        updates.push(update)
+        return chain
+      }),
+      insert: vi.fn(async () => ({ error: null })),
+      then: (resolve: (value: unknown) => void) => resolve({ error: null }),
+    }
+    await indexCuratedSiteKnowledge({ from: vi.fn(() => chain) } as never)
+    expect(sources.some((source) => source.url === "/bridge")).toBe(false)
+    expect(sources.some((source) => source.url === "/home")).toBe(true)
+    expect(updates).toContainEqual(
+      expect.objectContaining({ status: "archived" })
+    )
+    expect(chain.eq).toHaveBeenCalledWith("source_id", "bridge")
+  })
+
   it("indexes draft pages and assets as active while preserving visibility metadata", async () => {
     const { indexWikiPage, indexWikiAsset } = await import("@/lib/wiki-ai")
     const sources: Array<Record<string, unknown>> = []

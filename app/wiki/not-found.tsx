@@ -25,7 +25,7 @@ function searchWords(pathname: string) {
 
 export default function WikiNotFound() {
   const pathname = usePathname()
-  const { openWithPrompt } = useWikiChatModal()
+  const { available, openWithPrompt } = useWikiChatModal()
 
   return (
     <main className="min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
@@ -35,34 +35,38 @@ export default function WikiNotFound() {
             This link is out of date or the page was removed
           </h1>
           <p className="text-muted-foreground">
-            Try searching for the page, or return to the wiki home.
+            {available
+              ? "Try searching for the page, or return to the wiki home."
+              : "Return to the wiki home to find what you need."}
           </p>
         </div>
-        <form
-          key={pathname}
-          className="flex max-w-xl flex-col gap-3 sm:flex-row sm:items-end"
-          onSubmit={(event) => {
-            event.preventDefault()
-            openWithPrompt(
-              String(new FormData(event.currentTarget).get("search") ?? "")
-            )
-          }}
-        >
-          <div className="flex-1 space-y-2">
-            <label htmlFor="wiki-search" className="text-sm font-medium">
-              Search with Milo
-            </label>
-            <Input
-              id="wiki-search"
-              name="search"
-              defaultValue={searchWords(pathname)}
-              placeholder="Enter a page name"
-            />
-          </div>
-          <Button type="submit">Search</Button>
-        </form>
+        {available ? (
+          <form
+            key={pathname}
+            className="flex max-w-xl flex-col gap-3 sm:flex-row sm:items-end"
+            onSubmit={(event) => {
+              event.preventDefault()
+              openWithPrompt(
+                String(new FormData(event.currentTarget).get("search") ?? "")
+              )
+            }}
+          >
+            <div className="flex-1 space-y-2">
+              <label htmlFor="wiki-search" className="text-sm font-medium">
+                Search with Milo
+              </label>
+              <Input
+                id="wiki-search"
+                name="search"
+                defaultValue={searchWords(pathname)}
+                placeholder="Enter a page name"
+              />
+            </div>
+            <Button type="submit">Search</Button>
+          </form>
+        ) : null}
         <div>
-          <Button asChild variant="outline">
+          <Button asChild variant={available ? "outline" : "default"}>
             <Link href="/wiki">Go to wiki home</Link>
           </Button>
         </div>

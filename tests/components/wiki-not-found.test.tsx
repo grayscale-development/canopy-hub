@@ -6,19 +6,35 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const state = vi.hoisted(() => ({
   path: "/wiki/old-loan_guide/123/closing",
   openWithPrompt: vi.fn(),
+  available: true,
 }))
 vi.mock("next/navigation", () => ({ usePathname: () => state.path }))
 vi.mock("@/components/wiki/wiki-chat-modal", () => ({
-  useWikiChatModal: () => ({ openWithPrompt: state.openWithPrompt }),
+  useWikiChatModal: () => ({
+    available: state.available,
+    openWithPrompt: state.openWithPrompt,
+  }),
 }))
 import WikiNotFound from "@/app/wiki/not-found"
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  state.available = true
 })
 
 describe("outdated wiki links", () => {
+  it("offers only wiki home when Milo is unavailable", () => {
+    state.available = false
+    render(<WikiNotFound />)
+    expect(
+      screen.queryByRole("textbox", { name: "Search with Milo" })
+    ).toBeNull()
+    expect(screen.queryByRole("button", { name: "Search" })).toBeNull()
+    expect(
+      screen.getByRole("link", { name: "Go to wiki home" })
+    ).toHaveAttribute("href", "/wiki")
+  })
   it("suggests words from the path, lets the user edit them, and opens Milo", async () => {
     const user = userEvent.setup()
     render(<WikiNotFound />)

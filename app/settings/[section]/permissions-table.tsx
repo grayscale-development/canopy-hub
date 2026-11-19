@@ -517,7 +517,7 @@ export function PermissionsTable({
             </div>
           </div>
 
-          <div className="mt-4 overflow-hidden rounded-lg border">
+          <div className="mt-4 min-w-0 overflow-hidden rounded-lg border">
             <div className="max-w-full overflow-x-auto">
               <table className="w-full min-w-[560px] border-collapse">
                 <thead className="bg-muted/40">
@@ -639,7 +639,7 @@ export function PermissionsTable({
               {permissionRequestsLoadError}
             </p>
           ) : null}
-          <div className="mt-4 overflow-hidden rounded-lg border">
+          <div className="mt-4 min-w-0 overflow-hidden rounded-lg border">
             <div className="max-w-full overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse">
                 <thead className="bg-muted/40">
