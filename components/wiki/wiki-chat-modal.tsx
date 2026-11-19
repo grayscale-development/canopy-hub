@@ -32,6 +32,13 @@ interface WikiChatModalContextValue {
   openWithDraft: (draft: string) => void
   close: () => void
   toggle: () => void
+  registerPage: (page: MiloPage | null) => void
+}
+
+export interface MiloPage {
+  pageId: string
+  title: string
+  pathname: string
 }
 
 const WikiChatModalContext =
@@ -49,16 +56,36 @@ export function useWikiChatModal() {
   return context
 }
 
+export function MiloPageContext({
+  pageId,
+  title,
+}: {
+  pageId: string
+  title: string
+}) {
+  const context = React.useContext(WikiChatModalContext)
+  const pathname = usePathname()
+  const registerPage = context?.registerPage
+  React.useEffect(() => {
+    if (!registerPage || !pathname) return
+    registerPage({ pageId, title, pathname })
+    return () => registerPage(null)
+  }, [pageId, title, pathname, registerPage])
+  return null
+}
+
 export function WikiChatModalProvider({
   children,
   signedIn,
   userId,
   canUseMilo,
+  firstName,
 }: {
   children: React.ReactNode
   signedIn: boolean
   userId: string | null
   canUseMilo: boolean
+  firstName?: string
 }) {
   const pathname = usePathname()
   const available =
@@ -66,7 +93,34 @@ export function WikiChatModalProvider({
   const [isOpen, setIsOpen] = React.useState(false)
   const [hasOpened, setHasOpened] = React.useState(false)
   const [showTip, setShowTip] = React.useState(false)
+  // The tip counts as seen only once it is dismissed or Milo is opened.
+  const dismissTip = React.useCallback(() => {
+    setShowTip(false)
+    try {
+      localStorage.setItem(tipSeenKey, "true")
+    } catch {
+      // Storage is optional.
+    }
+  }, [])
   const [queuedPrompt, setQueuedPrompt] = React.useState<string | null>(null)
+  const [page, setPage] = React.useState<MiloPage | null>(null)
+  const [removedPageId, setRemovedPageId] = React.useState<string | null>(null)
+  const lastPageId = React.useRef<string | null>(null)
+  const lastPathname = React.useRef(pathname)
+  React.useEffect(() => {
+    if (lastPathname.current !== pathname) {
+      lastPathname.current = pathname
+      lastPageId.current = null
+      setRemovedPageId(null)
+    }
+  }, [pathname])
+  const registerPage = React.useCallback((next: MiloPage | null) => {
+    if (next && next.pageId !== lastPageId.current) {
+      lastPageId.current = next.pageId
+      setRemovedPageId(null)
+    }
+    setPage(next)
+  }, [])
   const [draftRequest, setDraftRequest] = React.useState<
     { value: string } | undefined
   >()
@@ -367,10 +421,7 @@ export function WikiChatModalProvider({
           localStorage.getItem(openChatKey) === "true"
         )
           return
-        if (!localStorage.getItem(tipSeenKey)) {
-          setShowTip(true)
-          localStorage.setItem(tipSeenKey, "true")
-        }
+        if (!localStorage.getItem(tipSeenKey)) setShowTip(true)
       } catch {
         // Storage is optional.
       }
@@ -380,16 +431,22 @@ export function WikiChatModalProvider({
     }
   }, [available, isOpen])
 
-  const setOpen = React.useCallback((open: boolean) => {
-    interactedRef.current = true
-    if (open) setHasOpened(true)
-    setIsOpen(open)
-    try {
-      localStorage.setItem(openChatKey, String(open))
-    } catch {
-      /* Storage is optional. */
-    }
-  }, [])
+  const setOpen = React.useCallback(
+    (open: boolean) => {
+      interactedRef.current = true
+      if (open) {
+        setHasOpened(true)
+        dismissTip()
+      }
+      setIsOpen(open)
+      try {
+        localStorage.setItem(openChatKey, String(open))
+      } catch {
+        /* Storage is optional. */
+      }
+    },
+    [dismissTip]
+  )
 
   const close = React.useCallback(() => {
     setOpen(false)
@@ -453,8 +510,8 @@ export function WikiChatModalProvider({
   }, [available, isOpen, cachedForUser, cacheKey])
 
   const value = React.useMemo(
-    () => ({ openWithPrompt, openWithDraft, close, toggle }),
-    [close, openWithDraft, openWithPrompt, toggle]
+    () => ({ openWithPrompt, openWithDraft, close, toggle, registerPage }),
+    [close, openWithDraft, openWithPrompt, toggle, registerPage]
   )
 
   return (
@@ -481,7 +538,7 @@ export function WikiChatModalProvider({
                   variant="ghost"
                   size="icon-sm"
                   aria-label="Dismiss Milo tip"
-                  onClick={() => setShowTip(false)}
+                  onClick={dismissTip}
                 >
                   ×
                 </Button>
@@ -591,6 +648,13 @@ export function WikiChatModalProvider({
             {hasOpened &&
               (canUseMilo ? (
                 <WikiChat
+                  firstName={firstName}
+                  pageContext={
+                    page?.pathname === pathname && page.pageId !== removedPageId
+                      ? page
+                      : null
+                  }
+                  onRemovePage={() => setRemovedPageId(page?.pageId ?? null)}
                   queuedPrompt={queuedPrompt}
                   draftRequest={draftRequest}
                   autoFocus={isOpen}

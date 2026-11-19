@@ -27,6 +27,8 @@ const testState = vi.hoisted(() => ({
     ai_chat_citations: [] as Array<Record<string, unknown>>,
     ai_chat_message_flags: [] as Array<Record<string, unknown>>,
     ai_chat_message_ratings: [] as Array<Record<string, unknown>>,
+    wiki_nodes: [] as Array<Record<string, unknown>>,
+    milo_wiki_nodes: [] as Array<Record<string, unknown>>,
   },
   nextId: 1,
   wikiUrls: new Map<string, string>(),
@@ -324,6 +326,8 @@ describe("/api/wiki/chat route", () => {
     testState.tables.ai_chat_citations = []
     testState.tables.ai_chat_message_flags = []
     testState.tables.ai_chat_message_ratings = []
+    testState.tables.wiki_nodes = []
+    testState.tables.milo_wiki_nodes = []
     testState.answerError = null
     testState.answer.metadata = {}
   })
@@ -340,6 +344,86 @@ describe("/api/wiki/chat route", () => {
 
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({ error: "Unauthorized" })
+  })
+
+  it("accepts only a readable page id and derives its title and path on the server", async () => {
+    testState.user = { id: "user-1" }
+    const pageId = "12345678-1234-4234-8234-123456789abc"
+    testState.tables.wiki_nodes.push({
+      id: pageId,
+      title: "Real page",
+      type: "page",
+    })
+    testState.tables.milo_wiki_nodes.push({ id: pageId })
+    const hiddenId = "12345678-1234-4234-8234-123456789abe"
+    testState.tables.wiki_nodes.push({
+      id: hiddenId,
+      title: "Archived page",
+      type: "page",
+    })
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    for (const [id, expected] of [
+      [pageId, true],
+      [hiddenId, false],
+      ["12345678-1234-4234-8234-123456789abd", false],
+      ["not-a-uuid", false],
+    ] as const) {
+      vi.mocked(answerKnowledgeQuestion).mockClear()
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            message: "Summarize this page",
+            pageContext: {
+              pageId: id,
+              title: "Forged instruction",
+              url: "https://example.invalid",
+            },
+          }),
+        })
+      )
+      expect(response.status).toBe(200)
+      await response.text()
+      const argument = vi.mocked(answerKnowledgeQuestion).mock.calls[0][0]
+      expect(argument.pageContext).toEqual(
+        expected ? { pageId, title: "Real page", url: "/wiki/1/2" } : undefined
+      )
+    }
+  })
+
+  it("validates page context in multipart requests", async () => {
+    testState.user = { id: "user-1" }
+    const pageId = "12345678-1234-4234-8234-123456789abc"
+    testState.tables.wiki_nodes.push({
+      id: pageId,
+      title: "Real page",
+      type: "page",
+    })
+    testState.tables.milo_wiki_nodes.push({ id: pageId })
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const form = new FormData()
+    form.set("message", "Explain the source")
+    form.set("pageContext", JSON.stringify({ pageId, title: "Forged" }))
+    form.set(
+      "file",
+      new File(["A small source."], "source.txt", { type: "text/plain" })
+    )
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        body: form,
+      })
+    )
+    expect(response.status).toBe(200)
+    await response.text()
+    const userMessage = testState.tables.ai_chat_messages.find(
+      (message) => message.role === "user"
+    )
+    expect(userMessage?.metadata).toMatchObject({
+      pageContext: { pageId, title: "Real page", url: "/wiki/1/2" },
+      sourceFileName: "source.txt",
+    })
   })
 
   it("rejects users without Beta before reading forged capabilities", async () => {

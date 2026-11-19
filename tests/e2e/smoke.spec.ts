@@ -165,7 +165,9 @@ test("Ask Milo opens and streams a deterministic mocked answer @milo @smoke", as
     .getByRole("textbox", { name: "Ask a follow-up" })
     .fill("Where is the Wiki?")
   await dialog.getByRole("button", { name: "Send follow-up" }).click()
-  const wikiLink = dialog.getByRole("link", { name: "Wiki", exact: true })
+  const wikiLink = dialog
+    .getByRole("link", { name: "Wiki", exact: true })
+    .first()
   await expect(wikiLink).toBeVisible()
   await expect(wikiLink).toHaveAttribute("href", "/wiki/1")
   await expect(dialog.getByText("/wiki/1")).toHaveCount(0)

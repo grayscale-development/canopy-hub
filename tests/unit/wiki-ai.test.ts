@@ -340,6 +340,120 @@ describe("wiki AI orchestration", () => {
     )
   })
 
+  it("uses the current page chunks as evidence for a page-relative question", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    const pageContext = {
+      pageId: "page-1",
+      title: "Closing checklist",
+      url: "/wiki/1/2",
+    }
+    const sourceQuery = {
+      select: () => sourceQuery,
+      eq: () => sourceQuery,
+      maybeSingle: async () => ({ data: { id: "source-1" } }),
+    }
+    const chunksQuery = {
+      select: () => chunksQuery,
+      eq: () => chunksQuery,
+      order: () => chunksQuery,
+      limit: async () => ({
+        data: [
+          { id: "chunk-1", content: "Review the checklist before closing." },
+        ],
+      }),
+    }
+    const supabase = {
+      from: (table: string) =>
+        table === "knowledge_sources" ? sourceQuery : chunksQuery,
+      rpc: vi.fn(),
+    }
+    aiProvider.createAgentResponseWithOpenAI.mockResolvedValueOnce({
+      output_text: "Review the checklist before closing.",
+      output: [],
+    })
+    const result = await answerKnowledgeQuestion({
+      userContext,
+      supabase: supabase as never,
+      question: "Summarize this page",
+      pageContext,
+    })
+    expect(result.metadata).toMatchObject({
+      mode: "agentic_mcp",
+      abstained: false,
+    })
+    expect(result.citations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Closing checklist",
+          url: "/wiki/1/2",
+        }),
+      ])
+    )
+    const calls = aiProvider.createAgentResponseWithOpenAI.mock
+      .calls as unknown as Array<
+      [{ instructions: string; input: Array<{ content?: string }> }]
+    >
+    const request = calls[0][0]
+    expect(request.instructions).not.toContain("Closing checklist")
+    expect(JSON.stringify(request.input)).toContain(
+      "Review the checklist before closing."
+    )
+  })
+
+  it("retains current-page evidence when the agent falls back to retrieval", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    const pageContext = {
+      pageId: "page-1",
+      title: "Closing checklist",
+      url: "/wiki/1/2",
+    }
+    const sourceQuery = {
+      select: () => sourceQuery,
+      eq: () => sourceQuery,
+      maybeSingle: async () => ({ data: { id: "source-1" } }),
+    }
+    const chunksQuery = {
+      select: () => chunksQuery,
+      eq: () => chunksQuery,
+      order: () => chunksQuery,
+      limit: async () => ({
+        data: [
+          { id: "chunk-1", content: "Review the checklist before closing." },
+        ],
+      }),
+    }
+    const supabase = {
+      from: (table: string) =>
+        table === "knowledge_sources" ? sourceQuery : chunksQuery,
+      rpc: vi.fn(async () => ({ data: [], error: null })),
+    }
+    aiProvider.createAgentResponseWithOpenAI.mockRejectedValueOnce(
+      new Error("agent unavailable")
+    )
+    aiProvider.createChatResponseWithOpenAI.mockResolvedValueOnce({
+      output_text: "Review the checklist before closing.",
+    })
+    const result = await answerKnowledgeQuestion({
+      userContext,
+      supabase: supabase as never,
+      question: "Summarize this page",
+      pageContext,
+    })
+    expect(result.citations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Closing checklist",
+          url: "/wiki/1/2",
+        }),
+      ])
+    )
+    expect(aiProvider.createChatResponseWithOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.stringContaining("Review the checklist before closing."),
+      })
+    )
+  })
+
   it("keeps the Milo instruction prefix stable across users and research", async () => {
     const { buildMiloAgentPrompt, MILO_AGENT_INSTRUCTIONS } =
       await import("@/lib/milo/agent")

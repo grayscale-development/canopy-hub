@@ -271,7 +271,9 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
     expect((await chatRequest).postDataJSON()).toMatchObject({
       message: "old loan guide closing",
     })
-    await expect(dialog.getByRole("heading", { name: "Answer" })).toBeVisible()
+    await expect(
+      dialog.getByText("Wiki", { exact: true }).first()
+    ).toBeVisible()
     await dialog.getByRole("button", { name: "Close" }).click()
     await missingPage.getByRole("link", { name: "Go to wiki home" }).click()
     await expect(page).toHaveURL(/\/wiki$/)

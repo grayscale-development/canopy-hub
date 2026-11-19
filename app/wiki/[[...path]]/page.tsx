@@ -8,6 +8,7 @@ import {
 } from "@/components/wiki/wiki-edit-mode"
 import { ArchivedWikiPageView } from "@/components/wiki/wiki-archive"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
+import { MiloPageContext } from "@/components/wiki/wiki-chat-modal"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
 import {
@@ -487,6 +488,12 @@ export default async function WikiPage({
                 nodes={nodes}
                 fallback={<HiddenDraftView title={displayedNode.title} />}
               >
+                {displayedNode.type === "page" ? (
+                  <MiloPageContext
+                    pageId={displayedNode.id}
+                    title={displayedNode.title}
+                  />
+                ) : null}
                 <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
                   {pageData?.node.type === "folder" ? (
                     <>

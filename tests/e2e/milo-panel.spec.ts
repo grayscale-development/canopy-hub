@@ -75,7 +75,9 @@ for (const viewport of [
       })
     await composer.fill("Where is the Wiki?")
     await panel.getByRole("button", { name: "Send follow-up" }).click()
-    const source = panel.getByRole("link", { name: "Wiki", exact: true })
+    const source = panel
+      .getByRole("link", { name: "Wiki", exact: true })
+      .first()
     await expect(source).toBeVisible()
     await source.click()
     await expect(page).toHaveURL(/\/wiki\/1$/)
