@@ -29,6 +29,7 @@ import {
   type MiloCard,
   type MiloStreamEvent,
 } from "@/lib/milo/chat-cards"
+import { hubRouteContext } from "@/lib/milo/hub-map"
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { logAiAction } from "@/lib/ai-action-log"
 import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
@@ -42,6 +43,7 @@ interface ChatRequestBody {
   threadId?: unknown
   message?: unknown
   pageContext?: unknown
+  currentPath?: unknown
 }
 
 const pageContextSchema = z.object({ pageId: z.string().uuid() })
@@ -421,6 +423,7 @@ export async function POST(request: Request) {
       message: form?.get("message"),
       threadId: form?.get("threadId"),
       pageContext,
+      currentPath: form?.get("currentPath"),
     }
   } else {
     payload = (await request.json().catch(() => null)) as ChatRequestBody | null
@@ -431,7 +434,7 @@ export async function POST(request: Request) {
     typeof payload?.threadId === "string" ? payload.threadId.trim() : ""
   const parsedPage = pageContextSchema.safeParse(payload?.pageContext)
   let pageContext:
-    | { pageId: string; title: string; url: string; updatedAt?: string }
+    | { pageId?: string; title: string; url: string; updatedAt?: string }
     | undefined
   if (parsedPage.success) {
     const { data: node } = await supabase
@@ -460,6 +463,9 @@ export async function POST(request: Request) {
         /* Ignore inaccessible or incomplete paths. */
       }
     }
+  }
+  if (!pageContext && typeof payload?.currentPath === "string") {
+    pageContext = hubRouteContext(payload.currentPath)
   }
   if (!message && !file) {
     return NextResponse.json({ error: "Message is required." }, { status: 400 })
