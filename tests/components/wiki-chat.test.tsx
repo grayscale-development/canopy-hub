@@ -128,7 +128,14 @@ describe("WikiChat", () => {
       "Question"
     )
     await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    expect(screen.getByText("Getting ready…")).toBeVisible()
     await waitFor(() => expect(area.scrollTop).toBe(1000))
+    stream.enqueue(
+      new TextEncoder().encode(
+        'data: {"type":"status","text":"Reading Funding Checklist…"}\n\n'
+      )
+    )
+    expect(await screen.findByText("Reading Funding Checklist…")).toBeVisible()
     area.scrollTop = 100
     fireEvent.scroll(area)
     expect(screen.getByRole("button", { name: "Jump to latest" })).toBeVisible()
@@ -719,7 +726,10 @@ describe("WikiChat", () => {
   it("sends an attachment and page context with a typed question", async () => {
     const user = userEvent.setup()
     const { container } = render(
-      <WikiChat pageContext={{ pageId: "page-1", title: "Operations" }} />
+      <WikiChat
+        currentPath="/wiki/1/2"
+        pageContext={{ pageId: "page-1", title: "Operations" }}
+      />
     )
     await screen.findByText(/How can I help/)
     const input =
@@ -739,6 +749,7 @@ describe("WikiChat", () => {
     expect(JSON.parse(request![1].body.get("pageContext"))).toEqual({
       pageId: "page-1",
     })
+    expect(request![1].body.get("currentPath")).toBe("/wiki/1/2")
     expect(request![1].body.get("file").name).toBe("source.txt")
   })
 

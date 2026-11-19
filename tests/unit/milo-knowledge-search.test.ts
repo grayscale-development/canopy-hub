@@ -70,6 +70,33 @@ describe("Milo hybrid retrieval", () => {
     )
   })
 
+  it("starts the embedding while the keyword search is still pending", async () => {
+    let finishKeyword!: (result: { data: never[]; error: null }) => void
+    const keywordPending = new Promise<{ data: never[]; error: null }>(
+      (resolve) => {
+        finishKeyword = resolve
+      }
+    )
+    let markEmbeddingStarted!: () => void
+    const embeddingStarted = new Promise<void>((resolve) => {
+      markEmbeddingStarted = resolve
+    })
+    provider.createEmbeddingsWithOpenAI.mockImplementationOnce(async () => {
+      markEmbeddingStarted()
+      return [[1, 0]]
+    })
+    const rpc = vi.fn((name: string) =>
+      name === "match_knowledge_chunks_keyword"
+        ? keywordPending
+        : Promise.resolve({ data: [], error: null })
+    )
+    const pending = searchKnowledge({ rpc } as never, "query")
+    await embeddingStarted
+    expect(provider.createEmbeddingsWithOpenAI).toHaveBeenCalledOnce()
+    finishKeyword({ data: [], error: null })
+    await pending
+  })
+
   it("filters the retired Bridge site source before reindexing", async () => {
     const bridge = {
       ...row("bridge", 1),

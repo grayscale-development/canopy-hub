@@ -5,6 +5,7 @@ import { resolveWikiKnowledgeRows } from "@/lib/wiki-knowledge-urls"
 import type { SupabaseWikiClient } from "@/lib/wiki"
 import type { KnowledgeSourceType } from "@/lib/wiki-ai"
 import abbreviations from "@/lib/milo/abbreviations.json"
+import { measureMilo, type MiloTiming } from "@/lib/milo/timing"
 
 export interface RetrievedChunk {
   chunk_id: string
@@ -15,6 +16,7 @@ export interface RetrievedChunk {
   content: string
   metadata: Record<string, unknown>
   similarity: number
+  vectorSimilarity?: number
 }
 
 export function rewriteKnowledgeQuery(question: string) {
@@ -46,30 +48,39 @@ export async function searchKnowledge(
   supabase: SupabaseWikiClient,
   question: string,
   matchCount = 12,
-  sourceTypes: string[] | null = null
+  sourceTypes: string[] | null = null,
+  timing?: MiloTiming
 ) {
   const query = rewriteKnowledgeQuery(question)
-  const keyword = await supabase.rpc("match_knowledge_chunks_keyword", {
+  const keywordPromise = supabase.rpc("match_knowledge_chunks_keyword", {
     search_query: query,
     match_count: matchCount,
     source_types: sourceTypes,
   })
-  if (keyword.error) throw new Error(keyword.error.message)
-
-  let vectors: RetrievedChunk[] = []
-  try {
-    const [embedding] = await createEmbeddingsWithOpenAI([query])
-    if (embedding?.length) {
-      const result = await supabase.rpc("match_knowledge_chunks", {
-        query_embedding: embedding,
-        match_count: matchCount,
-        source_types: sourceTypes,
-      })
-      if (!result.error) vectors = (result.data ?? []) as RetrievedChunk[]
+  const vectorsPromise = (async () => {
+    try {
+      timing?.model(
+        "embedding",
+        process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small"
+      )
+      const [embedding] = await measureMilo(timing, "embedding", () =>
+        createEmbeddingsWithOpenAI([query])
+      )
+      if (embedding?.length) {
+        const result = await supabase.rpc("match_knowledge_chunks", {
+          query_embedding: embedding,
+          match_count: matchCount,
+          source_types: sourceTypes,
+        })
+        if (!result.error) return (result.data ?? []) as RetrievedChunk[]
+      }
+    } catch {
+      // Keyword search remains available without an embedding provider.
     }
-  } catch {
-    // Keyword search remains available without an embedding provider.
-  }
+    return [] as RetrievedChunk[]
+  })()
+  const [keyword, vectors] = await Promise.all([keywordPromise, vectorsPromise])
+  if (keyword.error) throw new Error(keyword.error.message)
 
   const fused = new Map<string, { row: RetrievedChunk; score: number }>()
   for (const list of [(keyword.data ?? []) as RetrievedChunk[], vectors]) {
@@ -85,11 +96,18 @@ export async function searchKnowledge(
       else fused.set(row.chunk_id, { row, score: 1 / (60 + rank) })
     })
   }
+  const vectorScores = new Map(
+    vectors.map((row) => [row.chunk_id, row.similarity])
+  )
   const rows = await resolveWikiKnowledgeRows(
     supabase,
     [...fused.values()].map(({ row }) => row)
   )
   return rows
+    .map((row) => ({
+      ...row,
+      vectorSimilarity: vectorScores.get(row.chunk_id),
+    }))
     .sort((a, b) => {
       const relevance =
         fused.get(b.chunk_id)!.score - fused.get(a.chunk_id)!.score

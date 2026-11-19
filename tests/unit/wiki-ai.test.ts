@@ -245,7 +245,7 @@ describe("wiki AI orchestration", () => {
     )
   })
 
-  it("streams the fallback and includes history in its prompt and retrieval", async () => {
+  it("emits the checked fallback answer and includes history in its prompt and retrieval", async () => {
     const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
     miloMcp.callMiloMcpTool.mockRejectedValueOnce(new Error("tool unavailable"))
     const chunks = [
@@ -277,15 +277,14 @@ describe("wiki AI orchestration", () => {
       ],
       onToken: (token) => tokens.push(token),
     })
-    expect(tokens).toEqual(["Wiki documentation ", "lives at /wiki."])
+    expect(tokens).toEqual([answer.answer])
     expect(answer.citations).toHaveLength(1)
-    expect(aiProvider.streamMiloResponse).toHaveBeenCalledWith(
+    expect(aiProvider.createChatResponseWithOpenAI).toHaveBeenCalledWith(
       expect.objectContaining({
         input: expect.stringContaining("Tell me about Wiki documentation"),
-      }),
-      expect.any(Function),
-      undefined
+      })
     )
+    expect(aiProvider.streamMiloResponse).not.toHaveBeenCalled()
     expect(supabase.rpc).toHaveBeenCalledWith(
       "match_knowledge_chunks_keyword",
       expect.objectContaining({
@@ -530,7 +529,7 @@ describe("wiki AI orchestration", () => {
       citations: [],
       metadata: {
         abstained: true,
-        abstainReason: "low_retrieval_overlap",
+        abstainReason: "not_covered",
         mode: "agentic_mcp",
         toolCalls: [
           { toolName: "knowledge_search", ok: true, error: undefined },

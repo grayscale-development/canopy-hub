@@ -60,7 +60,12 @@ If any of those three items is missing, pause funding and notify the processor i
 
 There's also a related page, Closing Desk Notes: /wiki/1/16/18, with the same funding paragraph. [4]
 Funding Checklist: ${fixture.path} has more details. [3]`
-      const citations = [tag, funding, funding, closing]
+      const citations = [
+        tag,
+        funding,
+        { ...funding, url: `${funding.url}#second-section` },
+        closing,
+      ]
       await page.route("**/api/wiki/chat", async (route) => {
         if (route.request().method() !== "POST") return route.fallback()
         const events = [
@@ -119,6 +124,13 @@ Funding Checklist: ${fixture.path} has more details. [3]`
         )
       ).toBeVisible()
       await expect(dialog.getByText("Sources", { exact: true })).toBeVisible()
+      const sourceChips = dialog.getByLabel("Sources")
+      await expect(
+        sourceChips.getByRole("link", { name: /Funding Checklist/ })
+      ).toHaveCount(1)
+      await expect(
+        sourceChips.getByRole("link", { name: /Funding Checklist/ })
+      ).toHaveAttribute("href", fixture.path)
       await expect(dialog).not.toContainText("Not found in the wiki")
       if (shots)
         await page.screenshot({

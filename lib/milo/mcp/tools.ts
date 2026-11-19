@@ -8,6 +8,7 @@ import {
 import { userHasPermissionCode } from "@/lib/permissions"
 import { getMiloUserContext } from "@/lib/milo/user-context"
 import { searchKnowledge } from "@/lib/milo/knowledge-search"
+import { measureMilo, type MiloTiming } from "@/lib/milo/timing"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 type MiloClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -36,6 +37,7 @@ export interface MiloSourceCard {
   headingPath?: string[]
   updatedAt?: string
   updatedBy?: string
+  vectorSimilarity?: number
 }
 
 export interface MiloMcpToolResult {
@@ -795,18 +797,25 @@ function ok(
   return { ok: true, toolName, content: safeJson(content), sources }
 }
 
-async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
+async function knowledgeSearch(
+  args: JsonObject,
+  supabase: MiloClient,
+  timing?: MiloTiming
+) {
   const query = getString(args.query)
   if (!query) {
     throw new Error("query is required")
   }
 
   const limit = getLimit(args.limit, 8, 20)
-  const rows = await searchKnowledge(
-    supabase,
-    query,
-    limit,
-    getSourceTypes(args.sourceTypes)
+  const rows = await measureMilo(timing, "retrieval", () =>
+    searchKnowledge(
+      supabase,
+      query,
+      limit,
+      getSourceTypes(args.sourceTypes),
+      timing
+    )
   )
   return ok(
     "knowledge_search",
@@ -831,6 +840,7 @@ async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
       sourceType: getString(row.source_type) || "knowledge",
       knowledgeSourceId: getString(row.source_id) || null,
       knowledgeChunkId: getString(row.chunk_id) || null,
+      vectorSimilarity: row.vectorSimilarity,
     }))
   )
 }
@@ -1285,7 +1295,8 @@ async function storageReadText(args: JsonObject, supabase: MiloClient) {
 export async function callMiloMcpTool(
   toolName: string,
   args: unknown,
-  userClient?: MiloClient
+  userClient?: MiloClient,
+  timing?: MiloTiming
 ): Promise<MiloMcpToolResult> {
   const normalizedToolName = getString(toolName) as MiloMcpToolName
   const objectArgs = getObject(args)
@@ -1313,7 +1324,7 @@ export async function callMiloMcpTool(
         }
       }
       case "knowledge_search":
-        return await knowledgeSearch(objectArgs, supabase)
+        return await knowledgeSearch(objectArgs, supabase, timing)
       case "wiki_tag_search":
         return await wikiTagSearch(objectArgs, supabase)
       case "db_schema":
