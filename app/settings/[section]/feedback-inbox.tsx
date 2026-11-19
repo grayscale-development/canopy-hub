@@ -200,9 +200,9 @@ export function FeedbackInbox({
                 {item.pagePath && (
                   <Link
                     href={item.pagePath}
-                    className="mt-2 inline-block text-sm text-primary underline underline-offset-2"
+                    className="mt-2 inline-block max-w-full truncate text-sm text-primary underline underline-offset-2"
                   >
-                    Open page
+                    Sent from {item.pagePath}
                   </Link>
                 )}
                 {!item.pagePath &&
@@ -282,9 +282,9 @@ export function FeedbackInbox({
                     <h3 className="text-sm font-semibold">Page</h3>
                     <Link
                       href={current.pagePath}
-                      className="text-sm text-primary underline underline-offset-2"
+                      className="text-sm break-all text-primary underline underline-offset-2"
                     >
-                      Open page
+                      {current.pagePath}
                     </Link>
                   </div>
                 )}

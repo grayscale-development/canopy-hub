@@ -34,10 +34,9 @@ test("a viewer submits feedback from a wiki page and a manager resolves it", asy
     await page.goto("/settings/feedback")
     const item = page.locator("article").filter({ hasText: message })
     await expect(item.getByText("Bug", { exact: true })).toBeVisible()
-    await expect(item.getByRole("link", { name: "Open page" })).toHaveAttribute(
-      "href",
-      fixture.path
-    )
+    await expect(
+      item.getByRole("link", { name: /^Sent from \// })
+    ).toHaveAttribute("href", fixture.path)
     await item.getByRole("button").click()
     const detail = page.getByRole("dialog", { name: "Bug" })
     await expect(detail.getByText(message)).toBeVisible()

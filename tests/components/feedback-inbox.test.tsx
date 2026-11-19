@@ -32,7 +32,8 @@ it("filters the list and opens the complete message and page", async () => {
   await userEvent.click(screen.getByRole("button", { name: /Broken page/ }))
   const detail = screen.getByRole("dialog", { name: "Bug" })
   expect(within(detail).getByText(/More detail/)).toBeVisible()
-  expect(
-    within(detail).getByRole("link", { name: "Open page" })
-  ).toHaveAttribute("href", "/wiki/1")
+  expect(within(detail).getByRole("link", { name: /^\// })).toHaveAttribute(
+    "href",
+    "/wiki/1"
+  )
 })
