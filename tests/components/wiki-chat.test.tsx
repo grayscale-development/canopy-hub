@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react"
+import * as React from "react"
+import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -129,32 +130,140 @@ describe("WikiChat", () => {
       await screen.findByText("tell me about the funding process")
     ).toBeVisible()
     expect(
-      screen.getByRole("link", { name: "Funding Checklist" })
+      screen.getAllByRole("link", { name: "Funding Checklist" })[0]
     ).toHaveAttribute("href", "/wiki/1/16/17")
     expect(
       screen.queryByRole("link", { name: "/wiki/1/16/17" })
     ).not.toBeInTheDocument()
     expect(document.body).not.toHaveTextContent(/\[\d+\]|\/wiki\/1\/16\/17/)
-    expect(screen.getByRole("link", { name: "Manual" })).toHaveAttribute(
+    expect(screen.getAllByRole("link", { name: "Manual" })[0]).toHaveAttribute(
       "href",
       "/wiki/1/16/19"
     )
     expect(document.querySelector("a a")).toBeNull()
     expect(
-      screen.getByRole("link", { name: "Closing Desk Notes" }).closest("em")
+      screen
+        .getAllByRole("link", { name: "Closing Desk Notes" })[0]
+        .closest("em")
     ).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Hub Process" })).toHaveAttribute(
       "href",
       "/wiki/tags?tag=Hub%20Process"
     )
     expect(screen.getByRole("list")).toBeInTheDocument()
-    expect(screen.queryByText("Sources")).not.toBeInTheDocument()
-    const link = screen.getByRole("link", { name: "Funding Checklist" })
+    expect(screen.getByText("Sources")).toBeVisible()
+    const link = screen.getAllByRole("link", { name: "Funding Checklist" })[0]
     link.addEventListener("click", (event) => event.preventDefault(), {
       once: true,
     })
     await userEvent.click(link)
     expect(onNavigate).toHaveBeenCalled()
+  })
+
+  it("offers page-aware questions and removes context before sending", async () => {
+    const user = userEvent.setup()
+    function Example() {
+      const [page, setPage] = React.useState<{
+        pageId: string
+        title: string
+      } | null>({ pageId: "page-1", title: "Operations" })
+      return (
+        <WikiChat
+          firstName="Alex"
+          pageContext={page}
+          onRemovePage={() => setPage(null)}
+        />
+      )
+    }
+    render(<Example />)
+    expect(await screen.findByText("Hi, Alex. How can I help?")).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Summarize this page" })
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Who do I ask about Operations?" })
+    ).toBeVisible()
+    await user.click(
+      screen.getByRole("button", { name: "Remove Operations page context" })
+    )
+    expect(screen.queryByText("About: Operations")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Find a wiki page" }))
+    expect(await screen.findByText("First answer.")).toBeVisible()
+    const request = fetchMock.mock.calls.find(
+      ([url]) => url === "/api/wiki/chat"
+    )
+    expect(JSON.parse(request![1].body)).toEqual({
+      threadId: null,
+      message: "Find a wiki page",
+    })
+    expect(
+      screen.getByText(
+        "Milo can make mistakes. Check the linked page. Don't paste borrower information."
+      )
+    ).toBeVisible()
+  })
+
+  it("sends page context with a suggested question", async () => {
+    render(<WikiChat pageContext={{ pageId: "page-1", title: "Operations" }} />)
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Summarize this page" })
+    )
+    await screen.findByText("First answer.")
+    const request = fetchMock.mock.calls.find(
+      ([url]) => url === "/api/wiki/chat"
+    )
+    expect(JSON.parse(request![1].body)).toMatchObject({
+      pageContext: { pageId: "page-1" },
+    })
+  })
+
+  it("includes the file and page context when sending a suggestion", async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <WikiChat pageContext={{ pageId: "page-1", title: "Operations" }} />
+    )
+    await screen.findByRole("button", { name: "Summarize this page" })
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!
+    await user.upload(
+      input,
+      new File(["source"], "source.txt", { type: "text/plain" })
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Summarize this page" })
+    )
+    await screen.findByText("First answer.")
+    const request = fetchMock.mock.calls.find(
+      ([url]) => url === "/api/wiki/chat"
+    )
+    expect(JSON.parse(request![1].body.get("pageContext"))).toEqual({
+      pageId: "page-1",
+    })
+    expect(request![1].body.get("file").name).toBe("source.txt")
+  })
+
+  it("deduplicates sources by URL while preserving inline citations", async () => {
+    localStorage.setItem("milo-active-thread", "thread-1")
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        messages: [
+          {
+            id: "answer",
+            role: "assistant",
+            content: "See Policy [1].",
+            citations: [
+              { title: "Policy", url: "/wiki/1/2", snippet: "first" },
+              { title: "Policy", url: "/wiki/1/2", snippet: "second" },
+            ],
+          },
+        ],
+      }),
+    })
+    render(<WikiChat />)
+    const sources = await screen.findByLabelText("Sources")
+    expect(within(sources).getAllByRole("link")).toHaveLength(1)
+    expect(screen.getAllByRole("link", { name: "Policy" })).toHaveLength(2)
   })
 
   it("keeps citation numbers aligned when an earlier source is unavailable", async () => {

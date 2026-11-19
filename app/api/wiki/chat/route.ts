@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
@@ -31,13 +32,17 @@ import {
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { miloPagePath } from "@/lib/milo/page-index"
 
 export const runtime = "nodejs"
 
 interface ChatRequestBody {
   threadId?: unknown
   message?: unknown
+  pageContext?: unknown
 }
+
+const pageContextSchema = z.object({ pageId: z.string().uuid() })
 
 function mapCitationRow(row: {
   title: string
@@ -387,7 +392,17 @@ export async function POST(request: Request) {
     const form = await request.formData().catch(() => null)
     const entry = form?.get("file")
     file = entry instanceof File ? entry : null
-    payload = { message: form?.get("message"), threadId: form?.get("threadId") }
+    let pageContext: unknown
+    try {
+      pageContext = JSON.parse(String(form?.get("pageContext") ?? "null"))
+    } catch {
+      pageContext = null
+    }
+    payload = {
+      message: form?.get("message"),
+      threadId: form?.get("threadId"),
+      pageContext,
+    }
   } else {
     payload = (await request.json().catch(() => null)) as ChatRequestBody | null
   }
@@ -395,6 +410,38 @@ export async function POST(request: Request) {
     typeof payload?.message === "string" ? payload.message.trim() : ""
   let threadId =
     typeof payload?.threadId === "string" ? payload.threadId.trim() : ""
+  const parsedPage = pageContextSchema.safeParse(payload?.pageContext)
+  let pageContext:
+    | { pageId: string; title: string; url: string; updatedAt?: string }
+    | undefined
+  if (parsedPage.success) {
+    const { data: node } = await supabase
+      .from("wiki_nodes")
+      .select("id,title,type,updated_at")
+      .eq("id", parsedPage.data.pageId)
+      .eq("type", "page")
+      .maybeSingle()
+    const { data: accessibleNode } = node
+      ? await supabase
+          .from("milo_wiki_nodes")
+          .select("id")
+          .eq("id", node.id)
+          .maybeSingle()
+      : { data: null }
+    if (node && accessibleNode) {
+      try {
+        const { path } = await miloPagePath(supabase, node.id)
+        pageContext = {
+          pageId: node.id,
+          title: node.title,
+          url: `/wiki/${path}`,
+          ...(node.updated_at ? { updatedAt: node.updated_at } : {}),
+        }
+      } catch {
+        /* Ignore inaccessible or incomplete paths. */
+      }
+    }
+  }
   if (!message && !file) {
     return NextResponse.json({ error: "Message is required." }, { status: 400 })
   }
@@ -504,7 +551,10 @@ export async function POST(request: Request) {
       user_id: user.id,
       role: "user",
       content: storedMessage,
-      metadata: file ? { sourceFileName: file.name } : {},
+      metadata: {
+        ...(file ? { sourceFileName: file.name } : {}),
+        ...(pageContext ? { pageContext } : {}),
+      },
     })
     .select("id")
     .single()
@@ -738,6 +788,7 @@ export async function POST(request: Request) {
           supabase,
           question: message,
           userContext,
+          ...(pageContext ? { pageContext } : {}),
         })
     // Model text and model/tool metadata are never interpreted as actionable cards.
     const metadata: Record<string, unknown> =

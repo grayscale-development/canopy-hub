@@ -5,6 +5,7 @@ import Link from "next/link"
 import ReactMarkdown from "react-markdown"
 import {
   Loader2Icon,
+  FileTextIcon,
   PaperclipIcon,
   SendIcon,
   ThumbsDownIcon,
@@ -13,6 +14,12 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   MILO_FILE_MAX_BYTES,
   MILO_SOURCE_MAX_CHARS,
@@ -53,9 +60,78 @@ interface ChatMessage {
   flagged?: boolean
   rating?: "up" | "down"
   matchingPages?: MiloSearchResult[]
+  status?: string
 }
 
 const activeThreadKey = "milo-active-thread"
+const disclaimer =
+  "Milo can make mistakes. Check the linked page. Don't paste borrower information."
+
+function Sources({
+  citations,
+  onNavigate,
+}: {
+  citations: Citation[]
+  onNavigate?: () => void
+}) {
+  const [now, setNow] = React.useState<number | null>(null)
+  const [expanded, setExpanded] = React.useState(false)
+  React.useEffect(() => {
+    queueMicrotask(() => setNow(Date.now()))
+  }, [])
+  const unique = [
+    ...new Map(
+      citations
+        .filter((citation) => citation.url)
+        .map((citation) => [citation.url, citation])
+    ).values(),
+  ]
+  if (!unique.length) return null
+  return (
+    <div className="mt-3 space-y-1.5" aria-label="Sources">
+      <p className="text-xs font-medium text-muted-foreground">Sources</p>
+      <div className="flex flex-wrap gap-1.5">
+        {(expanded ? unique : unique.slice(0, 4)).map((citation) => {
+          const age =
+            citation.updatedAt && now !== null
+              ? Math.floor(
+                  (now - new Date(citation.updatedAt).getTime()) / 86400000
+                )
+              : NaN
+          return (
+            <Link
+              key={citation.url}
+              href={citation.url!}
+              onClick={onNavigate}
+              className="inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <FileTextIcon className="size-3 shrink-0" aria-hidden="true" />
+              <span className="max-w-36 truncate">{citation.title}</span>
+              {Number.isFinite(age) && age >= 0 ? (
+                <span className="text-muted-foreground">
+                  · updated{" "}
+                  {age === 0
+                    ? "today"
+                    : `${age} ${age === 1 ? "day" : "days"} ago`}
+                </span>
+              ) : null}
+            </Link>
+          )
+        })}
+        {unique.length > 4 && !expanded ? (
+          <button
+            type="button"
+            className="self-center rounded text-xs text-muted-foreground underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            aria-label={`Show ${unique.length - 4} more sources`}
+            onClick={() => setExpanded(true)}
+          >
+            +{unique.length - 4} more
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
 function MessageContent({
   content,
   citations = [],
@@ -106,6 +182,9 @@ export function WikiChat({
   autoFocus = false,
   onQueuedPromptConsumed,
   onNavigate,
+  pageContext,
+  onRemovePage,
+  firstName,
 }: {
   className?: string
   queuedPrompt?: string | null
@@ -114,6 +193,9 @@ export function WikiChat({
   autoFocus?: boolean
   onQueuedPromptConsumed?: () => void
   onNavigate?: () => void
+  pageContext?: { pageId: string; title: string } | null
+  onRemovePage?: () => void
+  firstName?: string
 }) {
   const [threadId, setThreadId] = React.useState<string | null>(null)
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
@@ -123,6 +205,7 @@ export function WikiChat({
   const fileInput = React.useRef<HTMLInputElement>(null)
   const composer = React.useRef<HTMLTextAreaElement>(null)
   const threadView = React.useRef<HTMLDivElement>(null)
+  const nearBottom = React.useRef(true)
   const [pending, setPending] = React.useState(false)
   const [loadingHistory, setLoadingHistory] = React.useState(true)
   const search = useMiloSearch(input, pending || loadingHistory)
@@ -146,9 +229,9 @@ export function WikiChat({
   }, [autoFocus, loadingHistory, pending])
 
   React.useEffect(() => {
-    if (threadView.current)
+    if (threadView.current && nearBottom.current)
       threadView.current.scrollTop = threadView.current.scrollHeight
-  }, [messages.length])
+  }, [messages])
 
   React.useEffect(() => {
     isMountedRef.current = true
@@ -245,6 +328,11 @@ export function WikiChat({
           form.set("message", question)
           if (threadId) form.set("threadId", threadId)
           form.set("file", attachment)
+          if (pageContext)
+            form.set(
+              "pageContext",
+              JSON.stringify({ pageId: pageContext.pageId })
+            )
         }
         const chatRequest = fetch("/api/wiki/chat", {
           method: "POST",
@@ -252,7 +340,13 @@ export function WikiChat({
             ? { body: form }
             : {
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ threadId, message: question }),
+                body: JSON.stringify({
+                  threadId,
+                  message: question,
+                  ...(pageContext
+                    ? { pageContext: { pageId: pageContext.pageId } }
+                    : {}),
+                }),
               }),
         })
 
@@ -382,7 +476,14 @@ export function WikiChat({
         }
       }
     },
-    [pending, threadId, search.completed, search.query, search.results]
+    [
+      pending,
+      threadId,
+      search.completed,
+      search.query,
+      search.results,
+      pageContext,
+    ]
   )
 
   React.useEffect(() => {
@@ -411,10 +512,6 @@ export function WikiChat({
     void sendQuestion(input, file)
   }
 
-  const answers = messages.filter((message) => message.role === "assistant")
-  const questions = answers.map(
-    (answer) => messages[messages.indexOf(answer) - 1]
-  )
   async function flagAnswer(answer: ChatMessage, reason: string) {
     if (!answer.serverId || flagPending) return
     setFlagPending(true)
@@ -476,248 +573,313 @@ export function WikiChat({
       <div
         ref={threadView}
         className="min-h-0 flex-1 overflow-y-auto px-6 py-5"
+        onScroll={(event) => {
+          const el = event.currentTarget
+          nearBottom.current =
+            el.scrollHeight - el.scrollTop - el.clientHeight < 80
+        }}
       >
-        {answers.length ? (
+        {messages.length ? (
           <div className="space-y-6">
-            {answers.map((answer, index) => (
-              <section key={answer.id}>
-                {questions[index]?.role === "user" ? (
-                  <div className="mb-6">
-                    <h3 className="mb-1 text-sm font-medium text-muted-foreground">
-                      Your question
-                    </h3>
-                    <p className="text-sm leading-6 font-medium break-words whitespace-pre-wrap">
-                      {questions[index].content}
-                    </p>
-                  </div>
-                ) : null}
-                {(() => {
-                  const renderedAnswer = inlineCitations(
-                    answer.content,
-                    answer.citations ?? []
-                  )
-                  const links = new Set(
-                    Array.from(
-                      renderedAnswer.matchAll(/\]\(([^\s)]+)\)/g),
-                      (match) => match[1]
-                    )
-                  )
-                  const matches = (answer.matchingPages ?? []).filter(
-                    (result) => !links.has(result.url)
-                  )
-                  return matches.length ? (
-                    <div className="mb-4 text-sm">
-                      <h3 className="mb-1 font-medium text-muted-foreground">
-                        Matching pages
-                      </h3>
-                      <div className="flex flex-wrap gap-x-3 gap-y-1">
-                        {matches.map((result) => (
-                          <Link
-                            key={`${result.type}-${result.id}`}
-                            href={result.url}
-                            onClick={onNavigate}
-                            className="text-sidebar-primary underline underline-offset-4 hover:no-underline dark:text-chart-2"
-                          >
-                            {result.title}
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null
-                })()}
-                <h3 className="mb-2 text-sm font-medium text-muted-foreground">
-                  {index ? "Follow-up answer" : "Answer"}
-                </h3>
-                <div aria-live="polite">
-                  {pending && !answer.content && !answer.cards?.length ? (
-                    <div
-                      className="flex h-12 items-center"
-                      aria-label="Milo is thinking"
+            {messages.map((answer, index) =>
+              answer.role === "user" ? (
+                <div key={answer.id} className="flex justify-end">
+                  <p className="max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm leading-6 break-words whitespace-pre-wrap">
+                    {answer.content}
+                  </p>
+                </div>
+              ) : (
+                <section key={answer.id}>
+                  <div className="flex items-start gap-3">
+                    <span
+                      className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-sm"
+                      aria-label="Milo"
                     >
-                      <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-                      <span className="sr-only">Loading answer</span>
-                    </div>
-                  ) : answer.content &&
-                    !answer.cards?.some(
-                      (card) =>
-                        card.type === "error" && card.message === answer.content
-                    ) ? (
-                    <MessageContent
-                      content={answer.content}
-                      citations={answer.citations}
-                      onNavigate={onNavigate}
-                    />
-                  ) : null}
-                </div>
-                <div
-                  aria-live="polite"
-                  className={cn(answer.cards?.length && "mt-3 space-y-3")}
-                >
-                  {answer.cards?.map((card, cardIndex) => (
-                    <WikiChatCard
-                      key={cardIndex}
-                      card={card}
-                      threadId={threadId}
-                      messageId={answer.serverId}
-                      onNavigate={onNavigate}
-                    />
-                  ))}
-                </div>
-                {answer.abstained && !pending ? (
-                  <div className="mt-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        answer.flagged || !answer.serverId || flagPending
-                      }
-                      onClick={() =>
-                        void flagAnswer(
-                          answer,
-                          "Milo could not find an answer in the wiki."
+                      ✦
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      {(() => {
+                        const renderedAnswer = inlineCitations(
+                          answer.content,
+                          answer.citations ?? []
                         )
-                      }
-                    >
-                      {answer.flagged ? "Gap flagged" : "Flag this gap"}
-                    </Button>
-                    {!answer.flagged ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Shares your question and answer with wiki managers.
-                      </p>
-                    ) : null}
-                    {flagError ? (
-                      <p role="alert" className="mt-2 text-sm text-destructive">
-                        {flagError}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {!pending && answer.serverId ? (
-                  <div className="mt-3 flex items-center gap-1">
-                    <Button
-                      type="button"
-                      variant={answer.rating === "up" ? "secondary" : "ghost"}
-                      size="icon"
-                      aria-label="Helpful answer"
-                      aria-pressed={answer.rating === "up"}
-                      disabled={ratingPending !== null}
-                      onClick={() => void rateAnswer(answer, "up")}
-                    >
-                      <ThumbsUpIcon />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={answer.rating === "down" ? "secondary" : "ghost"}
-                      size="icon"
-                      aria-label="Unhelpful answer"
-                      aria-pressed={answer.rating === "down"}
-                      disabled={ratingPending !== null}
-                      onClick={() => void rateAnswer(answer, "down")}
-                    >
-                      <ThumbsDownIcon />
-                    </Button>
-                    {answer.rating ? (
-                      <span
-                        className="text-sm text-muted-foreground"
-                        role="status"
-                      >
-                        Thanks for your feedback
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-                {!pending && answer.rating === "down" && !answer.flagged ? (
-                  <div className="mt-2 space-y-2 text-sm">
-                    <p>Want to tell the wiki managers what went wrong?</p>
-                    {shareAnswer === answer.id ? (
-                      <div className="space-y-2">
-                        <p className="text-muted-foreground">
-                          Sharing sends your question, Milo&apos;s answer, and
-                          your reason to wiki managers.
-                        </p>
-                        <label
-                          htmlFor={`milo-reason-${answer.id}`}
-                          className="font-medium"
-                        >
-                          What went wrong?
-                        </label>
-                        <textarea
-                          id={`milo-reason-${answer.id}`}
-                          value={shareReason}
-                          maxLength={2000}
-                          rows={3}
-                          className="w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-                          onChange={(event) =>
-                            setShareReason(event.target.value)
-                          }
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            disabled={!shareReason.trim() || flagPending}
-                            onClick={() =>
-                              void flagAnswer(answer, shareReason.trim())
-                            }
-                          >
-                            Share feedback
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setShareAnswer(null)
-                              setShareReason("")
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                        {flagError ? (
-                          <p role="alert" className="text-destructive">
-                            {flagError}
-                          </p>
+                        const links = new Set(
+                          Array.from(
+                            renderedAnswer.matchAll(/\]\(([^\s)]+)\)/g),
+                            (match) => match[1]
+                          )
+                        )
+                        const matches = (answer.matchingPages ?? []).filter(
+                          (result) => !links.has(result.url)
+                        )
+                        return matches.length ? (
+                          <div className="mb-4 text-sm">
+                            <h3 className="mb-1 font-medium text-muted-foreground">
+                              Matching pages
+                            </h3>
+                            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                              {matches.map((result) => (
+                                <Link
+                                  key={`${result.type}-${result.id}`}
+                                  href={result.url}
+                                  onClick={onNavigate}
+                                  className="text-sidebar-primary underline underline-offset-4 hover:no-underline dark:text-chart-2"
+                                >
+                                  {result.title}
+                                </Link>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null
+                      })()}
+                      <div aria-live="polite">
+                        {pending &&
+                        index === messages.length - 1 &&
+                        !answer.content &&
+                        !answer.cards?.length ? (
+                          <div className="flex min-h-7 items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
+                            <span>{answer.status || "Thinking…"}</span>
+                          </div>
+                        ) : answer.content &&
+                          !answer.cards?.some(
+                            (card) =>
+                              card.type === "error" &&
+                              card.message === answer.content
+                          ) ? (
+                          <MessageContent
+                            content={answer.content}
+                            citations={answer.citations}
+                            onNavigate={onNavigate}
+                          />
                         ) : null}
                       </div>
-                    ) : (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setShareAnswer(answer.id)
-                          setShareReason("")
-                          setFlagError("")
-                        }}
+                      <Sources
+                        citations={answer.citations ?? []}
+                        onNavigate={onNavigate}
+                      />
+                      <div
+                        aria-live="polite"
+                        className={cn(answer.cards?.length && "mt-3 space-y-3")}
                       >
-                        Tell managers
-                      </Button>
-                    )}
+                        {answer.cards?.map((card, cardIndex) => (
+                          <WikiChatCard
+                            key={cardIndex}
+                            card={card}
+                            threadId={threadId}
+                            messageId={answer.serverId}
+                            onNavigate={onNavigate}
+                          />
+                        ))}
+                      </div>
+                      {answer.abstained && !pending ? (
+                        <div className="mt-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              answer.flagged || !answer.serverId || flagPending
+                            }
+                            onClick={() =>
+                              void flagAnswer(
+                                answer,
+                                "Milo could not find an answer in the wiki."
+                              )
+                            }
+                          >
+                            {answer.flagged ? "Gap flagged" : "Flag this gap"}
+                          </Button>
+                          {!answer.flagged ? (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Shares your question and answer with wiki
+                              managers.
+                            </p>
+                          ) : null}
+                          {flagError ? (
+                            <p
+                              role="alert"
+                              className="mt-2 text-sm text-destructive"
+                            >
+                              {flagError}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {!pending && answer.serverId ? (
+                        <div className="mt-3 flex items-center gap-1">
+                          <Button
+                            type="button"
+                            variant={
+                              answer.rating === "up" ? "secondary" : "ghost"
+                            }
+                            size="icon"
+                            aria-label="Helpful answer"
+                            aria-pressed={answer.rating === "up"}
+                            disabled={ratingPending !== null}
+                            onClick={() => void rateAnswer(answer, "up")}
+                          >
+                            <ThumbsUpIcon />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={
+                              answer.rating === "down" ? "secondary" : "ghost"
+                            }
+                            size="icon"
+                            aria-label="Unhelpful answer"
+                            aria-pressed={answer.rating === "down"}
+                            disabled={ratingPending !== null}
+                            onClick={() => void rateAnswer(answer, "down")}
+                          >
+                            <ThumbsDownIcon />
+                          </Button>
+                          {answer.rating ? (
+                            <span
+                              className="text-sm text-muted-foreground"
+                              role="status"
+                            >
+                              Thanks for your feedback
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {!pending &&
+                      answer.rating === "down" &&
+                      !answer.flagged ? (
+                        <div className="mt-2 space-y-2 text-sm">
+                          <p>Want to tell the wiki managers what went wrong?</p>
+                          {shareAnswer === answer.id ? (
+                            <div className="space-y-2">
+                              <p className="text-muted-foreground">
+                                Sharing sends your question, Milo&apos;s answer,
+                                and your reason to wiki managers.
+                              </p>
+                              <label
+                                htmlFor={`milo-reason-${answer.id}`}
+                                className="font-medium"
+                              >
+                                What went wrong?
+                              </label>
+                              <textarea
+                                id={`milo-reason-${answer.id}`}
+                                value={shareReason}
+                                maxLength={2000}
+                                rows={3}
+                                className="w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+                                onChange={(event) =>
+                                  setShareReason(event.target.value)
+                                }
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  disabled={!shareReason.trim() || flagPending}
+                                  onClick={() =>
+                                    void flagAnswer(answer, shareReason.trim())
+                                  }
+                                >
+                                  Share feedback
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setShareAnswer(null)
+                                    setShareReason("")
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                              {flagError ? (
+                                <p role="alert" className="text-destructive">
+                                  {flagError}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setShareAnswer(answer.id)
+                                setShareReason("")
+                                setFlagError("")
+                              }}
+                            >
+                              Tell managers
+                            </Button>
+                          )}
+                        </div>
+                      ) : null}
+                      {answer.flagged && !answer.abstained ? (
+                        <p
+                          className="mt-2 text-sm text-muted-foreground"
+                          role="status"
+                        >
+                          Shared with wiki managers
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
-                ) : null}
-                {answer.flagged && !answer.abstained ? (
-                  <p
-                    className="mt-2 text-sm text-muted-foreground"
-                    role="status"
-                  >
-                    Shared with wiki managers
-                  </p>
-                ) : null}
-              </section>
-            ))}
+                </section>
+              )
+            )}
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Ask a question, or paste or attach source material to extract wiki
-            changes.
-          </p>
-        )}
+        ) : !loadingHistory ? (
+          <div className="space-y-4">
+            <p className="text-base font-medium">
+              {firstName ? `Hi, ${firstName}.` : "Hi."} How can I help?
+            </p>
+            <div className="flex flex-col items-start gap-2">
+              {(pageContext
+                ? [
+                    "Summarize this page",
+                    "What are the key steps on this page?",
+                    `Who do I ask about ${pageContext.title.length > 45 ? `${pageContext.title.slice(0, 42)}…` : pageContext.title}?`,
+                  ]
+                : [
+                    "Find a wiki page",
+                    "Who is my branch manager?",
+                    "Where do I find the latest newsletter?",
+                  ]
+              ).map((prompt) => (
+                <Button
+                  key={prompt}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-auto max-w-full justify-start text-left whitespace-normal"
+                  disabled={pending}
+                  onClick={() => void sendQuestion(prompt, file)}
+                >
+                  {prompt}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <form onSubmit={askQuestion} className="border-t p-4">
         <MiloSearchResults search={search} onNavigate={() => setInput("")} />
+        {pageContext ? (
+          <div className="mb-2 inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs">
+            <span className="truncate">About: {pageContext.title}</span>
+            <button
+              type="button"
+              className="ml-1 rounded-sm px-1 text-base leading-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              aria-label={`Remove ${pageContext.title} page context`}
+              onClick={onRemovePage}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         {file ? (
           <div className="mb-2 flex items-center gap-2 text-sm">
             <span className="min-w-0 truncate">{file.name}</span>
@@ -756,16 +918,25 @@ export function WikiChat({
               event.currentTarget.value = ""
             }}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            disabled={pending || loadingHistory}
-            onClick={() => fileInput.current?.click()}
-            aria-label="Attach a file"
-          >
-            <PaperclipIcon />
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  disabled={pending || loadingHistory}
+                  onClick={() => fileInput.current?.click()}
+                  aria-label="Attach a file"
+                >
+                  <PaperclipIcon />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Attach .eml, .txt, .pdf, or .docx (up to 5 MB).
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <textarea
             ref={composer}
             value={input}
@@ -819,9 +990,7 @@ export function WikiChat({
             {fileError}
           </p>
         ) : null}
-        <p className="mt-2 text-xs text-muted-foreground">
-          Attach .eml, .txt, .pdf, or .docx (up to 5 MB).
-        </p>
+        <p className="mt-2 text-xs text-muted-foreground">{disclaimer}</p>
       </form>
     </div>
   )

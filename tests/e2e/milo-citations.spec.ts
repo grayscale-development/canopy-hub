@@ -102,14 +102,14 @@ Funding Checklist: ${fixture.path} has more details. [3]`
         name: "Funding Checklist",
         exact: true,
       })
-      await expect(citation).toHaveCount(1)
-      await expect(citation).toHaveAttribute("href", fixture.path)
+      await expect(citation).toHaveCount(2)
+      await expect(citation.first()).toHaveAttribute("href", fixture.path)
       await expect(dialog).not.toContainText(/\[\d+\]|\/wiki\/\d|\*\*/)
       const closingLink = dialog.getByRole("link", {
         name: "Closing Desk Notes",
       })
-      await expect(closingLink).toHaveCount(1)
-      await expect(closingLink).toHaveAttribute("href", closing.url)
+      await expect(closingLink).toHaveCount(2)
+      await expect(closingLink.first()).toHaveAttribute("href", closing.url)
       await expect(
         dialog.getByText("Before a loan can fund, the closer must:")
       ).toBeVisible()
@@ -118,7 +118,7 @@ Funding Checklist: ${fixture.path} has more details. [3]`
           "confirm the wire instructions on file match the title company callback"
         )
       ).toBeVisible()
-      await expect(dialog.getByText("Sources", { exact: true })).toHaveCount(0)
+      await expect(dialog.getByText("Sources", { exact: true })).toBeVisible()
       await expect(dialog).not.toContainText("Not found in the wiki")
       if (shots)
         await page.screenshot({
@@ -130,7 +130,7 @@ Funding Checklist: ${fixture.path} has more details. [3]`
               : "02-manager-funding-mobile.png"
           ),
         })
-      await citation.click()
+      await citation.first().click()
       await expect(dialog).toBeVisible()
       await expect(page).toHaveURL(new RegExp(`${fixture.path}$`))
       await expect(page.getByRole("main").last()).toContainText(

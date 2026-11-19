@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   WikiChatModalProvider,
+  MiloPageContext,
   useWikiChatModal,
 } from "@/components/wiki/wiki-chat-modal"
 import { WikiHeaderSearch } from "@/components/wiki/wiki-header-search"
@@ -170,7 +171,9 @@ describe("floating Milo", () => {
     )
     await user.keyboard("{Enter}")
     const dialog = await screen.findByRole("dialog", { name: "Milo" })
-    const link = await screen.findByRole("link", { name: "Loan policy" })
+    const link = (
+      await screen.findAllByRole("link", { name: "Loan policy" })
+    )[0]
     expect(localStorage.getItem("milo-active-thread")).toBe("thread-1")
     link.addEventListener("click", (event) => event.preventDefault())
     await user.click(link)
@@ -178,6 +181,30 @@ describe("floating Milo", () => {
     await user.click(screen.getByRole("button", { name: "Close" }))
     await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
     expect(screen.getByText("Where is the loan policy?")).toBeVisible()
+  })
+
+  it("updates page context on navigation and reattaches it after leaving a page", async () => {
+    const user = userEvent.setup()
+    route.pathname = "/wiki/1/2"
+    const view = (pageId: string, title: string) => (
+      <TooltipProvider>
+        <WikiChatModalProvider signedIn userId="test-user" canUseMilo>
+          <MiloPageContext pageId={pageId} title={title} />
+        </WikiChatModalProvider>
+      </TooltipProvider>
+    )
+    const { rerender } = render(view("a", "Page A"))
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Remove Page A page context" })
+    )
+    expect(screen.queryByText("About: Page A")).not.toBeInTheDocument()
+    route.pathname = "/wiki/1/3"
+    rerender(view("b", "Page B"))
+    expect(await screen.findByText("About: Page B")).toBeVisible()
+    route.pathname = "/wiki/1/2"
+    rerender(view("a", "Page A"))
+    expect(await screen.findByText("About: Page A")).toBeVisible()
   })
 
   it("restores an open conversation from local storage", async () => {

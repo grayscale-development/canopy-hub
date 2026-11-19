@@ -37,6 +37,19 @@ export default async function RootLayout({
         code: BETA_1_PERMISSION,
       }).catch(() => false)
     : false
+  const identity = user?.identities?.find(
+    (item) => item.provider === "google"
+  )?.identity_data
+  const displayName =
+    user?.user_metadata?.full_name ??
+    user?.user_metadata?.name ??
+    identity?.full_name ??
+    identity?.name ??
+    user?.email?.split("@")[0]
+  const firstName =
+    typeof displayName === "string"
+      ? displayName.trim().split(/\s+/)[0] || undefined
+      : undefined
 
   return (
     <html
@@ -55,6 +68,7 @@ export default async function RootLayout({
             <WikiChatModalProvider
               signedIn={!!user}
               userId={user?.id ?? null}
+              firstName={firstName}
               canUseMilo={canUseMilo}
             >
               {children}
