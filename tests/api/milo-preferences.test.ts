@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const state = vi.hoisted(() => ({
   user: { id: "owner" } as { id: string } | null,
-  row: null as { milo_corner: string } | null,
+  row: null as { milo_position: { x: number; y: number } | null } | null,
   error: null as object | null,
   writes: [] as unknown[],
   selectedId: "",
@@ -45,26 +45,27 @@ describe("Milo preferences", () => {
   it("requires authentication for reads and writes", async () => {
     state.user = null
     expect((await GET()).status).toBe(401)
-    expect((await PUT(request({ corner: "top-left" }))).status).toBe(401)
+    expect((await PUT(request({ position: { x: 0, y: 0 } }))).status).toBe(401)
     expect(state.writes).toEqual([])
   })
   it("returns the default or the signed-in user's saved value", async () => {
-    expect(await (await GET()).json()).toEqual({ corner: "bottom-right" })
+    expect(await (await GET()).json()).toEqual({ position: null })
     expect(state.selectedId).toBe("owner")
-    state.row = { milo_corner: "top-left" }
-    expect(await (await GET()).json()).toEqual({ corner: "top-left" })
+    state.row = { milo_position: { x: 0, y: 0 } }
+    expect(await (await GET()).json()).toEqual({ position: { x: 0, y: 0 } })
     state.error = {}
     expect((await GET()).status).toBe(500)
   })
   it("validates input and writes only for the authenticated user", async () => {
-    expect((await PUT(request({ corner: "middle" }))).status).toBe(400)
+    expect((await PUT(request({ position: { x: 2, y: 0 } }))).status).toBe(400)
     expect(
-      (await PUT(request({ corner: "top-right", user_id: "other" }))).status
+      (await PUT(request({ position: { x: 1, y: 0 }, user_id: "other" })))
+        .status
     ).toBe(200)
     expect(state.writes).toEqual([
-      { user_id: "owner", milo_corner: "top-right" },
+      { user_id: "owner", milo_position: { x: 1, y: 0 } },
     ])
     state.error = {}
-    expect((await PUT(request({ corner: "bottom-left" }))).status).toBe(500)
+    expect((await PUT(request({ position: { x: 0, y: 1 } }))).status).toBe(500)
   })
 })
