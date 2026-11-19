@@ -213,7 +213,7 @@ export function WikiTagsManage({
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="w-full max-w-xs">
+        <div className="w-full sm:max-w-xs">
           <label htmlFor="wiki-tags-filter" className="sr-only">
             Search tags
           </label>

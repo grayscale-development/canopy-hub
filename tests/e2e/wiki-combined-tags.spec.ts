@@ -124,6 +124,23 @@ test("combined tags work for managers and readers, with flat page tags", async (
         .locator('[data-slot="table-container"]')
         .filter({ has: table })
       await expect(table).toBeVisible()
+      const searchBounds = await page
+        .getByRole("textbox", { name: "Search tags" })
+        .boundingBox()
+      const tableBounds = await wrapper.boundingBox()
+      expect(searchBounds).not.toBeNull()
+      expect(tableBounds).not.toBeNull()
+      expect(Math.abs(searchBounds!.x - tableBounds!.x)).toBeLessThanOrEqual(1)
+      if (width < 640) {
+        expect(
+          Math.abs(
+            searchBounds!.x +
+              searchBounds!.width -
+              tableBounds!.x -
+              tableBounds!.width
+          )
+        ).toBeLessThanOrEqual(1)
+      }
       await page.getByRole("button", { name: longName, exact: true }).click()
       await expect(
         page.getByRole("button", { name: longName, exact: true })
