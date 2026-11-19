@@ -549,7 +549,9 @@ export function WikiImportWizardDialog({
         className={
           preview
             ? "max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
-            : "max-h-[88vh] overflow-y-auto sm:max-w-lg"
+            : isUpdatingPage
+              ? `top-0 left-0 flex h-[100dvh] max-h-none w-full translate-x-0 translate-y-0 flex-col gap-6 overflow-y-auto rounded-none p-4 sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[88vh] sm:w-[min(92vw,32rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:p-6 ${isDragging ? "ring-2 ring-ring ring-inset" : ""}`
+              : "max-h-[88vh] overflow-y-auto sm:max-w-lg"
         }
         aria-describedby={
           isUpdatingPage ? "wiki-update-description" : undefined
@@ -565,15 +567,34 @@ export function WikiImportWizardDialog({
           </DialogTitle>
           {isUpdatingPage ? (
             <DialogDescription id="wiki-update-description">
-              Add new content to this page or replace what is there. You will
-              see every change before anything is saved.
+              Describe or paste the change. You’ll review it before anything is
+              saved.
             </DialogDescription>
           ) : null}
         </DialogHeader>
-        <div className="grid gap-4">
+        <div
+          className={
+            isUpdatingPage && !preview
+              ? "flex min-h-0 flex-1 flex-col gap-4"
+              : "grid gap-4"
+          }
+        >
           {!preview ? (
-            <fieldset disabled={isSubmitting} className="grid gap-4">
-              <div className="grid gap-2">
+            <fieldset
+              disabled={isSubmitting}
+              className={
+                isUpdatingPage
+                  ? "flex min-h-0 flex-1 flex-col gap-4"
+                  : "grid gap-4"
+              }
+            >
+              <div
+                className={
+                  isUpdatingPage
+                    ? "flex min-h-0 flex-1 flex-col gap-2"
+                    : "grid gap-2"
+                }
+              >
                 <label
                   className="text-sm font-medium"
                   htmlFor="wiki-import-text"
@@ -594,7 +615,7 @@ export function WikiImportWizardDialog({
                     setDuplicate(null)
                     clearPreview()
                   }}
-                  className="min-h-36 w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  className={`w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${isUpdatingPage ? "min-h-48 flex-1" : "min-h-36"}`}
                   placeholder={
                     isUpdatingPage
                       ? "Paste new information, or describe the change. For example: 'The wire cutoff is now 2 PM.'"
@@ -602,21 +623,23 @@ export function WikiImportWizardDialog({
                   }
                 />
               </div>
-              <div
-                className={`flex flex-wrap items-center gap-2 rounded-lg ${isDragging ? "ring-2 ring-ring" : ""}`}
-              >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  onClick={() => fileInputRef.current?.click()}
+              {!isUpdatingPage ? (
+                <div
+                  className={`flex flex-wrap items-center gap-2 rounded-lg ${isDragging ? "ring-2 ring-ring" : ""}`}
                 >
-                  <PaperclipIcon aria-hidden="true" /> Attach a file
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  or drop one here · PDF, DOCX, TXT, Markdown, MP4, MOV, WebM
-                </span>
-              </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <PaperclipIcon aria-hidden="true" /> Attach a file
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    or drop one here · PDF, DOCX, TXT, Markdown, MP4, MOV, WebM
+                  </span>
+                </div>
+              ) : null}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -651,13 +674,11 @@ export function WikiImportWizardDialog({
                 </div>
               ) : null}
               {isUpdatingPage ? (
-                <div className="grid gap-1 text-sm">
-                  <p className="text-muted-foreground">
-                    {updateMode === "update"
-                      ? "Update this page"
-                      : "The existing page will be replaced. Review every change before saving."}
-                  </p>
-                  <label className="flex w-fit cursor-pointer items-center gap-2">
+                <details className="text-sm">
+                  <summary className="w-fit rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+                    More options
+                  </summary>
+                  <label className="mt-3 flex min-h-11 w-fit cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
                       checked={updateMode === "replace"}
@@ -670,7 +691,13 @@ export function WikiImportWizardDialog({
                     />
                     Replace the whole page
                   </label>
-                </div>
+                  {updateMode === "replace" ? (
+                    <p className="text-muted-foreground">
+                      The existing page will be replaced. Review every change
+                      before saving.
+                    </p>
+                  ) : null}
+                </details>
               ) : (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <span>This page will be added to {destinationPath}.</span>
@@ -745,13 +772,40 @@ export function WikiImportWizardDialog({
                 : null}
             </p>
           ) : null}
-          {!preview && !file && !text.trim() && !isSubmitting ? (
+          {!isUpdatingPage &&
+          !preview &&
+          !file &&
+          !text.trim() &&
+          !isSubmitting ? (
             <p className="text-sm text-muted-foreground">
               Choose a file or paste text to continue.
             </p>
           ) : null}
         </div>
-        <DialogFooter>
+        <DialogFooter
+          className={
+            isUpdatingPage && !preview ? "justify-between gap-4" : undefined
+          }
+        >
+          {isUpdatingPage && !preview ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="min-h-11"
+              disabled={isSubmitting}
+              onClick={() => fileInputRef.current?.click()}
+              title="PDF, DOCX, TXT, Markdown, MP4, MOV, WebM"
+              aria-describedby="wiki-update-formats"
+            >
+              <PaperclipIcon aria-hidden="true" /> Attach file
+            </Button>
+          ) : null}
+          {isUpdatingPage && !preview ? (
+            <span id="wiki-update-formats" className="sr-only">
+              Supported formats: PDF, DOCX, TXT, Markdown, MP4, MOV, WebM. You
+              can also drop a file onto the dialog.
+            </span>
+          ) : null}
           {preview ? (
             <Button
               type="button"

@@ -213,7 +213,7 @@ export function WikiTagsManage({
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="w-full max-w-xs">
+        <div className="w-full sm:max-w-xs">
           <label htmlFor="wiki-tags-filter" className="sr-only">
             Search tags
           </label>
@@ -238,18 +238,16 @@ export function WikiTagsManage({
           {notice}
         </p>
       ) : null}
-      <Table className="sm:table-fixed">
+      <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead className="sm:w-[45%]">Tag</TableHead>
-            <TableHead className="hidden w-[35%] sm:table-cell">
-              Where
-            </TableHead>
-            <TableHead className="hidden w-[20%] text-right sm:table-cell">
+            <TableHead>Tag</TableHead>
+            <TableHead className="hidden w-48 sm:table-cell">Where</TableHead>
+            <TableHead className="hidden w-20 text-right sm:table-cell">
               Pages
             </TableHead>
             {canManage ? (
-              <TableHead className="w-10">
+              <TableHead className="w-12">
                 <span className="sr-only">Actions</span>
               </TableHead>
             ) : null}
@@ -313,7 +311,7 @@ export function WikiTagsManage({
                         }))
                       }
                       aria-label={tag.name}
-                      className="flex max-w-full cursor-pointer items-center gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-ring"
+                      className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-ring"
                     >
                       <ChevronRight
                         aria-hidden
@@ -324,7 +322,7 @@ export function WikiTagsManage({
                       />
                       <WikiTagPill
                         scope={tag.scope}
-                        className="max-w-full break-words"
+                        className="max-w-full min-w-0 break-all"
                       >
                         {tag.name}
                       </WikiTagPill>
@@ -335,7 +333,7 @@ export function WikiTagsManage({
                     </span>
                   </TableCell>
                   <TableCell
-                    className="hidden truncate sm:table-cell"
+                    className="hidden [overflow-wrap:anywhere] break-words whitespace-normal sm:table-cell"
                     title={level(tag)}
                   >
                     {where(tag)}
@@ -396,7 +394,10 @@ export function WikiTagsManage({
                       {tag.publishedPages.length ? (
                         <ul className="ml-[7px] space-y-1.5 border-l py-1 pl-5">
                           {tag.publishedPages.map((page) => (
-                            <li key={page.id}>
+                            <li
+                              key={page.id}
+                              className="[overflow-wrap:anywhere] break-words"
+                            >
                               <Link
                                 href={page.href}
                                 className="font-medium underline-offset-4 hover:underline"
