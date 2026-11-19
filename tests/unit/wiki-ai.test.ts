@@ -235,6 +235,49 @@ describe("wiki AI orchestration", () => {
     )
   })
 
+  it("honours a recorded stop after a research tool and does not call the model or log", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    const controller = new AbortController()
+    let stopped = false
+    miloMcp.callMiloMcpTool.mockImplementationOnce(async (toolName) => {
+      stopped = true
+      return { ok: true, toolName, content: {}, sources: [] }
+    })
+    const rpc = vi.fn()
+    const checkStop = async () => {
+      if (stopped) controller.abort()
+      controller.signal.throwIfAborted()
+    }
+    await expect(
+      answerKnowledgeQuestion({
+        supabase: { rpc } as never,
+        userContext,
+        question: "Summarize funding and closing wiki procedures",
+        signal: controller.signal,
+        checkStop,
+        onToken: vi.fn(),
+      })
+    ).rejects.toMatchObject({ name: "AbortError" })
+    expect(aiProvider.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
+    expect(aiProvider.streamMiloResponse).not.toHaveBeenCalled()
+    expect(rpc).not.toHaveBeenCalledWith(
+      "log_user_ai_action",
+      expect.anything()
+    )
+  })
+
+  it("can defer logging until the chat route finishes persisting", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    const rpc = vi.fn()
+    await answerKnowledgeQuestion({
+      supabase: { rpc } as never,
+      userContext,
+      question: "hi milo",
+      deferActionLog: true,
+    })
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
   it("does not log when answer generation fails", async () => {
     const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
     aiProvider.createAgentResponseWithOpenAI.mockRejectedValueOnce(

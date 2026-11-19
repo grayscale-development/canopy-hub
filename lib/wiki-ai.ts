@@ -910,10 +910,14 @@ export async function answerKnowledgeQuestion(params: {
   onToken?: (token: string) => void
   onStatus?: (status: string) => void
   signal?: AbortSignal
+  checkStop?: () => Promise<void>
+  deferActionLog?: boolean
 }) {
   const answer = await generateKnowledgeAnswer(params)
+  await params.checkStop?.()
   params.signal?.throwIfAborted()
-  await logAiAction(params.supabase, { type: "milo_answer" })
+  if (!params.deferActionLog)
+    await logAiAction(params.supabase, { type: "milo_answer" })
   return answer
 }
 
@@ -926,6 +930,7 @@ async function generateKnowledgeAnswer({
   onToken,
   onStatus,
   signal,
+  checkStop,
 }: {
   supabase: SupabaseWikiClient
   question: string
@@ -935,7 +940,9 @@ async function generateKnowledgeAnswer({
   onToken?: (token: string) => void
   onStatus?: (status: string) => void
   signal?: AbortSignal
+  checkStop?: () => Promise<void>
 }) {
+  await checkStop?.()
   const conversationalReply = getConversationalReply(question)
 
   if (conversationalReply) {
@@ -974,12 +981,14 @@ async function generateKnowledgeAnswer({
         : {}),
       ...(onStatus ? { onStatus } : {}),
       ...(signal ? { signal } : {}),
+      ...(checkStop ? { checkStop } : {}),
     })
   } catch (error) {
     if (signal?.aborted || streamed) throw error
     // Keep the existing RAG path as a reliable fallback if the agent/tool loop fails.
   }
 
+  await checkStop?.()
   const pageSources = pageContext
     ? await currentPageEvidence(supabase, pageContext)
     : []
@@ -997,6 +1006,7 @@ async function generateKnowledgeAnswer({
   onStatus?.("Searching the wiki…")
   const retrievalQuery = followUpRetrievalQuery(question, history)
   const retrieved = await retrieveKnowledge(supabase, retrievalQuery)
+  await checkStop?.()
   const chunks = [
     ...pageChunks,
     ...retrieved.filter(
@@ -1057,6 +1067,7 @@ async function generateKnowledgeAnswer({
     }
   }
   const model = getChatModel()
+  await checkStop?.()
   signal?.throwIfAborted()
   const input = buildChatPrompt(
     question,

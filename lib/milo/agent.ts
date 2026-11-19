@@ -494,7 +494,8 @@ async function buildInitialResearchBrief(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   pageContext?: MiloCurrentPage,
   onStatus?: (status: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  checkStop?: () => Promise<void>
 ): Promise<InitialResearchResult> {
   const calls = buildInitialResearchCalls(question)
   const sources: MiloSourceCard[] = []
@@ -506,6 +507,7 @@ async function buildInitialResearchBrief(
   }
 
   for (const call of calls) {
+    await checkStop?.()
     signal?.throwIfAborted()
     onStatus?.(toolStatus(call.toolName))
     const result = await callMiloMcpTool(
@@ -586,6 +588,7 @@ export async function answerMiloQuestionWithAgent({
   onToken,
   onStatus,
   signal,
+  checkStop,
 }: {
   question: string
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -595,6 +598,7 @@ export async function answerMiloQuestionWithAgent({
   onToken?: (token: string) => void
   onStatus?: (status: string) => void
   signal?: AbortSignal
+  checkStop?: () => Promise<void>
 }): Promise<MiloAgentAnswer> {
   const model = getChatModel()
   const initialResearch = await buildInitialResearchBrief(
@@ -602,8 +606,10 @@ export async function answerMiloQuestionWithAgent({
     supabase,
     pageContext,
     onStatus,
-    signal
+    signal,
+    checkStop
   )
+  await checkStop?.()
   const prompt = buildMiloAgentPrompt(MILO_AGENT_INSTRUCTIONS, {
     question,
     researchBrief: initialResearch.brief,
@@ -621,6 +627,7 @@ export async function answerMiloQuestionWithAgent({
     | undefined
 
   for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
+    await checkStop?.()
     signal?.throwIfAborted()
     const params = {
       model,
@@ -652,6 +659,7 @@ export async function answerMiloQuestionWithAgent({
 
       try {
         const args = parseProxyArguments(functionCall.arguments)
+        await checkStop?.()
         signal?.throwIfAborted()
         onStatus?.(toolStatus(args.toolName))
         output = await callMiloMcpTool(args.toolName, args.arguments, supabase)
@@ -731,6 +739,7 @@ export async function answerMiloQuestionWithAgent({
     }
   }
   if (onToken && finalParams) {
+    await checkStop?.()
     response = await streamMiloResponse(
       { ...finalParams, tool_choice: "none" },
       onToken,
