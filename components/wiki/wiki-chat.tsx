@@ -49,6 +49,7 @@ interface ChatThread {
 export interface WikiChatHandle {
   newChat: () => void
   showHistory: () => void
+  captureScroll: () => void
 }
 
 function relativeTime(value: string) {
@@ -252,24 +253,34 @@ export function WikiChat({
   queuedPrompt,
   initialDraft = "",
   draftRequest,
+  onDraftRequestConsumed,
   autoFocus = false,
   onQueuedPromptConsumed,
   onNavigate,
   pageContext,
   onRemovePage,
   firstName,
+  draftStorageKey,
+  visible = true,
+  onProgressChange,
+  onAnswerCompleted,
 }: {
   ref?: React.Ref<WikiChatHandle>
   className?: string
   queuedPrompt?: string | null
   initialDraft?: string
   draftRequest?: { value: string }
+  onDraftRequestConsumed?: (request: { value: string }) => void
   autoFocus?: boolean
   onQueuedPromptConsumed?: () => void
   onNavigate?: () => void
   pageContext?: { pageId: string; title: string } | null
   onRemovePage?: () => void
   firstName?: string
+  draftStorageKey?: string
+  visible?: boolean
+  onProgressChange?: (active: boolean) => void
+  onAnswerCompleted?: () => void
 }) {
   const [view, setView] = React.useState<"chat" | "history">("chat")
   const [threads, setThreads] = React.useState<ChatThread[]>([])
@@ -289,7 +300,14 @@ export function WikiChat({
   const activeThread = React.useRef<string | null>(null)
   const [threadId, setThreadId] = React.useState<string | null>(null)
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
-  const [input, setInput] = React.useState(initialDraft)
+  const [input, setInput] = React.useState(() => {
+    if (!draftStorageKey || typeof window === "undefined") return initialDraft
+    try {
+      return localStorage.getItem(draftStorageKey) ?? initialDraft
+    } catch {
+      return initialDraft
+    }
+  })
   const phone = React.useSyncExternalStore(
     subscribePhone,
     isPhone,
@@ -300,6 +318,7 @@ export function WikiChat({
   const fileInput = React.useRef<HTMLInputElement>(null)
   const composer = React.useRef<HTMLTextAreaElement>(null)
   const threadView = React.useRef<HTMLDivElement>(null)
+  const savedScroll = React.useRef<number | null>(null)
   const scrollbar = React.useRef<HTMLDivElement>(null)
   const scrollbarDrag = React.useRef<{
     pointerId: number
@@ -356,17 +375,36 @@ export function WikiChat({
   }, [])
 
   React.useEffect(() => {
+    if (!draftStorageKey) return
+    try {
+      if (input) localStorage.setItem(draftStorageKey, input)
+      else localStorage.removeItem(draftStorageKey)
+    } catch {
+      /* Storage is optional. */
+    }
+  }, [draftStorageKey, input])
+
+  React.useLayoutEffect(() => {
+    onProgressChange?.(messages.length > 0 || input.length > 0)
+  }, [input, messages.length, onProgressChange])
+
+  React.useEffect(() => {
     if (!draftRequest) return
     let active = true
     queueMicrotask(() => {
       if (!active) return
       setView("chat")
-      setInput(draftRequest.value)
+      setInput((current) =>
+        current && draftRequest.value
+          ? `${current}\n${draftRequest.value}`
+          : current || draftRequest.value
+      )
+      onDraftRequestConsumed?.(draftRequest)
     })
     return () => {
       active = false
     }
-  }, [draftRequest])
+  }, [draftRequest, onDraftRequestConsumed])
 
   React.useEffect(() => {
     if (confirmId) confirmButton.current?.focus()
@@ -377,7 +415,7 @@ export function WikiChat({
       autoFocus &&
       !pending &&
       !loadingHistory &&
-      document.activeElement?.getAttribute("aria-label") === "Close"
+      document.activeElement?.getAttribute("aria-label") === "Minimize Milo"
     ) {
       composer.current?.focus()
     }
@@ -385,7 +423,14 @@ export function WikiChat({
 
   React.useLayoutEffect(() => {
     const el = threadView.current
-    if (!el || !nearBottom.current || view !== "chat") return
+    if (!el || !visible || view !== "chat") return
+    if (savedScroll.current !== null) {
+      el.scrollTop = savedScroll.current
+      savedScroll.current = null
+      measureScroll()
+      return
+    }
+    if (!nearBottom.current) return
     if (
       smoothNext.current &&
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
@@ -398,7 +443,7 @@ export function WikiChat({
     }
     smoothNext.current = false
     measureScroll()
-  }, [messages, view, measureScroll])
+  }, [messages, view, visible, measureScroll])
 
   React.useEffect(() => {
     const el = threadView.current
@@ -550,6 +595,7 @@ export function WikiChat({
     setThreadId(null)
     setMessages([])
     setInput("")
+    savedScroll.current = null
     setFile(null)
     setFileError("")
     setConfirmId(null)
@@ -638,10 +684,20 @@ export function WikiChat({
     }
   }
 
-  React.useImperativeHandle(ref, () => ({ newChat, showHistory }))
+  React.useImperativeHandle(ref, () => ({
+    newChat,
+    showHistory,
+    captureScroll: () => {
+      if (threadView.current) savedScroll.current = threadView.current.scrollTop
+    },
+  }))
 
   const sendQuestion = React.useCallback(
-    async (questionValue: string, attachment?: File | null) => {
+    async (
+      questionValue: string,
+      attachment?: File | null,
+      preserveDraft = false
+    ) => {
       const question = questionValue.trim()
       if (
         (!question && !attachment) ||
@@ -669,7 +725,7 @@ export function WikiChat({
           retryFile: attachment,
         },
       ])
-      setInput("")
+      if (!preserveDraft) setInput("")
       setFile(null)
       setFileError("")
       if (fileInput.current) fileInput.current.value = ""
@@ -823,6 +879,7 @@ export function WikiChat({
             }
             if (data.type === "done") {
               completed = true
+              onAnswerCompleted?.()
               activeThread.current = data.threadId
               setThreadId(data.threadId)
               setMessages((current) =>
@@ -913,7 +970,7 @@ export function WikiChat({
         }
       }
     },
-    [pending, threadId, pageContext, pinToBottom]
+    [pending, threadId, pageContext, pinToBottom, onAnswerCompleted]
   )
 
   React.useEffect(() => {
@@ -929,7 +986,7 @@ export function WikiChat({
     consumedPromptRef.current = prompt
     setView("chat")
     onQueuedPromptConsumed?.()
-    void sendQuestion(prompt)
+    void sendQuestion(prompt, null, true)
   }, [
     loadingHistory,
     onQueuedPromptConsumed,
@@ -1326,6 +1383,7 @@ export function WikiChat({
           programmaticScroll.current = false
         }}
         onScroll={(event) => {
+          if (!visible) return
           const el = event.currentTarget
           const distance = el.scrollHeight - el.scrollTop - el.clientHeight
           if (distance <= 1) programmaticScroll.current = false
