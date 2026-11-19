@@ -7,7 +7,10 @@ import {
   type DepartmentDashboardQuery,
   type DepartmentId,
 } from "@/lib/department-dashboard"
-import { getLeaderboardPostedMonth } from "@/lib/leaderboard-month"
+import {
+  getBusinessCalendarDate,
+  getLeaderboardPostedMonth,
+} from "@/lib/leaderboard-month"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import type { CanopyProductionSeries } from "@/lib/hub-metrics"
 
@@ -2568,7 +2571,7 @@ export async function fetchDepartmentDashboard({
   department,
   query,
   includeEvents = true,
-  referenceDate = new Date(),
+  referenceDate = getBusinessCalendarDate(),
 }: {
   department: DepartmentId
   query: DepartmentDashboardQuery
