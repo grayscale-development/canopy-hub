@@ -231,6 +231,205 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe("copy overlap suppression", () => {
+  it.each([pages, [...pages].reverse()])(
+    "uses one canonical page for a connected group in either scan order",
+    async (...scanPages) => {
+      vi.mocked(detectWikiDuplicates).mockImplementation(
+        async (_client, _user, id) => {
+          const page = pages.find((item) => item.id === id)!
+          const neighbors =
+            id === "a"
+              ? [pages[1]]
+              : id === "b"
+                ? [pages[0], pages[2]]
+                : [pages[1]]
+          return detected(
+            page,
+            neighbors.map((neighbor) => match(neighbor, "identical"))
+          )
+        }
+      )
+      const db = fakeClient([], scanPages)
+      await scanWikiAlerts(db.client, { full: true })
+      expect(
+        db.alerts
+          .filter((row) => row.status === "open")
+          .map((row) => row.recommendation)
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "identical",
+            targetPageId: "b",
+            canonicalPageId: "a",
+            baseRevisionId: "rev-b",
+            canonicalRevisionId: "rev-a",
+          }),
+          expect.objectContaining({
+            kind: "identical",
+            targetPageId: "c",
+            canonicalPageId: "a",
+            baseRevisionId: "rev-c",
+            canonicalRevisionId: "rev-a",
+          }),
+        ])
+      )
+      expect(db.alerts.filter((row) => row.status === "open")).toHaveLength(2)
+    }
+  )
+
+  it("reconciles an existing copy pair when an incremental scan finds an older canonical page", async () => {
+    vi.mocked(detectWikiDuplicates).mockImplementation(
+      async (_client, _user, id) =>
+        detected(
+          pages.find((page) => page.id === id)!,
+          id === "a" ? [match(pages[2], "identical")] : []
+        )
+    )
+    const db = fakeClient(
+      [
+        {
+          id: "old-pair",
+          status: "open",
+          page_id: "b",
+          other_page_id: "c",
+          recommendation: recommendation("identical", pages[1], pages[2]),
+        },
+        {
+          id: "copy-overlap",
+          status: "open",
+          page_id: "b",
+          other_page_id: "d",
+          recommendation: recommendation("overlap", pages[1], {
+            ...pages[2],
+            id: "d",
+            path: "/wiki/4",
+          }),
+        },
+      ],
+      [pages[0]],
+      "2026-10-01T00:00:00Z"
+    )
+    expect(await scanWikiAlerts(db.client)).toMatchObject({ opened: 2 })
+    expect(db.alerts.find((row) => row.id === "old-pair")).toMatchObject({
+      status: "dismissed",
+      dismissed_by: null,
+      dismissed_at: expect.any(String),
+    })
+    expect(db.alerts.find((row) => row.id === "copy-overlap")).toMatchObject({
+      status: "dismissed",
+      dismissed_by: null,
+    })
+    expect(
+      db.alerts
+        .filter((row) => row.status === "open")
+        .map((row) => row.recommendation)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ targetPageId: "b", canonicalPageId: "a" }),
+        expect.objectContaining({ targetPageId: "c", canonicalPageId: "a" }),
+      ])
+    )
+    expect(db.alerts.filter((row) => row.status === "open")).toHaveLength(2)
+  })
+
+  it("updates an existing alert when a growing group changes which page to keep", async () => {
+    vi.mocked(detectWikiDuplicates).mockImplementation(
+      async (_client, _user, id) =>
+        detected(
+          pages.find((page) => page.id === id)!,
+          id === "c" ? [match(pages[1], "identical")] : []
+        )
+    )
+    const db = fakeClient(
+      [
+        {
+          id: "old-direction",
+          status: "open",
+          page_id: "a",
+          other_page_id: "b",
+          recommendation: recommendation("identical", pages[0], pages[1]),
+        },
+      ],
+      [pages[2]],
+      "2026-10-01T00:00:00Z"
+    )
+    expect(await scanWikiAlerts(db.client)).toMatchObject({
+      opened: 1,
+      updated: 1,
+    })
+    expect(db.alerts.find((row) => row.id === "old-direction")).toMatchObject({
+      status: "open",
+      recommendation: {
+        targetPageId: "b",
+        canonicalPageId: "a",
+        baseRevisionId: "rev-b",
+        canonicalRevisionId: "rev-a",
+      },
+    })
+    expect(
+      db.alerts
+        .filter((row) => row.status === "open")
+        .map((row) => row.recommendation)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ targetPageId: "c", canonicalPageId: "a" }),
+      ])
+    )
+  })
+
+  it("repairs contradictory open alerts on an unchanged incremental run", async () => {
+    vi.mocked(detectWikiDuplicates).mockImplementation(
+      async (_client, _user, id) =>
+        detected(pages.find((page) => page.id === id)!, [])
+    )
+    const db = fakeClient(
+      [
+        {
+          id: "a-b",
+          status: "open",
+          page_id: "a",
+          other_page_id: "b",
+          recommendation: recommendation("identical", pages[1], pages[0]),
+        },
+        {
+          id: "a-c",
+          status: "open",
+          page_id: "a",
+          other_page_id: "c",
+          recommendation: recommendation("identical", pages[2], pages[0]),
+        },
+        {
+          id: "b-c",
+          status: "open",
+          page_id: "b",
+          other_page_id: "c",
+          recommendation: recommendation("identical", pages[1], pages[2]),
+        },
+      ],
+      [],
+      "2026-11-01T00:00:00Z"
+    )
+    expect(await scanWikiAlerts(db.client)).toMatchObject({
+      skipped: false,
+      updated: 2,
+    })
+    expect(db.alerts.find((row) => row.id === "b-c")).toMatchObject({
+      status: "dismissed",
+      dismissed_by: null,
+    })
+    expect(
+      db.alerts
+        .filter((row) => row.status === "open")
+        .map((row) => row.recommendation)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ targetPageId: "b", canonicalPageId: "a" }),
+        expect.objectContaining({ targetPageId: "c", canonicalPageId: "a" }),
+      ])
+    )
+    expect(db.alerts.filter((row) => row.status === "open")).toHaveLength(2)
+  })
+
   it("discovers identical pairs first, dismisses old overlaps on either side and keeps other overlaps", async () => {
     // The overlap is encountered before the identical pair in page order.
     vi.mocked(detectWikiDuplicates).mockImplementation(

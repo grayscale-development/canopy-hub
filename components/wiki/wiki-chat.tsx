@@ -729,6 +729,7 @@ export function WikiChat({
           id: assistantId,
           role: "assistant",
           content: "",
+          status: "Getting ready…",
           retryQuestion: question,
           retryFile: attachment,
         },
@@ -980,7 +981,14 @@ export function WikiChat({
         }
       }
     },
-    [pending, threadId, pageContext, currentPath, pinToBottom, onAnswerCompleted]
+    [
+      pending,
+      threadId,
+      pageContext,
+      currentPath,
+      pinToBottom,
+      onAnswerCompleted,
+    ]
   )
 
   React.useEffect(() => {
@@ -1442,9 +1450,11 @@ export function WikiChat({
                       index === messages.length - 1 &&
                       !answer.content &&
                       !answer.cards?.length ? (
-                        <div className="flex min-h-7 items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-                          <span>{answer.status || "Thinking…"}</span>
+                        <div className="flex min-h-7 min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2Icon className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                          <span className="truncate">
+                            {answer.status || "Thinking…"}
+                          </span>
                         </div>
                       ) : answer.content &&
                         !answer.cards?.some(

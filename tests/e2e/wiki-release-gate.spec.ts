@@ -119,6 +119,12 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
       .from("wiki_page_tags")
       .insert({ node_id: source.id, tag_id: tagId })
     if (assignment.error) throw assignment.error
+    // Mirror sync_wiki_page_tags, which keeps wiki_nodes.tags (row pills) in step.
+    const named = await db
+      .from("wiki_nodes")
+      .update({ tags: [tag.data.name] })
+      .eq("id", source.id)
+    if (named.error) throw named.error
 
     // Exercise the same preview and transaction as the release rewrite.
     const data = await readData(db)
@@ -186,11 +192,8 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
       const taggedTitle = taggedRow
         .getByRole("link", { name: source.title })
         .locator("span")
-      const tagPill = taggedRow
-        .locator("td")
-        .filter({ hasText: tag.data.name })
-        .locator("span")
-        .first()
+      // Rows show at most two tag pills, so align against the first visible one.
+      const tagPill = taggedRow.locator("td div.flex-wrap > span").first()
       const untaggedTitle = untaggedRow
         .getByRole("link", { name: untagged.title })
         .locator("span")

@@ -19,7 +19,7 @@ const fixture = vi.hoisted(() => ({
 
 const provider = vi.hoisted(() => ({
   getChatModel: () => "fixture-chat",
-  getFormatModel: () => "fixture-format",
+  getFormatModel: vi.fn(() => "fixture-format"),
   createEmbeddingsWithOpenAI: vi.fn(async () => [[0.1, 0.2]]),
   createChatResponseWithOpenAI: vi.fn(async () => ({
     output_text: fixture.active!.answer ?? fixture.active!.source.snippet,
@@ -31,7 +31,7 @@ const provider = vi.hoisted(() => ({
       if (params.text?.format?.name === "milo_intent")
         return {
           output_text: JSON.stringify({ intent: active.intent }),
-          output: [],
+          output: [] as unknown[],
         }
       if (params.text?.format?.name === "milo_evidence")
         return {
@@ -40,10 +40,13 @@ const provider = vi.hoisted(() => ({
             answerSupported: active.answerSupported ?? active.covered,
             related: active.related ? [0] : [],
           }),
-          output: [],
+          output: [] as unknown[],
         }
       if (fixture.fallback) throw new Error("Agent unavailable")
-      return { output_text: active.answer ?? active.source.snippet, output: [] }
+      return {
+        output_text: active.answer ?? active.source.snippet,
+        output: [] as unknown[],
+      }
     }
   ),
 }))
@@ -592,6 +595,89 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
     })
   })
 
+  it("researches while user context is pending, but waits for it before generation", async () => {
+    fixture.active = {
+      question: "how do I publish a wiki page",
+      intent: "hub",
+      covered: true,
+      related: true,
+      source: publishing,
+    }
+    let finishContext!: (value: typeof userContext) => void
+    const context = new Promise<typeof userContext>((resolve) => {
+      finishContext = resolve
+    })
+    let markSearchStarted!: () => void
+    const searchStarted = new Promise<void>((resolve) => {
+      markSearchStarted = resolve
+    })
+    mcp.callMiloMcpTool.mockImplementationOnce(async () => {
+      markSearchStarted()
+      return {
+        ok: true,
+        toolName: "knowledge_search",
+        content: {},
+        sources: [],
+      }
+    })
+    const pending = answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext: context,
+      pageContext,
+    })
+    await searchStarted
+    expect(
+      provider.createAgentResponseWithOpenAI.mock.calls.every(
+        ([params]) => params.text?.format?.name === "milo_intent"
+      )
+    ).toBe(true)
+    finishContext(userContext)
+    await expect(pending).resolves.toMatchObject({
+      metadata: { abstained: false },
+    })
+  })
+
+  it("reuses an initial knowledge search if the model requests it again", async () => {
+    fixture.active = {
+      question: "explain feedback",
+      intent: "other",
+      covered: true,
+      related: true,
+      source: feedback,
+    }
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
+      output_text: JSON.stringify({ intent: "other" }),
+      output: [],
+    }))
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
+      output_text: "",
+      output: [
+        {
+          type: "function_call",
+          name: "milo_mcp_call",
+          call_id: "call-1",
+          arguments: JSON.stringify({
+            toolName: "knowledge_search",
+            arguments: { query: "explain feedback" },
+          }),
+        },
+      ],
+    }))
+    await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+    })
+    expect(
+      mcp.callMiloMcpTool.mock.calls.filter(
+        ([name, args]) =>
+          name === "knowledge_search" && args?.query === "explain feedback"
+      )
+    ).toHaveLength(1)
+  })
+
   it("emits only the checked answer and does not generate it a second time", async () => {
     fixture.active = {
       question: "what is the cafeteria menu",
@@ -616,6 +702,120 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
     expect(
       calls.filter((call) => call[0].text?.format?.name === "milo_evidence")
     ).toHaveLength(1)
+  })
+
+  it("shows checking progress while withholding the answer until assessment completes", async () => {
+    fixture.active = {
+      question: "explain feedback",
+      intent: "other",
+      covered: true,
+      related: true,
+      source: feedback,
+    }
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
+      output_text: JSON.stringify({ intent: "other" }),
+      output: [],
+    }))
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
+      output_text: feedback.snippet,
+      output: [],
+    }))
+    let finishAssessment!: (value: {
+      output_text: string
+      output: never[]
+    }) => void
+    let assessmentStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      assessmentStarted = resolve
+    })
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishAssessment = resolve
+          assessmentStarted()
+        })
+    )
+    const onStatus = vi.fn()
+    const onToken = vi.fn()
+    const pending = answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      onStatus,
+      onToken,
+    })
+    await started
+    expect(onStatus).toHaveBeenCalledWith("Checking the answer…")
+    expect(onToken).not.toHaveBeenCalled()
+    finishAssessment({
+      output_text: JSON.stringify({
+        covered: true,
+        answerSupported: true,
+        related: [0],
+      }),
+      output: [],
+    })
+    const result = await pending
+    expect(onToken).toHaveBeenCalledWith(result.answer)
+  })
+
+  it("uses low-effort bounded decisions and limits the map for a specific task", async () => {
+    fixture.active = {
+      question: "how do I send feedback",
+      intent: "hub",
+      covered: true,
+      related: true,
+      source: feedback,
+    }
+    await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+    })
+    const decisions = provider.createAgentResponseWithOpenAI.mock.calls
+      .map(([params]) => params)
+      .filter((params) => params.text?.format?.name)
+    expect(decisions).toHaveLength(2)
+    for (const decision of decisions)
+      expect(decision).toMatchObject({
+        reasoning: { effort: "low" },
+        max_output_tokens: expect.any(Number),
+      })
+    const evidence = decisions.find(
+      (decision) => decision.text?.format?.name === "milo_evidence"
+    ) as unknown as { input: string }
+    const map = JSON.parse(evidence.input).hubMap as string
+    expect(map).toContain("Submit Feedback")
+    expect(map).not.toContain("File Quality Dashboard")
+  })
+
+  it("omits unsupported reasoning options for a non-reasoning format model", async () => {
+    fixture.active = {
+      question: "explain feedback",
+      intent: "other",
+      covered: true,
+      related: true,
+      source: feedback,
+    }
+    provider.getFormatModel.mockReturnValue("gpt-4.1")
+    try {
+      await answerKnowledgeQuestion({
+        question: fixture.active.question,
+        supabase: fixtureClient() as never,
+        userContext,
+        pageContext,
+      })
+      const decisions = provider.createAgentResponseWithOpenAI.mock.calls
+        .map(([params]) => params)
+        .filter((params) => params.text?.format?.name)
+      expect(decisions).toHaveLength(2)
+      for (const decision of decisions)
+        expect(decision).not.toHaveProperty("reasoning")
+    } finally {
+      provider.getFormatModel.mockReturnValue("fixture-format")
+    }
   })
 
   it("reports an assessment failure without claiming the wiki lacks an answer", async () => {
