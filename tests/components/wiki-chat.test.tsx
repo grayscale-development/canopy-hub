@@ -3,6 +3,7 @@
 import * as React from "react"
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -97,6 +98,51 @@ describe("WikiChat", () => {
       "disabled:text-foreground",
       "disabled:opacity-100"
     )
+  })
+
+  it("pins a new send, lets the reader scroll up during streaming, and jumps back", async () => {
+    let stream!: ReadableStreamDefaultController<Uint8Array>
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST")
+        return {
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              stream = controller
+            },
+          }),
+        }
+      return { ok: true, json: async () => ({ messages: [] }) }
+    })
+    const user = userEvent.setup()
+    render(<WikiChat />)
+    const area = screen.getByRole("region", { name: "Chat messages" })
+    Object.defineProperties(area, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+    })
+    area.scrollTop = 100
+    fireEvent.scroll(area)
+    await user.type(
+      await screen.findByRole("textbox", { name: "Ask a follow-up" }),
+      "Question"
+    )
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    await waitFor(() => expect(area.scrollTop).toBe(1000))
+    area.scrollTop = 100
+    fireEvent.scroll(area)
+    expect(screen.getByRole("button", { name: "Jump to latest" })).toBeVisible()
+    stream.enqueue(
+      new TextEncoder().encode(
+        'data: {"type":"token","token":"Answer while reading"}\n\n'
+      )
+    )
+    await screen.findByText("Answer while reading")
+    expect(area.scrollTop).toBe(100)
+    await user.click(screen.getByRole("button", { name: "Jump to latest" }))
+    expect(area.scrollTop).toBe(1000)
+    expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull()
+    stream.close()
   })
 
   it("opens a previous chat, starts a new one and confirms deletion of the active chat", async () => {

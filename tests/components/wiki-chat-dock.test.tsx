@@ -337,13 +337,13 @@ describe("floating Milo", () => {
     await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull())
   })
 
-  it("keeps a small pointer movement as a click and snaps a drag without opening", async () => {
-    const writes: string[] = []
+  it("preserves clicks below the drag threshold and saves a free drag", async () => {
+    const writes: unknown[] = []
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
         if (url === "/api/milo/preferences" && init?.method === "PUT") {
-          writes.push(JSON.parse(String(init.body)).corner)
+          writes.push(JSON.parse(String(init.body)).position)
           return Promise.resolve({ ok: true })
         }
         if (url === "/api/milo/preferences")
@@ -356,6 +356,7 @@ describe("floating Milo", () => {
     const pointer = (type: string, x: number, y: number) => {
       const event = new MouseEvent(type, {
         bubbles: true,
+        cancelable: true,
         button: 0,
         clientX: x,
         clientY: y,
@@ -374,15 +375,19 @@ describe("floating Milo", () => {
     await userEvent.click(screen.getByRole("button", { name: "Close" }))
     pointer("pointerdown", 900, 700)
     pointer("pointermove", 20, 20)
+    expect(document.body.style.userSelect).toBe("none")
     pointer("pointerup", 20, 20)
+    expect(document.body.style.userSelect).toBe("")
     fireEvent.click(launcher)
     expect(screen.queryByRole("dialog", { name: "Milo" })).toBeNull()
-    await waitFor(() => expect(writes).toEqual(["top-left"]))
-    expect(launcher.parentElement).toHaveClass("top-20", "left-4")
+    await waitFor(() => expect(writes).toEqual([{ x: 0, y: 0 }]))
   })
 
-  it("replaces the cached corner with the server preference", async () => {
-    localStorage.setItem("milo-corner:test-user", "top-left")
+  it("replaces the cached position with the server preference", async () => {
+    localStorage.setItem(
+      "milo-position:test-user",
+      JSON.stringify({ x: 0, y: 0 })
+    )
     let finishRead!: (value: unknown) => void
     const get = new Promise((resolve) => {
       finishRead = resolve
@@ -393,51 +398,53 @@ describe("floating Milo", () => {
     )
     render(<Harness />)
     const launcher = await screen.findByRole("button", { name: "Ask Milo" })
-    expect(launcher.parentElement).toHaveClass("top-20", "left-4")
+    expect(launcher.parentElement).toHaveStyle({ left: "10px", top: "10px" })
     await act(async () => {
-      finishRead({ ok: true, json: async () => ({ corner: "bottom-right" }) })
+      finishRead({ ok: true, json: async () => ({ position: { x: 1, y: 1 } }) })
       await get
     })
-    await waitFor(() => expect(launcher.parentElement).toHaveClass("right-4"))
-    expect(localStorage.getItem("milo-corner:test-user")).toBe("bottom-right")
+    await waitFor(() =>
+      expect(localStorage.getItem("milo-position:test-user")).toBe(
+        JSON.stringify({ x: 1, y: 1 })
+      )
+    )
   })
 
-  it("uses the cached corner and does not let a stale server read overwrite a move", async () => {
-    localStorage.setItem("milo-corner:test-user", "top-left")
+  it("moves with the keyboard and ignores a stale server read", async () => {
+    localStorage.setItem(
+      "milo-position:test-user",
+      JSON.stringify({ x: 0.5, y: 0.5 })
+    )
     let finishRead!: (value: unknown) => void
     const get = new Promise((resolve) => {
       finishRead = resolve
     })
-    const requests: string[] = []
+    const writes: unknown[] = []
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
         if (url === "/api/milo/preferences" && init?.method === "PUT") {
-          requests.push(JSON.parse(String(init.body)).corner)
+          writes.push(JSON.parse(String(init.body)).position)
           return Promise.resolve({ ok: true })
         }
         if (url === "/api/milo/preferences") return get
         return Promise.resolve(stream("answer"))
       })
     )
-    const user = userEvent.setup()
     render(<Harness />)
-    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
-    await waitFor(() =>
-      expect(launcher.parentElement).toHaveClass("top-20", "left-4")
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ask Milo" })
     )
-    await user.click(launcher)
-    await user.click(screen.getByRole("button", { name: "Move to corner" }))
-    await user.click(screen.getByRole("menuitemradio", { name: "Bottom left" }))
-    expect(localStorage.getItem("milo-corner:test-user")).toBe("bottom-left")
-    await waitFor(() => expect(requests).toEqual(["bottom-left"]))
+    const panel = screen.getByRole("dialog", { name: "Milo" })
+    expect(screen.queryByRole("button", { name: "Move to corner" })).toBeNull()
+    fireEvent.keyDown(panel, { key: "ArrowLeft", altKey: true })
+    await waitFor(() => expect(writes).toHaveLength(1))
+    const saved = localStorage.getItem("milo-position:test-user")
     await act(async () => {
-      finishRead({ ok: true, json: async () => ({ corner: "top-right" }) })
+      finishRead({ ok: true, json: async () => ({ position: { x: 1, y: 1 } }) })
       await get
     })
-    expect(screen.getByRole("dialog", { name: "Milo" })).toHaveClass(
-      "sm:left-6"
-    )
+    expect(localStorage.getItem("milo-position:test-user")).toBe(saved)
   })
 
   it("gates login and signed-out users and removes Milo without beta access", async () => {

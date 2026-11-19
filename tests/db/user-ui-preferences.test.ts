@@ -61,6 +61,7 @@ dbDescribe("user UI preferences RLS", { timeout: 60_000 }, () => {
       .single()
     expect(insert.error).toBeNull()
     expect(insert.data.milo_corner).toBe("bottom-right")
+    expect(insert.data.milo_position).toBeNull()
     expect(
       (await other.from("user_ui_preferences").insert({ user_id: ownerId }))
         .error
@@ -88,12 +89,13 @@ dbDescribe("user UI preferences RLS", { timeout: 60_000 }, () => {
     ).not.toBeNull()
     const ownUpdate = await owner
       .from("user_ui_preferences")
-      .update({ milo_corner: "top-right" })
+      .update({ milo_position: { x: 0.25, y: 0.75 } })
       .eq("user_id", ownerId)
       .select()
       .single()
     expect(ownUpdate.error).toBeNull()
-    expect(ownUpdate.data.milo_corner).toBe("top-right")
+    expect(ownUpdate.data.milo_position).toEqual({ x: 0.25, y: 0.75 })
+    expect(ownUpdate.data.milo_corner).toBe("bottom-right")
     expect(
       (await owner.from("user_ui_preferences").delete().eq("user_id", ownerId))
         .error
@@ -107,6 +109,21 @@ dbDescribe("user UI preferences RLS", { timeout: 60_000 }, () => {
       (await anonymous.from("user_ui_preferences").insert({ user_id: otherId }))
         .error
     ).not.toBeNull()
+  })
+  it("rejects malformed or out-of-range positions", async () => {
+    for (const position of [
+      { x: -0.1, y: 0 },
+      { x: 0, y: 1.1 },
+      { x: "0", y: 0 },
+      { x: 0 },
+      { x: 0, y: 0, z: 1 },
+    ]) {
+      const result = await owner
+        .from("user_ui_preferences")
+        .update({ milo_position: position })
+        .eq("user_id", ownerId)
+      expect(result.error?.code).toBe("23514")
+    }
   })
   it("rejects invalid corners", async () => {
     const result = await owner

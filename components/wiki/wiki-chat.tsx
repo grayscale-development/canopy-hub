@@ -7,6 +7,7 @@ import {
   Loader2Icon,
   FileTextIcon,
   ArrowLeftIcon,
+  ArrowDownIcon,
   Trash2Icon,
   PaperclipIcon,
   SendIcon,
@@ -267,7 +268,43 @@ export function WikiChat({
   const fileInput = React.useRef<HTMLInputElement>(null)
   const composer = React.useRef<HTMLTextAreaElement>(null)
   const threadView = React.useRef<HTMLDivElement>(null)
+  const scrollbar = React.useRef<HTMLDivElement>(null)
+  const scrollbarDrag = React.useRef<{
+    pointerId: number
+    offset: number
+  } | null>(null)
+  const [scrollMetrics, setScrollMetrics] = React.useState({
+    height: 0,
+    content: 0,
+    top: 0,
+  })
+  const measureScroll = React.useCallback(() => {
+    const el = threadView.current
+    if (!el) return
+    const next = {
+      height: el.clientHeight,
+      content: el.scrollHeight,
+      top: el.scrollTop,
+    }
+    setScrollMetrics((old) =>
+      old.height === next.height &&
+      old.content === next.content &&
+      old.top === next.top
+        ? old
+        : next
+    )
+  }, [])
   const nearBottom = React.useRef(true)
+  const [showJump, setShowJump] = React.useState(false)
+  const [scrolling, setScrolling] = React.useState(false)
+  const scrollTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const smoothNext = React.useRef(false)
+  const programmaticScroll = React.useRef(false)
+  const pinToBottom = React.useCallback((smooth = false) => {
+    nearBottom.current = true
+    setShowJump(false)
+    smoothNext.current = smooth
+  }, [])
   const activeRequest = React.useRef<AbortController | null>(null)
   const activeStop = React.useRef<(() => void) | null>(null)
   const [pending, setPending] = React.useState(false)
@@ -311,10 +348,38 @@ export function WikiChat({
     }
   }, [autoFocus, loadingHistory, pending])
 
+  React.useLayoutEffect(() => {
+    const el = threadView.current
+    if (!el || !nearBottom.current || view !== "chat") return
+    if (
+      smoothNext.current &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
+      typeof el.scrollTo === "function"
+    ) {
+      programmaticScroll.current = true
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
+    smoothNext.current = false
+    measureScroll()
+  }, [messages, view, measureScroll])
+
   React.useEffect(() => {
-    if (threadView.current && nearBottom.current)
-      threadView.current.scrollTop = threadView.current.scrollHeight
-  }, [messages])
+    const el = threadView.current
+    if (!el || view !== "chat") return
+    const observer = new ResizeObserver(measureScroll)
+    observer.observe(el)
+    if (el.firstElementChild) observer.observe(el.firstElementChild)
+    return () => observer.disconnect()
+  }, [view, messages.length, measureScroll])
+
+  React.useEffect(
+    () => () => {
+      if (scrollTimer.current) clearTimeout(scrollTimer.current)
+    },
+    []
+  )
 
   React.useEffect(() => {
     let active = true
@@ -486,6 +551,7 @@ export function WikiChat({
   }
 
   function openThread(id: string) {
+    pinToBottom()
     loadVersion.current++
     activeThread.current = id
     stopActiveAnswer()
@@ -550,6 +616,7 @@ export function WikiChat({
         return
       }
 
+      pinToBottom(true)
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -811,7 +878,7 @@ export function WikiChat({
         }
       }
     },
-    [pending, threadId, pageContext]
+    [pending, threadId, pageContext, pinToBottom]
   )
 
   React.useEffect(() => {
@@ -1027,21 +1094,84 @@ export function WikiChat({
     )
   }
 
+  const thumbHeight =
+    scrollMetrics.content > scrollMetrics.height && scrollMetrics.height > 0
+      ? Math.min(
+          scrollMetrics.height,
+          Math.max(
+            24,
+            (scrollMetrics.height * scrollMetrics.height) /
+              scrollMetrics.content
+          )
+        )
+      : 0
+  const thumbTop =
+    scrollMetrics.content > scrollMetrics.height
+      ? ((scrollMetrics.height - thumbHeight) * scrollMetrics.top) /
+        (scrollMetrics.content - scrollMetrics.height)
+      : 0
+  const moveScrollbar = (
+    event: React.PointerEvent<HTMLDivElement>,
+    offset: number
+  ) => {
+    const el = threadView.current
+    const rect = scrollbar.current?.getBoundingClientRect()
+    if (!el || !rect || rect.height <= thumbHeight) return
+    const fraction = Math.max(
+      0,
+      Math.min(
+        1,
+        (event.clientY - rect.top - offset) / (rect.height - thumbHeight)
+      )
+    )
+    el.scrollTop = fraction * (el.scrollHeight - el.clientHeight)
+    measureScroll()
+  }
+
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+    <div
+      className={cn(
+        "relative flex min-h-0 flex-1 flex-col",
+        scrolling && "is-scrolling",
+        className
+      )}
+    >
       <div
         ref={threadView}
+        role="region"
+        aria-label="Chat messages"
+        tabIndex={0}
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6",
+          "slim-scrollbar milo-overlay-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6",
           !messages.length &&
             !loadingHistory &&
             !restoreError &&
             "flex flex-col"
         )}
+        onWheel={() => {
+          programmaticScroll.current = false
+        }}
+        onTouchStart={() => {
+          programmaticScroll.current = false
+        }}
+        onPointerDown={() => {
+          programmaticScroll.current = false
+        }}
+        onKeyDown={() => {
+          programmaticScroll.current = false
+        }}
         onScroll={(event) => {
           const el = event.currentTarget
-          nearBottom.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight < 80
+          const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+          if (distance <= 1) programmaticScroll.current = false
+          if (!programmaticScroll.current) {
+            nearBottom.current = distance <= 80
+            setShowJump(!nearBottom.current)
+          }
+          measureScroll()
+          setScrolling(true)
+          if (scrollTimer.current) clearTimeout(scrollTimer.current)
+          scrollTimer.current = setTimeout(() => setScrolling(false), 800)
         }}
       >
         {restoreError ? (
@@ -1345,7 +1475,66 @@ export function WikiChat({
           </div>
         ) : null}
       </div>
+      {thumbHeight > 0 ? (
+        <div
+          ref={scrollbar}
+          aria-hidden="true"
+          className="milo-scrollbar-track absolute top-0 right-0 w-1.5 touch-none"
+          style={{ height: scrollMetrics.height }}
+          onPointerDown={(event) => {
+            if (!event.isPrimary || event.button !== 0) return
+            event.preventDefault()
+            programmaticScroll.current = false
+            const rect = event.currentTarget.getBoundingClientRect()
+            const withinThumb =
+              event.clientY >= rect.top + thumbTop &&
+              event.clientY <= rect.top + thumbTop + thumbHeight
+            const offset = withinThumb
+              ? event.clientY - rect.top - thumbTop
+              : thumbHeight / 2
+            scrollbarDrag.current = { pointerId: event.pointerId, offset }
+            event.currentTarget.setPointerCapture(event.pointerId)
+            moveScrollbar(event, offset)
+          }}
+          onPointerMove={(event) => {
+            if (scrollbarDrag.current?.pointerId === event.pointerId)
+              moveScrollbar(event, scrollbarDrag.current.offset)
+          }}
+          onPointerUp={() => {
+            scrollbarDrag.current = null
+          }}
+          onPointerCancel={() => {
+            scrollbarDrag.current = null
+          }}
+          onLostPointerCapture={() => {
+            scrollbarDrag.current = null
+          }}
+        >
+          <div
+            className="milo-scrollbar-thumb absolute right-0 w-full rounded-full"
+            style={{ height: thumbHeight, top: thumbTop }}
+          />
+        </div>
+      ) : null}
 
+      <div className="relative shrink-0">
+        {showJump ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label="Jump to latest"
+            className="absolute right-4 bottom-2 z-10 size-9 rounded-full bg-background shadow-md"
+            onClick={() => {
+              pinToBottom()
+              const el = threadView.current
+              if (el) el.scrollTop = el.scrollHeight
+            }}
+          >
+            <ArrowDownIcon aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
       <form onSubmit={askQuestion} className="shrink-0 border-t p-4">
         {pageContext ? (
           <div className="mb-2 inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs">

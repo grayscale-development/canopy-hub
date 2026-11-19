@@ -2,23 +2,18 @@
 
 import * as React from "react"
 import { usePathname } from "next/navigation"
-import { History, Move, SquarePen } from "lucide-react"
+import { History, SquarePen } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  defaultMiloCorner,
-  miloBottomOffset,
-  miloCornerSchema,
-  nearestMiloCorner,
-  type MiloCorner,
-} from "@/lib/milo-corners"
+  miloPositionSchema,
+  normalizeMilo,
+  placeMilo,
+  type MiloPoint,
+  type MiloPosition,
+  type MiloRect,
+  type MiloSize,
+} from "@/lib/milo-position"
 import {
   Tooltip,
   TooltipContent,
@@ -173,18 +168,16 @@ export function WikiChatModalProvider({
   const closeRef = React.useRef<HTMLButtonElement>(null)
   const chatRef = React.useRef<WikiChatHandle>(null)
   const interactedRef = React.useRef(false)
-  const [corner, setCorner] = React.useState<MiloCorner>(defaultMiloCorner)
+  const [position, setPosition] = React.useState<MiloPosition | null>(null)
   const [cachedForUser, setCachedForUser] = React.useState<string | null>(null)
-  const [viewport, setViewport] = React.useState({ width: 0, height: 0 })
-  const [launcherWidth, setLauncherWidth] = React.useState(0)
-  const [obstruction, setObstruction] = React.useState<{
-    left: number
-    top: number
-  } | null>(null)
-  const [dragOffset, setDragOffset] = React.useState<{
-    x: number
-    y: number
-  } | null>(null)
+  const [viewport, setViewport] = React.useState<MiloSize>({
+    width: 0,
+    height: 0,
+  })
+  const [size, setSize] = React.useState<MiloSize>({ width: 0, height: 0 })
+  const [obstruction, setObstruction] = React.useState<MiloRect | null>(null)
+  const [dragPoint, setDragPoint] = React.useState<MiloPoint | null>(null)
+  const [dragging, setDragging] = React.useState(false)
   const panelRef = React.useRef<HTMLElement>(null)
   const launcherContainerRef = React.useRef<HTMLDivElement>(null)
   const preferenceVersion = React.useRef(0)
@@ -194,15 +187,13 @@ export function WikiChatModalProvider({
     pointerId: number
     x: number
     y: number
+    origin: MiloPoint
+    point: MiloPoint
     moved: boolean
+    userSelect: string
   } | null>(null)
   const suppressClick = React.useRef(false)
-  const snapFrom = React.useRef<{
-    element: HTMLElement
-    left: number
-    top: number
-  } | null>(null)
-  const cacheKey = userId ? `milo-corner:${userId}` : null
+  const cacheKey = userId ? `milo-position:${userId}` : null
 
   React.useLayoutEffect(() => {
     activeCacheKey.current = available ? cacheKey : null
@@ -211,14 +202,15 @@ export function WikiChatModalProvider({
     queueMicrotask(() => {
       if (!active) return
       try {
-        const cached = miloCornerSchema.safeParse(
-          localStorage.getItem(cacheKey)
-        )
-        setCorner(cached.success ? cached.data : defaultMiloCorner)
+        const raw = localStorage.getItem(cacheKey)
+        const cached = miloPositionSchema
+          .nullable()
+          .safeParse(JSON.parse(raw ?? "null"))
+        setPosition(cached.success ? cached.data : null)
+        if (raw !== null && cached.success) setCachedForUser(cacheKey)
       } catch {
-        setCorner(defaultMiloCorner)
+        setPosition(null)
       }
-      setCachedForUser(cacheKey)
     })
     return () => {
       active = false
@@ -228,6 +220,11 @@ export function WikiChatModalProvider({
   React.useEffect(() => {
     if (!available || !cacheKey) return
     const controller = new AbortController()
+    let active = true
+    const timeout = window.setTimeout(() => {
+      controller.abort()
+      if (active) setCachedForUser(cacheKey)
+    }, 5000)
     const version = preferenceVersion.current
     void fetch("/api/milo/preferences", {
       signal: controller.signal,
@@ -235,36 +232,43 @@ export function WikiChatModalProvider({
     })
       .then(async (response) => (response.ok ? response.json() : null))
       .then((data) => {
-        const parsed = miloCornerSchema.safeParse(data?.corner)
+        const parsed = miloPositionSchema.nullable().safeParse(data?.position)
         if (
           !controller.signal.aborted &&
           version === preferenceVersion.current &&
           parsed.success
         ) {
-          setCorner(parsed.data)
+          setPosition(parsed.data)
           try {
-            localStorage.setItem(cacheKey, parsed.data)
+            localStorage.setItem(cacheKey, JSON.stringify(parsed.data))
           } catch {
             /* Storage is optional. */
           }
         }
       })
       .catch(() => {
-        /* Keep the cached corner if the request fails. */
+        /* Keep the cached position if the request fails. */
       })
-    return () => controller.abort()
+      .finally(() => {
+        clearTimeout(timeout)
+        if (active) setCachedForUser(cacheKey)
+      })
+    return () => {
+      active = false
+      clearTimeout(timeout)
+      controller.abort()
+    }
   }, [available, cacheKey])
 
-  const moveToCorner = React.useCallback(
-    (next: MiloCorner) => {
+  const savePosition = React.useCallback(
+    (next: MiloPosition) => {
       preferenceVersion.current++
-      setCorner(next)
+      setPosition(next)
       try {
-        if (cacheKey) localStorage.setItem(cacheKey, next)
+        if (cacheKey) localStorage.setItem(cacheKey, JSON.stringify(next))
       } catch {
         /* Storage is optional. */
       }
-      // Serialize writes so a slow earlier request cannot overwrite the latest move.
       writeQueue.current = writeQueue.current
         .catch(() => {})
         .then(async () => {
@@ -272,7 +276,7 @@ export function WikiChatModalProvider({
           await fetch("/api/milo/preferences", {
             method: "PUT",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ corner: next }),
+            body: JSON.stringify({ position: next }),
           })
         })
         .catch(() => {
@@ -282,72 +286,95 @@ export function WikiChatModalProvider({
     [cacheKey]
   )
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (!available) return
     let observed: Element | null = null
-    const measure = () => {
+    const observer = new ResizeObserver(measure)
+    function measure() {
+      const width = window.innerWidth
+      const height = window.innerHeight
       setViewport((old) =>
-        old.width === window.innerWidth && old.height === window.innerHeight
-          ? old
-          : { width: window.innerWidth, height: window.innerHeight }
+        old.width === width && old.height === height ? old : { width, height }
       )
-      setLauncherWidth(launcherRef.current?.getBoundingClientRect().width ?? 0)
+      const element =
+        isOpen && width >= 640 ? panelRef.current : launcherContainerRef.current
+      const rect = element?.getBoundingClientRect()
+      if (rect && rect.width && rect.height) {
+        setSize((old) =>
+          old.width === rect.width && old.height === rect.height
+            ? old
+            : { width: rect.width, height: rect.height }
+        )
+      }
       const bar = document.querySelector('[data-milo-avoid="bottom-right"]')
       if (bar !== observed) {
-        if (observed) resizeObserver.unobserve(observed)
+        if (observed) observer.unobserve(observed)
         observed = bar
-        if (bar) resizeObserver.observe(bar)
+        if (bar) observer.observe(bar)
       }
-      const rect = bar?.getBoundingClientRect()
+      const b = bar?.getBoundingClientRect()
       const next =
-        rect && rect.width > 0 && rect.height > 0
-          ? { left: rect.left, top: rect.top }
+        b && b.width > 0 && b.height > 0
+          ? { left: b.left, top: b.top, right: b.right, bottom: b.bottom }
           : null
       setObstruction((old) =>
-        old?.left === next?.left && old?.top === next?.top ? old : next
+        old?.left === next?.left &&
+        old?.top === next?.top &&
+        old?.right === next?.right &&
+        old?.bottom === next?.bottom
+          ? old
+          : next
       )
     }
-    const resizeObserver = new ResizeObserver(measure)
-    const mutationObserver = new MutationObserver(measure)
-    mutationObserver.observe(document.body, { childList: true, subtree: true })
+    if (panelRef.current) observer.observe(panelRef.current)
+    if (launcherContainerRef.current)
+      observer.observe(launcherContainerRef.current)
+    const mutations = new MutationObserver(measure)
+    mutations.observe(document.body, { childList: true, subtree: true })
     window.addEventListener("resize", measure)
-    const frame = requestAnimationFrame(measure)
+    window.addEventListener("orientationchange", measure)
+    measure()
     return () => {
-      cancelAnimationFrame(frame)
-      mutationObserver.disconnect()
-      resizeObserver.disconnect()
+      mutations.disconnect()
+      observer.disconnect()
       window.removeEventListener("resize", measure)
+      window.removeEventListener("orientationchange", measure)
     }
-  }, [available, isOpen, corner])
+  }, [available, isOpen])
 
-  React.useLayoutEffect(() => {
-    const from = snapFrom.current
-    if (!from || dragOffset) return
-    snapFrom.current = null
-    const rect = from.element.getBoundingClientRect()
-    if (
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
-      typeof from.element.animate === "function"
-    ) {
-      from.element.animate(
-        [
-          {
-            transform: `translate(${from.left - rect.left}px, ${from.top - rect.top}px)`,
-          },
-          { transform: "translate(0, 0)" },
-        ],
-        { duration: 180, easing: "ease-out" }
-      )
-    }
-  }, [corner, dragOffset])
+  React.useEffect(
+    () => () => {
+      if (drag.current?.moved)
+        document.body.style.userSelect = drag.current.userSelect
+    },
+    []
+  )
+
+  const desktop = viewport.width >= 640
+  const actualSize =
+    size.width && size.height
+      ? size
+      : isOpen && desktop
+        ? {
+            width: Math.min(400, viewport.width - 20),
+            height: Math.min(640, viewport.height - 20),
+          }
+        : { width: desktop ? 100 : 48, height: desktop ? 40 : 48 }
+  const placed = placeMilo(
+    position,
+    viewport,
+    actualSize,
+    obstruction,
+    dragPoint ?? undefined
+  )
+  const isLeft = placed.x + actualSize.width / 2 < viewport.width / 2
+  const isTop = placed.y + actualSize.height / 2 < viewport.height / 2
 
   const startDrag = (
     event: React.PointerEvent<HTMLElement>,
     header: boolean
   ) => {
-    if (window.innerWidth < 640 || !event.isPrimary || event.button !== 0)
-      return
-    // Portalled children (the corner menu) bubble React events through here.
+    if ((header && !desktop) || !event.isPrimary || event.button !== 0) return
     if (!event.currentTarget.contains(event.target as Node)) return
     if (
       header &&
@@ -356,22 +383,37 @@ export function WikiChatModalProvider({
       )
     )
       return
+    event.preventDefault()
+    const element = header ? panelRef.current : launcherContainerRef.current
+    const rect = element?.getBoundingClientRect()
+    const origin = rect ? { x: rect.left, y: rect.top } : placed
     drag.current = {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
+      origin,
+      point: origin,
       moved: false,
+      userSelect: document.body.style.userSelect,
     }
-    event.currentTarget.setPointerCapture?.(event.pointerId)
+    event.currentTarget.setPointerCapture(event.pointerId)
   }
   const moveDrag = (event: React.PointerEvent<HTMLElement>) => {
     const current = drag.current
     if (!current || current.pointerId !== event.pointerId) return
-    const x = event.clientX - current.x
-    const y = event.clientY - current.y
-    if (!current.moved && Math.hypot(x, y) < 6) return
-    current.moved = true
-    setDragOffset({ x, y })
+    const dx = event.clientX - current.x
+    const dy = event.clientY - current.y
+    if (!current.moved && Math.hypot(dx, dy) < 4) return
+    if (!current.moved) {
+      current.moved = true
+      document.body.style.userSelect = "none"
+      setDragging(true)
+    }
+    current.point = placeMilo(position, viewport, actualSize, obstruction, {
+      x: current.origin.x + dx,
+      y: current.origin.y + dy,
+    })
+    setDragPoint(current.point)
   }
   const endDrag = (
     event: React.PointerEvent<HTMLElement>,
@@ -380,80 +422,75 @@ export function WikiChatModalProvider({
     const current = drag.current
     if (!current || current.pointerId !== event.pointerId) return
     drag.current = null
-    if (current.moved && !cancelled) {
-      const element = isOpen ? panelRef.current : launcherContainerRef.current
-      if (element) {
-        const rect = element.getBoundingClientRect()
-        snapFrom.current = { element, left: rect.left, top: rect.top }
-      }
-      suppressClick.current = !isOpen
-      if (!isOpen)
-        window.setTimeout(() => {
-          suppressClick.current = false
-        }, 0)
-      moveToCorner(
-        nearestMiloCorner(
-          event.clientX,
-          event.clientY,
-          window.innerWidth,
-          window.innerHeight
-        )
-      )
+    if (current.moved) {
+      document.body.style.userSelect = current.userSelect
+      setDragging(false)
+      suppressClick.current = true
+      window.setTimeout(() => {
+        suppressClick.current = false
+      }, 0)
+      if (!cancelled)
+        savePosition(normalizeMilo(current.point, viewport, actualSize))
     }
-    setDragOffset(null)
+    setDragPoint(null)
   }
-
-  const isTop = corner.startsWith("top")
-  const isLeft = corner.endsWith("left")
-  const desktop = viewport.width >= 640
-  const baseBottom = desktop ? 24 : 16
-  const panelWidth = Math.min(400, viewport.width - 32)
-  const targetWidth = isOpen && desktop ? panelWidth : launcherWidth
-  const overlapsBar =
-    !isLeft ||
-    (obstruction !== null && baseBottom + targetWidth > obstruction.left)
-  const bottomOffset = miloBottomOffset(
-    baseBottom,
-    viewport.height,
-    obstruction?.top ?? null,
-    overlapsBar
-  )
-  const launcherBottomOffset = miloBottomOffset(
-    baseBottom,
-    viewport.height,
-    obstruction?.top ?? null,
-    !isLeft ||
-      (obstruction !== null && baseBottom + launcherWidth > obstruction.left)
-  )
-  // On phones the panel is full screen, but it stops above the editor's Save bar.
-  const phoneAboveBar = isOpen && !desktop && obstruction !== null
-  const positionStyle = {
-    "--milo-bottom": `${bottomOffset}px`,
-    ...(phoneAboveBar && obstruction
-      ? {
-          bottom: miloBottomOffset(0, viewport.height, obstruction.top, true),
-          height: "auto",
-        }
-      : {}),
-    visibility: cacheKey && cachedForUser === cacheKey ? undefined : "hidden",
-    transform: dragOffset
-      ? `translate(${dragOffset.x}px, ${dragOffset.y}px)`
-      : undefined,
-  } as React.CSSProperties
+  const moveByKeyboard = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (
+      !desktop ||
+      !event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey
+    )
+      return
+    const delta: Record<string, MiloPoint> = {
+      ArrowLeft: { x: -24, y: 0 },
+      ArrowRight: { x: 24, y: 0 },
+      ArrowUp: { x: 0, y: -24 },
+      ArrowDown: { x: 0, y: 24 },
+    }
+    const step = delta[event.key]
+    if (!step) return
+    event.preventDefault()
+    const next = placeMilo(position, viewport, actualSize, obstruction, {
+      x: placed.x + step.x,
+      y: placed.y + step.y,
+    })
+    savePosition(normalizeMilo(next, viewport, actualSize))
+  }
+  const ready = cacheKey && cachedForUser === cacheKey && viewport.width > 0
+  const positionStyle: React.CSSProperties = {
+    left: placed.x,
+    top: placed.y,
+    visibility: ready ? undefined : "hidden",
+  }
+  const panelStyle: React.CSSProperties = desktop
+    ? {
+        ...positionStyle,
+        ...(obstruction
+          ? { maxHeight: Math.max(0, obstruction.top - 20) }
+          : {}),
+      }
+    : {
+        visibility: ready ? undefined : "hidden",
+        ...(obstruction
+          ? {
+              bottom: Math.max(0, viewport.height - obstruction.top + 10),
+              height: "auto",
+            }
+          : {}),
+      }
 
   React.useLayoutEffect(() => {
     if (!available) return
     const body = document.body
-    body.dataset.miloLauncher = isTop ? "top" : "bottom"
-    body.style.setProperty(
-      "--milo-launcher-clearance",
-      `${launcherBottomOffset + (desktop ? 40 : 48) + 8}px`
-    )
+    body.dataset.miloLauncher = "bottom"
+    body.style.setProperty("--milo-launcher-clearance", "72px")
     return () => {
       delete body.dataset.miloLauncher
       body.style.removeProperty("--milo-launcher-clearance")
     }
-  }, [available, isTop, launcherBottomOffset, desktop])
+  }, [available])
 
   React.useEffect(() => {
     if (!available) return
@@ -606,7 +643,7 @@ export function WikiChatModalProvider({
         <>
           <div
             ref={launcherContainerRef}
-            className={`fixed z-50 ${isLeft ? "left-4 sm:left-6" : "right-4 sm:right-6"} ${isTop ? "top-20" : "bottom-[var(--milo-bottom)]"}`}
+            className="fixed z-50"
             style={positionStyle}
             hidden={isOpen}
           >
@@ -674,7 +711,7 @@ export function WikiChatModalProvider({
                   aria-label="Ask Milo"
                   aria-expanded={isOpen}
                   aria-controls={panelId}
-                  className="size-12 rounded-full shadow-lg sm:h-10 sm:w-auto sm:touch-none sm:px-4"
+                  className="size-12 touch-none rounded-full shadow-lg sm:h-10 sm:w-auto sm:px-4"
                 >
                   <span aria-hidden="true">✦</span>
                   <span className="hidden sm:inline">Ask Milo</span>
@@ -688,20 +725,33 @@ export function WikiChatModalProvider({
           <section
             id={panelId}
             ref={panelRef}
-            style={positionStyle}
+            style={panelStyle}
             role="dialog"
             aria-labelledby="milo-panel-title"
+            aria-describedby="milo-panel-description"
+            onKeyDown={moveByKeyboard}
             hidden={!isOpen}
-            className={`fixed inset-0 z-50 flex h-dvh flex-col overflow-hidden border bg-background [padding-top:env(safe-area-inset-top)] [padding-right:env(safe-area-inset-right)] [padding-bottom:env(safe-area-inset-bottom)] [padding-left:env(safe-area-inset-left)] text-foreground shadow-xl sm:inset-auto sm:h-[min(640px,calc(100dvh-80px-var(--milo-bottom)))] sm:w-[min(400px,calc(100vw-2rem))] sm:rounded-xl sm:p-0 ${isLeft ? "sm:left-6" : "sm:right-6"} ${isTop ? "sm:top-20" : "sm:bottom-[var(--milo-bottom)]"}`}
+            className="fixed inset-0 z-50 flex h-dvh flex-col overflow-hidden border bg-background [padding-top:env(safe-area-inset-top)] [padding-right:env(safe-area-inset-right)] [padding-bottom:env(safe-area-inset-bottom)] [padding-left:env(safe-area-inset-left)] text-foreground shadow-xl sm:inset-auto sm:h-[min(640px,calc(100dvh-20px))] sm:w-[min(400px,calc(100vw-20px))] sm:rounded-xl sm:p-0"
           >
             <div
-              className="flex shrink-0 items-center justify-between border-b px-4 py-3 sm:cursor-grab sm:touch-none sm:active:cursor-grabbing"
+              className={`flex shrink-0 items-center justify-between border-b px-4 py-3 sm:touch-none ${dragging ? "sm:cursor-grabbing" : "sm:cursor-grab"}`}
+              onClickCapture={(event) => {
+                if (suppressClick.current) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  suppressClick.current = false
+                }
+              }}
               onPointerDown={(event) => startDrag(event, true)}
               onPointerMove={moveDrag}
               onPointerUp={(event) => endDrag(event)}
               onPointerCancel={(event) => endDrag(event, true)}
               onLostPointerCapture={(event) => endDrag(event, true)}
             >
+              <p id="milo-panel-description" className="sr-only">
+                On desktop, drag the title bar or use Alt and the arrow keys to
+                move Milo.
+              </p>
               <h2 id="milo-panel-title" className="font-semibold">
                 Milo
               </h2>
@@ -734,41 +784,6 @@ export function WikiChatModalProvider({
                   </TooltipTrigger>
                   <TooltipContent>History</TooltipContent>
                 </Tooltip>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Move to corner"
-                      className="hidden sm:inline-flex"
-                    >
-                      <Move aria-hidden="true" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuRadioGroup
-                      value={corner}
-                      onValueChange={(value) => {
-                        const parsed = miloCornerSchema.safeParse(value)
-                        if (parsed.success) moveToCorner(parsed.data)
-                      }}
-                    >
-                      <DropdownMenuRadioItem value="top-left">
-                        Top left
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="top-right">
-                        Top right
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="bottom-left">
-                        Bottom left
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="bottom-right">
-                        Bottom right
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
                 <Button
                   ref={closeRef}
                   type="button"
