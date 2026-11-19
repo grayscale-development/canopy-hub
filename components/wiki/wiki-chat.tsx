@@ -8,6 +8,7 @@ import {
   FileTextIcon,
   PaperclipIcon,
   SendIcon,
+  SquareIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
 } from "lucide-react"
@@ -53,6 +54,13 @@ interface ChatMessage {
   flagged?: boolean
   rating?: "up" | "down"
   status?: string
+  stopped?: boolean
+  stopRequested?: boolean
+  error?: boolean
+  replyTo?: string
+  trustedLinks?: boolean
+  retryQuestion?: string
+  retryFile?: File | null
 }
 
 const activeThreadKey = "milo-active-thread"
@@ -131,10 +139,12 @@ function MessageContent({
   content,
   citations = [],
   onNavigate,
+  trustedLinks,
 }: {
   content: string
   citations?: Citation[]
   onNavigate?: () => void
+  trustedLinks?: boolean
 }) {
   return (
     <div className="space-y-3 text-sm leading-6 break-words">
@@ -151,7 +161,7 @@ function MessageContent({
           ),
           a: ({ href, children }) =>
             href &&
-            (!isWikiTagUrl(href) ||
+            ((trustedLinks && !isWikiTagUrl(href)) ||
               citations.some(
                 (citation) =>
                   citation.url === href || citation.url?.split("#")[0] === href
@@ -206,8 +216,11 @@ export function WikiChat({
   const composer = React.useRef<HTMLTextAreaElement>(null)
   const threadView = React.useRef<HTMLDivElement>(null)
   const nearBottom = React.useRef(true)
+  const activeRequest = React.useRef<AbortController | null>(null)
+  const activeStop = React.useRef<(() => void) | null>(null)
   const [pending, setPending] = React.useState(false)
   const [loadingHistory, setLoadingHistory] = React.useState(true)
+  const [restoreError, setRestoreError] = React.useState(false)
   const consumedPromptRef = React.useRef<string | null>(null)
   const isMountedRef = React.useRef(false)
 
@@ -250,6 +263,8 @@ export function WikiChat({
         if (!response.ok) {
           if (response.status === 403 || response.status === 404) {
             localStorage.removeItem(activeThreadKey)
+          } else if (active) {
+            setRestoreError(true)
           }
           return
         }
@@ -262,17 +277,71 @@ export function WikiChat({
                 (message: ChatMessage) =>
                   message.role === "user" || message.role === "assistant"
               )
-              .map((message: ChatMessage) => ({
-                ...message,
-                serverId: message.id,
-                cards: Array.isArray(message.cards)
-                  ? message.cards.map(displayCard)
-                  : [],
-              }))
+              .flatMap(
+                (message: ChatMessage, index: number, all: ChatMessage[]) => {
+                  if (
+                    message.role === "assistant" &&
+                    message.stopped &&
+                    message.replyTo &&
+                    all.some(
+                      (item) =>
+                        item.id === message.replyTo && item.stopRequested
+                    )
+                  )
+                    return []
+                  // Replies to a stopped question are placed right after it below.
+                  if (
+                    message.role === "assistant" &&
+                    !message.stopped &&
+                    message.replyTo &&
+                    all.some(
+                      (item) =>
+                        item.id === message.replyTo && item.stopRequested
+                    )
+                  )
+                    return []
+                  const restore = (item: ChatMessage) => ({
+                    ...item,
+                    serverId: item.id,
+                    cards: Array.isArray(item.cards)
+                      ? item.cards.map(displayCard)
+                      : [],
+                  })
+                  if (message.role === "user" && message.stopRequested) {
+                    // A stop that reached the server after the answer was saved keeps
+                    // the full answer; otherwise show the saved partial or the Stopped line.
+                    const partial =
+                      all.find(
+                        (item) =>
+                          item.role === "assistant" &&
+                          !item.stopped &&
+                          item.replyTo === message.id
+                      ) ??
+                      all.find(
+                        (item) =>
+                          item.role === "assistant" &&
+                          item.stopped &&
+                          item.replyTo === message.id
+                      )
+                    return [
+                      restore(message),
+                      partial
+                        ? restore(partial)
+                        : {
+                            id: `stopped-${message.id}`,
+                            role: "assistant" as const,
+                            content: "",
+                            stopped: true,
+                          },
+                    ]
+                  }
+                  return [restore(message)]
+                }
+              )
           )
         }
       } catch {
-        // A failed restore should not prevent a new conversation.
+        if (active) setRestoreError(true)
       } finally {
         if (active) setLoadingHistory(false)
       }
@@ -307,8 +376,49 @@ export function WikiChat({
           id: assistantId,
           role: "assistant",
           content: "",
+          retryQuestion: question,
+          retryFile: attachment,
         },
       ])
+      setInput("")
+      setFile(null)
+      setFileError("")
+      if (fileInput.current) fileInput.current.value = ""
+      const abortController = new AbortController()
+      activeRequest.current = abortController
+      let sentThreadId = threadId
+      let sentUserId: string | undefined
+      let completed = false
+      let timedOut = false
+      let stopRequested = false
+      const finishStop = () => {
+        if (!sentThreadId || !sentUserId) return
+        void fetch("/api/wiki/chat/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            threadId: sentThreadId,
+            userMessageId: sentUserId,
+          }),
+          keepalive: true,
+        }).catch(() => {})
+        abortController.abort()
+      }
+      const stop = () => {
+        stopRequested = true
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId ? { ...message, stopped: true } : message
+          )
+        )
+        setPending(false)
+        finishStop()
+      }
+      activeStop.current = stop
+      const timeout = setTimeout(() => {
+        timedOut = true
+        abortController.abort()
+      }, 60_000)
       setPending(true)
 
       try {
@@ -325,6 +435,7 @@ export function WikiChat({
         }
         const chatRequest = fetch("/api/wiki/chat", {
           method: "POST",
+          signal: abortController.signal,
           ...(form
             ? { body: form }
             : {
@@ -341,16 +452,9 @@ export function WikiChat({
 
         const response = await chatRequest
         if (!response.ok || !response.body) {
-          const payload = (await response.json().catch(() => null)) as {
-            error?: string
-          } | null
-          throw new Error(payload?.error ?? "Chat request failed.")
+          throw new Error("Chat request failed.")
         }
 
-        setInput("")
-        setFile(null)
-        setFileError("")
-        if (fileInput.current) fileInput.current.value = ""
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ""
@@ -373,12 +477,28 @@ export function WikiChat({
 
             const data = JSON.parse(line.slice(6)) as MiloStreamEvent
             if (data.type === "meta") {
+              sentThreadId = data.threadId
+              sentUserId = data.userMessageId
               setThreadId(data.threadId)
               try {
                 localStorage.setItem(activeThreadKey, data.threadId)
               } catch {
                 /* Storage is optional. */
               }
+              if (stopRequested) {
+                finishStop()
+                throw new DOMException("Aborted", "AbortError")
+              }
+            }
+            if (stopRequested) continue
+            if (data.type === "status") {
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantId
+                    ? { ...message, status: data.text }
+                    : message
+                )
+              )
             }
             if (data.type === "card") {
               const event = cardEventSchema.safeParse(data)
@@ -393,6 +513,9 @@ export function WikiChat({
                             ...(message.cards ?? []),
                             displayCard(event.data.card),
                           ],
+                          error:
+                            (event.data.card as { type?: string })?.type ===
+                            "error",
                         }
                       : message
                   )
@@ -409,6 +532,7 @@ export function WikiChat({
               )
             }
             if (data.type === "done") {
+              completed = true
               setThreadId(data.threadId)
               setMessages((current) =>
                 current.map((message) =>
@@ -416,7 +540,10 @@ export function WikiChat({
                     ? {
                         ...message,
                         citations: data.citations,
+                        content: data.answer ?? message.content,
                         abstained: data.abstained,
+                        trustedLinks: data.trustedLinks,
+                        error: data.error ?? message.error,
                         serverId: data.assistantMessageId ?? message.serverId,
                       }
                     : message
@@ -425,25 +552,73 @@ export function WikiChat({
             }
           }
         }
-      } catch (error) {
+        if (!completed) throw new Error("Chat stream ended unexpectedly.")
+      } catch {
         if (isMountedRef.current) {
+          const stopped =
+            stopRequested || (abortController.signal.aborted && !timedOut)
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantId
                 ? {
                     ...message,
-                    content:
-                      error instanceof Error
-                        ? error.message
-                        : "Unable to answer right now.",
+                    ...(stopped
+                      ? { stopped: true }
+                      : {
+                          content: timedOut
+                            ? "Milo took too long. Please try again."
+                            : "Milo couldn't answer right now. Please try again.",
+                          error: true,
+                        }),
                   }
                 : message
             )
           )
+          if (stopped && sentThreadId && sentUserId) {
+            const stoppedThread = sentThreadId
+            const stoppedUser = sentUserId
+            // The server persists after the disconnected stream has closed.
+            void (async () => {
+              for (let attempt = 0; attempt < 8; attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, 250))
+                if (!isMountedRef.current) break
+                try {
+                  const response = await fetch(
+                    `/api/wiki/chat?threadId=${encodeURIComponent(stoppedThread)}`
+                  )
+                  if (!response.ok) continue
+                  const data = (await response.json()) as {
+                    messages?: ChatMessage[]
+                  }
+                  const saved = data.messages?.find(
+                    (item) => item.replyTo === stoppedUser && item.stopped
+                  )
+                  if (saved?.role === "assistant" && saved.stopped) {
+                    if (isMountedRef.current)
+                      setMessages((current) =>
+                        current.map((item) =>
+                          item.id === assistantId
+                            ? { ...item, serverId: saved.id }
+                            : item
+                        )
+                      )
+                    break
+                  }
+                } catch {
+                  /* A later reload can recover the saved message. */
+                }
+              }
+            })()
+          }
         }
       } finally {
+        clearTimeout(timeout)
         if (isMountedRef.current) {
-          setPending(false)
+          if (activeRequest.current === abortController) {
+            activeRequest.current = null
+            activeStop.current = null
+            setPending(false)
+          }
         }
       }
     },
@@ -543,6 +718,23 @@ export function WikiChat({
             el.scrollHeight - el.scrollTop - el.clientHeight < 80
         }}
       >
+        {restoreError ? (
+          <div role="alert" className="mb-4 text-sm text-muted-foreground">
+            <p>
+              Couldn&apos;t load the previous chat. Reload to try again, or
+              start a new question.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </Button>
+          </div>
+        ) : null}
         {messages.length ? (
           <div className="space-y-6">
             {messages.map((answer, index) =>
@@ -581,9 +773,41 @@ export function WikiChat({
                             content={answer.content}
                             citations={answer.citations}
                             onNavigate={onNavigate}
+                            trustedLinks={answer.trustedLinks}
                           />
                         ) : null}
                       </div>
+                      {answer.stopped ? (
+                        <p
+                          role="status"
+                          className="mt-2 text-xs text-muted-foreground"
+                        >
+                          Stopped. Ask another question to continue.
+                        </p>
+                      ) : null}
+                      {answer.error && !pending ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => {
+                            const previous = messages[index - 1]
+                            if (
+                              answer.retryQuestion !== undefined ||
+                              answer.retryFile
+                            )
+                              void sendQuestion(
+                                answer.retryQuestion ?? "",
+                                answer.retryFile
+                              )
+                            else if (previous?.role === "user")
+                              void sendQuestion(previous.content)
+                          }}
+                        >
+                          Retry
+                        </Button>
+                      ) : null}
                       <Sources
                         citations={answer.citations ?? []}
                         onNavigate={onNavigate}
@@ -636,7 +860,7 @@ export function WikiChat({
                           ) : null}
                         </div>
                       ) : null}
-                      {!pending && answer.serverId ? (
+                      {!pending && answer.serverId && !answer.error ? (
                         <div className="mt-3 flex items-center gap-1">
                           <Button
                             type="button"
@@ -882,25 +1106,32 @@ export function WikiChat({
                 void sendQuestion(input, file)
               }
             }}
-            rows={Math.min(8, Math.max(1, input.split("\n").length))}
+            rows={Math.min(6, Math.max(1, input.split("\n").length))}
             placeholder="Ask a question or paste source text"
             aria-label="Ask a follow-up"
             disabled={pending || loadingHistory}
-            className="field-sizing-content max-h-40 min-h-10 min-w-0 flex-1 resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            className="field-sizing-content max-h-40 min-h-10 min-w-0 flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           />
           <Button
-            type="submit"
-            size="sm"
+            type={pending ? "button" : "submit"}
+            size="icon"
+            aria-label={pending ? "Stop" : "Send follow-up"}
+            onClick={
+              pending
+                ? () => {
+                    activeStop.current?.()
+                  }
+                : undefined
+            }
             disabled={
-              pending ||
               loadingHistory ||
-              (!input.trim() && !file) ||
-              input.length > MILO_SOURCE_MAX_CHARS
+              (!pending &&
+                ((!input.trim() && !file) ||
+                  input.length > MILO_SOURCE_MAX_CHARS))
             }
             className="cursor-pointer"
           >
-            <SendIcon />
-            <span className="sr-only">Send follow-up</span>
+            {pending ? <SquareIcon /> : <SendIcon />}
           </Button>
         </div>
         {input.length > MILO_SOURCE_MAX_CHARS ? (

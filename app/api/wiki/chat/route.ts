@@ -30,9 +30,11 @@ import {
   type MiloStreamEvent,
 } from "@/lib/milo/chat-cards"
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
+import { logAiAction } from "@/lib/ai-action-log"
 import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { miloPagePath } from "@/lib/milo/page-index"
+import { trimMiloHistory } from "@/lib/milo/history"
 
 export const runtime = "nodejs"
 
@@ -54,47 +56,6 @@ function mapCitationRow(row: {
     url: row.url,
     snippet: row.snippet,
   }
-}
-
-function streamEvents(events: MiloStreamEvent[]) {
-  const encoder = new TextEncoder()
-
-  return new Response(
-    new ReadableStream({
-      async start(controller) {
-        for (const event of events) {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-          )
-          await new Promise((resolve) => setTimeout(resolve, 8))
-        }
-        controller.close()
-      },
-    }),
-    {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    }
-  )
-}
-
-function getChatErrorMessage(error: unknown) {
-  const message =
-    error instanceof Error
-      ? error.message
-      : "Unable to answer from the knowledge base."
-
-  if (
-    message === "Missing OPENAI_API_KEY." ||
-    message === "Missing OPENAI_CHAT_MODEL."
-  ) {
-    return "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app."
-  }
-
-  return message
 }
 
 export async function GET(request: Request) {
@@ -159,7 +120,7 @@ export async function GET(request: Request) {
 
   const { data: messages, error: messagesError } = await supabase
     .from("ai_chat_messages")
-    .select("id,role,content,created_at,metadata")
+    .select("id,role,content,created_at,metadata,model")
     .eq("thread_id", thread.id)
     .order("created_at", { ascending: true })
 
@@ -329,6 +290,13 @@ export async function GET(request: Request) {
           flagged: flaggedMessageIds.has(message.id),
           rating: ratingsByMessage.get(message.id),
           abstained: message.metadata?.abstained === true,
+          stopped: message.metadata?.stopped === true,
+          stopRequested: message.metadata?.stopRequested === true,
+          error: message.metadata?.error === true,
+          replyTo: message.metadata?.replyTo,
+          trustedLinks:
+            message.metadata?.trustedLinks === true ||
+            (message.model === null && message.metadata?.abstained !== true),
         }
       })
   )
@@ -544,6 +512,14 @@ export async function POST(request: Request) {
     threadId = thread.id
   }
 
+  const { data: priorMessages } = await supabase
+    .from("ai_chat_messages")
+    .select("role,content,metadata")
+    .eq("thread_id", threadId)
+    .order("created_at", { ascending: false })
+    .limit(30)
+  const history = trimMiloHistory([...(priorMessages ?? [])].reverse())
+
   const { data: userMessage, error: userMessageError } = await supabase
     .from("ai_chat_messages")
     .insert({
@@ -572,352 +548,480 @@ export async function POST(request: Request) {
     .eq("id", threadId)
     .eq("user_id", user.id)
 
-  try {
-    const userContext = await getMiloUserContext(supabase, user)
-    const sourceParts = splitSource(message, Boolean(file))
-    const hasSource = sourceParts.hasSource || Boolean(file)
-    const instruction = sourceParts.instruction || (!hasSource ? message : "")
-    const intent =
-      editIntent(instruction) &&
-      !/^(?:how|what|where|why|when|who)\b/i.test(instruction)
-    let state: MiloEditState | undefined
-    let workflowAnswer = ""
-    const cards: MiloCard[] = []
-    const canManage = userContext.capabilities["wiki.manage"]
-    const managerNames = userContext.wikiManagers?.join(", ")
-    const sourceQuestion =
-      hasSource && sourceParts.instruction.includes("?") && !intent
-    if (sourceQuestion) {
-      workflowAnswer = await answerMiloSourceQuestion(
-        file ? fileText : sourceParts.source,
-        sourceParts.instruction
-      )
-    } else if (!canManage && hasSource && !intent) {
-      state = {
-        stage: "awaiting_source_question",
-        sourceMessageId: userMessage.id,
-      }
-      workflowAnswer = "What would you like to know about this source?"
-    } else if (
-      !canManage &&
-      (hasSource ||
-        previousState?.stage === "awaiting_source" ||
-        previousState?.stage === "awaiting_intent" ||
-        previousState?.stage === "awaiting_confirmation" ||
-        previousState?.stage === "page_confirmed")
-    ) {
-      workflowAnswer = `You don't have permission to edit the wiki. ${managerNames ? `Please contact ${managerNames}.` : "Please contact a Wiki manager."}`
-    } else if (
-      canManage &&
-      !hasSource &&
-      previousState?.stage === "page_confirmed"
-    ) {
-      const rounds = previousState.rounds ?? 0
-      if (rounds >= MAX_MILO_TWEAKS) {
-        state = previousState
-        workflowAnswer =
-          "That's the limit for adjustments to this proposal. Start a new chat to make more changes."
-      } else {
-        const feedback = [...(previousState.feedback ?? []), message]
-        const { prepareMiloProposal } = await import("@/lib/milo/proposed-edit")
-        const prepared = await prepareMiloProposal({
-          supabase,
-          pageId: previousState.pageId,
-          extraction: previousState.extraction,
-          baseRevisionId: previousState.baseRevisionId,
-          feedback,
-        })
-        state = {
-          ...previousState,
-          baseRevisionId: prepared.baseRevisionId,
-          rounds: previousState.rounds === undefined ? 0 : rounds + 1,
-          feedback,
-        }
-        cards.push(prepared.card)
-        workflowAnswer =
-          "Here's the revised proposal. No changes have been made to the page."
-      }
-    } else if (
-      canManage &&
-      !hasSource &&
-      previousState?.stage === "awaiting_confirmation" &&
-      confirmed(message) &&
-      previousState.extraction.facts.length &&
-      !previousState.extraction.unclear.length
-    ) {
-      state = { ...previousState, stage: "ready_to_find_page" }
-      const candidates = await findPageCandidates(
-        supabase,
-        previousState.extraction.facts
-      )
-      cards.push({
-        type: "page-candidates",
-        id: "page-candidates",
-        title: "Is this the page you mean?",
-        candidates,
-        current: 0,
-      })
-      workflowAnswer = candidates.length
-        ? "Here is the closest match I found."
-        : "I couldn't find an editable matching page."
-    } else if (
-      canManage &&
-      !hasSource &&
-      previousState?.stage === "ready_to_find_page"
-    ) {
-      state = previousState
-      const candidates = await findPageCandidates(
-        supabase,
-        previousState.extraction.facts
-      )
-      cards.push({
-        type: "page-candidates",
-        id: "page-candidates",
-        title: "Is this the page you mean?",
-        candidates,
-        current: 0,
-      })
-      workflowAnswer = candidates.length
-        ? "Here is the closest match I found."
-        : "I couldn't find an editable matching page."
-    } else if (
-      canManage &&
-      !hasSource &&
-      previousState?.stage === "awaiting_confirmation"
-    ) {
-      if (confirmed(message)) {
-        state = previousState
-        workflowAnswer = previousState.extraction.unclear.length
-          ? `Please clarify: ${previousState.extraction.unclear.join(" ")}`
-          : "Please provide a change to add before confirming."
-      } else if (/^(?:no|nope|not quite)[.!\s]*$/i.test(message)) {
-        state = previousState
-        workflowAnswer = "What should I change or clarify in the list?"
-      } else {
-        const { data: original } = await supabase
-          .from("ai_chat_messages")
-          .select("content")
-          .eq("thread_id", threadId)
-          .eq("id", previousState.sourceMessageId)
-          .maybeSingle()
-        if (!original?.content) throw new Error("Source message not found.")
-        const extraction = await extractMiloFacts(original.content, message)
-        state = {
-          stage: "awaiting_confirmation",
-          sourceMessageId: previousState.sourceMessageId,
-          extraction,
-        }
-        workflowAnswer = formatMiloExtraction(extraction)
-      }
-    } else if (
-      !hasSource &&
-      ((canManage && previousState?.stage === "awaiting_intent") ||
-        previousState?.stage === "awaiting_source_question")
-    ) {
-      if (!canManage && intent) {
-        workflowAnswer = `You don't have permission to edit the wiki. ${managerNames ? `Please contact ${managerNames}.` : "Please contact a Wiki manager."}`
-      } else if (/^(?:no|nope)[.!\s]*$/i.test(message)) {
-        state = {
-          stage: "awaiting_source_question",
-          sourceMessageId: previousState.sourceMessageId,
-        }
-        workflowAnswer = "Okay. What would you like to know about the source?"
-      } else {
-        const { data: original } = await supabase
-          .from("ai_chat_messages")
-          .select("content")
-          .eq("thread_id", threadId)
-          .eq("id", previousState.sourceMessageId)
-          .maybeSingle()
-        if (!original?.content) throw new Error("Source message not found.")
-        if (
-          intent ||
-          (previousState.stage === "awaiting_intent" && confirmed(message))
-        ) {
-          const extraction = await extractMiloFacts(original.content)
-          state = {
-            stage: "awaiting_confirmation",
-            sourceMessageId: previousState.sourceMessageId,
-            extraction,
-          }
-          workflowAnswer = formatMiloExtraction(extraction)
-        } else {
-          workflowAnswer = await answerMiloSourceQuestion(
-            original.content,
-            message
-          )
-        }
-      }
-    } else if (
-      canManage &&
-      (hasSource || previousState?.stage === "awaiting_source")
-    ) {
-      if (intent || previousState?.stage === "awaiting_source") {
-        const extraction = await extractMiloFacts(
-          file ? fileText : sourceParts.source
-        )
-        state = {
-          stage: "awaiting_confirmation",
-          sourceMessageId: userMessage.id,
-          extraction,
-        }
-        workflowAnswer = formatMiloExtraction(extraction)
-      } else {
-        state = { stage: "awaiting_intent", sourceMessageId: userMessage.id }
-        workflowAnswer =
-          "Would you like me to extract changes from this for the wiki?"
-      }
-    } else if (
-      canManage &&
-      intent &&
-      !hasSource &&
-      /\b(?:wiki|this|it)\b/i.test(message)
-    ) {
-      state = { stage: "awaiting_source" }
-      workflowAnswer =
-        "Paste the source text or attach a file, and I'll extract the changes."
-    }
-    const result = workflowAnswer
-      ? {
-          answer: workflowAnswer,
-          model: "milo-edit-workflow",
-          citations: [],
-          metadata: state ? { miloEdit: state } : {},
-        }
-      : await answerKnowledgeQuestion({
-          supabase,
-          question: message,
-          userContext,
-          ...(pageContext ? { pageContext } : {}),
-        })
-    // Model text and model/tool metadata are never interpreted as actionable cards.
-    const metadata: Record<string, unknown> =
-      "metadata" in result && result.metadata ? { ...result.metadata } : {}
-    const citationDetails = result.citations
-      .filter((citation) => citation.updatedAt || citation.updatedBy)
-      .map((citation) => ({
-        knowledgeChunkId: citation.knowledgeChunkId,
-        updatedAt: citation.updatedAt,
-        updatedBy: citation.updatedBy,
-      }))
-    if (citationDetails.length) metadata.citationDetails = citationDetails
-    const citationIds = result.citations.map(() => crypto.randomUUID())
-    if (citationIds.length) metadata.citationOrder = citationIds
-    delete metadata.cards
-    if (cards.length)
-      metadata.cards = cards.map((card) => miloCardSchema.parse(card))
-    const { data: assistantMessage, error: assistantMessageError } =
-      await supabase
-        .from("ai_chat_messages")
-        .insert({
-          thread_id: threadId,
-          user_id: user.id,
-          role: "assistant",
-          content: result.answer,
-          model: result.model,
-          metadata,
-        })
-        .select("id")
-        .single()
-
-    if (assistantMessageError) {
-      return NextResponse.json(
-        { error: assistantMessageError.message },
-        { status: 400 }
-      )
-    }
-
-    const proposal = cards.find((card) => card.type === "proposed-edit")
-    if (proposal && state?.stage === "page_confirmed") {
-      await saveMiloProposal({
-        threadId,
-        messageId: assistantMessage.id,
-        userId: user.id,
-        card: proposal,
-        state,
-      })
-    }
-
-    if (result.citations.length) {
-      const { error: citationError } = await supabase
-        .from("ai_chat_citations")
-        .insert(
-          result.citations.map((citation, index) => ({
-            id: citationIds[index],
-            message_id: assistantMessage.id,
-            knowledge_source_id: citation.knowledgeSourceId ?? null,
-            knowledge_chunk_id: citation.knowledgeChunkId ?? null,
-            title: citation.title,
-            url: citation.url,
-            snippet: citation.snippet,
-          }))
-        )
-
-      if (citationError) {
-        return NextResponse.json(
-          { error: citationError.message },
-          { status: 400 }
-        )
-      }
-    }
-
-    const words = result.answer.split(/(\s+)/).filter(Boolean)
-    return streamEvents([
-      { type: "meta", threadId },
-      ...words.map((token) => ({ type: "token" as const, token })),
-      ...cardEvents(assistantMessage.id, cards),
-      {
-        type: "done",
-        threadId,
-        userMessageId: userMessage.id,
-        assistantMessageId: assistantMessage.id,
-        citations: result.citations.map((citation) => ({
-          title: citation.title,
-          url: citation.url,
-          snippet: citation.snippet,
-          updatedAt: citation.updatedAt,
-          updatedBy: citation.updatedBy,
-        })),
-        abstained: metadata.abstained === true,
-      },
-    ])
-  } catch (error) {
-    const answer =
-      file || message.includes("\n") || previousState
-        ? "Couldn't process the source. Please try again."
-        : getChatErrorMessage(error)
-    const cards: MiloCard[] = [
-      miloCardSchema.parse({ type: "error", id: "error", message: answer }),
-    ]
-
-    const { data: assistantMessage } = await supabase
+  const cancellation = new AbortController()
+  const abort = () => cancellation.abort()
+  if (request.signal.aborted) abort()
+  else request.signal.addEventListener("abort", abort, { once: true })
+  const checkStop = async () => {
+    cancellation.signal.throwIfAborted()
+    const { data, error } = await supabase
       .from("ai_chat_messages")
-      .insert({
-        thread_id: threadId,
-        user_id: user.id,
-        role: "assistant",
-        content: answer,
-        metadata: {
-          error: true,
-          cards,
-          ...(previousState ? { miloEdit: previousState } : {}),
-        },
-      })
-      .select("id")
-      .single()
-
-    return streamEvents([
-      { type: "meta", threadId },
-      ...(assistantMessage
-        ? cardEvents(assistantMessage.id, cards)
-        : [{ type: "token" as const, token: answer }]),
-      {
-        type: "done",
-        threadId,
-        userMessageId: userMessage.id,
-        assistantMessageId: assistantMessage?.id ?? null,
-        citations: [],
-      },
-    ])
+      .select("metadata")
+      .eq("id", userMessage.id)
+      .eq("thread_id", threadId)
+      .eq("user_id", user.id)
+      .eq("role", "user")
+      .maybeSingle()
+    if (error || !data) throw error ?? new Error("User message not found.")
+    if (data.metadata?.stopRequested === true) cancellation.abort()
+    cancellation.signal.throwIfAborted()
   }
+  const encoder = new TextEncoder()
+  let partial = ""
+  let persistedAssistantId: string | null = null
+  let cancelled = false
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        const emit = (event: MiloStreamEvent) => {
+          if (!cancellation.signal.aborted)
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
+            )
+        }
+        emit({ type: "meta", threadId, userMessageId: userMessage.id })
+        try {
+          await checkStop()
+          const userContext = await getMiloUserContext(supabase, user)
+          const sourceParts = splitSource(message, Boolean(file))
+          const hasSource = sourceParts.hasSource || Boolean(file)
+          const instruction =
+            sourceParts.instruction || (!hasSource ? message : "")
+          const intent =
+            editIntent(instruction) &&
+            !/^(?:how|what|where|why|when|who)\b/i.test(instruction)
+          let state: MiloEditState | undefined
+          let workflowAnswer = ""
+          const cards: MiloCard[] = []
+          const canManage = userContext.capabilities["wiki.manage"]
+          const managerNames = userContext.wikiManagers?.join(", ")
+          const sourceQuestion =
+            hasSource && sourceParts.instruction.includes("?") && !intent
+          if (sourceQuestion) {
+            workflowAnswer = await answerMiloSourceQuestion(
+              file ? fileText : sourceParts.source,
+              sourceParts.instruction
+            )
+          } else if (!canManage && hasSource && !intent) {
+            state = {
+              stage: "awaiting_source_question",
+              sourceMessageId: userMessage.id,
+            }
+            workflowAnswer = "What would you like to know about this source?"
+          } else if (
+            !canManage &&
+            (hasSource ||
+              previousState?.stage === "awaiting_source" ||
+              previousState?.stage === "awaiting_intent" ||
+              previousState?.stage === "awaiting_confirmation" ||
+              previousState?.stage === "page_confirmed")
+          ) {
+            workflowAnswer = `You don't have permission to edit the wiki. ${managerNames ? `Please contact ${managerNames}.` : "Please contact a Wiki manager."}`
+          } else if (
+            canManage &&
+            !hasSource &&
+            previousState?.stage === "page_confirmed"
+          ) {
+            const rounds = previousState.rounds ?? 0
+            if (rounds >= MAX_MILO_TWEAKS) {
+              state = previousState
+              workflowAnswer =
+                "That's the limit for adjustments to this proposal. Start a new chat to make more changes."
+            } else {
+              const feedback = [...(previousState.feedback ?? []), message]
+              const { prepareMiloProposal } =
+                await import("@/lib/milo/proposed-edit")
+              const prepared = await prepareMiloProposal({
+                supabase,
+                pageId: previousState.pageId,
+                extraction: previousState.extraction,
+                baseRevisionId: previousState.baseRevisionId,
+                feedback,
+              })
+              state = {
+                ...previousState,
+                baseRevisionId: prepared.baseRevisionId,
+                rounds: previousState.rounds === undefined ? 0 : rounds + 1,
+                feedback,
+              }
+              cards.push(prepared.card)
+              workflowAnswer =
+                "Here's the revised proposal. No changes have been made to the page."
+            }
+          } else if (
+            canManage &&
+            !hasSource &&
+            previousState?.stage === "awaiting_confirmation" &&
+            confirmed(message) &&
+            previousState.extraction.facts.length &&
+            !previousState.extraction.unclear.length
+          ) {
+            state = { ...previousState, stage: "ready_to_find_page" }
+            const candidates = await findPageCandidates(
+              supabase,
+              previousState.extraction.facts
+            )
+            cards.push({
+              type: "page-candidates",
+              id: "page-candidates",
+              title: "Is this the page you mean?",
+              candidates,
+              current: 0,
+            })
+            workflowAnswer = candidates.length
+              ? "Here is the closest match I found."
+              : "I couldn't find an editable matching page."
+          } else if (
+            canManage &&
+            !hasSource &&
+            previousState?.stage === "ready_to_find_page"
+          ) {
+            state = previousState
+            const candidates = await findPageCandidates(
+              supabase,
+              previousState.extraction.facts
+            )
+            cards.push({
+              type: "page-candidates",
+              id: "page-candidates",
+              title: "Is this the page you mean?",
+              candidates,
+              current: 0,
+            })
+            workflowAnswer = candidates.length
+              ? "Here is the closest match I found."
+              : "I couldn't find an editable matching page."
+          } else if (
+            canManage &&
+            !hasSource &&
+            previousState?.stage === "awaiting_confirmation"
+          ) {
+            if (confirmed(message)) {
+              state = previousState
+              workflowAnswer = previousState.extraction.unclear.length
+                ? `Please clarify: ${previousState.extraction.unclear.join(" ")}`
+                : "Please provide a change to add before confirming."
+            } else if (/^(?:no|nope|not quite)[.!\s]*$/i.test(message)) {
+              state = previousState
+              workflowAnswer = "What should I change or clarify in the list?"
+            } else {
+              const { data: original } = await supabase
+                .from("ai_chat_messages")
+                .select("content")
+                .eq("thread_id", threadId)
+                .eq("id", previousState.sourceMessageId)
+                .maybeSingle()
+              if (!original?.content)
+                throw new Error("Source message not found.")
+              const extraction = await extractMiloFacts(
+                original.content,
+                message
+              )
+              state = {
+                stage: "awaiting_confirmation",
+                sourceMessageId: previousState.sourceMessageId,
+                extraction,
+              }
+              workflowAnswer = formatMiloExtraction(extraction)
+            }
+          } else if (
+            !hasSource &&
+            ((canManage && previousState?.stage === "awaiting_intent") ||
+              previousState?.stage === "awaiting_source_question")
+          ) {
+            if (!canManage && intent) {
+              workflowAnswer = `You don't have permission to edit the wiki. ${managerNames ? `Please contact ${managerNames}.` : "Please contact a Wiki manager."}`
+            } else if (/^(?:no|nope)[.!\s]*$/i.test(message)) {
+              state = {
+                stage: "awaiting_source_question",
+                sourceMessageId: previousState.sourceMessageId,
+              }
+              workflowAnswer =
+                "Okay. What would you like to know about the source?"
+            } else {
+              const { data: original } = await supabase
+                .from("ai_chat_messages")
+                .select("content")
+                .eq("thread_id", threadId)
+                .eq("id", previousState.sourceMessageId)
+                .maybeSingle()
+              if (!original?.content)
+                throw new Error("Source message not found.")
+              if (
+                intent ||
+                (previousState.stage === "awaiting_intent" &&
+                  confirmed(message))
+              ) {
+                const extraction = await extractMiloFacts(original.content)
+                state = {
+                  stage: "awaiting_confirmation",
+                  sourceMessageId: previousState.sourceMessageId,
+                  extraction,
+                }
+                workflowAnswer = formatMiloExtraction(extraction)
+              } else {
+                workflowAnswer = await answerMiloSourceQuestion(
+                  original.content,
+                  message
+                )
+              }
+            }
+          } else if (
+            canManage &&
+            (hasSource || previousState?.stage === "awaiting_source")
+          ) {
+            if (intent || previousState?.stage === "awaiting_source") {
+              const extraction = await extractMiloFacts(
+                file ? fileText : sourceParts.source
+              )
+              state = {
+                stage: "awaiting_confirmation",
+                sourceMessageId: userMessage.id,
+                extraction,
+              }
+              workflowAnswer = formatMiloExtraction(extraction)
+            } else {
+              state = {
+                stage: "awaiting_intent",
+                sourceMessageId: userMessage.id,
+              }
+              workflowAnswer =
+                "Would you like me to extract changes from this for the wiki?"
+            }
+          } else if (
+            canManage &&
+            intent &&
+            !hasSource &&
+            /\b(?:wiki|this|it)\b/i.test(message)
+          ) {
+            state = { stage: "awaiting_source" }
+            workflowAnswer =
+              "Paste the source text or attach a file, and I'll extract the changes."
+          }
+          const result = workflowAnswer
+            ? {
+                answer: workflowAnswer,
+                model: "milo-edit-workflow",
+                citations: [],
+                metadata: state ? { miloEdit: state } : {},
+              }
+            : await answerKnowledgeQuestion({
+                supabase,
+                question: message,
+                userContext,
+                ...(pageContext ? { pageContext } : {}),
+                history,
+                signal: cancellation.signal,
+                checkStop,
+                deferActionLog: true,
+                onStatus: (text) => emit({ type: "status", text }),
+                onToken: (token) => {
+                  partial += token
+                  emit({ type: "token", token })
+                },
+              })
+          await checkStop()
+          if (!partial) emit({ type: "token", token: result.answer })
+          // Model text and model/tool metadata are never interpreted as actionable cards.
+          const metadata: Record<string, unknown> =
+            "metadata" in result && result.metadata
+              ? { ...result.metadata }
+              : {}
+          metadata.replyTo = userMessage.id
+          if (result.model === null && metadata.abstained !== true)
+            metadata.trustedLinks = true
+          const citationDetails = result.citations
+            .filter((citation) => citation.updatedAt || citation.updatedBy)
+            .map((citation) => ({
+              knowledgeChunkId: citation.knowledgeChunkId,
+              updatedAt: citation.updatedAt,
+              updatedBy: citation.updatedBy,
+            }))
+          if (citationDetails.length) metadata.citationDetails = citationDetails
+          const citationIds = result.citations.map(() => crypto.randomUUID())
+          if (citationIds.length) metadata.citationOrder = citationIds
+          delete metadata.cards
+          if (cards.length)
+            metadata.cards = cards.map((card) => miloCardSchema.parse(card))
+          await checkStop()
+          const { data: assistantMessage, error: assistantMessageError } =
+            await supabase
+              .from("ai_chat_messages")
+              .insert({
+                thread_id: threadId,
+                user_id: user.id,
+                role: "assistant",
+                content: result.answer,
+                model: result.model,
+                metadata,
+              })
+              .select("id")
+              .single()
+
+          if (assistantMessageError) {
+            throw assistantMessageError
+          }
+          persistedAssistantId = assistantMessage.id
+          await checkStop()
+
+          const proposal = cards.find((card) => card.type === "proposed-edit")
+          if (proposal && state?.stage === "page_confirmed") {
+            await saveMiloProposal({
+              threadId,
+              messageId: assistantMessage.id,
+              userId: user.id,
+              card: proposal,
+              state,
+            })
+          }
+
+          if (result.citations.length) {
+            const { error: citationError } = await supabase
+              .from("ai_chat_citations")
+              .insert(
+                result.citations.map((citation, index) => ({
+                  id: citationIds[index],
+                  message_id: assistantMessage.id,
+                  knowledge_source_id: citation.knowledgeSourceId ?? null,
+                  knowledge_chunk_id: citation.knowledgeChunkId ?? null,
+                  title: citation.title,
+                  url: citation.url,
+                  snippet: citation.snippet,
+                }))
+              )
+
+            if (citationError) {
+              throw citationError
+            }
+          }
+
+          await checkStop()
+          if (!workflowAnswer)
+            await logAiAction(supabase, { type: "milo_answer" })
+          for (const event of cardEvents(assistantMessage.id, cards))
+            emit(event)
+          emit({
+            type: "done",
+            threadId,
+            userMessageId: userMessage.id,
+            assistantMessageId: assistantMessage.id,
+            citations: result.citations.map((citation) => ({
+              title: citation.title,
+              url: citation.url,
+              snippet: citation.snippet,
+              updatedAt: citation.updatedAt,
+              updatedBy: citation.updatedBy,
+            })),
+            abstained: metadata.abstained === true,
+            answer: result.answer,
+            trustedLinks: metadata.trustedLinks === true,
+          })
+        } catch {
+          if (!cancellation.signal.aborted) {
+            try {
+              await checkStop()
+            } catch {
+              // A recorded stop aborts the turn; other failures use the error path.
+            }
+          }
+          if (cancellation.signal.aborted) {
+            try {
+              if (!partial.trim() && persistedAssistantId) {
+                await supabase
+                  .from("ai_chat_messages")
+                  .delete()
+                  .eq("id", persistedAssistantId)
+              } else if (partial.trim()) {
+                if (persistedAssistantId) {
+                  await supabase
+                    .from("ai_chat_citations")
+                    .delete()
+                    .eq("message_id", persistedAssistantId)
+                  await supabase
+                    .from("ai_chat_messages")
+                    .update({
+                      content: partial,
+                      metadata: { stopped: true, replyTo: userMessage.id },
+                    })
+                    .eq("id", persistedAssistantId)
+                } else {
+                  await supabase.from("ai_chat_messages").insert({
+                    thread_id: threadId,
+                    user_id: user.id,
+                    role: "assistant",
+                    content: partial,
+                    metadata: { stopped: true, replyTo: userMessage.id },
+                  })
+                }
+              }
+            } catch {
+              /* The disconnected client cannot receive an error. */
+            }
+            return
+          }
+          const answer =
+            file || splitSource(message, false).hasSource || previousState
+              ? "Couldn't process the source. Please try again."
+              : "Milo couldn't answer right now. Please try again."
+          const cards: MiloCard[] = [
+            miloCardSchema.parse({
+              type: "error",
+              id: "error",
+              message: answer,
+            }),
+          ]
+
+          const errorRow = {
+            thread_id: threadId,
+            user_id: user.id,
+            role: "assistant",
+            content: answer,
+            metadata: {
+              error: true,
+              cards,
+              replyTo: userMessage.id,
+              ...(previousState ? { miloEdit: previousState } : {}),
+            },
+          }
+          const errorQuery = persistedAssistantId
+            ? supabase
+                .from("ai_chat_messages")
+                .update(errorRow)
+                .eq("id", persistedAssistantId)
+            : supabase.from("ai_chat_messages").insert(errorRow)
+          const { data: assistantMessage } = await errorQuery
+            .select("id")
+            .single()
+
+          if (assistantMessage) {
+            for (const event of cardEvents(assistantMessage.id, cards))
+              emit(event)
+          } else emit({ type: "token", token: answer })
+          emit({
+            type: "done",
+            threadId,
+            userMessageId: userMessage.id,
+            assistantMessageId: assistantMessage?.id ?? null,
+            citations: [],
+            answer: assistantMessage ? "" : answer,
+            error: true,
+          })
+        } finally {
+          request.signal.removeEventListener("abort", abort)
+          if (!cancelled) controller.close()
+        }
+      },
+      cancel() {
+        cancelled = true
+        cancellation.abort()
+      },
+    }),
+    {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    }
+  )
 }

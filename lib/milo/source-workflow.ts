@@ -47,6 +47,7 @@ export function editIntent(input: string): boolean {
 export function splitSource(message: string, hasFile: boolean) {
   const lines = message.split(/\r?\n/)
   const first = lines[0]?.trim() ?? ""
+  const nonEmptyLines = lines.filter((line) => line.trim())
   const instruction = hasFile
     ? message
     : (editIntent(first) || first.endsWith("?")) && lines.length > 1
@@ -62,9 +63,12 @@ export function splitSource(message: string, hasFile: boolean) {
     source,
     hasSource:
       hasFile ||
-      lines.length > 1 ||
+      nonEmptyLines.length >= 3 ||
+      (nonEmptyLines.length >= 2 && message.length > 280) ||
       message.length > 500 ||
-      /^(?:from|subject|date):/i.test(first),
+      nonEmptyLines.some((line) =>
+        /^(?:from|subject|date):/i.test(line.trim())
+      ),
   }
 }
 

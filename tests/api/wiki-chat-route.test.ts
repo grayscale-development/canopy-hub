@@ -31,6 +31,8 @@ const testState = vi.hoisted(() => ({
     milo_wiki_nodes: [] as Array<Record<string, unknown>>,
   },
   nextId: 1,
+  nextUserMessageId: null as string | null,
+  stopAfterAssistantInsert: false,
   wikiUrls: new Map<string, string>(),
   editablePages: new Set<string>(),
   candidates: [] as Array<{ id: string; title: string }>,
@@ -163,6 +165,8 @@ vi.mock("@/lib/ai/provider", () => ({
   })),
 }))
 
+vi.mock("@/lib/ai-action-log", () => ({ logAiAction: vi.fn() }))
+
 vi.mock("@/lib/wiki-ai", () => ({
   answerKnowledgeQuestion: vi.fn(async () => {
     if (testState.answerError) {
@@ -174,7 +178,7 @@ vi.mock("@/lib/wiki-ai", () => ({
 }))
 
 class FakeSupabaseQuery {
-  private action: "select" | "insert" | "update" = "select"
+  private action: "select" | "insert" | "update" | "delete" = "select"
   private filters: Array<{ key: string; value: unknown }> = []
   private inFilters: Array<{ key: string; values: unknown[] }> = []
   private payload: unknown
@@ -219,6 +223,11 @@ class FakeSupabaseQuery {
     return this
   }
 
+  delete() {
+    this.action = "delete"
+    return this
+  }
+
   async single() {
     const result = await this.resolve()
     return {
@@ -257,7 +266,37 @@ class FakeSupabaseQuery {
         updated_at: new Date().toISOString(),
         ...(row as Record<string, unknown>),
       }))
+      if (
+        this.table === "ai_chat_messages" &&
+        (rows[0] as Record<string, unknown> | undefined)?.role === "user" &&
+        testState.nextUserMessageId
+      ) {
+        rows[0].id = testState.nextUserMessageId
+        testState.nextUserMessageId = null
+      }
       testState.tables[this.table].push(...rows)
+      if (
+        this.table === "ai_chat_messages" &&
+        (rows[0] as Record<string, unknown> | undefined)?.role ===
+          "assistant" &&
+        testState.stopAfterAssistantInsert
+      ) {
+        const userMessage = testState.tables.ai_chat_messages.find(
+          (row) => row.role === "user"
+        )!
+        userMessage.metadata = {
+          ...(userMessage.metadata as object),
+          stopRequested: true,
+        }
+      }
+      return { data: rows, error: null }
+    }
+
+    if (this.action === "delete") {
+      const rows = this.getFilteredRows()
+      testState.tables[this.table] = testState.tables[this.table].filter(
+        (row) => !rows.includes(row)
+      )
       return { data: rows, error: null }
     }
 
@@ -300,6 +339,8 @@ describe("/api/wiki/chat route", () => {
   beforeEach(() => {
     testState.user = null
     testState.nextId = 1
+    testState.nextUserMessageId = null
+    testState.stopAfterAssistantInsert = false
     testState.proposals = {}
     testState.rpcCalls = 0
     testState.wikiUrls = new Map()
@@ -330,6 +371,258 @@ describe("/api/wiki/chat route", () => {
     testState.tables.milo_wiki_nodes = []
     testState.answerError = null
     testState.answer.metadata = {}
+  })
+
+  it("only records stops for the signed-in beta user's own user message", async () => {
+    const { POST } = await import("@/app/api/wiki/chat/stop/route")
+    const threadId = "11111111-1111-4111-8111-111111111111"
+    const userMessageId = "22222222-2222-4222-8222-222222222222"
+    const request = (body: unknown) =>
+      new Request("http://test.local/api/wiki/chat/stop", {
+        method: "POST",
+        body: JSON.stringify(body),
+      })
+    const body = { threadId, userMessageId }
+    expect((await POST(request(body))).status).toBe(401)
+    testState.user = { id: "other" }
+    expect((await POST(request(body))).status).toBe(403)
+    testState.user = { id: "user-1" }
+    expect(
+      (await POST(request({ ...body, userMessageId: "bad" }))).status
+    ).toBe(400)
+    testState.tables.ai_chat_threads = [{ id: threadId, user_id: "other" }]
+    testState.tables.ai_chat_messages = [
+      {
+        id: userMessageId,
+        thread_id: threadId,
+        user_id: "other",
+        role: "user",
+        metadata: { sourceFileName: "notes.txt" },
+      },
+    ]
+    expect((await POST(request(body))).status).toBe(404)
+    testState.tables.ai_chat_threads[0].user_id = "user-1"
+    expect((await POST(request(body))).status).toBe(404)
+    testState.tables.ai_chat_messages[0].user_id = "user-1"
+    testState.tables.ai_chat_messages[0].role = "assistant"
+    expect((await POST(request(body))).status).toBe(404)
+    testState.tables.ai_chat_messages[0].role = "user"
+    expect((await POST(request(body))).status).toBe(200)
+    expect(testState.tables.ai_chat_messages[0].metadata).toEqual({
+      sourceFileName: "notes.txt",
+      stopRequested: true,
+    })
+  })
+
+  it.each(["", "Partial answer"])(
+    "honours an explicit stop during research with partial %j",
+    async (partial) => {
+      testState.user = { id: "user-1" }
+      const threadId = "11111111-1111-4111-8111-111111111111"
+      const userMessageId = "22222222-2222-4222-8222-222222222222"
+      testState.tables.ai_chat_threads = [{ id: threadId, user_id: "user-1" }]
+      testState.nextUserMessageId = userMessageId
+      const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+      const { logAiAction } = await import("@/lib/ai-action-log")
+      vi.mocked(logAiAction).mockClear()
+      let finish!: () => void
+      const paused = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      vi.mocked(answerKnowledgeQuestion).mockImplementationOnce(
+        async (params) => {
+          if (partial) params.onToken?.(partial)
+          await paused
+          return { ...testState.answer, metadata: { abstained: false } }
+        }
+      )
+      const { POST: chat, GET } = await import("@/app/api/wiki/chat/route")
+      const { POST: stop } = await import("@/app/api/wiki/chat/stop/route")
+      const response = await chat(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({ threadId, message: "Explain funding" }),
+        })
+      )
+      const reader = response.body!.getReader()
+      expect(new TextDecoder().decode((await reader.read()).value)).toContain(
+        userMessageId
+      )
+      if (partial) await reader.read()
+      const stopped = await stop(
+        new Request("http://test.local/api/wiki/chat/stop", {
+          method: "POST",
+          body: JSON.stringify({ threadId, userMessageId }),
+        })
+      )
+      expect(stopped.status).toBe(200)
+      finish()
+      while (!(await reader.read()).done) {
+        /* Drain the stream. */
+      }
+      const assistants = testState.tables.ai_chat_messages.filter(
+        (row) => row.role === "assistant"
+      )
+      if (partial)
+        expect(assistants).toEqual([
+          expect.objectContaining({
+            content: partial,
+            metadata: { stopped: true, replyTo: userMessageId },
+          }),
+        ])
+      else expect(assistants).toHaveLength(0)
+      expect(testState.tables.ai_chat_citations).toHaveLength(0)
+      expect(logAiAction).not.toHaveBeenCalled()
+      const restored = await GET(
+        new Request(`http://test.local/api/wiki/chat?threadId=${threadId}`)
+      )
+      expect((await restored.json()).messages[0]).toMatchObject({
+        id: userMessageId,
+        stopRequested: true,
+      })
+    }
+  )
+
+  it.each(["", "Partial answer"])(
+    "cleans up an answer when stop arrives during persistence with partial %j",
+    async (partial) => {
+      testState.user = { id: "user-1" }
+      testState.stopAfterAssistantInsert = true
+      const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+      const { logAiAction } = await import("@/lib/ai-action-log")
+      vi.mocked(logAiAction).mockClear()
+      vi.mocked(answerKnowledgeQuestion).mockImplementationOnce(
+        async (params) => {
+          if (partial) params.onToken?.(partial)
+          return { ...testState.answer, metadata: { abstained: false } }
+        }
+      )
+      const { POST } = await import("@/app/api/wiki/chat/route")
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({ message: "Explain funding" }),
+        })
+      )
+      await response.text()
+      const userMessage = testState.tables.ai_chat_messages.find(
+        (row) => row.role === "user"
+      )!
+      const assistants = testState.tables.ai_chat_messages.filter(
+        (row) => row.role === "assistant"
+      )
+      if (partial)
+        expect(assistants).toEqual([
+          expect.objectContaining({
+            content: partial,
+            metadata: { stopped: true, replyTo: userMessage.id },
+          }),
+        ])
+      else expect(assistants).toHaveLength(0)
+      expect(testState.tables.ai_chat_citations).toHaveLength(0)
+      expect(logAiAction).not.toHaveBeenCalled()
+    }
+  )
+
+  it("sends status and model tokens before the final persisted answer", async () => {
+    testState.user = { id: "user-1" }
+    const { logAiAction } = await import("@/lib/ai-action-log")
+    vi.mocked(logAiAction).mockClear()
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    let finish!: () => void
+    const paused = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    vi.mocked(answerKnowledgeQuestion).mockImplementationOnce(
+      async (params) => {
+        params.onStatus?.("Searching the wiki…")
+        params.onToken?.("First ")
+        await paused
+        params.onToken?.("second")
+        return { ...testState.answer, metadata: { abstained: false } }
+      }
+    )
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: "Explain funding" }),
+      })
+    )
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    const first = decoder.decode((await reader.read()).value)
+    const second = decoder.decode((await reader.read()).value)
+    const third = decoder.decode((await reader.read()).value)
+    expect(first).toContain('"type":"meta"')
+    expect(second).toContain('"type":"status"')
+    expect(third).toContain('"token":"First "')
+    expect(
+      testState.tables.ai_chat_messages.filter(
+        (row) => row.role === "assistant"
+      )
+    ).toHaveLength(0)
+    finish()
+    let remaining = ""
+    while (true) {
+      const part = await reader.read()
+      if (part.done) break
+      remaining += decoder.decode(part.value)
+    }
+    expect(remaining).toContain('"token":"second"')
+    expect(remaining).toContain('"type":"done"')
+    expect(logAiAction).toHaveBeenCalledOnce()
+    expect(remaining).toContain('"answer":"Open /wiki/1/9/22 for the Wiki."')
+    expect(
+      testState.tables.ai_chat_messages.filter(
+        (row) => row.role === "assistant"
+      )
+    ).toHaveLength(1)
+  })
+
+  it("saves the partial text on cancellation without an error message", async () => {
+    testState.user = { id: "user-1" }
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    vi.mocked(answerKnowledgeQuestion).mockImplementationOnce(
+      async (params) => {
+        params.onToken?.("Partial answer")
+        await new Promise<void>((_resolve, reject) =>
+          params.signal!.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true }
+          )
+        )
+        return { ...testState.answer, metadata: { abstained: false } }
+      }
+    )
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const abort = new AbortController()
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        signal: abort.signal,
+        body: JSON.stringify({ message: "Explain funding" }),
+      })
+    )
+    const reader = response.body!.getReader()
+    await reader.read()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain(
+      "Partial answer"
+    )
+    abort.abort()
+    await vi.waitFor(() =>
+      expect(testState.tables.ai_chat_messages.at(-1)).toMatchObject({
+        role: "assistant",
+        content: "Partial answer",
+        metadata: { stopped: true },
+      })
+    )
+    expect(
+      testState.tables.ai_chat_messages.filter(
+        (row) => row.role === "assistant"
+      )
+    ).toHaveLength(1)
   })
 
   it("rejects unauthenticated requests", async () => {
@@ -1016,6 +1309,7 @@ describe("/api/wiki/chat route", () => {
       (await readSseEvents(response)).some((event) => event.type === "card")
     ).toBe(false)
     expect(testState.tables.ai_chat_messages.at(-1)?.metadata).toEqual({
+      replyTo: expect.any(String),
       citationOrder: [expect.any(String)],
     })
   })
@@ -1092,14 +1386,12 @@ describe("/api/wiki/chat route", () => {
       card: {
         type: "error",
         id: "error",
-        message:
-          "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
+        message: "Milo couldn't answer right now. Please try again.",
       },
     })
     expect(testState.tables.ai_chat_messages.at(-1)).toMatchObject({
       role: "assistant",
-      content:
-        "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
+      content: "Milo couldn't answer right now. Please try again.",
       metadata: {
         error: true,
         cards: [{ type: "error", id: "error", message: expect.any(String) }],
