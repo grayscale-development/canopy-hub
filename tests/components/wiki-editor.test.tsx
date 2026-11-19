@@ -186,6 +186,46 @@ describe("WikiEditor", () => {
     )
   })
 
+  it("scrolls to heading paths without writing ids while editing", async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditModeToggle />
+        <WikiEditor node={node} revision={revision} canManage />
+      </WikiEditModeProvider>
+    )
+    const surface = container.querySelector(".wiki-blocknote-surface")!
+    const parent = document.createElement("h1")
+    parent.textContent = "Parent"
+    const child = document.createElement("h2")
+    child.textContent = "Child"
+    await act(async () => surface.append(parent, child))
+    await waitFor(() => expect(child.id).toBe("parent-child"))
+
+    await user.click(
+      screen.getByRole("switch", { name: "Toggle wiki editor mode" })
+    )
+    const replacement = document.createElement("h2")
+    replacement.textContent = "New Child"
+    replacement.scrollIntoView = vi.fn()
+    await act(async () => child.replaceWith(replacement))
+    expect(replacement.hasAttribute("id")).toBe(false)
+
+    try {
+      window.history.replaceState(null, "", "#parent-new-child")
+      await act(async () => window.dispatchEvent(new Event("hashchange")))
+      expect(replacement.scrollIntoView).toHaveBeenCalledOnce()
+      expect(replacement.hasAttribute("id")).toBe(false)
+
+      await user.click(
+        screen.getByRole("switch", { name: "Toggle wiki editor mode" })
+      )
+      await waitFor(() => expect(replacement.id).toBe("parent-new-child"))
+    } finally {
+      window.history.replaceState(null, "", window.location.pathname)
+    }
+  })
+
   it("ignores saved edit mode when the user lacks wiki edit permission", () => {
     window.localStorage.setItem("wiki-edit-mode", "edit")
 
