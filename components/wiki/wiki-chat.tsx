@@ -55,6 +55,7 @@ interface ChatMessage {
   rating?: "up" | "down"
   status?: string
   stopped?: boolean
+  stopRequested?: boolean
   error?: boolean
   replyTo?: string
   trustedLinks?: boolean
@@ -216,6 +217,7 @@ export function WikiChat({
   const threadView = React.useRef<HTMLDivElement>(null)
   const nearBottom = React.useRef(true)
   const activeRequest = React.useRef<AbortController | null>(null)
+  const activeStop = React.useRef<(() => void) | null>(null)
   const [pending, setPending] = React.useState(false)
   const [loadingHistory, setLoadingHistory] = React.useState(true)
   const [restoreError, setRestoreError] = React.useState(false)
@@ -275,13 +277,59 @@ export function WikiChat({
                 (message: ChatMessage) =>
                   message.role === "user" || message.role === "assistant"
               )
-              .map((message: ChatMessage) => ({
-                ...message,
-                serverId: message.id,
-                cards: Array.isArray(message.cards)
-                  ? message.cards.map(displayCard)
-                  : [],
-              }))
+              .flatMap(
+                (message: ChatMessage, index: number, all: ChatMessage[]) => {
+                  const previous = all[index - 1]
+                  if (
+                    message.role === "assistant" &&
+                    message.stopped &&
+                    message.replyTo &&
+                    all.some(
+                      (item) =>
+                        item.id === message.replyTo && item.stopRequested
+                    )
+                  )
+                    return []
+                  if (
+                    message.role === "assistant" &&
+                    !message.stopped &&
+                    ((message.replyTo &&
+                      all.some(
+                        (item) =>
+                          item.id === message.replyTo && item.stopRequested
+                      )) ||
+                      (previous?.stopRequested && !message.replyTo))
+                  )
+                    return []
+                  const restore = (item: ChatMessage) => ({
+                    ...item,
+                    serverId: item.id,
+                    cards: Array.isArray(item.cards)
+                      ? item.cards.map(displayCard)
+                      : [],
+                  })
+                  if (message.role === "user" && message.stopRequested) {
+                    const partial = all.find(
+                      (item) =>
+                        item.role === "assistant" &&
+                        item.stopped &&
+                        item.replyTo === message.id
+                    )
+                    return [
+                      restore(message),
+                      partial
+                        ? restore(partial)
+                        : {
+                            id: `stopped-${message.id}`,
+                            role: "assistant" as const,
+                            content: "",
+                            stopped: true,
+                          },
+                    ]
+                  }
+                  return [restore(message)]
+                }
+              )
           )
         }
       } catch {
@@ -334,6 +382,31 @@ export function WikiChat({
       let sentUserId: string | undefined
       let completed = false
       let timedOut = false
+      let stopRequested = false
+      const finishStop = () => {
+        if (!sentThreadId || !sentUserId) return
+        void fetch("/api/wiki/chat/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            threadId: sentThreadId,
+            userMessageId: sentUserId,
+          }),
+          keepalive: true,
+        }).catch(() => {})
+        abortController.abort()
+      }
+      const stop = () => {
+        stopRequested = true
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId ? { ...message, stopped: true } : message
+          )
+        )
+        setPending(false)
+        finishStop()
+      }
+      activeStop.current = stop
       const timeout = setTimeout(() => {
         timedOut = true
         abortController.abort()
@@ -404,7 +477,12 @@ export function WikiChat({
               } catch {
                 /* Storage is optional. */
               }
+              if (stopRequested) {
+                finishStop()
+                throw new DOMException("Aborted", "AbortError")
+              }
             }
+            if (stopRequested) continue
             if (data.type === "status") {
               setMessages((current) =>
                 current.map((message) =>
@@ -469,7 +547,8 @@ export function WikiChat({
         if (!completed) throw new Error("Chat stream ended unexpectedly.")
       } catch {
         if (isMountedRef.current) {
-          const stopped = abortController.signal.aborted && !timedOut
+          const stopped =
+            stopRequested || (abortController.signal.aborted && !timedOut)
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantId
@@ -529,6 +608,7 @@ export function WikiChat({
         if (isMountedRef.current) {
           if (activeRequest.current === abortController) {
             activeRequest.current = null
+            activeStop.current = null
             setPending(false)
           }
         }
@@ -1031,8 +1111,7 @@ export function WikiChat({
             onClick={
               pending
                 ? () => {
-                    activeRequest.current?.abort()
-                    setPending(false)
+                    activeStop.current?.()
                   }
                 : undefined
             }

@@ -121,6 +121,13 @@ describe("WikiChat", () => {
     await user.click(screen.getByRole("button", { name: "Send follow-up" }))
     expect(await screen.findByText("Partial answer")).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Stop" }))
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/wiki/chat/stop",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ threadId: "t", userMessageId: "u" }),
+      })
+    )
     expect(
       await screen.findByText("Stopped. Ask another question to continue.")
     ).toBeVisible()
@@ -129,6 +136,103 @@ describe("WikiChat", () => {
     expect(
       screen.queryByRole("button", { name: "Helpful answer" })
     ).not.toBeInTheDocument()
+  })
+
+  it("restores a stopped question without an answer and places delayed partials with their question", async () => {
+    localStorage.setItem("milo-active-thread", "thread-1")
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        messages: [
+          {
+            id: "q1",
+            role: "user",
+            content: "First question",
+            stopRequested: true,
+          },
+          {
+            id: "q2",
+            role: "user",
+            content: "Second question",
+            stopRequested: true,
+          },
+          { id: "q3", role: "user", content: "Third question" },
+          { id: "a3", role: "assistant", content: "Third answer" },
+          {
+            id: "late",
+            role: "assistant",
+            content: "Late answer",
+            replyTo: "q2",
+          },
+          {
+            id: "a1",
+            role: "assistant",
+            content: "Saved partial",
+            stopped: true,
+            replyTo: "q1",
+          },
+        ],
+      }),
+    })
+    render(<WikiChat />)
+    expect(await screen.findByText("First question")).toBeVisible()
+    expect(screen.getByText("Saved partial")).toBeVisible()
+    expect(
+      screen.getAllByText("Stopped. Ask another question to continue.")
+    ).toHaveLength(2)
+    expect(screen.getByText("Third answer")).toBeVisible()
+    expect(screen.queryByText("Late answer")).not.toBeInTheDocument()
+    const ordered = [...document.querySelectorAll("p")].map(
+      (p) => p.textContent
+    )
+    expect(ordered.indexOf("Saved partial")).toBeLessThan(
+      ordered.indexOf("Second question")
+    )
+  })
+
+  it("shows stopped immediately before stream metadata arrives and silently sends a later stop", async () => {
+    const user = userEvent.setup()
+    let stream!: ReadableStreamDefaultController<Uint8Array>
+    let signal!: AbortSignal
+    fetchMock.mockImplementationOnce(
+      async (_url: string, init: RequestInit) => {
+        signal = init.signal!
+        return {
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              stream = controller
+            },
+          }),
+        }
+      }
+    )
+    fetchMock.mockRejectedValue(new Error("stop failed"))
+    render(<WikiChat />)
+    await user.type(
+      await screen.findByRole("textbox", { name: "Ask a follow-up" }),
+      "Explain funding"
+    )
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    await user.click(screen.getByRole("button", { name: "Stop" }))
+    expect(
+      await screen.findByText("Stopped. Ask another question to continue.")
+    ).toBeVisible()
+    stream.enqueue(
+      new TextEncoder().encode(
+        'data: {"type":"meta","threadId":"t","userMessageId":"u"}\n\n'
+      )
+    )
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/wiki/chat/stop",
+        expect.objectContaining({
+          body: JSON.stringify({ threadId: "t", userMessageId: "u" }),
+        })
+      )
+    )
+    expect(signal.aborted).toBe(true)
+    expect(screen.queryByText(/stop failed/)).not.toBeInTheDocument()
   })
 
   it("keeps the active conversation for a follow-up question", async () => {

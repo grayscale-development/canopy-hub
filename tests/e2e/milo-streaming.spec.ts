@@ -84,6 +84,18 @@ test("stops a fake streamed answer and keeps the saved partial text", async ({
         return data?.find((message) => message.metadata?.stopped)?.content ?? ""
       })
       .toContain("Please check")
+    await page.reload()
+    await page.getByRole("button", { name: "Ask Milo", exact: true }).click()
+    await expect(
+      page
+        .getByRole("dialog", { name: "Milo" })
+        .getByText(/Stopped\. Ask another question/)
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole("dialog", { name: "Milo" })
+        .getByText("Please check", { exact: false })
+    ).toBeVisible()
   } finally {
     if (!threadId && !page.isClosed())
       threadId = await page

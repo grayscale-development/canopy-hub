@@ -30,6 +30,7 @@ import {
   type MiloStreamEvent,
 } from "@/lib/milo/chat-cards"
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
+import { logAiAction } from "@/lib/ai-action-log"
 import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { miloPagePath } from "@/lib/milo/page-index"
@@ -290,6 +291,7 @@ export async function GET(request: Request) {
           rating: ratingsByMessage.get(message.id),
           abstained: message.metadata?.abstained === true,
           stopped: message.metadata?.stopped === true,
+          stopRequested: message.metadata?.stopRequested === true,
           error: message.metadata?.error === true,
           replyTo: message.metadata?.replyTo,
           trustedLinks:
@@ -550,6 +552,20 @@ export async function POST(request: Request) {
   const abort = () => cancellation.abort()
   if (request.signal.aborted) abort()
   else request.signal.addEventListener("abort", abort, { once: true })
+  const checkStop = async () => {
+    cancellation.signal.throwIfAborted()
+    const { data, error } = await supabase
+      .from("ai_chat_messages")
+      .select("metadata")
+      .eq("id", userMessage.id)
+      .eq("thread_id", threadId)
+      .eq("user_id", user.id)
+      .eq("role", "user")
+      .maybeSingle()
+    if (error || !data) throw error ?? new Error("User message not found.")
+    if (data.metadata?.stopRequested === true) cancellation.abort()
+    cancellation.signal.throwIfAborted()
+  }
   const encoder = new TextEncoder()
   let partial = ""
   let persistedAssistantId: string | null = null
@@ -565,7 +581,7 @@ export async function POST(request: Request) {
         }
         emit({ type: "meta", threadId, userMessageId: userMessage.id })
         try {
-          cancellation.signal.throwIfAborted()
+          await checkStop()
           const userContext = await getMiloUserContext(supabase, user)
           const sourceParts = splitSource(message, Boolean(file))
           const hasSource = sourceParts.hasSource || Boolean(file)
@@ -796,19 +812,22 @@ export async function POST(request: Request) {
                 ...(pageContext ? { pageContext } : {}),
                 history,
                 signal: cancellation.signal,
+                checkStop,
+                deferActionLog: true,
                 onStatus: (text) => emit({ type: "status", text }),
                 onToken: (token) => {
                   partial += token
                   emit({ type: "token", token })
                 },
               })
-          cancellation.signal.throwIfAborted()
+          await checkStop()
           if (!partial) emit({ type: "token", token: result.answer })
           // Model text and model/tool metadata are never interpreted as actionable cards.
           const metadata: Record<string, unknown> =
             "metadata" in result && result.metadata
               ? { ...result.metadata }
               : {}
+          metadata.replyTo = userMessage.id
           if (result.model === null && metadata.abstained !== true)
             metadata.trustedLinks = true
           const citationDetails = result.citations
@@ -824,6 +843,7 @@ export async function POST(request: Request) {
           delete metadata.cards
           if (cards.length)
             metadata.cards = cards.map((card) => miloCardSchema.parse(card))
+          await checkStop()
           const { data: assistantMessage, error: assistantMessageError } =
             await supabase
               .from("ai_chat_messages")
@@ -842,7 +862,7 @@ export async function POST(request: Request) {
             throw assistantMessageError
           }
           persistedAssistantId = assistantMessage.id
-          cancellation.signal.throwIfAborted()
+          await checkStop()
 
           const proposal = cards.find((card) => card.type === "proposed-edit")
           if (proposal && state?.stage === "page_confirmed") {
@@ -875,7 +895,9 @@ export async function POST(request: Request) {
             }
           }
 
-          cancellation.signal.throwIfAborted()
+          await checkStop()
+          if (!workflowAnswer)
+            await logAiAction(supabase, { type: "milo_answer" })
           for (const event of cardEvents(assistantMessage.id, cards))
             emit(event)
           emit({
@@ -895,9 +917,21 @@ export async function POST(request: Request) {
             trustedLinks: metadata.trustedLinks === true,
           })
         } catch {
+          if (!cancellation.signal.aborted) {
+            try {
+              await checkStop()
+            } catch {
+              // A recorded stop aborts the turn; other failures use the error path.
+            }
+          }
           if (cancellation.signal.aborted) {
             try {
-              if (partial.trim()) {
+              if (!partial.trim() && persistedAssistantId) {
+                await supabase
+                  .from("ai_chat_messages")
+                  .delete()
+                  .eq("id", persistedAssistantId)
+              } else if (partial.trim()) {
                 if (persistedAssistantId) {
                   await supabase
                     .from("ai_chat_citations")
@@ -945,6 +979,7 @@ export async function POST(request: Request) {
             metadata: {
               error: true,
               cards,
+              replyTo: userMessage.id,
               ...(previousState ? { miloEdit: previousState } : {}),
             },
           }
