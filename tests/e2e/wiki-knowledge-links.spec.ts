@@ -53,8 +53,12 @@ test("opens a current Wiki citation from an old indexed URL @smoke", async ({
     .getByRole("textbox", { name: "Ask a follow-up" })
     .fill("funding checklist")
   await dialog.getByRole("button", { name: "Send follow-up" }).click()
-  const citation = page.getByRole("link", { name: /Funding Checklist/ })
-  await expect(citation).toHaveAttribute("href", result.url)
+  // The page is linked inline and again in the Sources row; both must be correct.
+  const citations = dialog.getByRole("link", { name: /Funding Checklist/ })
+  await expect(citations).toHaveCount(2)
+  for (const link of await citations.all())
+    await expect(link).toHaveAttribute("href", result.url)
+  const citation = citations.first()
   const shots = process.env.CANOPY_KNOWLEDGE_SHOTS
   if (shots) {
     mkdirSync(shots, { recursive: true })
