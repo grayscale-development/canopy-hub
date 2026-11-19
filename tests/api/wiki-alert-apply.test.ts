@@ -101,10 +101,10 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }))
 import { POST } from "@/app/api/wiki/alerts/apply/route"
-const request = () =>
+const request = (confirmArchive = false) =>
   new Request("http://localhost", {
     method: "POST",
-    body: JSON.stringify({ id: "alert" }),
+    body: JSON.stringify({ id: "alert", confirmArchive }),
   })
 beforeEach(() => {
   state.allowed = true
@@ -147,6 +147,32 @@ describe("apply alert", () => {
         p_target_alert_id: "alert",
       },
     ])
+  })
+  it("requires confirmation before atomically archiving an identical page", async () => {
+    state.recommendation = {
+      ...recommendation,
+      version: 2,
+      kind: "identical",
+      excerpt: "Repeated text",
+      canonicalRevisionId: "rev-2",
+    }
+    expect((await POST(request())).status).toBe(400)
+    expect(state.calls).toEqual([])
+    expect((await POST(request(true))).status).toBe(200)
+    expect(state.calls).toEqual([{ p_alert_id: "alert" }])
+    expect(state.updates).toEqual([])
+    expect(state.logs).toHaveLength(1)
+  })
+  it("does not archive when the canonical revision changed", async () => {
+    state.recommendation = {
+      ...recommendation,
+      version: 2,
+      kind: "identical",
+      excerpt: "Repeated text",
+      canonicalRevisionId: "old",
+    }
+    expect((await POST(request(true))).status).toBe(409)
+    expect(state.calls).toEqual([])
   })
   it("rejects a stale page", async () => {
     state.current = "newer"
