@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { DivisionBranchesDataTable } from "@/components/division/division-branches-data-table"
@@ -70,6 +70,9 @@ export default async function DivisionPage({
   const tab = rawTab && isDivisionTabKey(rawTab) ? rawTab : "home"
   const divisionId = decodeURIComponent(resolvedParams.divisionId)
   const division = await fetchDivisionProfileById(divisionId)
+  if (!division) {
+    notFound()
+  }
 
   const divisionName = division?.name ?? `Division ${divisionId}`
 

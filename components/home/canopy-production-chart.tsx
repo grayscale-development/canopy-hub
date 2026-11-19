@@ -131,6 +131,18 @@ export function CanopyProductionChart({
     fundedVolume: monthlyFundedVolumes[index] ?? 0,
   }))
 
+  if (
+    data.every(
+      ({ fundedCount, fundedVolume }) => fundedCount === 0 && fundedVolume === 0
+    )
+  ) {
+    return (
+      <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+        No funded loans in the last 12 months.
+      </div>
+    )
+  }
+
   return (
     <ChartContainer
       config={chartConfig}
@@ -146,14 +158,22 @@ export function CanopyProductionChart({
         }}
       >
         <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={14} />
+        <XAxis
+          dataKey="label"
+          tickLine={false}
+          axisLine={false}
+          minTickGap={14}
+        />
         <YAxis
           yAxisId="left"
           tickLine={false}
           axisLine={false}
           width={44}
           allowDecimals={false}
-          domain={[0, (dataMax: number) => Math.max(1, Math.ceil(dataMax * 1.1))]}
+          domain={[
+            0,
+            (dataMax: number) => Math.max(1, Math.ceil(dataMax * 1.1)),
+          ]}
         />
         <YAxis
           yAxisId="right"
@@ -161,7 +181,10 @@ export function CanopyProductionChart({
           tickLine={false}
           axisLine={false}
           width={66}
-          domain={[0, (dataMax: number) => Math.max(1, Math.ceil(dataMax * 1.1))]}
+          domain={[
+            0,
+            (dataMax: number) => Math.max(1, Math.ceil(dataMax * 1.1)),
+          ]}
           tickFormatter={(value) => formatCompactCurrency(Number(value))}
         />
         <ChartTooltip

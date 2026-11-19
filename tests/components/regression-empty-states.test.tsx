@@ -41,9 +41,6 @@ vi.mock("@/lib/hub-data", () => ({
   fetchCorporateTurnSummary: mocks.corporate,
   fetchPreviousMonthLoanProgramSummary: mocks.programs,
 }))
-vi.mock("@/components/home/canopy-production-chart", () => ({
-  CanopyProductionChart: () => <div data-testid="production-chart" />,
-}))
 
 import BridgePage from "@/app/bridge/page"
 import DirectoryPage from "@/app/department-directory/page"
@@ -77,12 +74,11 @@ beforeEach(() => {
 })
 
 describe("regression empty states", () => {
-  it("gives Bridge an explanation and a home link", async () => {
+  it("explains Bridge and links to it", async () => {
     render(await BridgePage())
-    expect(screen.getByText("Bridge isn't available yet.")).toBeVisible()
-    expect(screen.getByRole("link", { name: "Go to Home" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Open Bridge" })).toHaveAttribute(
       "href",
-      "/home"
+      "https://canopymortgage.bridgeapp.com/login"
     )
   })
   it("distinguishes an empty directory from a search with no matches", async () => {
@@ -98,19 +94,21 @@ describe("regression empty states", () => {
     expect(screen.queryByText("No departments yet.")).toBeNull()
   })
   it("replaces the all-zero production chart but shows nonzero data", async () => {
-    const { unmount } = render(await ProductionPage())
+    const { unmount, container } = render(await ProductionPage())
     expect(
       screen.getByText("No funded loans in the last 12 months.")
     ).toBeVisible()
-    expect(screen.queryByTestId("production-chart")).toBeNull()
+    expect(container.querySelector('[data-slot="chart"]')).toBeNull()
     unmount()
     mocks.production.mockResolvedValue({
       labels: ["Jan"],
       monthlyFundedCounts: [1],
       monthlyFundedVolumes: [0],
     })
-    render(await ProductionPage())
-    expect(screen.getByTestId("production-chart")).toBeVisible()
+    const realData = render(await ProductionPage())
+    expect(
+      realData.container.querySelector('[data-slot="chart"]')
+    ).toBeVisible()
   })
   it("shows missing turn times without hiding real zeros", async () => {
     const { unmount } = render(await CorporatePage())
