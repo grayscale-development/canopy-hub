@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   redirect: state.redirect,
   notFound: state.notFound,
+  usePathname: () => "/wiki/1",
 }))
 vi.mock("@/components/wiki/wiki-edit-mode", () => ({
   WikiEditModeGate: ({ children }: { children: React.ReactNode }) =>
