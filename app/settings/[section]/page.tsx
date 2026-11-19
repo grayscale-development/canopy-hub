@@ -70,7 +70,7 @@ const pages = [
     key: "alerts",
     label: "Wiki alerts",
     description:
-      "Check for duplicate content and suggest links to the main page.",
+      "Find identical and repeated wiki content, with a recommended fix for each.",
     permissionCode: ADVANCED_SETTINGS_ACCESS_PERMISSION,
     permissionName: "Access Advanced Settings",
   },
