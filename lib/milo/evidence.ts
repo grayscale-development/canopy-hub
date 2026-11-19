@@ -133,6 +133,10 @@ export function checkAnswer(
     return index + 1
   }
   const checked = answer
+    .replace(
+      /(?:^|\n\n?|(?<=[.!?])\s+)(?:(?:If you(?:'d like| want),?\s+I can)|Let me know if you(?:'d like| want)|I can also)\b[^\n]*/gi,
+      ""
+    )
     .split(/((?<=[.!?]) +(?=[A-Z])|\n)/)
     .map((sentence, part) => {
       if (part % 2) return sentence
@@ -166,7 +170,11 @@ export function checkAnswer(
       }
       const heading =
         /^\s{0,3}#{1,6}\s/.test(claim) ||
-        /^\s*\*\*[^*]+\*\*\s*:?\s*$/.test(claim)
+        /^\s*\*\*[^*]+\*\*\s*:?\s*$/.test(claim) ||
+        /^\s*(?:here (?:are|is) (?:the|some) (?:details|results|pages|tags|steps|information)|the following (?:pages|tags|steps|results)|the results)\s*:?\s*$/i.test(
+          claim
+        ) ||
+        /\?\s*$/.test(claim)
       if (!references.length && !heading && terms(claim).length)
         unsupported = true
       return claim
@@ -178,6 +186,15 @@ export function checkAnswer(
         ? `${checked}\n\nSome details could not be verified in the wiki.`
         : checked,
       citations
+    ).replace(
+      /\[([^\]\n]+)\]\(([^\s)]+)\)/g,
+      (link, label: string, url: string) =>
+        citations.some(
+          (citation) =>
+            citation.url === url || citation.url?.split("#")[0] === url
+        )
+          ? link
+          : label
     ),
     citations,
   }

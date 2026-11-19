@@ -73,6 +73,64 @@ describe("WikiChat", () => {
     vi.unstubAllGlobals()
   })
 
+  it("shows the empty state and makes a network error retryable", async () => {
+    const user = userEvent.setup()
+    fetchMock.mockRejectedValueOnce(new Error("internal network detail"))
+    render(<WikiChat />)
+    expect(await screen.findByText(/How can I help/)).toBeVisible()
+    const input = screen.getByRole("textbox", { name: "Ask a follow-up" })
+    await user.type(input, "Where is the wiki?")
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    expect(input).toHaveValue("")
+    expect(
+      await screen.findByText(
+        "Milo couldn't answer right now. Please try again."
+      )
+    ).toBeVisible()
+    expect(
+      screen.queryByText("internal network detail")
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Retry" }))
+    expect(await screen.findByText("First answer.")).toBeVisible()
+  })
+
+  it("stops an in-progress answer and keeps its partial text", async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementationOnce(
+      async (_url: string, init: RequestInit) => ({
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'data: {"type":"meta","threadId":"t","userMessageId":"u"}\n\ndata: {"type":"token","token":"Partial answer"}\n\n'
+              )
+            )
+            init.signal?.addEventListener("abort", () =>
+              controller.error(new DOMException("Aborted", "AbortError"))
+            )
+          },
+        }),
+      })
+    )
+    render(<WikiChat />)
+    const input = await screen.findByRole("textbox", {
+      name: "Ask a follow-up",
+    })
+    await user.type(input, "Explain funding")
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    expect(await screen.findByText("Partial answer")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Stop" }))
+    expect(
+      await screen.findByText("Stopped. Ask another question to continue.")
+    ).toBeVisible()
+    expect(input).toBeEnabled()
+    expect(screen.getByText("Partial answer")).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "Helpful answer" })
+    ).not.toBeInTheDocument()
+  })
+
   it("keeps the active conversation for a follow-up question", async () => {
     const user = userEvent.setup()
     render(<WikiChat queuedPrompt="What is Milo?" />)

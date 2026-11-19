@@ -21,6 +21,13 @@ const aiProvider = vi.hoisted(() => ({
   createAgentResponseWithOpenAI: vi.fn(async (): Promise<unknown> => {
     throw new Error("agent unavailable")
   }),
+  streamMiloResponse: vi.fn(
+    async (_params: unknown, onToken: (token: string) => void) => {
+      onToken("Wiki documentation ")
+      onToken("lives at /wiki.")
+      return { output_text: "Wiki documentation lives at /wiki." }
+    }
+  ),
   getChatModel: vi.fn(() => "fake-chat"),
 }))
 
@@ -94,6 +101,137 @@ describe("wiki AI orchestration", () => {
           sources: [],
         }
       }
+    )
+  })
+
+  it("searches the requested tag phrase in a multi-part question and accepts tag evidence", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    miloMcp.callMiloMcpTool.mockImplementation(async (toolName, args) => ({
+      ok: true,
+      toolName,
+      content: {},
+      sources:
+        toolName === "wiki_tag_search" &&
+        (args as { query?: string }).query === "Hub Process"
+          ? [
+              {
+                title: "Tag: Hub Process (Global)",
+                url: "/wiki/tags?tag=Hub%20Process",
+                snippet: "Accessible pages: Funding Checklist",
+                sourceType: "wiki_tag",
+              },
+            ]
+          : [],
+    }))
+    aiProvider.createAgentResponseWithOpenAI.mockResolvedValueOnce({
+      output_text: "Hub Process includes Funding Checklist.",
+      output: [],
+    })
+    const answer = await answerKnowledgeQuestion({
+      supabase: { rpc: vi.fn() } as never,
+      userContext,
+      question:
+        "Which wiki tags are used, and which pages are tagged Hub Process?",
+    })
+    expect(miloMcp.callMiloMcpTool).toHaveBeenCalledWith(
+      "wiki_tag_search",
+      { query: "Hub Process", limit: 8 },
+      expect.anything()
+    )
+    expect(answer.metadata?.abstained).toBe(false)
+    expect(
+      answer.citations.some(
+        (citation) => citation.url === "/wiki/tags?tag=Hub%20Process"
+      )
+    ).toBe(true)
+  })
+
+  it("places prior turns after permission notes and searches the previous question", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    aiProvider.createAgentResponseWithOpenAI.mockResolvedValueOnce({
+      output_text: "No data.",
+      output: [],
+    })
+    await answerKnowledgeQuestion({
+      supabase: { rpc: vi.fn() } as never,
+      userContext,
+      question: "What about VA loans?",
+      history: [
+        { role: "user", content: "Tell me about conventional loans" },
+        { role: "assistant", content: "Here is the policy." },
+      ],
+    })
+    expect(miloMcp.callMiloMcpTool).toHaveBeenCalledWith(
+      "knowledge_search",
+      expect.objectContaining({
+        query: expect.stringContaining("tell me about conventional loans"),
+      }),
+      expect.anything()
+    )
+    expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt_cache_key: "milo-agent",
+        input: [
+          expect.objectContaining({ role: "developer" }),
+          { role: "user", content: "Tell me about conventional loans" },
+          { role: "assistant", content: "Here is the policy." },
+          expect.objectContaining({
+            role: "user",
+            content: expect.stringContaining("What about VA loans?"),
+          }),
+        ],
+      })
+    )
+  })
+
+  it("streams the fallback and includes history in its prompt and retrieval", async () => {
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    miloMcp.callMiloMcpTool.mockRejectedValueOnce(new Error("tool unavailable"))
+    const chunks = [
+      {
+        chunk_id: "chunk-1",
+        source_id: "source-1",
+        source_type: "site",
+        source_title: "Wiki",
+        source_url: "/wiki",
+        content: "Wiki documentation lives at /wiki.",
+        metadata: {},
+        similarity: 0.95,
+      },
+    ]
+    const supabase = {
+      rpc: vi.fn(async (name: string) => ({
+        data: name.startsWith("match_knowledge") ? chunks : null,
+        error: null,
+      })),
+    }
+    const tokens: string[] = []
+    const answer = await answerKnowledgeQuestion({
+      supabase: supabase as never,
+      userContext,
+      question: "Where is it?",
+      history: [
+        { role: "user", content: "Tell me about Wiki documentation" },
+        { role: "assistant", content: "The Wiki has documentation." },
+      ],
+      onToken: (token) => tokens.push(token),
+    })
+    expect(tokens).toEqual(["Wiki documentation ", "lives at /wiki."])
+    expect(answer.citations).toHaveLength(1)
+    expect(aiProvider.streamMiloResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.stringContaining("Tell me about Wiki documentation"),
+      }),
+      expect.any(Function),
+      undefined
+    )
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "match_knowledge_chunks_keyword",
+      expect.objectContaining({
+        search_query: expect.stringContaining(
+          "Tell me about Wiki documentation"
+        ),
+      })
     )
   })
 

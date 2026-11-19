@@ -332,6 +332,104 @@ describe("/api/wiki/chat route", () => {
     testState.answer.metadata = {}
   })
 
+  it("sends status and model tokens before the final persisted answer", async () => {
+    testState.user = { id: "user-1" }
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    let finish!: () => void
+    const paused = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    vi.mocked(answerKnowledgeQuestion).mockImplementationOnce(
+      async (params) => {
+        params.onStatus?.("Searching the wiki…")
+        params.onToken?.("First ")
+        await paused
+        params.onToken?.("second")
+        return { ...testState.answer, metadata: { abstained: false } }
+      }
+    )
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: "Explain funding" }),
+      })
+    )
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    const first = decoder.decode((await reader.read()).value)
+    const second = decoder.decode((await reader.read()).value)
+    const third = decoder.decode((await reader.read()).value)
+    expect(first).toContain('"type":"meta"')
+    expect(second).toContain('"type":"status"')
+    expect(third).toContain('"token":"First "')
+    expect(
+      testState.tables.ai_chat_messages.filter(
+        (row) => row.role === "assistant"
+      )
+    ).toHaveLength(0)
+    finish()
+    let remaining = ""
+    while (true) {
+      const part = await reader.read()
+      if (part.done) break
+      remaining += decoder.decode(part.value)
+    }
+    expect(remaining).toContain('"token":"second"')
+    expect(remaining).toContain('"type":"done"')
+    expect(remaining).toContain('"answer":"Open /wiki/1/9/22 for the Wiki."')
+    expect(
+      testState.tables.ai_chat_messages.filter(
+        (row) => row.role === "assistant"
+      )
+    ).toHaveLength(1)
+  })
+
+  it("saves the partial text on cancellation without an error message", async () => {
+    testState.user = { id: "user-1" }
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    vi.mocked(answerKnowledgeQuestion).mockImplementationOnce(
+      async (params) => {
+        params.onToken?.("Partial answer")
+        await new Promise<void>((_resolve, reject) =>
+          params.signal!.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true }
+          )
+        )
+        return { ...testState.answer, metadata: { abstained: false } }
+      }
+    )
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const abort = new AbortController()
+    const response = await POST(
+      new Request("http://test.local/api/wiki/chat", {
+        method: "POST",
+        signal: abort.signal,
+        body: JSON.stringify({ message: "Explain funding" }),
+      })
+    )
+    const reader = response.body!.getReader()
+    await reader.read()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain(
+      "Partial answer"
+    )
+    abort.abort()
+    await vi.waitFor(() =>
+      expect(testState.tables.ai_chat_messages.at(-1)).toMatchObject({
+        role: "assistant",
+        content: "Partial answer",
+        metadata: { stopped: true },
+      })
+    )
+    expect(
+      testState.tables.ai_chat_messages.filter(
+        (row) => row.role === "assistant"
+      )
+    ).toHaveLength(1)
+  })
+
   it("rejects unauthenticated requests", async () => {
     const { POST } = await import("@/app/api/wiki/chat/route")
 
@@ -1092,14 +1190,12 @@ describe("/api/wiki/chat route", () => {
       card: {
         type: "error",
         id: "error",
-        message:
-          "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
+        message: "Milo couldn't answer right now. Please try again.",
       },
     })
     expect(testState.tables.ai_chat_messages.at(-1)).toMatchObject({
       role: "assistant",
-      content:
-        "Milo is missing its OpenAI configuration in this runtime. Please check the production environment variables and restart/redeploy the app.",
+      content: "Milo couldn't answer right now. Please try again.",
       metadata: {
         error: true,
         cards: [{ type: "error", id: "error", message: expect.any(String) }],
