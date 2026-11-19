@@ -279,7 +279,6 @@ export function WikiChat({
               )
               .flatMap(
                 (message: ChatMessage, index: number, all: ChatMessage[]) => {
-                  const previous = all[index - 1]
                   if (
                     message.role === "assistant" &&
                     message.stopped &&
@@ -290,15 +289,15 @@ export function WikiChat({
                     )
                   )
                     return []
+                  // Replies to a stopped question are placed right after it below.
                   if (
                     message.role === "assistant" &&
                     !message.stopped &&
-                    ((message.replyTo &&
-                      all.some(
-                        (item) =>
-                          item.id === message.replyTo && item.stopRequested
-                      )) ||
-                      (previous?.stopRequested && !message.replyTo))
+                    message.replyTo &&
+                    all.some(
+                      (item) =>
+                        item.id === message.replyTo && item.stopRequested
+                    )
                   )
                     return []
                   const restore = (item: ChatMessage) => ({
@@ -309,12 +308,21 @@ export function WikiChat({
                       : [],
                   })
                   if (message.role === "user" && message.stopRequested) {
-                    const partial = all.find(
-                      (item) =>
-                        item.role === "assistant" &&
-                        item.stopped &&
-                        item.replyTo === message.id
-                    )
+                    // A stop that reached the server after the answer was saved keeps
+                    // the full answer; otherwise show the saved partial or the Stopped line.
+                    const partial =
+                      all.find(
+                        (item) =>
+                          item.role === "assistant" &&
+                          !item.stopped &&
+                          item.replyTo === message.id
+                      ) ??
+                      all.find(
+                        (item) =>
+                          item.role === "assistant" &&
+                          item.stopped &&
+                          item.replyTo === message.id
+                      )
                     return [
                       restore(message),
                       partial

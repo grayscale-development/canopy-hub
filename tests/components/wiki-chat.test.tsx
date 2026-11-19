@@ -138,7 +138,7 @@ describe("WikiChat", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("restores a stopped question without an answer and places delayed partials with their question", async () => {
+  it("restores a stopped question without an answer, keeps a full answer saved before the stop, and places late replies with their question", async () => {
     localStorage.setItem("milo-active-thread", "thread-1")
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -179,14 +179,20 @@ describe("WikiChat", () => {
     expect(screen.getByText("Saved partial")).toBeVisible()
     expect(
       screen.getAllByText("Stopped. Ask another question to continue.")
-    ).toHaveLength(2)
+    ).toHaveLength(1)
     expect(screen.getByText("Third answer")).toBeVisible()
-    expect(screen.queryByText("Late answer")).not.toBeInTheDocument()
+    expect(screen.getByText("Late answer")).toBeVisible()
     const ordered = [...document.querySelectorAll("p")].map(
       (p) => p.textContent
     )
     expect(ordered.indexOf("Saved partial")).toBeLessThan(
       ordered.indexOf("Second question")
+    )
+    expect(ordered.indexOf("Late answer")).toBeGreaterThan(
+      ordered.indexOf("Second question")
+    )
+    expect(ordered.indexOf("Late answer")).toBeLessThan(
+      ordered.indexOf("Third question")
     )
   })
 
