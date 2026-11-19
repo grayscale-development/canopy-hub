@@ -602,6 +602,225 @@ describe("/api/wiki/import route", () => {
     )
   })
 
+  it.each([
+    {
+      input: "Change 4 PM to 2 PM.",
+      output: "The wire cutoff is 2 PM.\n\nKeep the approval step.",
+      expected: "The wire cutoff is 2 PM.",
+    },
+    {
+      input: "Send wires before the cutoff.",
+      output:
+        "The wire cutoff is 4 PM.\n\nKeep the approval step.\n\nSend wires before the cutoff.",
+      expected: "Send wires before the cutoff.",
+    },
+  ])(
+    "previews a source-grounded update: $input",
+    async ({ input, output, expected }) => {
+      state.nodes = [
+        {
+          id: "existing-page",
+          type: "page",
+          status: "published",
+          current_revision_id: "old-revision",
+          slug: "existing-page",
+          title: "Wire",
+        },
+      ]
+      state.videoNode = state.nodes[0]
+      state.targetRevision = {
+        id: "old-revision",
+        plain_text: "The wire cutoff is 4 PM.\n\nKeep the approval step.",
+        blocks: [
+          { type: "paragraph", content: "The wire cutoff is 4 PM." },
+          { type: "paragraph", content: "Keep the approval step." },
+        ],
+      }
+      state.aiResponse = {
+        output_text: JSON.stringify({
+          title: "Wire",
+          tags: [],
+          markdown: output,
+        }),
+      }
+      const body = new FormData()
+      body.set("target_page_id", "existing-page")
+      body.set("mode", "update")
+      body.set("preview", "1")
+      body.set("text", input)
+      const { POST } = await import("@/app/api/wiki/import/route")
+      const response = await POST(
+        new Request("http://localhost/api/wiki/import", {
+          method: "POST",
+          body,
+        })
+      )
+      const payload = await response.json()
+      expect(response.status).toBe(200)
+      expect(payload.afterText).toContain(expected)
+      expect(payload.afterText).toContain("Keep the approval step.")
+      if (input.startsWith("Change")) {
+        expect(payload.afterText).not.toContain("4 PM")
+        expect(payload.afterText).not.toContain(input)
+      }
+      expect(ai.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.stringContaining("The wire cutoff is 4 PM"),
+        }),
+        expect.anything()
+      )
+      expect(state.insertedRevisions).toEqual([])
+    }
+  )
+
+  it("applies instructions to a video transcript in the reviewed update", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        type: "page",
+        status: "published",
+        current_revision_id: "old-revision",
+        slug: "existing-page",
+        title: "Wire",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    state.targetRevision = {
+      id: "old-revision",
+      plain_text: "The wire cutoff is 4 PM.",
+      blocks: [{ type: "paragraph", content: "The wire cutoff is 4 PM." }],
+    }
+    state.videoAsset = {
+      id: "video-asset",
+      node_id: "existing-page",
+      file_name: "wire.mp4",
+      kind: "video",
+      status: "active",
+      extracted_text: "The wire cutoff is 2 PM.",
+      created_by: "wiki-manager",
+    }
+    state.aiResponse = {
+      output_text: JSON.stringify({
+        title: "Wire",
+        tags: [],
+        markdown: "The wire cutoff is 2 PM.",
+      }),
+    }
+    const body = new FormData()
+    body.set("video_import", "complete")
+    body.set("node_id", "existing-page")
+    body.set("asset_id", "video-asset")
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "update")
+    body.set("preview", "1")
+    body.set("text", "Change 4 PM to 2 PM.")
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+    const payload = await response.json()
+    expect(response.status).toBe(200)
+    expect(payload.afterText).toContain("The wire cutoff is 2 PM.")
+    expect(payload.afterText).not.toContain("4 PM")
+    expect(payload.blocks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "video" })])
+    )
+  })
+
+  it("passes a file and its instructions together to the fake provider", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        type: "page",
+        status: "published",
+        current_revision_id: "old-revision",
+        slug: "existing-page",
+        title: "Wire",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    state.targetRevision = {
+      id: "old-revision",
+      plain_text: "Keep the approval step.",
+      blocks: [{ type: "paragraph", content: "Keep the approval step." }],
+    }
+    extractor.extractWikiDocumentText.mockResolvedValueOnce(
+      "The wire cutoff is 2 PM."
+    )
+    state.aiResponse = {
+      output_text: JSON.stringify({
+        title: "Wire",
+        tags: [],
+        markdown: "Keep the approval step.\n\nThe wire cutoff is 2 PM.",
+      }),
+    }
+    const body = new FormData()
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "update")
+    body.set("preview", "1")
+    body.set("text", "Add the wire cutoff from the file.")
+    body.set(
+      "file",
+      new File(["The wire cutoff is 2 PM."], "notes.txt", {
+        type: "text/plain",
+      })
+    )
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+    const payload = await response.json()
+    expect(response.status).toBe(200)
+    expect(payload.afterText).toContain("The wire cutoff is 2 PM.")
+    for (const expected of [
+      "Add the wire cutoff from the file.",
+      "The wire cutoff is 2 PM.",
+      "Keep the approval step.",
+    ]) {
+      expect(ai.createAgentResponseWithOpenAI).toHaveBeenCalledWith(
+        expect.objectContaining({ input: expect.stringContaining(expected) }),
+        expect.anything()
+      )
+    }
+  })
+
+  it("rejects invented words in an instruction-style update", async () => {
+    state.nodes = [
+      {
+        id: "existing-page",
+        type: "page",
+        status: "published",
+        current_revision_id: "old-revision",
+        slug: "existing-page",
+        title: "Wire",
+      },
+    ]
+    state.videoNode = state.nodes[0]
+    state.targetRevision = {
+      id: "old-revision",
+      plain_text: "The wire cutoff is 4 PM.",
+      blocks: [{ type: "paragraph", content: "The wire cutoff is 4 PM." }],
+    }
+    state.aiResponse = {
+      output_text: JSON.stringify({
+        title: "Wire",
+        tags: [],
+        markdown: "The wire cutoff is 2 PM. Manager approval is mandatory.",
+      }),
+    }
+    const body = new FormData()
+    body.set("target_page_id", "existing-page")
+    body.set("mode", "update")
+    body.set("preview", "1")
+    body.set("text", "Change 4 PM to 2 PM.")
+    const { POST } = await import("@/app/api/wiki/import/route")
+    const response = await POST(
+      new Request("http://localhost/api/wiki/import", { method: "POST", body })
+    )
+    expect(response.status).toBe(422)
+    expect(state.insertedRevisions).toEqual([])
+  })
+
   it("previews an AI update without writing a revision", async () => {
     state.nodes = [
       {

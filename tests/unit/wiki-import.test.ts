@@ -472,6 +472,99 @@ Also in the mix
 })
 
 describe("source-grounded updates", () => {
+  it("preserves unchanged links and rejects losing rich text", async () => {
+    const { preserveWikiUpdateBlocks } = await import("@/lib/wiki-import")
+    const linked = {
+      type: "paragraph",
+      content: [
+        {
+          type: "link",
+          href: "https://example.com",
+          content: [{ type: "text", text: "Guide", styles: {} }],
+        },
+      ],
+    }
+    expect(
+      preserveWikiUpdateBlocks(
+        [linked],
+        [{ type: "paragraph", content: "Guide" }]
+      )
+    ).toEqual([linked])
+    expect(
+      preserveWikiUpdateBlocks(
+        [linked],
+        [{ type: "paragraph", content: "Guide updated" }]
+      )
+    ).toBeNull()
+  })
+
+  it("keeps existing attachments in place during a text update", async () => {
+    const { preserveWikiUpdateBlocks } = await import("@/lib/wiki-import")
+    const intro = { type: "paragraph", content: "Introduction" }
+    const image = { type: "image", props: { url: "/api/wiki/assets/image" } }
+    const end = { type: "paragraph", content: "After the image" }
+    expect(
+      preserveWikiUpdateBlocks(
+        [intro, image, end],
+        [
+          { type: "paragraph", content: "Introduction" },
+          { type: "paragraph", content: "After the image" },
+          { type: "paragraph", content: "New note" },
+        ]
+      )
+    ).toEqual([intro, image, end, { type: "paragraph", content: "New note" }])
+  })
+
+  it("allows a uniquely named requested section to be removed", async () => {
+    const { isFaithfulWikiUpdate, requestedWikiSectionRemoval } =
+      await import("@/lib/wiki-import")
+    const blocks = [
+      { type: "heading", props: { level: 2 }, content: "Old policy" },
+      { type: "paragraph", content: "Obsolete guidance." },
+      { type: "heading", props: { level: 2 }, content: "Safety" },
+      { type: "paragraph", content: "Keep the checks." },
+    ]
+    const existing =
+      "Old policy\n\nObsolete guidance.\n\nSafety\n\nKeep the checks."
+    const instruction = "Remove the section about Old policy."
+    const removed = requestedWikiSectionRemoval(blocks, instruction)
+    expect(removed).toBe("Old policy\n\nObsolete guidance.")
+    expect(
+      isFaithfulWikiUpdate(
+        existing,
+        "Safety\n\nKeep the checks.",
+        instruction,
+        "",
+        removed
+      )
+    ).toBe(true)
+    expect(
+      isFaithfulWikiUpdate(existing, "Safety", instruction, "", removed)
+    ).toBe(false)
+    expect(
+      requestedWikiSectionRemoval([...blocks, blocks[0]], instruction)
+    ).toBe("")
+  })
+
+  it("accepts an instruction naming the subject and a pasted correction", async () => {
+    const { isFaithfulWikiUpdate } = await import("@/lib/wiki-import")
+    const old = "The wire cutoff is 4 PM.\n\nKeep the approval step."
+    expect(
+      isFaithfulWikiUpdate(
+        old,
+        "The wire cutoff is 2 PM.\n\nKeep the approval step.",
+        "Change the wire cutoff to 2 PM."
+      )
+    ).toBe(true)
+    expect(
+      isFaithfulWikiUpdate(
+        old,
+        "The wire cutoff is now 2 PM.\n\nKeep the approval step.",
+        "The wire cutoff is now 2 PM."
+      )
+    ).toBe(true)
+  })
+
   it("accepts a supported replacement but keeps unrelated instructions and repeated content", async () => {
     const { isFaithfulWikiUpdate } = await import("@/lib/wiki-import")
     const old = "The desk closes at 4 p.m. Mountain time.\nKeep all warnings."
