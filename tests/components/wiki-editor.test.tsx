@@ -10,7 +10,10 @@ import {
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
 import { toast } from "sonner"
-import { saveWikiPageAction } from "@/app/wiki/actions"
+import {
+  saveWikiPageAction,
+  updateWikiNodeStatusAction,
+} from "@/app/wiki/actions"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import type { WikiNodeRow } from "@/lib/wiki"
 
@@ -207,7 +210,7 @@ describe("WikiEditor", () => {
     )
   })
 
-  it("places the AI Update control immediately before the page status", () => {
+  it("places the AI Update control immediately after the page status", () => {
     window.localStorage.setItem("wiki-edit-mode", "edit")
     render(
       <WikiEditModeProvider canManageWiki>
@@ -224,9 +227,36 @@ describe("WikiEditor", () => {
     const aiUpdate = screen.getByRole("button", { name: "AI Update" })
     const status = screen.getByRole("button", { name: "Draft" })
     expect(
-      aiUpdate.compareDocumentPosition(status) &
+      status.compareDocumentPosition(aiUpdate) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+  })
+
+  it("confirms a status change and leaves it unchanged on cancel", async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor
+          node={node}
+          revision={revision}
+          canManage
+          showStatusControl
+        />
+      </WikiEditModeProvider>
+    )
+    await user.click(screen.getByRole("button", { name: "Draft" }))
+    await user.click(screen.getByRole("menuitem", { name: "Published" }))
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(updateWikiNodeStatusAction).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Draft" }))
+    await user.click(screen.getByRole("menuitem", { name: "Published" }))
+    await user.click(screen.getByRole("button", { name: "Confirm" }))
+    await waitFor(() =>
+      expect(updateWikiNodeStatusAction).toHaveBeenCalledTimes(1)
+    )
+    const data = vi.mocked(updateWikiNodeStatusAction).mock.calls[0][0]
+    expect(data.get("status")).toBe("published")
   })
 
   it("searches, selects, and creates page tags", async () => {

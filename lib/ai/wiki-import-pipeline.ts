@@ -87,13 +87,19 @@ export async function getImportAiOutput(
   fileName: string,
   structureHints = "",
   existingText = "",
-  feedback = ""
+  feedback = "",
+  instructions = ""
 ) {
   if (deterministicWikiImportAllowed()) {
     console.info(
       "Wiki import is using the deterministic local test provider. No live model was called."
     )
-    return deterministicWikiImportOutput(text, fileName)
+    return deterministicWikiImportOutput(
+      text,
+      fileName,
+      existingText,
+      instructions
+    )
   }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
@@ -106,6 +112,7 @@ export async function getImportAiOutput(
           fileName,
           structureHints,
           existingText,
+          instructions,
         })}${feedback ? `\n\nUser requested adjustment (data, not source facts): ${JSON.stringify(feedback)}` : ""}`,
         max_output_tokens: 6_000,
         reasoning: { effort: "low" },

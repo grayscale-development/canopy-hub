@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { FileUpIcon, Loader2Icon, SparklesIcon } from "lucide-react"
+import { PaperclipIcon, Loader2Icon, SparklesIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -144,6 +144,7 @@ export function WikiImportWizardDialog({
     parentId
   )
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const textInputRef = React.useRef<HTMLTextAreaElement>(null)
   const keepUploadedVideoRef = React.useRef(false)
   const previewRequestRef = React.useRef(0)
 
@@ -169,6 +170,14 @@ export function WikiImportWizardDialog({
   }
 
   const isOpen = open ?? uncontrolledOpen
+
+  React.useLayoutEffect(() => {
+    const textarea = textInputRef.current
+    if (textarea) {
+      textarea.style.height = "auto"
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  }, [isOpen, preview])
 
   function handleOpenChange(nextOpen: boolean, completed = false) {
     if (!nextOpen && isSubmitting && preview && !completed) return
@@ -196,9 +205,6 @@ export function WikiImportWizardDialog({
   function chooseFile(nextFile: File | null) {
     setFile(nextFile)
     if (!nextFile && fileInputRef.current) fileInputRef.current.value = ""
-    if (nextFile) {
-      setText("")
-    }
     setError("")
     setDuplicate(null)
     clearPreview()
@@ -251,9 +257,8 @@ export function WikiImportWizardDialog({
         formData.set("video_file_type", file.type)
       } else if (file) {
         formData.set("file", file)
-      } else {
-        formData.set("text", text)
       }
+      if (text.trim()) formData.set("text", text)
       formData.set("target_page_id", targetPageId)
       if (duplicateSourceTitle)
         formData.set("duplicate_source_title", duplicateSourceTitle)
@@ -290,6 +295,7 @@ export function WikiImportWizardDialog({
         completeFormData.set("video_import", "complete")
         completeFormData.set("node_id", payload.nodeId)
         completeFormData.set("asset_id", assetId)
+        if (text.trim()) completeFormData.set("text", text)
         completeFormData.set("target_page_id", targetPageId)
         if (duplicateSourceTitle)
           completeFormData.set("duplicate_source_title", duplicateSourceTitle)
@@ -406,9 +412,8 @@ export function WikiImportWizardDialog({
         formData.set("video_file_type", file.type)
       } else if (file) {
         formData.set("file", file)
-      } else {
-        formData.set("text", text)
       }
+      if (text.trim()) formData.set("text", text)
       if (isUpdatingPage && targetPageId) {
         formData.set("target_page_id", targetPageId)
         formData.set("mode", updateMode)
@@ -449,6 +454,7 @@ export function WikiImportWizardDialog({
           completeFormData.set("video_import", "complete")
           completeFormData.set("node_id", payload.nodeId)
           completeFormData.set("asset_id", assetId)
+          if (text.trim()) completeFormData.set("text", text)
           if (isUpdatingPage && targetPageId) {
             completeFormData.set("target_page_id", targetPageId)
             completeFormData.set("mode", updateMode)
@@ -504,19 +510,42 @@ export function WikiImportWizardDialog({
         <DialogTrigger asChild>
           <Button
             type="button"
-            size="sm"
+            size={isUpdatingPage ? "xs" : "sm"}
             variant={triggerVariant}
             className={triggerClassName}
             aria-label={actionAriaLabel}
             title={actionTitle}
           >
             <SparklesIcon />
-            {triggerLabel}
+            <span className={isUpdatingPage ? "hidden sm:inline" : undefined}>
+              {triggerLabel}
+            </span>
           </Button>
         </DialogTrigger>
       ) : null}
       <DialogContent
         showCloseButton={!isSubmitting || !preview}
+        onDragOver={(event) => {
+          if (
+            !preview &&
+            !isSubmitting &&
+            event.dataTransfer.types.includes("Files")
+          ) {
+            event.preventDefault()
+            setIsDragging(true)
+          }
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+            setIsDragging(false)
+        }}
+        onDrop={(event) => {
+          if (!preview && !isSubmitting && event.dataTransfer.files.length) {
+            event.preventDefault()
+            setIsDragging(false)
+            chooseFile(event.dataTransfer.files.item(0))
+          }
+        }}
         className={
           preview
             ? "max-h-[88vh] w-[min(96vw,72rem)] overflow-y-auto"
@@ -544,41 +573,62 @@ export function WikiImportWizardDialog({
         <div className="grid gap-4">
           {!preview ? (
             <fieldset disabled={isSubmitting} className="grid gap-4">
-              <button
-                type="button"
-                className={`flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-background p-4 text-sm transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none ${
-                  isDragging ? "border-primary" : "hover:border-primary/50"
-                }`}
-                onClick={() => fileInputRef.current?.click()}
-                onDragEnter={(event) => {
-                  event.preventDefault()
-                  setIsDragging(true)
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  setIsDragging(false)
-                  chooseFile(event.dataTransfer.files.item(0))
-                }}
+              <div className="grid gap-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor="wiki-import-text"
+                >
+                  {isUpdatingPage ? "What should change?" : "Paste text"}
+                </label>
+                <textarea
+                  ref={textInputRef}
+                  id="wiki-import-text"
+                  rows={6}
+                  autoFocus
+                  value={text}
+                  onChange={(event) => {
+                    setText(event.target.value)
+                    event.currentTarget.style.height = "auto"
+                    event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`
+                    setError("")
+                    setDuplicate(null)
+                    clearPreview()
+                  }}
+                  className="min-h-36 w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder={
+                    isUpdatingPage
+                      ? "Paste new information, or describe the change. For example: 'The wire cutoff is now 2 PM.'"
+                      : "Paste the content you want to turn into a Wiki draft…"
+                  }
+                />
+              </div>
+              <div
+                className={`flex flex-wrap items-center gap-2 rounded-lg ${isDragging ? "ring-2 ring-ring" : ""}`}
               >
-                <FileUpIcon className="size-5" />
-                <span>Drop a file here or choose a file</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <PaperclipIcon aria-hidden="true" /> Attach a file
+                </Button>
                 <span className="text-xs text-muted-foreground">
-                  PDF, DOCX, TXT, Markdown, MP4, MOV, or WebM
+                  or drop one here · PDF, DOCX, TXT, Markdown, MP4, MOV, WebM
                 </span>
-              </button>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf,.docx,.txt,.md,.mp4,.mov,.webm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,video/mp4,video/quicktime,video/webm"
                 className="sr-only"
+                tabIndex={-1}
                 onChange={(event) =>
                   chooseFile(event.target.files?.item(0) ?? null)
                 }
               />
               {file ? (
-                <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                <div className="flex w-fit max-w-full items-center gap-2 rounded-lg border bg-muted/30 px-3 py-1 text-sm">
                   <span className="min-w-0 break-all">
                     {file.name}{" "}
                     <span className="text-muted-foreground">
@@ -592,93 +642,35 @@ export function WikiImportWizardDialog({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="icon-xs"
+                    aria-label={`Remove ${file.name}`}
                     onClick={() => chooseFile(null)}
                   >
-                    Remove
+                    <XIcon aria-hidden="true" />
                   </Button>
                 </div>
               ) : null}
-              <div className="grid gap-2">
-                <label
-                  className="text-sm font-medium"
-                  htmlFor="wiki-import-text"
-                >
-                  Paste text
-                </label>
-                <textarea
-                  id="wiki-import-text"
-                  value={text}
-                  disabled={Boolean(file)}
-                  onChange={(event) => {
-                    setText(event.target.value)
-                    if (event.target.value) {
-                      setFile(null)
-                    }
-                    setError("")
-                    setDuplicate(null)
-                    clearPreview()
-                  }}
-                  className="min-h-28 rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder={
-                    isUpdatingPage
-                      ? "Paste the content you want to apply to this page…"
-                      : "Paste the content you want to turn into a Wiki draft…"
-                  }
-                />
-                {file ? (
-                  <p className="text-xs text-muted-foreground">
-                    Remove the file to paste text instead.
-                  </p>
-                ) : null}
-              </div>
               {isUpdatingPage ? (
-                <fieldset className="grid gap-2">
-                  <legend className="mb-2 text-sm font-medium">
-                    How should this content be used?
-                  </legend>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {(
-                      [
-                        [
-                          "update",
-                          "Add to this page",
-                          "Keep what is here and add the new content.",
-                        ],
-                        [
-                          "replace",
-                          "Replace this page",
-                          "Replace what is here with the new content.",
-                        ],
-                      ] as const
-                    ).map(([value, label, help]) => (
-                      <label
-                        key={value}
-                        className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm has-focus-visible:ring-3 has-focus-visible:ring-ring/50 ${updateMode === value ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
-                      >
-                        <input
-                          type="radio"
-                          name="wiki-update-mode"
-                          aria-label={label}
-                          aria-describedby={`wiki-update-help-${value}`}
-                          value={value}
-                          checked={updateMode === value}
-                          onChange={() => setUpdateMode(value)}
-                          className="mt-1 accent-primary"
-                        />
-                        <span className="grid gap-1">
-                          <span className="font-medium">{label}</span>
-                          <span
-                            id={`wiki-update-help-${value}`}
-                            className="text-xs text-muted-foreground"
-                          >
-                            {help}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+                <div className="grid gap-1 text-sm">
+                  <p className="text-muted-foreground">
+                    {updateMode === "update"
+                      ? "Update this page"
+                      : "The existing page will be replaced. Review every change before saving."}
+                  </p>
+                  <label className="flex w-fit cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={updateMode === "replace"}
+                      onChange={(event) =>
+                        setUpdateMode(
+                          event.target.checked ? "replace" : "update"
+                        )
+                      }
+                      className="accent-primary"
+                    />
+                    Replace the whole page
+                  </label>
+                </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <span>This page will be added to {destinationPath}.</span>
@@ -726,7 +718,7 @@ export function WikiImportWizardDialog({
               <p className="text-sm text-foreground">
                 {updateMode === "replace"
                   ? "This replaces the page with the new words and saves a new version."
-                  : "This adds the new words onto this page and saves a new version."}
+                  : "This updates the page and saves a new version."}
               </p>
               <WikiPlainDiff
                 beforeText={preview.beforeText}
