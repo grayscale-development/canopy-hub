@@ -23,6 +23,7 @@ const TEST_PERMISSION_CODES = [
   "data-sync.run",
   "wiki.manage",
   "ai.settings.access",
+  "feedback.manage",
   "beta.1",
   "department-dashboard.events.view",
   "newsletters.upload",
@@ -38,6 +39,7 @@ const TEST_PERMISSION_NAMES: Record<
   "data-sync.run": "Run Sync",
   "wiki.manage": "Edit Wiki",
   "ai.settings.access": "Access AI Settings",
+  "feedback.manage": "Manage Feedback",
   "beta.1": "Beta 1",
   "department-dashboard.events.view": "View Department Dashboard Events",
   "newsletters.upload": "Upload Newsletters",
@@ -976,6 +978,7 @@ async function seedLocalData({
       "advanced-settings.access",
       "data-sync.run",
       "ai.settings.access",
+      "feedback.manage",
       "beta.1",
     ],
   })

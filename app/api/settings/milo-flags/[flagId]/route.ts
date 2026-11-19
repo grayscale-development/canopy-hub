@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server"
 
-import {
-  AI_SETTINGS_ACCESS_PERMISSION,
-  BETA_1_PERMISSION,
-  SETTINGS_ACCESS_PERMISSION,
-} from "@/lib/permission-codes"
+import { FEEDBACK_MANAGE_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { WIKI_MANAGE_PERMISSION } from "@/lib/wiki"
 
 export const runtime = "nodejs"
 
@@ -32,36 +27,12 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const [canViewSettings, canAccessAiSettings, canAccessBeta1, canManageWiki] =
-    await Promise.all([
-      userHasPermissionCode({
-        supabase,
-        userId: user.id,
-        code: SETTINGS_ACCESS_PERMISSION,
-      }),
-      userHasPermissionCode({
-        supabase,
-        userId: user.id,
-        code: AI_SETTINGS_ACCESS_PERMISSION,
-      }),
-      userHasPermissionCode({
-        supabase,
-        userId: user.id,
-        code: BETA_1_PERMISSION,
-      }),
-      userHasPermissionCode({
-        supabase,
-        userId: user.id,
-        code: WIKI_MANAGE_PERMISSION,
-      }),
-    ])
-
-  if (
-    !canViewSettings ||
-    !canAccessAiSettings ||
-    !canAccessBeta1 ||
-    !canManageWiki
-  ) {
+  const canManageFeedback = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: FEEDBACK_MANAGE_PERMISSION,
+  })
+  if (!canManageFeedback) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
