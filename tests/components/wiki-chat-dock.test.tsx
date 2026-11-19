@@ -243,6 +243,21 @@ describe("floating Milo", () => {
     expect(screen.queryByText(/Milo moved here/)).toBeNull()
   })
 
+  it("keeps the tip until it is dismissed or Milo is opened", async () => {
+    const user = userEvent.setup()
+    const first = render(<Harness />)
+    expect(await screen.findByText(/Milo moved here/)).toBeVisible()
+    first.unmount()
+    const second = render(<Harness />)
+    expect(await screen.findByText(/Milo moved here/)).toBeVisible()
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
+    second.unmount()
+    localStorage.removeItem("milo-chat-open")
+    render(<Harness />)
+    await act(async () => {})
+    expect(screen.queryByText(/Milo moved here/)).toBeNull()
+  })
+
   it("keeps a small pointer movement as a click and snaps a drag without opening", async () => {
     const writes: string[] = []
     vi.stubGlobal(

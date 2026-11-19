@@ -93,6 +93,15 @@ export function WikiChatModalProvider({
   const [isOpen, setIsOpen] = React.useState(false)
   const [hasOpened, setHasOpened] = React.useState(false)
   const [showTip, setShowTip] = React.useState(false)
+  // The tip counts as seen only once it is dismissed or Milo is opened.
+  const dismissTip = React.useCallback(() => {
+    setShowTip(false)
+    try {
+      localStorage.setItem(tipSeenKey, "true")
+    } catch {
+      // Storage is optional.
+    }
+  }, [])
   const [queuedPrompt, setQueuedPrompt] = React.useState<string | null>(null)
   const [page, setPage] = React.useState<MiloPage | null>(null)
   const [removedPageId, setRemovedPageId] = React.useState<string | null>(null)
@@ -412,10 +421,7 @@ export function WikiChatModalProvider({
           localStorage.getItem(openChatKey) === "true"
         )
           return
-        if (!localStorage.getItem(tipSeenKey)) {
-          setShowTip(true)
-          localStorage.setItem(tipSeenKey, "true")
-        }
+        if (!localStorage.getItem(tipSeenKey)) setShowTip(true)
       } catch {
         // Storage is optional.
       }
@@ -427,14 +433,17 @@ export function WikiChatModalProvider({
 
   const setOpen = React.useCallback((open: boolean) => {
     interactedRef.current = true
-    if (open) setHasOpened(true)
+    if (open) {
+      setHasOpened(true)
+      dismissTip()
+    }
     setIsOpen(open)
     try {
       localStorage.setItem(openChatKey, String(open))
     } catch {
       /* Storage is optional. */
     }
-  }, [])
+  }, [dismissTip])
 
   const close = React.useCallback(() => {
     setOpen(false)
@@ -526,7 +535,7 @@ export function WikiChatModalProvider({
                   variant="ghost"
                   size="icon-sm"
                   aria-label="Dismiss Milo tip"
-                  onClick={() => setShowTip(false)}
+                  onClick={dismissTip}
                 >
                   ×
                 </Button>
