@@ -51,7 +51,7 @@ for (const viewport of [
           .click()
       await expect(dialog).toBeVisible({ timeout: 2000 })
     }).toPass({ timeout: 20000 })
-    await dialog.getByRole("button", { name: "Close" }).click()
+    await dialog.getByRole("button", { name: "Minimize Milo" }).click()
     await expect(dialog).toBeHidden()
     const search = page.getByRole("textbox", { name: "Ask Milo" }).last()
     await search.evaluate((element) => {

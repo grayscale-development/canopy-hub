@@ -282,7 +282,7 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
     await expect(
       dialog.getByText("Wiki", { exact: true }).first()
     ).toBeVisible()
-    await dialog.getByRole("button", { name: "Close" }).click()
+    await dialog.getByRole("button", { name: "Minimize Milo" }).click()
     await missingPage.getByRole("link", { name: "Go to wiki home" }).click()
     await expect(page).toHaveURL(/\/wiki$/)
 

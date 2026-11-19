@@ -105,13 +105,25 @@ for (const viewport of [
     await page.reload()
     await expect(panel).toBeVisible()
     await expect(panel.getByText("Where is the Wiki?")).toBeVisible()
-    await panel.getByRole("button", { name: "Close" }).click()
+    await panel.getByRole("button", { name: "Minimize Milo" }).click()
     await expect(launcher).toBeFocused()
     await expect(page.getByText(/Milo lives here now/)).toHaveCount(0)
     await page.keyboard.press("Control+j")
     await expect(panel).toBeVisible()
+    await composer.fill("A half-typed follow-up")
     await page.keyboard.press("Escape")
     await expect(panel).toBeHidden()
+    await expect(launcher).toHaveAccessibleDescription("Chat in progress")
+    await page.reload()
+    await expect(launcher).toHaveAccessibleDescription("Chat in progress")
+    await launcher.click()
+    await expect(composer).toHaveValue("A half-typed follow-up")
+    await expect(panel.getByText("Where is the Wiki?")).toBeVisible()
+    await panel.getByRole("button", { name: "New chat" }).click()
+    await expect(composer).toHaveValue("")
+    await expect(panel.getByText("Where is the Wiki?")).toHaveCount(0)
+    await panel.getByRole("button", { name: "Minimize Milo" }).click()
+    await expect(launcher).not.toHaveAccessibleDescription("Chat in progress")
   })
 }
 
@@ -128,7 +140,7 @@ test("coarse pointers never see or mark the tip", async ({ page }) => {
   await mockMiloChatApi(page)
   await signInAsLocalDev(page)
   await page.getByRole("button", { name: "Ask Milo", exact: true }).click()
-  await page.getByRole("button", { name: "Close", exact: true }).click()
+  await page.getByRole("button", { name: "Minimize Milo", exact: true }).click()
   await expect(page.getByText(/Milo lives here now/)).toHaveCount(0)
   expect(
     await page.evaluate(() => localStorage.getItem("milo-moved-tip-seen"))
@@ -165,7 +177,7 @@ for (const viewport of [
         .toBeGreaterThanOrEqual(72)
       await launcher.click()
       const panel = page.getByRole("dialog", { name: "Milo" })
-      for (const name of ["New chat", "History", "Close"]) {
+      for (const name of ["New chat", "History", "Minimize Milo"]) {
         const box = (await panel
           .getByRole("button", { name, exact: true })
           .boundingBox())!
