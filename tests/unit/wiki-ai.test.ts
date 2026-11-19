@@ -245,7 +245,7 @@ describe("wiki AI orchestration", () => {
     )
   })
 
-  it("emits the checked fallback answer and includes history in its prompt and retrieval", async () => {
+  it("streams the fallback answer and includes history in its prompt and retrieval", async () => {
     const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
     miloMcp.callMiloMcpTool.mockRejectedValueOnce(new Error("tool unavailable"))
     const chunks = [
@@ -277,14 +277,17 @@ describe("wiki AI orchestration", () => {
       ],
       onToken: (token) => tokens.push(token),
     })
-    expect(tokens).toEqual([answer.answer])
+    expect(tokens).toHaveLength(2)
+    expect(tokens.join("")).toBe(answer.answer)
     expect(answer.citations).toHaveLength(1)
-    expect(aiProvider.createChatResponseWithOpenAI).toHaveBeenCalledWith(
+    expect(aiProvider.streamMiloResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         input: expect.stringContaining("Tell me about Wiki documentation"),
-      })
+      }),
+      expect.any(Function),
+      expect.any(AbortSignal)
     )
-    expect(aiProvider.streamMiloResponse).not.toHaveBeenCalled()
+    expect(aiProvider.createChatResponseWithOpenAI).not.toHaveBeenCalled()
     expect(supabase.rpc).toHaveBeenCalledWith(
       "match_knowledge_chunks_keyword",
       expect.objectContaining({

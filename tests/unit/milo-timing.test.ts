@@ -13,6 +13,8 @@ it("logs only timing fields, never question or answer text", async () => {
     })
     timing.model("agent", "fake-chat", "low")
     await timing.measure("agentCall", async () => "private answer")
+    timing.token()
+    timing.token()
     timing.log()
     expect(log).toHaveBeenCalledOnce()
     const record = JSON.stringify(log.mock.calls[0][1])
@@ -21,7 +23,11 @@ it("logs only timing fields, never question or answer text", async () => {
     expect(record).not.toContain("private user")
     expect(log.mock.calls[0][1]).toMatchObject({
       models: { agent: "fake-chat" },
-      ms: { agentCall: [expect.any(Number)], total: expect.any(Number) },
+      ms: {
+        agentCall: [expect.any(Number)],
+        firstTokenMs: expect.any(Number),
+        total: expect.any(Number),
+      },
     })
   } finally {
     log.mockRestore()

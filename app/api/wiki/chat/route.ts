@@ -671,11 +671,23 @@ export async function POST(request: Request) {
   return new Response(
     new ReadableStream({
       async start(controller) {
+        let checkingStop = false
+        const stopPoll = setInterval(() => {
+          if (checkingStop || cancellation.signal.aborted) return
+          checkingStop = true
+          void checkStop()
+            .catch(() => {})
+            .finally(() => {
+              checkingStop = false
+            })
+        }, 500)
         const emit = (event: MiloStreamEvent) => {
-          if (!cancellation.signal.aborted)
+          if (!cancellation.signal.aborted) {
+            if (event.type === "token" && event.token) timing.token()
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
             )
+          }
         }
         emit({ type: "meta", threadId, userMessageId: userMessage.id })
         const sourceParts = splitSource(message, Boolean(file))
@@ -1145,6 +1157,7 @@ export async function POST(request: Request) {
             error: true,
           })
         } finally {
+          clearInterval(stopPoll)
           timing.log()
           request.signal.removeEventListener("abort", abort)
           if (!cancelled) controller.close()
