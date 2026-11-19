@@ -186,11 +186,8 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
       const taggedTitle = taggedRow
         .getByRole("link", { name: source.title })
         .locator("span")
-      const tagPill = taggedRow
-        .locator("td")
-        .filter({ hasText: tag.data.name })
-        .locator("span")
-        .first()
+      // Rows show at most two tag pills, so align against the first visible one.
+      const tagPill = taggedRow.locator("td div.flex-wrap > span").first()
       const untaggedTitle = untaggedRow
         .getByRole("link", { name: untagged.title })
         .locator("span")
