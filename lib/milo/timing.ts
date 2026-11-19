@@ -28,6 +28,11 @@ export class MiloTiming {
   abstained = false
   toolLoopSteps = 0
   outcome: "complete" | "error" | "stopped" = "complete"
+  private firstTokenMs: number | null = null
+
+  token() {
+    this.firstTokenMs ??= Math.round(performance.now() - this.started)
+  }
 
   model(
     stage: "intent" | "assessment" | "agent" | "embedding",
@@ -62,6 +67,7 @@ export class MiloTiming {
       reasoning: { ...this.reasoning },
       ms: {
         ...this.durations,
+        firstTokenMs: this.firstTokenMs,
         total: Math.round(performance.now() - this.started),
       },
       toolLoopSteps: this.toolLoopSteps,

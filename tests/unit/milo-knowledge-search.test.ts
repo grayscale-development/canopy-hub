@@ -97,6 +97,29 @@ describe("Milo hybrid retrieval", () => {
     await pending
   })
 
+  it("deduplicates concurrent identical searches only for the same client", async () => {
+    let finish!: (result: { data: never[]; error: null }) => void
+    const keyword = new Promise<{ data: never[]; error: null }>((resolve) => {
+      finish = resolve
+    })
+    const rpc = vi.fn((name: string) =>
+      name === "match_knowledge_chunks_keyword"
+        ? keyword
+        : Promise.resolve({ data: [], error: null })
+    )
+    const client = { rpc } as never
+    const first = searchKnowledge(client, "query")
+    const second = searchKnowledge(client, "query")
+    expect(first).toBe(second)
+    const otherClient = searchKnowledge({ rpc } as never, "query")
+    expect(otherClient).not.toBe(first)
+    finish({ data: [], error: null })
+    await Promise.all([first, second, otherClient])
+    expect(provider.createEmbeddingsWithOpenAI).toHaveBeenCalledTimes(2)
+    await searchKnowledge(client, "query")
+    expect(provider.createEmbeddingsWithOpenAI).toHaveBeenCalledTimes(3)
+  })
+
   it("filters the retired Bridge site source before reindexing", async () => {
     const bridge = {
       ...row("bridge", 1),

@@ -44,7 +44,43 @@ export function citationSnippet(
   return `${prefix}${content}`.slice(0, 360)
 }
 
-export async function searchKnowledge(
+const pendingSearches = new WeakMap<
+  SupabaseWikiClient,
+  Map<string, Promise<RetrievedChunk[]>>
+>()
+
+export function searchKnowledge(
+  supabase: SupabaseWikiClient,
+  question: string,
+  matchCount = 12,
+  sourceTypes: string[] | null = null,
+  timing?: MiloTiming
+) {
+  const key = JSON.stringify([question, matchCount, sourceTypes])
+  let pending = pendingSearches.get(supabase)
+  if (!pending) {
+    pending = new Map()
+    pendingSearches.set(supabase, pending)
+  }
+  const existing = pending.get(key)
+  if (existing) return existing
+  const request = searchKnowledgeOnce(
+    supabase,
+    question,
+    matchCount,
+    sourceTypes,
+    timing
+  )
+  pending.set(key, request)
+  const searches = pending
+  void request.then(
+    () => searches.delete(key),
+    () => searches.delete(key)
+  )
+  return request
+}
+
+async function searchKnowledgeOnce(
   supabase: SupabaseWikiClient,
   question: string,
   matchCount = 12,

@@ -1,33 +1,37 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/wiki", async (original) => ({
-  ...(await original<typeof import("@/lib/wiki")>()),
-  fetchWikiNodes: async () => [
-    {
-      id: "root",
-      parent_id: null,
-      short_id: 1,
-      type: "folder",
-      status: "published",
-    },
-    {
-      id: "new-parent",
-      parent_id: "root",
-      short_id: 9,
-      type: "folder",
-      status: "published",
-    },
-    {
-      id: "page",
-      parent_id: "new-parent",
-      short_id: 22,
-      type: "page",
-      status: "published",
-      updated_at: "2026-11-01T00:00:00Z",
-    },
-    { id: "orphan", parent_id: "missing", short_id: 23, type: "page" },
-  ],
-}))
+const nodes = [
+  {
+    id: "root",
+    parent_id: null,
+    short_id: 1,
+    type: "folder",
+    status: "published",
+  },
+  {
+    id: "new-parent",
+    parent_id: "root",
+    short_id: 9,
+    type: "folder",
+    status: "published",
+  },
+  {
+    id: "page",
+    parent_id: "new-parent",
+    short_id: 22,
+    type: "page",
+    status: "published",
+    updated_at: "2026-11-01T00:00:00Z",
+  },
+  { id: "orphan", parent_id: "missing", short_id: 23, type: "page" },
+  {
+    id: "archived",
+    parent_id: "root",
+    short_id: 24,
+    type: "page",
+    status: "archived",
+  },
+]
 
 import { resolveWikiKnowledgeRows } from "@/lib/wiki-knowledge-urls"
 
@@ -37,15 +41,25 @@ describe("Wiki knowledge URLs", () => {
       { id: "page-source", source_type: "wiki_page", source_id: "page" },
       { id: "asset-source", source_type: "wiki_asset", source_id: "asset" },
       { id: "orphan-source", source_type: "wiki_page", source_id: "orphan" },
+      {
+        id: "archived-source",
+        source_type: "wiki_page",
+        source_id: "archived",
+      },
     ]
+    const requestedNodes: string[][] = []
     const supabase = {
+      rpc: vi.fn(),
       from: (table: string) => ({
         select: () => ({
-          in: async () => ({
+          in: async (_column: string, ids: string[]) => ({
             data:
               table === "knowledge_sources"
                 ? sources
-                : [{ id: "asset", node_id: "page" }],
+                : table === "wiki_assets"
+                  ? [{ id: "asset", node_id: "page" }]
+                  : (requestedNodes.push(ids),
+                    nodes.filter((node) => ids.includes(node.id))),
             error: null,
           }),
         }),
@@ -77,6 +91,12 @@ describe("Wiki knowledge URLs", () => {
         metadata: {},
       },
       {
+        source_id: "archived-source",
+        source_type: "wiki_page",
+        source_url: "/wiki/old/archived",
+        metadata: {},
+      },
+      {
         source_id: "report",
         source_type: "report",
         source_url: "/reports",
@@ -102,7 +122,12 @@ describe("Wiki knowledge URLs", () => {
           updatedAt: "2026-11-01T00:00:00Z",
         },
       },
-      rows[4],
+      rows[5],
     ])
+    expect(requestedNodes).toEqual([
+      ["page", "orphan", "archived"],
+      ["new-parent", "missing", "root"],
+    ])
+    expect(supabase.rpc).not.toHaveBeenCalled()
   })
 })

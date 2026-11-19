@@ -7,6 +7,7 @@ import {
   createChatResponseWithOpenAI,
   createEmbeddingsWithOpenAI,
   getChatModel,
+  streamMiloResponse,
 } from "@/lib/ai/provider"
 import {
   followUpRetrievalQuery,
@@ -23,6 +24,7 @@ import {
   assessMiloEvidence,
   classifyMiloIntent,
   groundedRetrievalQuery,
+  gateMiloEvidence,
   trustedContextEvidence,
   relevantTrustedContext,
 } from "@/lib/milo/grounding"
@@ -980,6 +982,126 @@ async function generateKnowledgeAnswer({
     history
   )
   timing?.model("agent", model, "provider default")
+  if (onToken) {
+    const generationController = new AbortController()
+    const abortGeneration = () => generationController.abort()
+    if (signal?.aborted) abortGeneration()
+    else signal?.addEventListener("abort", abortGeneration, { once: true })
+    let passed = false
+    const held: string[] = []
+    const gate = gateMiloEvidence(
+      question,
+      history,
+      sources,
+      signal,
+      pageContext,
+      [],
+      intent,
+      timing
+    ).then(async (decision) => {
+      if (decision.coverage === "not_covered") abortGeneration()
+      else {
+        await checkStop?.()
+        signal?.throwIfAborted()
+        passed = true
+        for (const token of held) onToken(token)
+        held.length = 0
+      }
+      return decision
+    })
+    const generation = measureMilo(timing, "agentCall", () =>
+      streamMiloResponse(
+        { model, input, store: false },
+        (token) => {
+          if (!generationController.signal.aborted) {
+            if (passed) onToken(token)
+            else held.push(token)
+          }
+        },
+        generationController.signal
+      )
+    ).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error })
+    )
+    try {
+      const decision = await gate
+      await checkStop?.()
+      if (decision.coverage === "not_covered") {
+        await generation
+        if (timing) timing.abstained = true
+        const { answer: abstainAnswer, pages } = abstention(decision.related)
+        const answer = decision.unavailable
+          ? "I couldn't check the wiki right now. Please try again."
+          : abstainAnswer
+        onToken(answer)
+        return {
+          answer,
+          model: null,
+          citations: pages.map(toCitation),
+          metadata: {
+            abstained: true,
+            abstainReason: decision.unavailable
+              ? "assessment_unavailable"
+              : "not_covered",
+          },
+        }
+      }
+      const generated = await generation
+      if ("error" in generated) throw generated.error
+      const answer = getResponseText(generated.value)
+      if (!answer) throw new Error("Milo could not generate an answer.")
+      await checkStop?.()
+      const assessment = await assessMiloEvidence(
+        question,
+        history,
+        sources,
+        signal,
+        pageContext,
+        answer,
+        [],
+        intent,
+        timing
+      )
+      await checkStop?.()
+      const trusted = relevantTrustedContext(
+        question,
+        trustedContextEvidence(pageContext),
+        assessment.answerSupported
+      )
+      const checked = checkAnswer(
+        answer,
+        [...decision.related, ...trusted],
+        [...decision.related, ...trusted],
+        assessment.answerSupported
+      )
+      const note =
+        decision.coverage === "partial" ||
+        (!assessment.unavailable && assessment.answerSupported === false)
+          ? "\n\nSome details could not be verified in the wiki."
+          : ""
+      return {
+        answer: answer + note,
+        model,
+        citations: checked.citations
+          .filter((citation) =>
+            decision.related.some(
+              (source) =>
+                (citation.knowledgeSourceId &&
+                  citation.knowledgeSourceId === source.knowledgeSourceId) ||
+                (citation.url &&
+                  source.url &&
+                  citation.url.split("#")[0] === source.url.split("#")[0])
+            )
+          )
+          .map(toCitation),
+        metadata: { abstained: false },
+      }
+    } finally {
+      abortGeneration()
+      signal?.removeEventListener("abort", abortGeneration)
+    }
+  }
   const response = await measureMilo(timing, "agentCall", () =>
     createChatResponseWithOpenAI({ model, input })
   )
@@ -1024,7 +1146,6 @@ async function generateKnowledgeAnswer({
     const abstained = assessment.unavailable
       ? "I couldn't check the wiki right now. Please try again."
       : abstainAnswer
-    if (onToken) onToken(abstained)
     return {
       answer: abstained,
       model: null,
@@ -1048,7 +1169,6 @@ async function generateKnowledgeAnswer({
     [...assessment.related, ...relevantContext],
     assessment.answerSupported
   )
-  if (onToken) onToken(checked.answer)
 
   return {
     answer: checked.answer,

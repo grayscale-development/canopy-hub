@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({
     toolContent?: unknown
     vectorSimilarity?: number
     multipleChunks?: boolean
+    coverage?: "covered" | "partial" | "not_covered"
   },
   fallback: false,
 }))
@@ -24,13 +25,39 @@ const provider = vi.hoisted(() => ({
   createChatResponseWithOpenAI: vi.fn(async () => ({
     output_text: fixture.active!.answer ?? fixture.active!.source.snippet,
   })),
-  streamMiloResponse: vi.fn(),
+  streamMiloResponse: vi.fn(
+    async (
+      _params: unknown,
+      onToken: (token: string) => void,
+      signal?: AbortSignal
+    ) => {
+      signal?.throwIfAborted()
+      const answer = fixture.active!.answer ?? fixture.active!.source.snippet
+      const midpoint = Math.ceil(answer.length / 2)
+      onToken(answer.slice(0, midpoint))
+      onToken(answer.slice(midpoint))
+      return { output_text: answer, output: [] }
+    }
+  ),
   createAgentResponseWithOpenAI: vi.fn(
-    async (params: { text?: { format?: { name?: string } } }) => {
+    async (
+      params: { text?: { format?: { name?: string } } },
+      _options?: { signal?: AbortSignal }
+    ) => {
+      void _options
       const active = fixture.active!
       if (params.text?.format?.name === "milo_intent")
         return {
           output_text: JSON.stringify({ intent: active.intent }),
+          output: [] as unknown[],
+        }
+      if (params.text?.format?.name === "milo_coverage")
+        return {
+          output_text: JSON.stringify({
+            coverage:
+              active.coverage ?? (active.covered ? "covered" : "not_covered"),
+            relevantIds: active.related ? ["source"] : [],
+          }),
           output: [] as unknown[],
         }
       if (params.text?.format?.name === "milo_evidence")
@@ -86,7 +113,7 @@ const mcp = vi.hoisted(() => ({
               sourceType: "wiki_page",
               knowledgeSourceId: "source",
               knowledgeChunkId: "chunk",
-              vectorSimilarity: active.vectorSimilarity,
+              vectorSimilarity: active.vectorSimilarity ?? 0.9,
             },
           ]
         : [],
@@ -97,6 +124,11 @@ vi.mock("@/lib/milo/mcp/tools", () => mcp)
 
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { hasRetrievalConfidence } from "@/lib/milo/evidence"
+import {
+  abstention,
+  RELATED_PAGE_MIN_VECTOR_SIMILARITY,
+} from "@/lib/milo/grounding"
+import { buildInitialResearchCalls } from "@/lib/milo/agent"
 
 const hub = {
   title: "Getting Started",
@@ -232,6 +264,33 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
   beforeEach(() => {
     vi.clearAllMocks()
     fixture.fallback = false
+  })
+
+  it("requires a vector match before suggesting a gate-selected related page", () => {
+    const source = { ...partial, sourceType: "wiki_page" }
+    expect(
+      abstention([
+        {
+          ...source,
+          vectorSimilarity: RELATED_PAGE_MIN_VECTOR_SIMILARITY - 0.01,
+        },
+      ]).pages
+    ).toEqual([])
+    expect(
+      abstention([
+        { ...source, vectorSimilarity: RELATED_PAGE_MIN_VECTOR_SIMILARITY },
+      ]).pages
+    ).toHaveLength(1)
+    expect(abstention([source]).pages).toEqual([])
+  })
+
+  it("searches wiki instructions first for a how-to", () => {
+    expect(
+      buildInitialResearchCalls("how do I send feedback")[0]
+    ).toMatchObject({
+      toolName: "knowledge_search",
+      arguments: { query: "send feedback", sourceTypes: ["wiki_page"] },
+    })
   })
 
   for (const mode of ["agent", "fallback"] as const) {
@@ -678,7 +737,7 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
     ).toHaveLength(1)
   })
 
-  it("emits only the checked answer and does not generate it a second time", async () => {
+  it("aborts generation on an uncovered question without exposing held tokens", async () => {
     fixture.active = {
       question: "what is the cafeteria menu",
       intent: "other",
@@ -686,25 +745,55 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
       related: false,
       source: unrelated,
     }
+    let finishGate!: (value: { output_text: string; output: never[] }) => void
+    let generationStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      generationStarted = resolve
+    })
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
+      output_text: JSON.stringify({ intent: "other" }),
+      output: [],
+    }))
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishGate = resolve
+        })
+    )
+    provider.streamMiloResponse.mockImplementationOnce(
+      async (_params, onToken, signal) => {
+        onToken("irrelevant answer")
+        generationStarted()
+        return await new Promise((_, reject) =>
+          signal!.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true }
+          )
+        )
+      }
+    )
     const onToken = vi.fn()
-    const result = await answerKnowledgeQuestion({
+    const pending = answerKnowledgeQuestion({
       question: fixture.active.question,
       supabase: fixtureClient() as never,
       userContext,
       pageContext,
       onToken,
     })
-    expect(onToken).toHaveBeenCalledOnce()
-    expect(onToken).toHaveBeenCalledWith(result.answer)
-    expect(provider.streamMiloResponse).not.toHaveBeenCalled()
-    const calls = provider.createAgentResponseWithOpenAI.mock.calls
-    expect(calls.filter((call) => !call[0].text?.format?.name)).toHaveLength(1)
-    expect(
-      calls.filter((call) => call[0].text?.format?.name === "milo_evidence")
-    ).toHaveLength(1)
+    await started
+    expect(onToken).not.toHaveBeenCalled()
+    finishGate({
+      output_text: JSON.stringify({ coverage: "not_covered", relevantIds: [] }),
+      output: [],
+    })
+    const result = await pending
+    expect(result.metadata?.abstained).toBe(true)
+    expect(result.citations).toEqual([])
+    expect(onToken).toHaveBeenCalledExactlyOnceWith(result.answer)
   })
 
-  it("shows checking progress while withholding the answer until assessment completes", async () => {
+  it("holds tokens during the gate, then streams subsequent tokens before generation completes", async () => {
     fixture.active = {
       question: "explain feedback",
       intent: "other",
@@ -712,52 +801,212 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
       related: true,
       source: feedback,
     }
+    let finishGate!: (value: { output_text: string; output: never[] }) => void
+    let continueStream!: () => void
+    let generationStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      generationStarted = resolve
+    })
+    const continuation = new Promise<void>((resolve) => {
+      continueStream = resolve
+    })
     provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
       output_text: JSON.stringify({ intent: "other" }),
       output: [],
     }))
-    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
-      output_text: feedback.snippet,
-      output: [],
-    }))
-    let finishAssessment!: (value: {
-      output_text: string
-      output: never[]
-    }) => void
-    let assessmentStarted!: () => void
-    const started = new Promise<void>((resolve) => {
-      assessmentStarted = resolve
-    })
     provider.createAgentResponseWithOpenAI.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          finishAssessment = resolve
-          assessmentStarted()
+          finishGate = resolve
         })
     )
-    const onStatus = vi.fn()
-    const onToken = vi.fn()
+    provider.streamMiloResponse.mockImplementationOnce(
+      async (_params, onToken) => {
+        onToken("Send ")
+        generationStarted()
+        await continuation
+        onToken("feedback.")
+        return { output_text: "Send feedback.", output: [] }
+      }
+    )
+    const events: string[] = []
     const pending = answerKnowledgeQuestion({
       question: fixture.active.question,
       supabase: fixtureClient() as never,
       userContext,
       pageContext,
-      onStatus,
-      onToken,
+      onStatus: () => events.push("status"),
+      onToken: (token) => events.push(token),
     })
     await started
-    expect(onStatus).toHaveBeenCalledWith("Checking the answer…")
-    expect(onToken).not.toHaveBeenCalled()
-    finishAssessment({
+    expect(events).not.toContain("Send ")
+    finishGate({
       output_text: JSON.stringify({
-        covered: true,
-        answerSupported: true,
-        related: [0],
+        coverage: "covered",
+        relevantIds: ["source"],
       }),
       output: [],
     })
+    await vi.waitFor(() => expect(events).toContain("Send "))
+    expect(events[0]).toBe("status")
+    expect(events).not.toContain("feedback.")
+    continueStream()
     const result = await pending
-    expect(onToken).toHaveBeenCalledWith(result.answer)
+    expect(events.slice(-2)).toEqual(["Send ", "feedback."])
+    expect(result.answer).toBe("Send feedback.")
+  })
+
+  it("keeps streamed text and adds a note for partial coverage", async () => {
+    fixture.active = {
+      question: "explain feedback",
+      intent: "other",
+      covered: true,
+      coverage: "partial",
+      related: true,
+      source: feedback,
+      answer: "Send feedback.",
+    }
+    const tokens: string[] = []
+    const result = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      onToken: (token) => tokens.push(token),
+    })
+    expect(tokens.length).toBeGreaterThan(1)
+    expect(result.answer).toBe(
+      tokens.join("") + "\n\nSome details could not be verified in the wiki."
+    )
+  })
+
+  it("only appends a note when the post-stream claim check fails", async () => {
+    fixture.active = {
+      question: "explain feedback",
+      intent: "other",
+      covered: true,
+      related: true,
+      answerSupported: false,
+      source: feedback,
+      answer: "Send feedback to the CEO.",
+    }
+    const tokens: string[] = []
+    const result = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      onToken: (token) => tokens.push(token),
+    })
+    expect(result.answer).toBe(
+      tokens.join("") + "\n\nSome details could not be verified in the wiki."
+    )
+  })
+
+  it("does not cite a Hub map page that the gate did not select", async () => {
+    fixture.active = {
+      question: "how do I find someone's phone number?",
+      intent: "hub",
+      covered: true,
+      related: false,
+      source: unrelated,
+      answer: "Open People to find employees and mobile phones.",
+      toolContent: { directory: "People", phone: "mobile phones" },
+    }
+    const result = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      onToken: vi.fn(),
+    })
+    expect(result.citations).toEqual([])
+  })
+
+  it("propagates stop mid-stream without producing a completed answer", async () => {
+    fixture.active = {
+      question: "explain feedback",
+      intent: "other",
+      covered: true,
+      related: true,
+      source: feedback,
+    }
+    const controller = new AbortController()
+    let started!: () => void
+    const first = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    provider.streamMiloResponse.mockImplementationOnce(
+      async (_params, onToken, signal) => {
+        onToken("Send ")
+        started()
+        return await new Promise((_, reject) =>
+          signal!.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true }
+          )
+        )
+      }
+    )
+    const tokens: string[] = []
+    const pending = answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      signal: controller.signal,
+      onToken: (token) => tokens.push(token),
+    })
+    await first
+    await vi.waitFor(() => expect(tokens).toEqual(["Send "]))
+    controller.abort()
+    await expect(pending).rejects.toThrow()
+    expect(tokens).toEqual(["Send "])
+  })
+
+  it("stops while the coverage gate is pending and never exposes held tokens", async () => {
+    fixture.active = {
+      question: "explain feedback",
+      intent: "other",
+      covered: true,
+      related: true,
+      source: feedback,
+    }
+    const controller = new AbortController()
+    let gateStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      gateStarted = resolve
+    })
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
+      output_text: JSON.stringify({ intent: "other" }),
+      output: [],
+    }))
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(
+      (_params, options) => {
+        gateStarted()
+        return new Promise((_, reject) =>
+          options!.signal!.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true }
+          )
+        )
+      }
+    )
+    const tokens: string[] = []
+    const pending = answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      signal: controller.signal,
+      onToken: (token) => tokens.push(token),
+    })
+    await started
+    controller.abort()
+    await expect(pending).rejects.toThrow()
+    expect(tokens).toEqual([])
   })
 
   it("uses low-effort bounded decisions and limits the map for a specific task", async () => {
