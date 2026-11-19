@@ -18,6 +18,23 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
+/** Formats in the viewer's own time zone after mount (the server runs in UTC). */
+function LocalTime({ iso }: { iso: string }) {
+  const [text, setText] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    const formatted = new Date(iso).toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    })
+    queueMicrotask(() => setText(formatted))
+  }, [iso])
+  return (
+    <time dateTime={iso} className="tabular-nums">
+      {text ?? "\u00a0"}
+    </time>
+  )
+}
+
 export function WikiAlertsCard({
   lastSuccess,
   lastSuccessError,
@@ -40,14 +57,7 @@ export function WikiAlertsCard({
             {lastSuccessError ? (
               "Unavailable"
             ) : lastSuccess ? (
-              <time dateTime={lastSuccess}>
-                {new Date(lastSuccess).toLocaleString("en-US", {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                  timeZone: "UTC",
-                })}{" "}
-                UTC
-              </time>
+              <LocalTime iso={lastSuccess} />
             ) : (
               "Never"
             )}
@@ -82,14 +92,14 @@ export function WikiAlertsCard({
           (result.ok ? (
             <Card>
               <CardHeader>
-                <CardTitle>Alerts check complete</CardTitle>
-                <CardDescription>
-                  {result.partial
-                    ? "Some work could not be completed or saved. It will be retried on the next run."
-                    : result.unchanged
-                      ? "No pages have changed since the last check."
-                      : "The check is complete."}
-                </CardDescription>
+                <CardTitle>Check complete</CardTitle>
+                {result.partial || result.unchanged ? (
+                  <CardDescription>
+                    {result.partial
+                      ? "Some work could not be completed or saved. It will be retried on the next run."
+                      : "No pages have changed since the last check."}
+                  </CardDescription>
+                ) : null}
               </CardHeader>
               <CardContent className="space-y-3">
                 <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
