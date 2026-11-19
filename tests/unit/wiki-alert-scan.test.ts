@@ -206,6 +206,9 @@ describe("alerts scan", () => {
       skipped: false,
       written: 1,
       skippedCount: 1,
+      partial: true,
+      opened: 1,
+      updated: 0,
     })
     expect(alerts).toHaveLength(1)
     expect(actionLogs).toEqual([
@@ -218,7 +221,6 @@ describe("alerts scan", () => {
     ])
     expect(stateWrites).toEqual([
       {
-        last_success_at: expect.any(String),
         last_page_updated_at: "2026-11-01T00:00:00Z",
       },
     ])
@@ -287,6 +289,8 @@ describe("alerts scan", () => {
     })
     expect(await scanWikiAlerts(client)).toMatchObject({
       written: 1,
+      opened: 0,
+      updated: 1,
       skippedCount: 0,
     })
     expect(actionLogs).toEqual([

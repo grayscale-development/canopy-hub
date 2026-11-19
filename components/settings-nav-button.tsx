@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Settings2Icon } from "lucide-react"
+import { SettingsIcon } from "lucide-react"
 
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { SidebarMenuButton } from "@/components/ui/sidebar"
@@ -31,7 +31,7 @@ export function SettingsNavButton({
       {canViewSettings ? (
         <SidebarMenuButton asChild isActive={isActive} tooltip="Settings">
           <Link href="/settings">
-            <Settings2Icon />
+            <SettingsIcon />
             <span className="group-data-[collapsible=icon]:hidden">
               Settings
             </span>
@@ -39,7 +39,7 @@ export function SettingsNavButton({
         </SidebarMenuButton>
       ) : (
         <SidebarMenuButton tooltip="Settings">
-          <Settings2Icon />
+          <SettingsIcon />
           <span className="group-data-[collapsible=icon]:hidden">Settings</span>
         </SidebarMenuButton>
       )}

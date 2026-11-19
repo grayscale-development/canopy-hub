@@ -236,11 +236,12 @@ test("managers review shared flags and private gap counts", async ({
       await page.setViewportSize({ width, height })
       await page.emulateMedia({ colorScheme: "light" })
       await signInAsSeededUser(page, "admin@canopy.test")
-      await page.goto("/settings/ai")
-      await expect(
-        page.getByRole("link", { name: "Milo feedback" })
-      ).toBeVisible()
+      await page.goto("/settings/milo")
       await expect(page.getByText(`${fixtureTitle}: 2`)).toBeVisible()
+      await page.goto("/settings/feedback")
+      await expect(
+        page.getByRole("heading", { name: "Feedback", exact: true })
+      ).toBeVisible()
       const item = page
         .locator("article")
         .filter({ hasText: "Shared synthetic question?" })
@@ -285,10 +286,10 @@ test("managers review shared flags and private gap counts", async ({
       await expect(item).toHaveCount(0)
     }
     await signInAsSeededUser(page, "settings@canopy.test")
-    await page.goto("/settings/ai")
-    await expect(page.getByRole("link", { name: "Milo feedback" })).toHaveCount(
-      0
-    )
+    await page.goto("/settings/feedback")
+    await expect(
+      page.getByText("Edit Wiki permission is required.", { exact: false })
+    ).toBeVisible()
     await expect(page.getByText("Shared synthetic question?")).toHaveCount(0)
     await expect(page.getByText("Questions Milo couldn't answer")).toHaveCount(
       0
