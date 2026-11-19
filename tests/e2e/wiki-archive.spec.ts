@@ -197,6 +197,17 @@ test("managers can find and restore archived wiki items while viewers cannot see
     expect(oldPath.endsWith(`/${old.short_id}`)).toBe(true)
     await expect(oldLink).toHaveAttribute("href", oldPath)
     await expect(oldLink).toBeVisible()
+    const liveLink = sectionArea.getByRole("link", {
+      name: "Onboarding Checklist",
+    })
+    await expect(liveLink).toBeVisible()
+    const oldTitle = await oldLink.locator("span").last().boundingBox()
+    const liveTitle = await liveLink
+      .locator("span")
+      .filter({ hasText: "Onboarding Checklist" })
+      .last()
+      .boundingBox()
+    expect(oldTitle?.x).toBe(liveTitle?.x)
     await expect(sidebar.getByRole("button", { name: /^Restore/ })).toHaveCount(
       0
     )
@@ -219,6 +230,12 @@ test("managers can find and restore archived wiki items while viewers cannot see
     await expect(
       global.getByRole("link", { name: "Legacy Onboarding Guide" })
     ).toHaveAttribute("href", oldPath)
+    const globalTitle = await global
+      .getByRole("link", { name: "Legacy Onboarding Guide" })
+      .locator("span")
+      .last()
+      .boundingBox()
+    expect(globalTitle?.x).toBe(liveTitle?.x)
     await global.locator("li").last().scrollIntoViewIfNeeded()
     await shot("03-global-archive")
     if (shotDir) {

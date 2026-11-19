@@ -3,9 +3,17 @@
 import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import Link from "next/link"
 import * as React from "react"
-import { ChevronRightIcon, FileTextIcon, FolderIcon } from "lucide-react"
+import { ArrowDownUpIcon, FileTextIcon, FolderIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
 import {
   useVisibleWikiNodes,
@@ -27,12 +35,16 @@ export function WikiFolderContents({
   parentId,
   assignments = [],
   initialTag = "",
+  updatedBy = {},
+  referenceTime,
 }: {
   items: WikiNodeRow[]
   nodes: WikiNodeRow[]
   parentId?: string | null
   assignments?: WikiTagAssignment[]
   initialTag?: string
+  updatedBy?: Record<string, string>
+  referenceTime?: string
 }) {
   const visibleNodes = useVisibleWikiNodes(nodes)
   const {
@@ -68,6 +80,19 @@ export function WikiFolderContents({
         (tag) => tag.name.toLocaleLowerCase() === initialTag.toLocaleLowerCase()
       )?.id ?? ""
   )
+  const [sort, setSort] = React.useState<{
+    column: "name" | "updated"
+    direction: "ascending" | "descending"
+  } | null>(null)
+  function sortBy(column: "name" | "updated") {
+    setSort((current) => ({
+      column,
+      direction:
+        current?.column === column && current.direction === "ascending"
+          ? "descending"
+          : "ascending",
+    }))
+  }
   const selectedTag = wikiTags.find((tag) => tag.id === selectedTagId)
   function selectTag(id: string) {
     setSelectedTagId(id)
@@ -118,10 +143,7 @@ export function WikiFolderContents({
     return (
       <div className="rounded-lg border bg-card p-6 text-sm">
         {addTagHelp}
-        <p className="font-medium">Nothing here yet.</p>
-        <p className="mt-1 text-muted-foreground">
-          Pages added here will appear in this space.
-        </p>
+        <p className="font-medium">No pages here yet.</p>
         {canEditWiki && folder && canAddHere ? (
           <div className="mt-4">
             <WikiAddMenu
@@ -172,65 +194,171 @@ export function WikiFolderContents({
         </div>
       ) : null}
       {filteredItems.length ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {filteredItems.map((node) => {
-            const Icon = node.type === "folder" ? FolderIcon : FileTextIcon
-            const count =
-              node.type === "folder" ? descendantsOf(node).length : 0
-            return (
-              <Link
-                key={node.id}
-                href={`/wiki/${buildNumericWikiPath(visibleNodes, node)}`}
-                aria-label={node.title}
-                aria-describedby={`wiki-card-details-${encodeURIComponent(node.id)}`}
-                className="flex min-h-20 items-center gap-3 rounded-lg border bg-card p-4 hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        <Table className="block md:table md:table-fixed">
+          <TableHeader className="block md:table-header-group">
+            <TableRow className="flex justify-between md:table-row">
+              <TableHead
+                aria-sort={sort?.column === "name" ? sort.direction : "none"}
+                className="block md:table-cell md:w-[30%]"
               >
-                <Icon className="size-5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium">{node.title}</p>
-                  </div>
-                  <div id={`wiki-card-details-${encodeURIComponent(node.id)}`}>
-                    {canManageWiki && node.status === "draft" ? (
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                        Draft
-                      </span>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                  onClick={() => sortBy("name")}
+                >
+                  Name <ArrowDownUpIcon aria-hidden="true" className="size-3" />
+                </button>
+              </TableHead>
+              {canManageWiki ? (
+                <TableHead className="hidden md:table-cell md:w-[14%]">
+                  Status
+                </TableHead>
+              ) : null}
+              <TableHead className="hidden md:table-cell md:w-[22%]">
+                Tags
+              </TableHead>
+              <TableHead
+                aria-sort={sort?.column === "updated" ? sort.direction : "none"}
+                className="block md:table-cell md:w-[16%]"
+              >
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                  onClick={() => sortBy("updated")}
+                >
+                  Updated{" "}
+                  <ArrowDownUpIcon aria-hidden="true" className="size-3" />
+                </button>
+              </TableHead>
+              <TableHead className="hidden md:table-cell">Updated by</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className="block md:table-row-group">
+            {[...filteredItems]
+              .sort((a, b) => {
+                if (!sort) return 0
+                const comparison =
+                  sort.column === "name"
+                    ? a.title.localeCompare(b.title)
+                    : Date.parse(a.updated_at) - Date.parse(b.updated_at)
+                return (
+                  (Number.isFinite(comparison) ? comparison : 0) *
+                  (sort.direction === "ascending" ? 1 : -1)
+                )
+              })
+              .map((node) => {
+                const Icon = node.type === "folder" ? FolderIcon : FileTextIcon
+                const count =
+                  node.type === "folder" ? descendantsOf(node).length : 0
+                const date = new Date(node.updated_at)
+                const validDate = Number.isFinite(date.getTime())
+                const absoluteDate = validDate
+                  ? date.toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                      timeZone: "UTC",
+                    })
+                  : "Unknown date"
+                const elapsed = validDate
+                  ? Math.max(
+                      0,
+                      Date.parse(referenceTime ?? node.updated_at) -
+                        date.getTime()
+                    )
+                  : 0
+                const relative = !validDate
+                  ? "Unknown"
+                  : elapsed < 60_000
+                    ? "Just now"
+                    : elapsed < 3_600_000
+                      ? `${Math.floor(elapsed / 60_000)}m ago`
+                      : elapsed < 86_400_000
+                        ? `${Math.floor(elapsed / 3_600_000)}h ago`
+                        : `${Math.floor(elapsed / 86_400_000)}d ago`
+                return (
+                  <TableRow
+                    key={node.id}
+                    className="relative block py-2 focus-within:ring-2 focus-within:ring-ring md:table-row md:py-0"
+                  >
+                    <TableCell className="block min-w-0 whitespace-normal md:table-cell">
+                      <Link
+                        href={`/wiki/${buildNumericWikiPath(visibleNodes, node)}`}
+                        aria-label={node.title}
+                        title={
+                          node.type === "page"
+                            ? `Updated ${absoluteDate}`
+                            : undefined
+                        }
+                        className="flex min-w-0 items-center gap-2 font-medium after:absolute after:inset-0 focus-visible:outline-none"
+                      >
+                        <Icon
+                          className="size-4 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 break-words">
+                          {node.title}
+                        </span>
+                      </Link>
+                    </TableCell>
+                    {canManageWiki ? (
+                      <TableCell className="inline-block py-1 md:table-cell md:py-2">
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                          {node.status === "draft" ? "Draft" : "Published"}
+                        </span>
+                      </TableCell>
                     ) : null}
-                    {node.type === "folder" ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {count
-                          ? `${count} ${count === 1 ? "page" : "pages"}`
-                          : "Empty"}
-                      </p>
-                    ) : node.tags?.length ? (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {node.tags.map((tag) => (
-                          <WikiTagPill
-                            key={tag}
-                            className="px-2 py-0.5"
-                            scope={
-                              wikiTags.find(
-                                (item) =>
-                                  assignments.some(
-                                    (assignment) =>
-                                      assignment.node_id === node.id &&
-                                      assignment.tag_id === item.id
-                                  ) && item.name === tag
-                              )?.scope
-                            }
-                          >
-                            {tag}
-                          </WikiTagPill>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
-              </Link>
-            )
-          })}
-        </div>
+                    <TableCell className="inline-block max-w-full py-1 whitespace-normal md:table-cell md:py-2">
+                      {node.type === "page" && node.tags?.length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {node.tags.slice(0, 2).map((tag) => (
+                            <WikiTagPill
+                              key={tag}
+                              className="max-w-full px-2 py-0.5 break-all"
+                              scope={
+                                wikiTags.find(
+                                  (item) =>
+                                    assignments.some(
+                                      (assignment) =>
+                                        assignment.node_id === node.id &&
+                                        assignment.tag_id === item.id
+                                    ) && item.name === tag
+                                )?.scope
+                              }
+                            >
+                              {tag}
+                            </WikiTagPill>
+                          ))}
+                          {node.tags.length > 2 ? (
+                            <span className="text-xs text-muted-foreground">
+                              +{node.tags.length - 2}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="inline-block py-1 text-xs text-muted-foreground md:table-cell md:py-2 md:text-sm">
+                      {node.type === "folder" ? (
+                        `${count} ${count === 1 ? "page" : "pages"}`
+                      ) : (
+                        <time
+                          dateTime={node.updated_at}
+                          aria-label={`${relative}, ${absoluteDate}`}
+                        >
+                          {relative}
+                        </time>
+                      )}
+                    </TableCell>
+                    <TableCell className="inline-block max-w-full py-1 text-xs whitespace-normal text-muted-foreground md:table-cell md:py-2 md:text-sm">
+                      {node.type === "page"
+                        ? (updatedBy[node.id] ?? "Unknown")
+                        : null}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+          </TableBody>
+        </Table>
       ) : (
         <div className="rounded-lg border bg-card p-6 text-sm">
           <p>No pages are tagged {selectedTag?.name ?? initialTag} here.</p>

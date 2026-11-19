@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronDown, MoreHorizontal } from "lucide-react"
+import { MoreHorizontal } from "lucide-react"
 
 import { manageWikiTagAction } from "@/app/wiki/tags/manage/actions"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import {
   Select,
   SelectContent,
@@ -79,7 +80,6 @@ export function WikiTagsManage({
     () => ""
   )
   const [query, setQuery] = React.useState("")
-  const [expanded, setExpanded] = React.useState<string | null | undefined>()
   const [toggled, setToggled] = React.useState<Record<string, boolean>>({})
   const matching = entries.filter((entry) =>
     entry.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
@@ -121,6 +121,12 @@ export function WikiTagsManage({
       : sections.some((section) => section.id === tag.section_id)
         ? sectionName(tag.section_id)
         : (tag.sectionTitle ?? "Unknown section")
+  const where = (tag: ManageTag) =>
+    tag.scope === "global"
+      ? "Global"
+      : (sections.find((section) => section.id === tag.section_id)?.name ??
+        tag.sectionTitle ??
+        "Unknown section")
   const collision =
     source &&
     entries.find(
@@ -234,13 +240,15 @@ export function WikiTagsManage({
           {notice}
         </p>
       ) : null}
-      <Table>
+      <Table className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead>Tag</TableHead>
-            <TableHead className="hidden sm:table-cell">Level</TableHead>
-            <TableHead className="hidden sm:table-cell">
-              Published pages
+            <TableHead className="sm:w-[45%]">Tag</TableHead>
+            <TableHead className="hidden w-[35%] sm:table-cell">
+              Where
+            </TableHead>
+            <TableHead className="hidden w-[20%] text-right sm:table-cell">
+              Pages
             </TableHead>
             {canManage ? (
               <TableHead className="w-10">
@@ -253,12 +261,7 @@ export function WikiTagsManage({
           {matching.map((tag) => {
             const defaultOpen =
               highlighted?.id === tag.id || query.trim().length > 0
-            const isOpen =
-              tag.id in toggled
-                ? toggled[tag.id]
-                : expanded === undefined
-                  ? defaultOpen
-                  : expanded === tag.id
+            const isOpen = tag.id in toggled ? toggled[tag.id] : defaultOpen
             const firstWithName = entries.find(
               (item) =>
                 item.name.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
@@ -297,23 +300,31 @@ export function WikiTagsManage({
                           [tag.id]: !isOpen,
                         }))
                       }
-                      className="flex cursor-pointer items-center gap-2 text-left break-all hover:underline"
+                      aria-label={tag.name}
+                      className="flex max-w-full cursor-pointer flex-wrap items-center gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-ring"
                     >
-                      <ChevronDown
-                        className={`size-4 shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
-                        aria-hidden="true"
-                      />
-                      {tag.name}
+                      <WikiTagPill
+                        scope={tag.scope}
+                        className="max-w-full break-all"
+                      >
+                        {tag.name}
+                      </WikiTagPill>
+                      <span className="text-xs font-normal text-muted-foreground underline-offset-4 hover:underline">
+                        {isOpen ? "Hide pages" : "Show pages"}
+                      </span>
                     </button>
-                    <span className="mt-1 block pl-6 text-xs font-normal text-muted-foreground sm:hidden">
-                      {level(tag)} · {tag.publishedPages.length} published{" "}
+                    <span className="mt-1 block text-xs font-normal break-words text-muted-foreground sm:hidden">
+                      {where(tag)} · {tag.publishedPages.length} published{" "}
                       {tag.publishedPages.length === 1 ? "page" : "pages"}
                     </span>
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    {level(tag)}
+                  <TableCell
+                    className="hidden truncate sm:table-cell"
+                    title={level(tag)}
+                  >
+                    {where(tag)}
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">
+                  <TableCell className="hidden text-right sm:table-cell">
                     {tag.publishedPages.length}
                   </TableCell>
                   {canManage ? (
