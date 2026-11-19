@@ -431,19 +431,22 @@ export function WikiChatModalProvider({
     }
   }, [available, isOpen])
 
-  const setOpen = React.useCallback((open: boolean) => {
-    interactedRef.current = true
-    if (open) {
-      setHasOpened(true)
-      dismissTip()
-    }
-    setIsOpen(open)
-    try {
-      localStorage.setItem(openChatKey, String(open))
-    } catch {
-      /* Storage is optional. */
-    }
-  }, [dismissTip])
+  const setOpen = React.useCallback(
+    (open: boolean) => {
+      interactedRef.current = true
+      if (open) {
+        setHasOpened(true)
+        dismissTip()
+      }
+      setIsOpen(open)
+      try {
+        localStorage.setItem(openChatKey, String(open))
+      } catch {
+        /* Storage is optional. */
+      }
+    },
+    [dismissTip]
+  )
 
   const close = React.useCallback(() => {
     setOpen(false)
