@@ -258,13 +258,15 @@ test("managers review shared flags and private gap counts", async ({
       ).toBeVisible()
       const item = page
         .locator("article")
-        .filter({ hasText: "Shared synthetic question?" })
-      await expect(item.getByText("Shared synthetic answer")).toBeVisible()
-      await expect(item.getByText("Synthetic reason")).toBeVisible()
-      await expect(item.getByText("Milo couldn't answer")).toBeVisible()
+        .filter({ hasText: "Synthetic reason" })
+      await item.getByRole("button").click()
+      const detail = page.getByRole("dialog", { name: "Milo answer" })
+      await expect(detail.getByText("Shared synthetic question?")).toBeVisible()
+      await expect(detail.getByText("Shared synthetic answer")).toBeVisible()
+      await expect(detail.getByText("Synthetic reason")).toBeVisible()
       await expect(page.getByText("Private unshared answer")).toHaveCount(0)
       await expect(
-        item.getByRole("link", { name: "Open the page to fix" })
+        detail.getByRole("link", { name: fixtureTitle })
       ).toHaveAttribute("href", fixture.path)
       if (shots)
         await page.screenshot({
@@ -277,7 +279,7 @@ test("managers review shared flags and private gap counts", async ({
           ),
           fullPage: true,
         })
-      await item
+      await detail
         .getByRole("button", { name: /Add to eval set|View eval snippet/ })
         .click()
       const dialog = page.getByRole("dialog", { name: "Prepare an eval case" })
@@ -292,18 +294,17 @@ test("managers review shared flags and private gap counts", async ({
         })
       await dialog.getByRole("button", { name: "Close" }).click()
       await expect(dialog).toBeHidden()
-      await item.getByRole("button", { name: "Mark resolved" }).click()
+      await detail.getByRole("button", { name: "Mark resolved" }).click()
       await expect(item).toHaveCount(0)
       await page.getByRole("button", { name: "Resolved", exact: true }).click()
       await expect(item).toBeVisible()
-      await item.getByRole("button", { name: "Reopen" }).click()
+      await item.getByRole("button").click()
+      await detail.getByRole("button", { name: "Reopen" }).click()
       await expect(item).toHaveCount(0)
     }
-    await signInAsSeededUser(page, "settings@canopy.test")
+    await signInAsSeededUser(page, "wiki-manager@canopy.test")
     await page.goto("/settings/feedback")
-    await expect(
-      page.getByText("Edit Wiki permission is required.", { exact: false })
-    ).toBeVisible()
+    await expect(page).toHaveURL(/\/home$/)
     await expect(page.getByText("Shared synthetic question?")).toHaveCount(0)
     await expect(page.getByText("Questions Milo couldn't answer")).toHaveCount(
       0

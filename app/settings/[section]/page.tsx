@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 
 import { AdvancedSyncCard } from "@/app/settings/[section]/advanced-sync-card"
 import { MiloFlagsCard } from "@/app/settings/[section]/milo-flags-card"
+import { FeedbackInboxCard } from "@/app/settings/[section]/feedback-inbox-card"
 import { PermissionsTable } from "@/app/settings/[section]/permissions-table"
 import { SettingsMobileNav } from "@/app/settings/[section]/settings-mobile-nav"
 import { WikiAlertsCard } from "@/app/settings/[section]/wiki-alerts-card"
@@ -22,6 +23,7 @@ import {
   AI_SETTINGS_ACCESS_PERMISSION,
   BETA_1_PERMISSION,
   DATA_SYNC_RUN_PERMISSION,
+  FEEDBACK_MANAGE_PERMISSION,
   PERMISSIONS_ACCESS_PERMISSION,
   SETTINGS_ACCESS_PERMISSION,
 } from "@/lib/permission-codes"
@@ -79,10 +81,10 @@ const pages = [
   {
     key: "feedback",
     label: "Feedback",
-    description: "Review feedback shared about Milo's answers.",
+    description: "Review feedback from people using the Hub and Milo.",
     group: "Feedback",
-    permissionCode: AI_SETTINGS_ACCESS_PERMISSION,
-    permissionName: "Access AI Settings",
+    permissionCode: FEEDBACK_MANAGE_PERMISSION,
+    permissionName: "Manage Feedback",
   },
   {
     key: "data-sync",
@@ -132,6 +134,7 @@ export default async function SettingsSubPage({
     advanced,
     canRunDataSyncs,
     canManageWiki,
+    canManageFeedback,
   ] = await Promise.all([
     has(SETTINGS_ACCESS_PERMISSION),
     has(PERMISSIONS_ACCESS_PERMISSION),
@@ -140,23 +143,23 @@ export default async function SettingsSubPage({
     has(ADVANCED_SETTINGS_ACCESS_PERMISSION),
     has(DATA_SYNC_RUN_PERMISSION),
     has(WIKI_MANAGE_PERMISSION),
+    has(FEEDBACK_MANAGE_PERMISSION),
   ])
-  if (!settings) redirect("/home")
+  if (!settings && !(page.key === "feedback" && canManageFeedback))
+    redirect("/home")
   const access: Record<PageKey, boolean> = {
     permissions: permissionsAccess,
     requests: permissionsAccess,
     milo: aiAccess && beta,
-    feedback: aiAccess && beta && canManageWiki,
+    feedback: canManageFeedback,
     alerts: advanced,
     "data-sync": advanced,
   }
   const canOpen = access[page.key]
   const missingPermission =
-    (page.key === "milo" || page.key === "feedback") && !beta
+    page.key === "milo" && !beta
       ? { code: BETA_1_PERMISSION, name: "Beta 1" }
-      : page.key === "feedback" && aiAccess && !canManageWiki
-        ? { code: WIKI_MANAGE_PERMISSION, name: "Edit Wiki" }
-        : { code: page.permissionCode, name: page.permissionName }
+      : { code: page.permissionCode, name: page.permissionName }
   let permissions: Permission[] = []
   let permissionUsers: PermissionUser[] = []
   let directoryUsers: PermissionDirectoryUser[] = []
@@ -311,6 +314,8 @@ export default async function SettingsSubPage({
                 lastSuccessError={lastSuccessError}
                 enabled={wikiAlertsJobGate().allowed}
               />
+            ) : page.key === "feedback" ? (
+              <FeedbackInboxCard />
             ) : (
               <MiloFlagsCard section={page.key} canManageWiki={canManageWiki} />
             )}

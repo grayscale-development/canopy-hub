@@ -44,15 +44,10 @@ const params = { params: Promise.resolve({ flagId: "item" }) }
 describe("Milo feedback queue", () => {
   beforeEach(() => {
     state.user = { id: "manager" }
-    state.permissions = new Set([
-      "settings.access",
-      "ai.settings.access",
-      "beta.1",
-      "wiki.manage",
-    ])
+    state.permissions = new Set(["feedback.manage"])
     state.writes = []
   })
-  it("requires every manager permission before using the privileged client", async () => {
+  it("requires feedback management permission before using the privileged client", async () => {
     for (const permission of [...state.permissions]) {
       state.permissions.delete(permission)
       expect((await PATCH(request({ status: "closed" }), params)).status).toBe(
