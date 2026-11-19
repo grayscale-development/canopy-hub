@@ -128,7 +128,14 @@ describe("WikiChat", () => {
       "Question"
     )
     await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    expect(screen.getByText("Getting ready…")).toBeVisible()
     await waitFor(() => expect(area.scrollTop).toBe(1000))
+    stream.enqueue(
+      new TextEncoder().encode(
+        'data: {"type":"status","text":"Reading Funding Checklist…"}\n\n'
+      )
+    )
+    expect(await screen.findByText("Reading Funding Checklist…")).toBeVisible()
     area.scrollTop = 100
     fireEvent.scroll(area)
     expect(screen.getByRole("button", { name: "Jump to latest" })).toBeVisible()

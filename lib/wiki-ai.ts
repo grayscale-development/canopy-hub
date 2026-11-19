@@ -49,6 +49,7 @@ import {
   type MiloUserContext,
 } from "@/lib/milo/user-context"
 import { getFeaturedReports } from "@/lib/reports"
+import { measureMilo, type MiloTiming } from "@/lib/milo/timing"
 import {
   fetchSupportDirectoryData,
   type SupportDirectorySection,
@@ -535,9 +536,12 @@ export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
 export async function retrieveKnowledge(
   supabase: SupabaseWikiClient,
   question: string,
-  matchCount = 12
+  matchCount = 12,
+  timing?: MiloTiming
 ) {
-  return searchKnowledge(supabase, question, matchCount)
+  return measureMilo(timing, "retrieval", () =>
+    searchKnowledge(supabase, question, matchCount, null, timing)
+  )
 }
 
 function getConversationalReply(question: string) {
@@ -770,7 +774,7 @@ function getResponseText(response: unknown) {
 export async function answerKnowledgeQuestion(params: {
   supabase: SupabaseWikiClient
   question: string
-  userContext: MiloUserContext
+  userContext: MiloUserContext | Promise<MiloUserContext>
   pageContext?: MiloCurrentPage
   history?: MiloHistoryTurn[]
   onToken?: (token: string) => void
@@ -778,6 +782,7 @@ export async function answerKnowledgeQuestion(params: {
   signal?: AbortSignal
   checkStop?: () => Promise<void>
   deferActionLog?: boolean
+  timing?: MiloTiming
 }) {
   const answer = await generateKnowledgeAnswer(params)
   await params.checkStop?.()
@@ -797,21 +802,24 @@ async function generateKnowledgeAnswer({
   onStatus,
   signal,
   checkStop,
+  timing,
 }: {
   supabase: SupabaseWikiClient
   question: string
-  userContext: MiloUserContext
+  userContext: MiloUserContext | Promise<MiloUserContext>
   pageContext?: MiloCurrentPage
   history?: MiloHistoryTurn[]
   onToken?: (token: string) => void
   onStatus?: (status: string) => void
   signal?: AbortSignal
   checkStop?: () => Promise<void>
+  timing?: MiloTiming
 }) {
   await checkStop?.()
   const conversationalReply = getConversationalReply(question)
 
   if (conversationalReply) {
+    if (timing) timing.path = "direct"
     return {
       answer: conversationalReply,
       model: null,
@@ -822,6 +830,7 @@ async function generateKnowledgeAnswer({
   const employeeLookupAnswer = await answerEmployeeLookup(question)
 
   if (employeeLookupAnswer) {
+    if (timing) timing.path = "direct"
     return {
       answer: employeeLookupAnswer,
       model: null,
@@ -831,6 +840,7 @@ async function generateKnowledgeAnswer({
 
   let streamed = false
   try {
+    if (timing) timing.path = "agent"
     return await answerMiloQuestionWithAgent({
       question,
       supabase,
@@ -848,6 +858,7 @@ async function generateKnowledgeAnswer({
       ...(onStatus ? { onStatus } : {}),
       ...(signal ? { signal } : {}),
       ...(checkStop ? { checkStop } : {}),
+      ...(timing ? { timing } : {}),
     })
   } catch (error) {
     if (signal?.aborted || streamed) throw error
@@ -855,11 +866,12 @@ async function generateKnowledgeAnswer({
   }
 
   await checkStop?.()
+  if (timing) timing.path = "fallback"
   const originalQuery = followUpRetrievalQuery(question, history)
   onStatus?.("Searching the wiki…")
   const [intent, originalResults, pageSources] = await Promise.all([
-    classifyMiloIntent(question, history, signal),
-    retrieveKnowledge(supabase, originalQuery),
+    classifyMiloIntent(question, history, signal, timing),
+    retrieveKnowledge(supabase, originalQuery, 12, timing),
     pageContext
       ? currentPageEvidence(supabase, pageContext)
       : Promise.resolve([]),
@@ -883,21 +895,24 @@ async function generateKnowledgeAnswer({
   const retrieved =
     retrievalQuery === originalQuery
       ? []
-      : await retrieveKnowledge(supabase, retrievalQuery)
+      : await retrieveKnowledge(supabase, retrievalQuery, 12, timing)
   const topSource = [...retrieved, ...originalResults].find(
     (chunk) => chunk.source_type === "wiki_page"
   )
+  if (topSource) onStatus?.(`Reading ${topSource.source_title}…`)
   const additional = topSource
-    ? await topPageEvidence(supabase, [
-        {
-          title: topSource.source_title,
-          url: topSource.source_url,
-          snippet: topSource.content,
-          sourceType: topSource.source_type,
-          knowledgeSourceId: topSource.source_id,
-          knowledgeChunkId: topSource.chunk_id,
-        },
-      ])
+    ? await measureMilo(timing, "extraChunks", () =>
+        topPageEvidence(supabase, [
+          {
+            title: topSource.source_title,
+            url: topSource.source_url,
+            snippet: topSource.content,
+            sourceType: topSource.source_type,
+            knowledgeSourceId: topSource.source_id,
+            knowledgeChunkId: topSource.chunk_id,
+          },
+        ])
+      )
     : []
   const extraChunks: RetrievedChunk[] = additional.map((source) => ({
     chunk_id: source.knowledgeChunkId!,
@@ -960,11 +975,14 @@ async function generateKnowledgeAnswer({
   const input = buildChatPrompt(
     question,
     chunks.slice(0, 20),
-    userContext,
+    await userContext,
     pageContext,
     history
   )
-  const response = await createChatResponseWithOpenAI({ model, input })
+  timing?.model("agent", model, "provider default")
+  const response = await measureMilo(timing, "agentCall", () =>
+    createChatResponseWithOpenAI({ model, input })
+  )
   const answer =
     getResponseText(response) ||
     "I could not generate an answer from the retrieved knowledge."
@@ -979,6 +997,8 @@ async function generateKnowledgeAnswer({
         ) &&
         hasStrongRetrievalConfidence(question, source)
     ) && quickCheck.allClaimsQuoted
+  onStatus?.("Checking the answer…")
+  if (timing) timing.check = strong ? "fast" : "assessment"
   const assessment = strong
     ? {
         covered: true,
@@ -992,10 +1012,14 @@ async function generateKnowledgeAnswer({
         sources,
         signal,
         pageContext,
-        answer
+        answer,
+        [],
+        intent,
+        timing
       )
   await checkStop?.()
   if (!assessment.covered) {
+    if (timing) timing.abstained = true
     const { answer: abstainAnswer, pages } = abstention(assessment.related)
     const abstained = assessment.unavailable
       ? "I couldn't check the wiki right now. Please try again."

@@ -647,9 +647,11 @@ describe("/api/wiki/chat route", () => {
     const first = decoder.decode((await reader.read()).value)
     const second = decoder.decode((await reader.read()).value)
     const third = decoder.decode((await reader.read()).value)
+    const fourth = decoder.decode((await reader.read()).value)
     expect(first).toContain('"type":"meta"')
     expect(second).toContain('"type":"status"')
-    expect(third).toContain('"token":"First "')
+    expect(third).toContain('"type":"status"')
+    expect(fourth).toContain('"token":"First "')
     expect(
       testState.tables.ai_chat_messages.filter(
         (row) => row.role === "assistant"
@@ -671,6 +673,33 @@ describe("/api/wiki/chat route", () => {
         (row) => row.role === "assistant"
       )
     ).toHaveLength(1)
+  })
+
+  it("logs one timing record without the question, answer or user identifier", async () => {
+    testState.user = { id: "user-1" }
+    const log = vi.spyOn(console, "info").mockImplementation(() => {})
+    try {
+      const { POST } = await import("@/app/api/wiki/chat/route")
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({ message: "private question about funding" }),
+        })
+      )
+      await response.text()
+      const calls = log.mock.calls.filter(([label]) => label === "Milo timing")
+      expect(calls).toHaveLength(1)
+      const record = JSON.stringify(calls[0][1])
+      expect(record).not.toContain("private question about funding")
+      expect(record).not.toContain(testState.answer.answer)
+      expect(record).not.toContain("user-1")
+      expect(calls[0][1]).toMatchObject({
+        ms: { total: expect.any(Number) },
+        outcome: "complete",
+      })
+    } finally {
+      log.mockRestore()
+    }
   })
 
   it("saves the partial text on cancellation without an error message", async () => {
@@ -699,6 +728,7 @@ describe("/api/wiki/chat route", () => {
       })
     )
     const reader = response.body!.getReader()
+    await reader.read()
     await reader.read()
     expect(new TextDecoder().decode((await reader.read()).value)).toContain(
       "Partial answer"

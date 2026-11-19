@@ -5,6 +5,7 @@ import { resolveWikiKnowledgeRows } from "@/lib/wiki-knowledge-urls"
 import type { SupabaseWikiClient } from "@/lib/wiki"
 import type { KnowledgeSourceType } from "@/lib/wiki-ai"
 import abbreviations from "@/lib/milo/abbreviations.json"
+import { measureMilo, type MiloTiming } from "@/lib/milo/timing"
 
 export interface RetrievedChunk {
   chunk_id: string
@@ -47,30 +48,39 @@ export async function searchKnowledge(
   supabase: SupabaseWikiClient,
   question: string,
   matchCount = 12,
-  sourceTypes: string[] | null = null
+  sourceTypes: string[] | null = null,
+  timing?: MiloTiming
 ) {
   const query = rewriteKnowledgeQuery(question)
-  const keyword = await supabase.rpc("match_knowledge_chunks_keyword", {
+  const keywordPromise = supabase.rpc("match_knowledge_chunks_keyword", {
     search_query: query,
     match_count: matchCount,
     source_types: sourceTypes,
   })
-  if (keyword.error) throw new Error(keyword.error.message)
-
-  let vectors: RetrievedChunk[] = []
-  try {
-    const [embedding] = await createEmbeddingsWithOpenAI([query])
-    if (embedding?.length) {
-      const result = await supabase.rpc("match_knowledge_chunks", {
-        query_embedding: embedding,
-        match_count: matchCount,
-        source_types: sourceTypes,
-      })
-      if (!result.error) vectors = (result.data ?? []) as RetrievedChunk[]
+  const vectorsPromise = (async () => {
+    try {
+      timing?.model(
+        "embedding",
+        process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small"
+      )
+      const [embedding] = await measureMilo(timing, "embedding", () =>
+        createEmbeddingsWithOpenAI([query])
+      )
+      if (embedding?.length) {
+        const result = await supabase.rpc("match_knowledge_chunks", {
+          query_embedding: embedding,
+          match_count: matchCount,
+          source_types: sourceTypes,
+        })
+        if (!result.error) return (result.data ?? []) as RetrievedChunk[]
+      }
+    } catch {
+      // Keyword search remains available without an embedding provider.
     }
-  } catch {
-    // Keyword search remains available without an embedding provider.
-  }
+    return [] as RetrievedChunk[]
+  })()
+  const [keyword, vectors] = await Promise.all([keywordPromise, vectorsPromise])
+  if (keyword.error) throw new Error(keyword.error.message)
 
   const fused = new Map<string, { row: RetrievedChunk; score: number }>()
   for (const list of [(keyword.data ?? []) as RetrievedChunk[], vectors]) {

@@ -15,6 +15,7 @@ import {
   followUpRetrievalQuery,
   type MiloHistoryTurn,
 } from "@/lib/milo/history"
+import { measureMilo, type MiloTiming } from "@/lib/milo/timing"
 
 type Intent = "hub" | "page" | "other"
 
@@ -23,19 +24,32 @@ async function structuredDecision(
   instructions: string,
   input: string,
   schema: Record<string, unknown>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timing?: MiloTiming
 ) {
   // The local fake-chat provider is intentionally offline.
   if (getChatModel() === "fake-chat") return null
-  const response = await createAgentResponseWithOpenAI(
-    {
-      model: getFormatModel(),
-      instructions,
-      input,
-      store: false,
-      text: { format: { type: "json_schema", name, strict: true, schema } },
-    },
-    signal ? { signal } : undefined
+  const stage = name === "milo_intent" ? "intent" : "assessment"
+  const model = getFormatModel()
+  // Non-reasoning models and pro-only models do not accept a low effort.
+  const effort =
+    /^(?:gpt-4|chatgpt-4)/i.test(model) || /pro/i.test(model)
+      ? undefined
+      : ("low" as const)
+  timing?.model(stage, model, effort ?? "provider default")
+  const response = await measureMilo(timing, stage, () =>
+    createAgentResponseWithOpenAI(
+      {
+        model,
+        instructions,
+        input,
+        store: false,
+        ...(effort ? { reasoning: { effort } } : {}),
+        max_output_tokens: name === "milo_intent" ? 256 : 768,
+        text: { format: { type: "json_schema", name, strict: true, schema } },
+      },
+      signal ? { signal } : undefined
+    )
   )
   return JSON.parse(response.output_text) as unknown
 }
@@ -43,7 +57,8 @@ async function structuredDecision(
 export async function classifyMiloIntent(
   question: string,
   history: MiloHistoryTurn[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  timing?: MiloTiming
 ): Promise<Intent> {
   try {
     const result = await structuredDecision(
@@ -58,7 +73,8 @@ export async function classifyMiloIntent(
         required: ["intent"],
         additionalProperties: false,
       },
-      signal
+      signal,
+      timing
     )
     if (
       result &&
@@ -95,7 +111,9 @@ export async function assessMiloEvidence(
   signal?: AbortSignal,
   page?: MiloCurrentPage,
   answer?: string,
-  toolResults: string[] = []
+  toolResults: string[] = [],
+  intent: Intent = "other",
+  timing?: MiloTiming
 ) {
   // Keep source indexes stable and never treat source text as instructions.
   const candidates = sources.slice(0, 24)
@@ -107,7 +125,7 @@ export async function assessMiloEvidence(
         question,
         history,
         currentPage: page ? describeCurrentPage(page) : null,
-        hubMap: HUB_MAP,
+        hubMap: relevantHubMap(question, sources, page, answer, intent),
         toolResults,
         answer: answer ?? null,
         sources: candidates.map(({ title, snippet, url }) => ({
@@ -129,7 +147,8 @@ export async function assessMiloEvidence(
         required: ["covered", "related", "answerSupported"],
         additionalProperties: false,
       },
-      signal
+      signal,
+      timing
     )
     if (
       result &&
@@ -192,6 +211,43 @@ export async function assessMiloEvidence(
     unavailable: false,
     related: [...new Set([...related, ...currentPage])],
   }
+}
+
+function relevantHubMap(
+  question: string,
+  sources: Evidence[],
+  page: MiloCurrentPage | undefined,
+  answer: string | undefined,
+  intent: Intent
+) {
+  // Broad questions about the Hub need the full map; task-specific questions
+  // need the current route and entries mentioned in the question or evidence.
+  if (
+    intent === "hub" &&
+    /\b(?:this (?:site|website|app|tool|place)|canopy hub|here)\b/i.test(
+      question
+    ) &&
+    /\b(?:what|about|where am i|overview|features|purpose)\b/i.test(question)
+  )
+    return HUB_MAP
+  const context = [
+    question,
+    answer ?? "",
+    ...sources.flatMap((source) => [source.title, source.url ?? ""]),
+  ]
+    .join(" ")
+    .toLowerCase()
+  return curatedHubPages()
+    .filter(
+      (entry) =>
+        entry.url === page?.url ||
+        context.includes(entry.url.toLowerCase()) ||
+        hasRetrievalConfidence(question, [
+          { title: entry.title, url: entry.url, snippet: entry.content },
+        ])
+    )
+    .map(({ title, url, content }) => `${title} (${url}): ${content}`)
+    .join("\n")
 }
 
 export function trustedContextEvidence(
