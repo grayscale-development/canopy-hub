@@ -8,6 +8,7 @@ import type { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import {
   chooseCanonicalPage,
   detectWikiDuplicates,
+  type DuplicatePage,
   type DuplicateResult,
 } from "@/lib/wiki-duplicates"
 import { replaceDuplicateBlock } from "@/lib/wiki-duplicate-resolution"
@@ -180,6 +181,244 @@ type OpenAlert = {
   recommendation: unknown
 }
 
+type Candidate = {
+  page: { id: string; title: string; current_revision_id: string | null }
+  detected: DuplicateResult
+  passage: DuplicateResult["passages"][number]
+  match: DuplicateResult["passages"][number]["matches"][number]
+  blocks: unknown
+}
+
+const pairKey = (a: string, b: string) => [a, b].sort().join(":")
+
+function inconsistentIdenticalMembers(alerts: OpenAlert[]) {
+  const edges = alerts.flatMap((alert) => {
+    const recommendation = parseWikiAlertRecommendation(
+      alert.recommendation,
+      alert.page_id,
+      alert.other_page_id
+    )
+    return recommendation?.version === 2 && recommendation.kind === "identical"
+      ? [{ alert, canonical: recommendation.canonicalPageId }]
+      : []
+  })
+  const remaining = new Set(edges)
+  const inconsistent = new Set<string>()
+  while (remaining.size) {
+    const first = remaining.values().next().value!
+    const members = new Set([first.alert.page_id, first.alert.other_page_id])
+    const canonicals = new Set<string>()
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const edge of remaining) {
+        if (
+          members.has(edge.alert.page_id) ||
+          members.has(edge.alert.other_page_id)
+        ) {
+          remaining.delete(edge)
+          members.add(edge.alert.page_id)
+          members.add(edge.alert.other_page_id)
+          canonicals.add(edge.canonical)
+          grew = true
+        }
+      }
+    }
+    if (canonicals.size > 1) for (const id of members) inconsistent.add(id)
+  }
+  return inconsistent
+}
+
+// Build components from newly detected pairs and still-current open alerts.
+// Old alert endpoints outside an incremental scan need fresh page metadata for
+// the same canonical ordering as pages detected in this run.
+async function clusterIdenticalCandidates(
+  supabase: Client,
+  candidates: Map<string, Candidate>
+) {
+  const identical = [...candidates.values()].filter(
+    (candidate) =>
+      candidate.match.classification === "identical" &&
+      candidate.detected.page &&
+      candidate.match.page
+  )
+  const alerts = await fetchOpenAlerts(supabase)
+  const allOpen = alerts.flatMap((alert) => {
+    const recommendation = parseWikiAlertRecommendation(
+      alert.recommendation,
+      alert.page_id,
+      alert.other_page_id
+    )
+    return recommendation?.version === 2 && recommendation.kind === "identical"
+      ? [{ alert, recommendation }]
+      : []
+  })
+  const open = allOpen.filter(({ alert }) => {
+    const candidate = candidates.get(
+      pairKey(alert.page_id, alert.other_page_id)
+    )
+    return !candidate || candidate.match.classification === "identical"
+  })
+  const connected = new Set([
+    ...identical.flatMap((item) => [item.page.id, item.match.pageId]),
+    ...inconsistentIdenticalMembers(alerts),
+  ])
+  if (!connected.size) return [] as OpenAlert[]
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const { alert } of open) {
+      if (connected.has(alert.page_id) || connected.has(alert.other_page_id)) {
+        for (const id of [alert.page_id, alert.other_page_id]) {
+          if (!connected.has(id)) {
+            connected.add(id)
+            grew = true
+          }
+        }
+      }
+    }
+  }
+  const info = new Map<string, { page: DuplicatePage; revisionId: string }>()
+  for (const item of identical) {
+    info.set(item.page.id, {
+      page: item.detected.page!,
+      revisionId: item.detected.revisionId,
+    })
+    info.set(item.match.pageId, {
+      page: item.match.page!,
+      revisionId: item.match.revisionId,
+    })
+  }
+  for (const id of connected) {
+    if (info.has(id)) continue
+    const result = await detectWikiDuplicates(
+      supabase,
+      "alerts-job",
+      id,
+      undefined,
+      false,
+      true
+    )
+    if (!result?.page || result.page.id !== id)
+      throw new Error("Could not reconcile identical pages")
+    info.set(id, { page: result.page, revisionId: result.revisionId })
+  }
+
+  const parent = new Map<string, string>()
+  const root = (id: string): string => {
+    const next = parent.get(id)
+    if (!next) {
+      parent.set(id, id)
+      return id
+    }
+    if (next === id) return id
+    const result = root(next)
+    parent.set(id, result)
+    return result
+  }
+  const union = (a: string, b: string) => {
+    parent.set(root(a), root(b))
+  }
+  for (const item of identical) union(item.page.id, item.match.pageId)
+  const validOpen = open.filter(({ alert, recommendation }) => {
+    if (!connected.has(alert.page_id) || !connected.has(alert.other_page_id))
+      return false
+    const target = info.get(recommendation.targetPageId)
+    const canonical = info.get(recommendation.canonicalPageId)
+    const current =
+      target?.revisionId === recommendation.baseRevisionId &&
+      canonical?.revisionId === recommendation.canonicalRevisionId
+    if (current) union(alert.page_id, alert.other_page_id)
+    return current
+  })
+  const groups = new Map<string, string[]>()
+  for (const id of parent.keys()) {
+    const key = root(id)
+    groups.set(key, [...(groups.get(key) ?? []), id])
+  }
+  for (const item of identical)
+    candidates.delete(pairKey(item.page.id, item.match.pageId))
+  const dismiss: OpenAlert[] = []
+  for (const members of groups.values()) {
+    const canonical = members
+      .map((id) => info.get(id)!.page)
+      .reduce(chooseCanonicalPage)
+    for (const id of members) {
+      if (id === canonical.id) continue
+      const target = info.get(id)!
+      const canonicalInfo = info.get(canonical.id)!
+      const direct = identical.find(
+        (item) =>
+          pairKey(item.page.id, item.match.pageId) === pairKey(id, canonical.id)
+      )
+      const evidence =
+        direct ??
+        identical.find(
+          (item) => item.page.id === id || item.match.pageId === id
+        )
+      const old = validOpen.find(
+        ({ alert }) => alert.page_id === id || alert.other_page_id === id
+      )
+      const excerpt = evidence
+        ? evidence.page.id === id
+          ? evidence.passage.text
+          : evidence.match.text
+        : old!.recommendation.excerpt
+      const blockId = evidence
+        ? evidence.page.id === id
+          ? evidence.passage.blockId
+          : (evidence.match.blockId ?? evidence.passage.blockId)
+        : old!.recommendation.blockId
+      const passage = {
+        blockId,
+        passageHash: "",
+        text: excerpt,
+        common: false,
+        matches: [],
+      }
+      candidates.set(pairKey(id, canonical.id), {
+        page: {
+          id,
+          title: target.page.title,
+          current_revision_id: target.revisionId,
+        },
+        detected: {
+          page: target.page,
+          revisionId: target.revisionId,
+          passages: [passage],
+        },
+        passage,
+        match: {
+          pageId: canonical.id,
+          revisionId: canonicalInfo.revisionId,
+          title: canonical.title,
+          path: canonical.path,
+          snippet: excerpt,
+          text: excerpt,
+          score: 1,
+          type: "near-exact",
+          classification: "identical",
+          exact: !!direct?.match.exact,
+          page: canonical,
+        },
+        blocks: null,
+      })
+    }
+    dismiss.push(
+      ...allOpen
+        .filter(
+          ({ alert }) =>
+            members.includes(alert.page_id) &&
+            members.includes(alert.other_page_id) &&
+            alert.page_id !== canonical.id &&
+            alert.other_page_id !== canonical.id
+        )
+        .map(({ alert }) => alert)
+    )
+  }
+  return dismiss
+}
+
 async function fetchOpenAlerts(supabase: Client) {
   const alerts: OpenAlert[] = []
   for (let offset = 0; ; offset += 1000) {
@@ -275,7 +514,12 @@ export async function scanWikiAlerts(
           .limit(1)
       : null
   if (newer?.error) throw newer.error
-  if (!options.full && watermark && !newer?.data?.length) {
+  if (
+    !options.full &&
+    watermark &&
+    !newer?.data?.length &&
+    !inconsistentIdenticalMembers(await fetchOpenAlerts(supabase)).size
+  ) {
     await dismissOverlapsForCopies(supabase)
     const stateSaved = await saveScanState(supabase, true)
     console.info("Wiki alerts scan", {
@@ -319,16 +563,7 @@ export async function scanWikiAlerts(
     opened = 0,
     updated = 0,
     skipped = 0
-  const candidates = new Map<
-    string,
-    {
-      page: (typeof pages)[number]
-      detected: DuplicateResult
-      passage: DuplicateResult["passages"][number]
-      match: DuplicateResult["passages"][number]["matches"][number]
-      blocks: unknown
-    }
-  >()
+  const candidates = new Map<string, Candidate>()
   for (const page of pages) {
     if (!page.current_revision_id) {
       skipped++
@@ -382,12 +617,38 @@ export async function scanWikiAlerts(
     }
   }
   pairs = candidates.size
+  let redundantIdentical: OpenAlert[] = []
+  let identicalFailure = false
+  let clusterFailure = false
+  try {
+    redundantIdentical = await clusterIdenticalCandidates(supabase, candidates)
+  } catch {
+    hadFailure = true
+    identicalFailure = true
+    clusterFailure = true
+  }
   let copies = new Set<string>()
   let openAlerts: OpenAlert[] = []
   const reclassified = new Set<string>()
-  for (const phase of ["identical", "reclassified", "overlap"] as const) {
+  for (const phase of clusterFailure
+    ? []
+    : (["identical", "reclassified", "overlap"] as const)) {
     if (phase === "reclassified") {
       try {
+        if (!identicalFailure) {
+          for (const alert of redundantIdentical) {
+            const dismissed = await supabase
+              .from("wiki_alerts")
+              .update({
+                status: "dismissed",
+                dismissed_by: null,
+                dismissed_at: new Date().toISOString(),
+              })
+              .eq("id", alert.id)
+              .eq("status", "open")
+            if (dismissed.error) throw dismissed.error
+          }
+        }
         openAlerts = await fetchOpenAlerts(supabase)
       } catch {
         hadFailure = true
@@ -412,6 +673,7 @@ export async function scanWikiAlerts(
     } of candidates.values()) {
       const isIdentical =
         match.classification === "identical" && !!detected.page && !!match.page
+      if (phase === "identical" && identicalFailure) continue
       const key = [page.id, match.pageId].sort().join(":")
       if (phase === "identical" ? !isIdentical : isIdentical) continue
       let oldIdentical: OpenAlert | undefined
@@ -517,6 +779,7 @@ export async function scanWikiAlerts(
               canonicalPath
             ))
         ) {
+          if (isIdentical) identicalFailure = true
           skipped++
           continue
         }
@@ -576,10 +839,12 @@ export async function scanWikiAlerts(
             kind: recommendation.kind,
           })
         } else {
+          if (isIdentical) identicalFailure = true
           hadFailure = true
           skipped++
         }
       } catch {
+        if (isIdentical) identicalFailure = true
         hadFailure = true
         skipped++
       }
