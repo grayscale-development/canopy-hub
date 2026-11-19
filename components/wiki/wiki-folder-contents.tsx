@@ -3,9 +3,21 @@
 import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import Link from "next/link"
 import * as React from "react"
-import { ArrowDownUpIcon, FileTextIcon, FolderIcon } from "lucide-react"
+import {
+  ArrowDownUpIcon,
+  FileTextIcon,
+  FolderIcon,
+  TagsIcon,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -116,83 +128,64 @@ export function WikiFolderContents({
   const folder = nodes.find((node) => node.id === parentId)
   const parent = nodes.find((node) => node.id === folder?.parent_id)
   const canAddHere = Boolean(folder && parent)
-  const sectionHasTags = wikiTags.some(
-    (tag) => tag.scope === "section" && tag.section_id === sectionId
-  )
-  const showSectionEmpty = Boolean(
-    sectionId && parentId === sectionId && !sectionHasTags
-  )
-  const addTagHelp = showSectionEmpty ? (
-    <p className="text-sm text-muted-foreground">
-      No section tags yet.
-      {canEditWiki && descendantPages[0] ? (
-        <>
-          {" "}
-          <Link
-            className="underline"
-            href={`/wiki/${buildNumericWikiPath(nodes, descendantPages[0])}`}
+  const toolbar =
+    sectionId && (availableTags.length > 0 || canEditWiki) ? (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {availableTags.length > 0 ? (
+          <Select
+            value={selectedTagId || "all"}
+            onValueChange={(value) => selectTag(value === "all" ? "" : value)}
           >
-            Edit a page to add a tag.
-          </Link>
-        </>
-      ) : null}
-    </p>
-  ) : null
+            <SelectTrigger
+              aria-label="Filter by tag"
+              className="w-full min-w-0 sm:w-48"
+            >
+              <SelectValue placeholder="All tags" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All tags</SelectItem>
+              {availableTags.map((tag) => (
+                <SelectItem key={tag.id} value={tag.id}>
+                  {tag.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {canEditWiki ? (
+          <Button asChild variant="outline" className="min-h-11">
+            <Link href="/wiki/tags">
+              <TagsIcon aria-hidden="true" /> Manage tags
+            </Link>
+          </Button>
+        ) : null}
+      </div>
+    ) : null
 
   if (!visibleItems.length && !selectedTagId) {
     return (
-      <div className="rounded-lg border bg-card p-6 text-sm">
-        {addTagHelp}
-        <p className="font-medium">No pages here yet.</p>
-        {canEditWiki && folder && canAddHere ? (
-          <div className="mt-4">
-            <WikiAddMenu
-              folder={folder}
-              nodes={nodes}
-              allowGroups={parent?.parent_id === null}
-              label="Add a page"
-            />
-          </div>
-        ) : null}
+      <div className="space-y-4">
+        {toolbar}
+        <div className="rounded-lg border bg-card p-6 text-sm">
+          <p className="font-medium">No pages here yet.</p>
+          {canEditWiki && folder && canAddHere ? (
+            <div className="mt-4">
+              <WikiAddMenu
+                folder={folder}
+                nodes={nodes}
+                allowGroups={parent?.parent_id === null}
+                label="Add a page"
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      {addTagHelp}
-      {parentId !== null && availableTags.length ? (
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Filter by tag</p>
-          <div className="flex flex-wrap items-center gap-2">
-            {availableTags.map((tag) => (
-              <Button
-                key={tag.id}
-                type="button"
-                size="sm"
-                variant={selectedTagId === tag.id ? "default" : "outline"}
-                className="rounded-full"
-                aria-pressed={selectedTagId === tag.id}
-                onClick={() =>
-                  selectTag(selectedTagId === tag.id ? "" : tag.id)
-                }
-              >
-                {tag.name}
-              </Button>
-            ))}
-            {selectedTagId ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => selectTag("")}
-              >
-                Clear filter
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+      {toolbar}
       {filteredItems.length ? (
         <Table className="block md:table md:table-fixed">
           <TableHeader className="block md:table-header-group">
@@ -303,7 +296,9 @@ export function WikiFolderContents({
                     </TableCell>
                     {canManageWiki ? (
                       <TableCell className="inline-block py-1 md:table-cell md:py-2">
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${node.status === "published" ? "bg-success-background text-success" : "bg-muted text-muted-foreground"}`}
+                        >
                           {node.status === "draft" ? "Draft" : "Published"}
                         </span>
                       </TableCell>
