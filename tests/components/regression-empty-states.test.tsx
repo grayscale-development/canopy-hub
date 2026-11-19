@@ -41,9 +41,6 @@ vi.mock("@/lib/hub-data", () => ({
   fetchCorporateTurnSummary: mocks.corporate,
   fetchPreviousMonthLoanProgramSummary: mocks.programs,
 }))
-vi.mock("@/components/home/canopy-production-chart", () => ({
-  CanopyProductionChart: () => <div data-testid="production-chart" />,
-}))
 
 import BridgePage from "@/app/bridge/page"
 import DirectoryPage from "@/app/department-directory/page"
@@ -98,19 +95,21 @@ describe("regression empty states", () => {
     expect(screen.queryByText("No departments yet.")).toBeNull()
   })
   it("replaces the all-zero production chart but shows nonzero data", async () => {
-    const { unmount } = render(await ProductionPage())
+    const { unmount, container } = render(await ProductionPage())
     expect(
       screen.getByText("No funded loans in the last 12 months.")
     ).toBeVisible()
-    expect(screen.queryByTestId("production-chart")).toBeNull()
+    expect(container.querySelector('[data-slot="chart"]')).toBeNull()
     unmount()
     mocks.production.mockResolvedValue({
       labels: ["Jan"],
       monthlyFundedCounts: [1],
       monthlyFundedVolumes: [0],
     })
-    render(await ProductionPage())
-    expect(screen.getByTestId("production-chart")).toBeVisible()
+    const realData = render(await ProductionPage())
+    expect(
+      realData.container.querySelector('[data-slot="chart"]')
+    ).toBeVisible()
   })
   it("shows missing turn times without hiding real zeros", async () => {
     const { unmount } = render(await CorporatePage())

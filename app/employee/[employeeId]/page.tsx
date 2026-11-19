@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { FilesTableWithDetails } from "@/components/file-viewer/files-table-with-details"
@@ -95,6 +95,9 @@ export default async function EmployeePage({
   const tab = rawTab && isEmployeeTabKey(rawTab) ? rawTab : "home"
   const employeeId = decodeURIComponent(resolvedParams.employeeId)
   const profile = await fetchEmployeeProfileById(employeeId)
+  if (!profile) {
+    notFound()
+  }
   const employeeName = profile?.displayName ?? `Employee ${employeeId}`
   const initials = employeeName
     .split(/[,\s]+/)
