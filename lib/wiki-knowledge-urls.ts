@@ -1,6 +1,6 @@
 import "server-only"
 
-import { fetchWikiNodes, type SupabaseWikiClient } from "@/lib/wiki"
+import type { SupabaseWikiClient, WikiNodeRow } from "@/lib/wiki"
 import { buildNumericWikiPath } from "@/lib/wiki-paths"
 
 export function isWikiKnowledgeSource(type: string) {
@@ -19,13 +19,10 @@ async function resolveWikiKnowledgeDetails(
   >()
   if (!sourceIds.length) return details
 
-  const [nodes, sourcesResult] = await Promise.all([
-    fetchWikiNodes(supabase),
-    supabase
-      .from("knowledge_sources")
-      .select("id,source_type,source_id")
-      .in("id", [...new Set(sourceIds)]),
-  ])
+  const sourcesResult = await supabase
+    .from("knowledge_sources")
+    .select("id,source_type,source_id")
+    .in("id", [...new Set(sourceIds)])
   if (sourcesResult.error) throw new Error(sourcesResult.error.message)
   const sources = sourcesResult.data ?? []
   const assetIds = sources
@@ -36,21 +33,34 @@ async function resolveWikiKnowledgeDetails(
     : { data: [], error: null }
   if (assetsResult.error) throw new Error(assetsResult.error.message)
 
-  // The directory is optional for viewers; never substitute a guessed name.
-  let directoryUsers: Array<{ user_id: string; full_name: string | null }> = []
-  try {
-    const directory = await supabase.rpc("list_permission_directory_users")
-    if (!directory.error) directoryUsers = directory.data ?? []
-  } catch {
-    /* Names are optional. */
-  }
-  const names = new Map(
-    directoryUsers.map((user) => [user.user_id, user.full_name])
-  )
-  const nodesById = new Map(nodes.map((node) => [node.id, node]))
   const assetsById = new Map(
     (assetsResult.data ?? []).map((asset) => [asset.id, asset.node_id])
   )
+  const nodesById = new Map<string, WikiNodeRow>()
+  const visited = new Set<string>()
+  let pending = sources.flatMap((source) => {
+    const id =
+      source.source_type === "wiki_page"
+        ? source.source_id
+        : source.source_type === "wiki_asset"
+          ? assetsById.get(source.source_id)
+          : undefined
+    return id ? [id] : []
+  })
+  while (pending.length) {
+    const ids = [...new Set(pending)].filter((id) => !visited.has(id))
+    if (!ids.length) break
+    ids.forEach((id) => visited.add(id))
+    const result = await supabase
+      .from("wiki_nodes")
+      .select("id,short_id,parent_id,type,status,updated_at")
+      .in("id", ids)
+    if (result.error) throw new Error(result.error.message)
+    const nodes = (result.data ?? []) as WikiNodeRow[]
+    nodes.forEach((node) => nodesById.set(node.id, node))
+    pending = nodes.flatMap((node) => (node.parent_id ? [node.parent_id] : []))
+  }
+  const nodes = [...nodesById.values()]
   for (const source of sources) {
     if (!isWikiKnowledgeSource(source.source_type)) continue
     const nodeId =
@@ -58,7 +68,7 @@ async function resolveWikiKnowledgeDetails(
         ? assetsById.get(source.source_id)
         : source.source_id
     const node = nodeId ? nodesById.get(nodeId) : undefined
-    if (!node || node.type !== "page") continue
+    if (!node || node.type !== "page" || node.status === "archived") continue
 
     // Do not construct a partial path when an ancestor is absent or malformed.
     const seen = new Set<string>()
@@ -88,9 +98,6 @@ async function resolveWikiKnowledgeDetails(
       details.set(source.id, {
         url: `/wiki/${buildNumericWikiPath(nodes, node)}`,
         updatedAt: node.updated_at,
-        updatedBy: node.updated_by
-          ? names.get(node.updated_by) || undefined
-          : undefined,
         isPublished,
       })
   }

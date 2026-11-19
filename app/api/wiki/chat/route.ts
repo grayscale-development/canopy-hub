@@ -29,12 +29,16 @@ import {
   type MiloCard,
   type MiloStreamEvent,
 } from "@/lib/milo/chat-cards"
+import { hubRouteContext } from "@/lib/milo/hub-map"
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { logAiAction } from "@/lib/ai-action-log"
 import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { buildWikiBreadcrumbs } from "@/lib/wiki"
+import type { MiloCurrentPage } from "@/lib/milo/current-page"
 import { miloPagePath } from "@/lib/milo/page-index"
 import { trimMiloHistory } from "@/lib/milo/history"
+import { MiloTiming } from "@/lib/milo/timing"
 
 export const runtime = "nodejs"
 
@@ -42,6 +46,7 @@ interface ChatRequestBody {
   threadId?: unknown
   message?: unknown
   pageContext?: unknown
+  currentPath?: unknown
 }
 
 const pageContextSchema = z.object({ pageId: z.string().uuid() })
@@ -386,6 +391,7 @@ export async function DELETE(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const timing = new MiloTiming()
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
@@ -421,6 +427,7 @@ export async function POST(request: Request) {
       message: form?.get("message"),
       threadId: form?.get("threadId"),
       pageContext,
+      currentPath: form?.get("currentPath"),
     }
   } else {
     payload = (await request.json().catch(() => null)) as ChatRequestBody | null
@@ -430,37 +437,57 @@ export async function POST(request: Request) {
   let threadId =
     typeof payload?.threadId === "string" ? payload.threadId.trim() : ""
   const parsedPage = pageContextSchema.safeParse(payload?.pageContext)
-  let pageContext:
-    | { pageId: string; title: string; url: string; updatedAt?: string }
-    | undefined
-  if (parsedPage.success) {
-    const { data: node } = await supabase
-      .from("wiki_nodes")
-      .select("id,title,type,updated_at")
-      .eq("id", parsedPage.data.pageId)
-      .eq("type", "page")
-      .maybeSingle()
-    const { data: accessibleNode } = node
-      ? await supabase
-          .from("milo_wiki_nodes")
-          .select("id")
-          .eq("id", node.id)
+  const pageContextPromise = timing
+    .measure("pageContext", async () => {
+      let pageContext: MiloCurrentPage | undefined
+      if (parsedPage.success) {
+        const { data: node } = await supabase
+          .from("wiki_nodes")
+          .select("id,title,type,updated_at")
+          .eq("id", parsedPage.data.pageId)
+          .eq("type", "page")
           .maybeSingle()
-      : { data: null }
-    if (node && accessibleNode) {
-      try {
-        const { path } = await miloPagePath(supabase, node.id)
-        pageContext = {
-          pageId: node.id,
-          title: node.title,
-          url: `/wiki/${path}`,
-          ...(node.updated_at ? { updatedAt: node.updated_at } : {}),
+        const { data: accessibleNode } = node
+          ? await supabase
+              .from("milo_wiki_nodes")
+              .select("id")
+              .eq("id", node.id)
+              .maybeSingle()
+          : { data: null }
+        if (node && accessibleNode) {
+          try {
+            const {
+              path,
+              nodes,
+              node: pageNode,
+            } = await miloPagePath(supabase, node.id)
+            const breadcrumbs =
+              nodes && pageNode ? buildWikiBreadcrumbs(nodes, pageNode) : []
+            pageContext = {
+              pageId: node.id,
+              title: node.title,
+              kind: "wiki_page",
+              ...(breadcrumbs[0] ? { area: breadcrumbs[0].title } : {}),
+              ...(breadcrumbs[1]?.type === "folder"
+                ? { section: breadcrumbs[1].title }
+                : {}),
+              url: `/wiki/${path}`,
+              ...(node.updated_at ? { updatedAt: node.updated_at } : {}),
+            }
+          } catch {
+            /* Ignore inaccessible or incomplete paths. */
+          }
         }
-      } catch {
-        /* Ignore inaccessible or incomplete paths. */
       }
-    }
-  }
+      if (!pageContext && typeof payload?.currentPath === "string") {
+        pageContext = hubRouteContext(payload.currentPath)
+      }
+      return pageContext
+    })
+    .then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error })
+    )
   if (!message && !file) {
     return NextResponse.json({ error: "Message is required." }, { status: 400 })
   }
@@ -511,6 +538,12 @@ export async function POST(request: Request) {
     ? [message, fileText].filter(Boolean).join("\n\n")
     : message
   let previousState: MiloEditState | undefined
+  const userContextPromise = timing
+    .measure("userContext", () => getMiloUserContext(supabase, user))
+    .then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error })
+    )
 
   if (threadId) {
     const { data: thread, error: threadError } = await supabase
@@ -545,14 +578,18 @@ export async function POST(request: Request) {
           : undefined
     }
   } else {
-    const { data: thread, error: createThreadError } = await supabase
-      .from("ai_chat_threads")
-      .insert({
-        user_id: user.id,
-        title: (message || file?.name || "Source material").slice(0, 80),
-      })
-      .select("id")
-      .single()
+    const { data: thread, error: createThreadError } = await timing.measure(
+      "persistence",
+      () =>
+        supabase
+          .from("ai_chat_threads")
+          .insert({
+            user_id: user.id,
+            title: (message || file?.name || "Source material").slice(0, 80),
+          })
+          .select("id")
+          .single()
+    )
 
     if (createThreadError) {
       return NextResponse.json(
@@ -571,21 +608,28 @@ export async function POST(request: Request) {
     .order("created_at", { ascending: false })
     .limit(30)
   const history = trimMiloHistory([...(priorMessages ?? [])].reverse())
+  const pageResult = await pageContextPromise
+  if ("error" in pageResult) throw pageResult.error
+  const pageContext = pageResult.value
 
-  const { data: userMessage, error: userMessageError } = await supabase
-    .from("ai_chat_messages")
-    .insert({
-      thread_id: threadId,
-      user_id: user.id,
-      role: "user",
-      content: storedMessage,
-      metadata: {
-        ...(file ? { sourceFileName: file.name } : {}),
-        ...(pageContext ? { pageContext } : {}),
-      },
-    })
-    .select("id")
-    .single()
+  const { data: userMessage, error: userMessageError } = await timing.measure(
+    "persistence",
+    () =>
+      supabase
+        .from("ai_chat_messages")
+        .insert({
+          thread_id: threadId,
+          user_id: user.id,
+          role: "user",
+          content: storedMessage,
+          metadata: {
+            ...(file ? { sourceFileName: file.name } : {}),
+            ...(pageContext ? { pageContext } : {}),
+          },
+        })
+        .select("id")
+        .single()
+  )
 
   if (userMessageError) {
     return NextResponse.json(
@@ -594,11 +638,13 @@ export async function POST(request: Request) {
     )
   }
 
-  await supabase
-    .from("ai_chat_threads")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", threadId)
-    .eq("user_id", user.id)
+  await timing.measure("persistence", () =>
+    supabase
+      .from("ai_chat_threads")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", threadId)
+      .eq("user_id", user.id)
+  )
 
   const cancellation = new AbortController()
   const abort = () => cancellation.abort()
@@ -625,23 +671,78 @@ export async function POST(request: Request) {
   return new Response(
     new ReadableStream({
       async start(controller) {
+        let checkingStop = false
+        const stopPoll = setInterval(() => {
+          if (checkingStop || cancellation.signal.aborted) return
+          checkingStop = true
+          void checkStop()
+            .catch(() => {})
+            .finally(() => {
+              checkingStop = false
+            })
+        }, 500)
         const emit = (event: MiloStreamEvent) => {
-          if (!cancellation.signal.aborted)
+          if (!cancellation.signal.aborted) {
+            if (event.type === "token" && event.token) timing.token()
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
             )
+          }
         }
         emit({ type: "meta", threadId, userMessageId: userMessage.id })
+        const sourceParts = splitSource(message, Boolean(file))
+        const hasSource = sourceParts.hasSource || Boolean(file)
+        const instruction =
+          sourceParts.instruction || (!hasSource ? message : "")
+        const intent =
+          editIntent(instruction) &&
+          !/^(?:how|what|where|why|when|who)\b/i.test(instruction)
+        emit({
+          type: "status",
+          text: hasSource ? "Reading your source…" : "Getting ready…",
+        })
+        const startAnswer = (
+          userContext: Parameters<
+            typeof answerKnowledgeQuestion
+          >[0]["userContext"]
+        ) =>
+          answerKnowledgeQuestion({
+            supabase,
+            question: message,
+            userContext,
+            ...(pageContext ? { pageContext } : {}),
+            history,
+            signal: cancellation.signal,
+            checkStop,
+            deferActionLog: true,
+            timing,
+            onStatus: (text) => emit({ type: "status", text }),
+            onToken: (token) => {
+              partial += token
+              emit({ type: "token", token })
+            },
+          })
+        // Plain questions can research while permissions load; editing workflows
+        // wait for permissions before doing any work.
+        const earlyAnswer =
+          !hasSource && !intent && !previousState
+            ? startAnswer(
+                userContextPromise.then((result) => {
+                  if ("error" in result) throw result.error
+                  return result.value
+                })
+              ).then(
+                (value) => ({ value }),
+                (error: unknown) => ({ error })
+              )
+            : undefined
         try {
-          await checkStop()
-          const userContext = await getMiloUserContext(supabase, user)
-          const sourceParts = splitSource(message, Boolean(file))
-          const hasSource = sourceParts.hasSource || Boolean(file)
-          const instruction =
-            sourceParts.instruction || (!hasSource ? message : "")
-          const intent =
-            editIntent(instruction) &&
-            !/^(?:how|what|where|why|when|who)\b/i.test(instruction)
+          const [, userContextResult] = await Promise.all([
+            checkStop(),
+            userContextPromise,
+          ])
+          if ("error" in userContextResult) throw userContextResult.error
+          const userContext = userContextResult.value
           let state: MiloEditState | undefined
           let workflowAnswer = ""
           const cards: MiloCard[] = []
@@ -857,21 +958,12 @@ export async function POST(request: Request) {
                 citations: [],
                 metadata: state ? { miloEdit: state } : {},
               }
-            : await answerKnowledgeQuestion({
-                supabase,
-                question: message,
-                userContext,
-                ...(pageContext ? { pageContext } : {}),
-                history,
-                signal: cancellation.signal,
-                checkStop,
-                deferActionLog: true,
-                onStatus: (text) => emit({ type: "status", text }),
-                onToken: (token) => {
-                  partial += token
-                  emit({ type: "token", token })
-                },
-              })
+            : earlyAnswer
+              ? await earlyAnswer.then((result) => {
+                  if ("error" in result) throw result.error
+                  return result.value
+                })
+              : await startAnswer(userContext)
           await checkStop()
           if (!partial) emit({ type: "token", token: result.answer })
           // Model text and model/tool metadata are never interpreted as actionable cards.
@@ -897,18 +989,20 @@ export async function POST(request: Request) {
             metadata.cards = cards.map((card) => miloCardSchema.parse(card))
           await checkStop()
           const { data: assistantMessage, error: assistantMessageError } =
-            await supabase
-              .from("ai_chat_messages")
-              .insert({
-                thread_id: threadId,
-                user_id: user.id,
-                role: "assistant",
-                content: result.answer,
-                model: result.model,
-                metadata,
-              })
-              .select("id")
-              .single()
+            await timing.measure("persistence", () =>
+              supabase
+                .from("ai_chat_messages")
+                .insert({
+                  thread_id: threadId,
+                  user_id: user.id,
+                  role: "assistant",
+                  content: result.answer,
+                  model: result.model,
+                  metadata,
+                })
+                .select("id")
+                .single()
+            )
 
           if (assistantMessageError) {
             throw assistantMessageError
@@ -928,19 +1022,21 @@ export async function POST(request: Request) {
           }
 
           if (result.citations.length) {
-            const { error: citationError } = await supabase
-              .from("ai_chat_citations")
-              .insert(
-                result.citations.map((citation, index) => ({
-                  id: citationIds[index],
-                  message_id: assistantMessage.id,
-                  knowledge_source_id: citation.knowledgeSourceId ?? null,
-                  knowledge_chunk_id: citation.knowledgeChunkId ?? null,
-                  title: citation.title,
-                  url: citation.url,
-                  snippet: citation.snippet,
-                }))
-              )
+            const { error: citationError } = await timing.measure(
+              "persistence",
+              () =>
+                supabase.from("ai_chat_citations").insert(
+                  result.citations.map((citation, index) => ({
+                    id: citationIds[index],
+                    message_id: assistantMessage.id,
+                    knowledge_source_id: citation.knowledgeSourceId ?? null,
+                    knowledge_chunk_id: citation.knowledgeChunkId ?? null,
+                    title: citation.title,
+                    url: citation.url,
+                    snippet: citation.snippet,
+                  }))
+                )
+            )
 
             if (citationError) {
               throw citationError
@@ -977,6 +1073,7 @@ export async function POST(request: Request) {
             }
           }
           if (cancellation.signal.aborted) {
+            timing.outcome = "stopped"
             try {
               if (!partial.trim() && persistedAssistantId) {
                 await supabase
@@ -1015,6 +1112,7 @@ export async function POST(request: Request) {
             file || splitSource(message, false).hasSource || previousState
               ? "Couldn't process the source. Please try again."
               : "Milo couldn't answer right now. Please try again."
+          timing.outcome = "error"
           const cards: MiloCard[] = [
             miloCardSchema.parse({
               type: "error",
@@ -1059,6 +1157,8 @@ export async function POST(request: Request) {
             error: true,
           })
         } finally {
+          clearInterval(stopPoll)
+          timing.log()
           request.signal.removeEventListener("abort", abort)
           if (!cancelled) controller.close()
         }

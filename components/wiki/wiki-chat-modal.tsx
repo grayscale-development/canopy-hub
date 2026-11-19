@@ -859,6 +859,7 @@ export function WikiChatModalProvider({
                 onDraftRequestConsumed={onDraftRequestConsumed}
                 ref={chatRef}
                 firstName={firstName}
+                currentPath={pathname}
                 pageContext={
                   page?.pathname === pathname && page.pageId !== removedPageId
                     ? page
