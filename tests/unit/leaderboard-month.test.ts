@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   LEADERBOARD_PREVIOUS_MONTH_HOLDOVER_DAYS,
+  getBusinessCalendarDate,
   getLeaderboardPostedMonth,
 } from "@/lib/leaderboard-month"
 
@@ -72,5 +73,20 @@ describe("leaderboard posted month", () => {
       monthName: "January",
       isPreviousMonthHoldover: false,
     })
+  })
+})
+
+describe("getBusinessCalendarDate", () => {
+  it("uses the Mountain-time date in the evening, not the UTC date", () => {
+    // 8:30 PM MST on Nov 18 is already Nov 19 in UTC.
+    const d = getBusinessCalendarDate(new Date("2026-11-19T03:30:00Z"))
+    expect([d.getFullYear(), d.getMonth() + 1, d.getDate()]).toEqual([
+      2026, 11, 18,
+    ])
+  })
+
+  it("returns local midnight", () => {
+    const d = getBusinessCalendarDate(new Date("2026-06-01T18:00:00Z"))
+    expect([d.getHours(), d.getMinutes(), d.getDate()]).toEqual([0, 0, 1])
   })
 })

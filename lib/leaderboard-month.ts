@@ -31,6 +31,19 @@ function getTimeZoneDateParts(date: Date, timeZone = LEADERBOARD_TIME_ZONE) {
   }
 }
 
+/**
+ * Today's calendar date in the business time zone, as a local Date at
+ * midnight. Servers run in UTC, so `new Date()` alone rolls over to
+ * tomorrow in the evening for Mountain-time users.
+ */
+export function getBusinessCalendarDate(
+  date = new Date(),
+  timeZone = LEADERBOARD_TIME_ZONE
+) {
+  const { year, month, day } = getTimeZoneDateParts(date, timeZone)
+  return new Date(year, month - 1, day)
+}
+
 function daysInMonth(year: number, monthNumber: number) {
   return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
 }

@@ -57,9 +57,12 @@ export function DepartmentEventTable({
               <tr>
                 <td
                   colSpan={columns.length}
-                  className="px-3 py-8 text-center text-muted-foreground"
+                  className="px-3 py-8 text-left text-muted-foreground sm:text-center"
                 >
-                  No events in this window.
+                  {/* Sticky so it stays on screen when the table scrolls sideways on phones. */}
+                  <span className="sticky left-3">
+                    No events in this window.
+                  </span>
                 </td>
               </tr>
             ) : (
