@@ -11,6 +11,7 @@ import { fetchDepartmentDashboard } from "@/lib/hub-data"
 import { DEPARTMENT_DASHBOARD_EVENTS_VIEW_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { getBusinessCalendarDate } from "@/lib/leaderboard-month"
 
 export async function DepartmentReportPage({
   department,
@@ -54,7 +55,7 @@ export async function DepartmentReportPage({
       department,
       query: dashboardQuery,
       includeEvents: canViewEvents,
-      referenceDate: new Date(),
+      referenceDate: getBusinessCalendarDate(),
     })
   } catch (error) {
     const referenceId = randomUUID().slice(0, 8)
