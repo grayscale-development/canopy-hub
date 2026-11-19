@@ -345,6 +345,12 @@ export async function indexWikiAsset({
 }
 
 export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
+  // Older indexes may still contain the retired Bridge page.
+  await archiveKnowledgeSource({
+    supabase,
+    sourceType: "site",
+    sourceId: "bridge",
+  })
   const reports = getFeaturedReports()
   let indexedCount = 0
   await mapWithConcurrency(reports, 6, (report) =>
@@ -560,13 +566,6 @@ export async function indexCuratedSiteKnowledge(supabase: SupabaseWikiClient) {
       url: "/newsletters",
       content:
         "Newsletters contains company newsletter PDFs. To view newsletters by month and year, open /newsletters.",
-    },
-    {
-      id: "bridge",
-      title: "Bridge",
-      url: "/bridge",
-      content:
-        "Bridge is a Canopy Hub page for cross-system or operational handoff workflows. To view Bridge, open /bridge.",
     },
     {
       id: "file-viewer",

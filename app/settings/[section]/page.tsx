@@ -207,7 +207,7 @@ export default async function SettingsSubPage({
   }
 
   return (
-    <SidebarInset>
+    <SidebarInset className="min-w-0 overflow-x-hidden">
       <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator
@@ -232,7 +232,7 @@ export default async function SettingsSubPage({
           <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
         </div>
 
-        <div className="flex flex-1 flex-col gap-4 md:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col gap-4 md:flex-row">
           <aside className="h-fit w-full rounded-xl border bg-card p-2 text-card-foreground md:max-w-56">
             <nav className="grid gap-1">
               {SETTINGS_PAGES.map((page) => {

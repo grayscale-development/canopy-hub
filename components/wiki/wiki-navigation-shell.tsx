@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -31,22 +32,38 @@ function getWikiPathSegments(pathname: string) {
 
 function WikiBreadcrumbs({ breadcrumbs }: { breadcrumbs: WikiNodeRow[] }) {
   return (
-    <Breadcrumb>
-      <BreadcrumbList>
+    <Breadcrumb className="min-w-0">
+      <BreadcrumbList className="flex-nowrap overflow-hidden">
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
             <Link href="/wiki">Wiki</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
+        {breadcrumbs.length > 1 ? (
+          <>
+            <BreadcrumbSeparator className="sm:hidden" />
+            <BreadcrumbItem className="sm:hidden" aria-hidden="true">
+              …
+            </BreadcrumbItem>
+          </>
+        ) : null}
         {breadcrumbs.map((node, index) => {
           const path = buildNumericWikiPath(breadcrumbs, node)
           const isLast = index === breadcrumbs.length - 1
 
           return [
-            <BreadcrumbSeparator key={`${node.id}-separator`} />,
-            <BreadcrumbItem key={node.id}>
+            <BreadcrumbSeparator
+              key={`${node.id}-separator`}
+              className={isLast ? "shrink-0" : "hidden sm:block"}
+            />,
+            <BreadcrumbItem
+              key={node.id}
+              className={isLast ? "min-w-0" : "hidden sm:inline-flex"}
+            >
               {isLast ? (
-                <BreadcrumbPage>{node.title}</BreadcrumbPage>
+                <BreadcrumbPage className="truncate">
+                  {node.title}
+                </BreadcrumbPage>
               ) : (
                 <BreadcrumbLink asChild>
                   <Link href={`/wiki/${path}`}>{node.title}</Link>
@@ -88,21 +105,23 @@ export function WikiHeader({
           <WikiBreadcrumbs breadcrumbs={breadcrumbs} />
         ) : repository ? (
           <Breadcrumb>
-            <BreadcrumbList>
+            <BreadcrumbList className="flex-nowrap overflow-hidden">
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
                   <Link href="/wiki">Wiki</Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{repository.title}</BreadcrumbPage>
+              <BreadcrumbItem className="min-w-0">
+                <BreadcrumbPage className="truncate">
+                  {repository.title}
+                </BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
         ) : isTagsDirectory ? (
           <Breadcrumb>
-            <BreadcrumbList>
+            <BreadcrumbList className="flex-nowrap overflow-hidden">
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
                   <Link href="/wiki">Wiki</Link>
@@ -142,6 +161,7 @@ export function WikiRepositoryNavigation({
   archivedNodes?: WikiNodeRow[]
   canManageWiki: boolean
 }) {
+  const [pagesOpen, setPagesOpen] = useState(false)
   const pathname = usePathname()
   const path = getWikiPathSegments(pathname)
   const node = resolveNumericWikiPath(nodes, path)?.node
@@ -163,9 +183,34 @@ export function WikiRepositoryNavigation({
       canManageWiki={canManageWiki}
     />
   )
-  return pathname === "/wiki/tags" ? (
-    <div className="hidden lg:contents">{navigation}</div>
-  ) : (
-    navigation
+  return (
+    <div
+      className={
+        pathname === "/wiki/tags"
+          ? "hidden min-h-0 lg:block"
+          : "min-h-0 shrink-0"
+      }
+    >
+      <button
+        type="button"
+        aria-expanded={pagesOpen}
+        aria-controls="wiki-pages-navigation"
+        onClick={() => setPagesOpen((open) => !open)}
+        className="w-full border-b bg-sidebar px-4 py-2 text-left text-sm font-medium text-sidebar-foreground lg:hidden"
+      >
+        {pagesOpen ? "Hide pages" : "Pages"}
+      </button>
+      <div
+        id="wiki-pages-navigation"
+        className={pagesOpen ? "lg:h-full" : "hidden lg:block lg:h-full"}
+        onClickCapture={(event) => {
+          if (event.target instanceof Element && event.target.closest("a")) {
+            setPagesOpen(false)
+          }
+        }}
+      >
+        {navigation}
+      </div>
+    </div>
   )
 }

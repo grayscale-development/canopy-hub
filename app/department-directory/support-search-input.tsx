@@ -76,7 +76,7 @@ export function SupportSearchInput({
       <Input
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        placeholder="Search by department, inbox, name, or phone"
+        placeholder="Search the directory"
         className="min-h-12 bg-white text-slate-950 placeholder:text-slate-500 focus-visible:border-white focus-visible:ring-white/60"
         aria-label="Search support directory"
       />

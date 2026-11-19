@@ -56,6 +56,10 @@ export default async function CanopyProductionLast12MonthsViewPage() {
     0
   )
 
+  const hasProduction =
+    productionSeries.monthlyFundedCounts.some((value) => value !== 0) ||
+    productionSeries.monthlyFundedVolumes.some((value) => value !== 0)
+
   return (
     <main className="h-screen w-screen overflow-hidden bg-background text-foreground">
       <div className="flex h-full flex-col">
@@ -81,12 +85,18 @@ export default async function CanopyProductionLast12MonthsViewPage() {
         </header>
 
         <section className="min-h-0 flex-1 p-3 md:p-4">
-          <CanopyProductionChart
-            labels={productionSeries.labels}
-            monthlyFundedCounts={productionSeries.monthlyFundedCounts}
-            monthlyFundedVolumes={productionSeries.monthlyFundedVolumes}
-            className="!aspect-auto h-full w-full"
-          />
+          {hasProduction ? (
+            <CanopyProductionChart
+              labels={productionSeries.labels}
+              monthlyFundedCounts={productionSeries.monthlyFundedCounts}
+              monthlyFundedVolumes={productionSeries.monthlyFundedVolumes}
+              className="!aspect-auto h-[min(50vh,400px)] w-full md:h-full"
+            />
+          ) : (
+            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              No funded loans in the last 12 months.
+            </div>
+          )}
         </section>
       </div>
     </main>
