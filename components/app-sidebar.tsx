@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sidebar"
 import {
   BETA_1_PERMISSION,
+  FEEDBACK_MANAGE_PERMISSION,
   SETTINGS_ACCESS_PERMISSION,
 } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
@@ -66,18 +67,24 @@ export async function AppSidebar({
       null,
   }
 
-  const [canViewSettings, canAccessBeta1] = await Promise.all([
-    userHasPermissionCode({
-      supabase,
-      userId: authUser.id,
-      code: SETTINGS_ACCESS_PERMISSION,
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: authUser.id,
-      code: BETA_1_PERMISSION,
-    }),
-  ])
+  const [canViewSettings, canAccessBeta1, canManageFeedback] =
+    await Promise.all([
+      userHasPermissionCode({
+        supabase,
+        userId: authUser.id,
+        code: SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: authUser.id,
+        code: BETA_1_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: authUser.id,
+        code: FEEDBACK_MANAGE_PERMISSION,
+      }),
+    ])
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -127,7 +134,7 @@ export async function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SettingsNavButton
-              canViewSettings={canViewSettings}
+              canViewSettings={canViewSettings || canManageFeedback}
               isActive={activePath === "/settings"}
             />
           </SidebarMenuItem>

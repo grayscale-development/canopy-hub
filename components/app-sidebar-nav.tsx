@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { FeedbackDialog } from "@/components/feedback-dialog"
 import {
   Building2Icon,
   ChartNoAxesCombinedIcon,
@@ -74,18 +75,16 @@ export function AppSidebarNav({ activePath }: { activePath?: string }) {
 export function AppSidebarFeedback() {
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild tooltip="Submit Feedback">
-        <Link
-          href="https://canopyhub.featurebase.app/"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <MessageSquarePlusIcon />
-          <span className="group-data-[collapsible=icon]:hidden">
-            Submit Feedback
-          </span>
-        </Link>
-      </SidebarMenuButton>
+      <FeedbackDialog
+        trigger={
+          <SidebarMenuButton tooltip="Submit Feedback">
+            <MessageSquarePlusIcon />
+            <span className="group-data-[collapsible=icon]:hidden">
+              Submit Feedback
+            </span>
+          </SidebarMenuButton>
+        }
+      />
     </SidebarMenuItem>
   )
 }
