@@ -93,7 +93,27 @@ vi.mock("@/lib/milo/proposal-store", () => ({
   },
 }))
 vi.mock("@/lib/milo/page-index", () => ({
-  miloPagePath: async () => ({ path: "1/2" }),
+  miloPagePath: async () => {
+    const root = {
+      id: "root",
+      parent_id: null,
+      type: "folder",
+      title: "Canopy Wiki",
+    }
+    const section = {
+      id: "section",
+      parent_id: "root",
+      type: "folder",
+      title: "Hub",
+    }
+    const node = {
+      id: "page",
+      parent_id: "section",
+      type: "page",
+      title: "Real page",
+    }
+    return { path: "1/2", nodes: [root, section, node], node }
+  },
   indexMiloPage: async () => {},
 }))
 
@@ -753,7 +773,16 @@ describe("/api/wiki/chat route", () => {
       await response.text()
       const argument = vi.mocked(answerKnowledgeQuestion).mock.calls[0][0]
       expect(argument.pageContext).toEqual(
-        expected ? { pageId, title: "Real page", url: "/wiki/1/2" } : undefined
+        expected
+          ? {
+              pageId,
+              title: "Real page",
+              url: "/wiki/1/2",
+              kind: "wiki_page",
+              section: "Hub",
+              area: "Canopy Wiki",
+            }
+          : undefined
       )
     }
   })
@@ -821,7 +850,12 @@ describe("/api/wiki/chat route", () => {
       (message) => message.role === "user"
     )
     expect(userMessage?.metadata).toMatchObject({
-      pageContext: { pageId, title: "Real page", url: "/wiki/1/2" },
+      pageContext: {
+        pageId,
+        title: "Real page",
+        url: "/wiki/1/2",
+        kind: "wiki_page",
+      },
       sourceFileName: "source.txt",
     })
   })

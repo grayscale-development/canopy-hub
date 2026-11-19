@@ -15,6 +15,7 @@ export interface RetrievedChunk {
   content: string
   metadata: Record<string, unknown>
   similarity: number
+  vectorSimilarity?: number
 }
 
 export function rewriteKnowledgeQuery(question: string) {
@@ -85,11 +86,18 @@ export async function searchKnowledge(
       else fused.set(row.chunk_id, { row, score: 1 / (60 + rank) })
     })
   }
+  const vectorScores = new Map(
+    vectors.map((row) => [row.chunk_id, row.similarity])
+  )
   const rows = await resolveWikiKnowledgeRows(
     supabase,
     [...fused.values()].map(({ row }) => row)
   )
   return rows
+    .map((row) => ({
+      ...row,
+      vectorSimilarity: vectorScores.get(row.chunk_id),
+    }))
     .sort((a, b) => {
       const relevance =
         fused.get(b.chunk_id)!.score - fused.get(a.chunk_id)!.score

@@ -34,6 +34,8 @@ import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { logAiAction } from "@/lib/ai-action-log"
 import { resolveWikiKnowledgeUrls } from "@/lib/wiki-knowledge-urls"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { buildWikiBreadcrumbs } from "@/lib/wiki"
+import type { MiloCurrentPage } from "@/lib/milo/current-page"
 import { miloPagePath } from "@/lib/milo/page-index"
 import { trimMiloHistory } from "@/lib/milo/history"
 
@@ -433,9 +435,7 @@ export async function POST(request: Request) {
   let threadId =
     typeof payload?.threadId === "string" ? payload.threadId.trim() : ""
   const parsedPage = pageContextSchema.safeParse(payload?.pageContext)
-  let pageContext:
-    | { pageId?: string; title: string; url: string; updatedAt?: string }
-    | undefined
+  let pageContext: MiloCurrentPage | undefined
   if (parsedPage.success) {
     const { data: node } = await supabase
       .from("wiki_nodes")
@@ -452,10 +452,21 @@ export async function POST(request: Request) {
       : { data: null }
     if (node && accessibleNode) {
       try {
-        const { path } = await miloPagePath(supabase, node.id)
+        const {
+          path,
+          nodes,
+          node: pageNode,
+        } = await miloPagePath(supabase, node.id)
+        const breadcrumbs =
+          nodes && pageNode ? buildWikiBreadcrumbs(nodes, pageNode) : []
         pageContext = {
           pageId: node.id,
           title: node.title,
+          kind: "wiki_page",
+          ...(breadcrumbs[0] ? { area: breadcrumbs[0].title } : {}),
+          ...(breadcrumbs[1]?.type === "folder"
+            ? { section: breadcrumbs[1].title }
+            : {}),
           url: `/wiki/${path}`,
           ...(node.updated_at ? { updatedAt: node.updated_at } : {}),
         }

@@ -37,6 +37,7 @@ export type Evidence = {
   headingPath?: string[]
   updatedAt?: string
   updatedBy?: string
+  vectorSimilarity?: number
 }
 
 // Require half of the question's meaningful terms in one source, or across the
@@ -71,6 +72,20 @@ export function hasRetrievalConfidence(question: string, sources: Evidence[]) {
     for (const word of hits) covered.add(word)
   }
   return covered.size / query.length >= RETRIEVAL_OVERLAP_THRESHOLD
+}
+
+// A fast path needs all meaningful query terms in the same high-similarity source.
+export function hasStrongRetrievalConfidence(
+  question: string,
+  source: Evidence
+) {
+  const query = terms(question)
+    .filter((word) => !RETRIEVAL_FILLER.has(word))
+    .map(retrievalStem)
+  const text = new Set(
+    terms(`${source.title} ${source.snippet}`).map(retrievalStem)
+  )
+  return query.length > 0 && query.every((word) => text.has(word))
 }
 
 function quoteFor(paragraph: string, source: Evidence) {
@@ -146,16 +161,22 @@ function mentionsReference(sentence: string, source: Evidence) {
 export function checkAnswer(
   answer: string,
   sources: Evidence[],
-  referenceSources: Evidence[] = sources
+  referenceSources: Evidence[] = sources,
+  semanticVerified?: boolean
 ) {
   const citations: Evidence[] = []
   let unsupported = false
+  let unquoted = false
+  const quotedSources: Evidence[] = []
   // A closing recap ("In short:", "Overall takeaway") restates checked claims.
   let inRecap = false
   function addCitation(source: Evidence, snippet: string) {
     const url = sourceUrl(source)
     let index = citations.findIndex(
-      (item) => item.url === url && item.snippet === snippet
+      (item) =>
+        (source.knowledgeSourceId &&
+          item.knowledgeSourceId === source.knowledgeSourceId) ||
+        (url && item.url?.split("#")[0] === url.split("#")[0])
     )
     if (index < 0) {
       index = citations.length
@@ -184,6 +205,7 @@ export function checkAnswer(
         )
       const referencedUrls = new Set<string | null>()
       if (match) {
+        quotedSources.push(match.source)
         const index = addCitation(match.source, match.quote)
         referencedUrls.add(sourceUrl(match.source))
         for (const reference of references) {
@@ -207,14 +229,17 @@ export function checkAnswer(
         ) ||
         /\?\s*$/.test(claim)
       if (RECAP_HEADING.test(claim)) inRecap = true
-      if (!references.length && !heading && !inRecap && terms(claim).length)
-        unsupported = true
+      if (!heading && !inRecap && terms(claim).length) {
+        unquoted = true
+        if (!references.length) unsupported = true
+      }
       return claim
     })
     .join("")
   return {
     answer: inlineCitations(
-      unsupported
+      semanticVerified === false ||
+        (semanticVerified === undefined && unsupported)
         ? `${checked}\n\nSome details could not be verified in the wiki.`
         : checked,
       citations
@@ -229,5 +254,7 @@ export function checkAnswer(
           : label
     ),
     citations,
+    quotedSources,
+    allClaimsQuoted: !unquoted,
   }
 }

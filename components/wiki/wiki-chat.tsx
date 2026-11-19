@@ -77,6 +77,7 @@ interface Citation {
   title: string
   url: string | null
   snippet: string
+  knowledgeSourceId?: string | null
   updatedAt?: string
   updatedBy?: string
 }
@@ -142,16 +143,21 @@ function Sources({
   React.useEffect(() => {
     queueMicrotask(() => setNow(Date.now()))
   }, [])
-  const unique = [
-    ...new Map(
-      citations
-        .filter(
-          (citation) =>
-            citation.url && !/^\/wiki\/tags(?:[?#]|$)/i.test(citation.url)
-        )
-        .map((citation) => [citation.url, citation])
-    ).values(),
-  ]
+  const seenIds = new Set<string>()
+  const seenUrls = new Set<string>()
+  const unique = citations.filter((citation) => {
+    if (!citation.url || /^\/wiki\/tags(?:[?#]|$)/i.test(citation.url))
+      return false
+    const url = citation.url.split("#")[0]
+    if (
+      seenUrls.has(url) ||
+      (citation.knowledgeSourceId && seenIds.has(citation.knowledgeSourceId))
+    )
+      return false
+    seenUrls.add(url)
+    if (citation.knowledgeSourceId) seenIds.add(citation.knowledgeSourceId)
+    return true
+  })
   if (!unique.length) return null
   return (
     <div className="mt-3 space-y-1.5" aria-label="Sources">

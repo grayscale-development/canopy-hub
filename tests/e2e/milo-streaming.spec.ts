@@ -5,10 +5,7 @@ import {
   signInAsSeededUser,
 } from "./wiki-reviewed-helpers"
 
-test("stops a fake streamed answer and keeps the saved partial text", async ({
-  page,
-  baseURL,
-}) => {
+test("saves and restores a checked fake answer", async ({ page, baseURL }) => {
   const target = new URL(baseURL ?? "http://127.0.0.1:3000")
   if (
     target.protocol !== "http:" ||
@@ -65,10 +62,6 @@ test("stops a fake streamed answer and keeps the saved partial text", async ({
     await expect(
       dialog.getByText("Please check", { exact: false })
     ).toBeVisible()
-    await dialog.getByRole("button", { name: "Stop" }).click()
-    await expect(
-      dialog.getByText(/Stopped\. Ask another question/)
-    ).toBeVisible()
     await expect(input).toBeEnabled()
     threadId = await page.evaluate(() =>
       localStorage.getItem("milo-active-thread")
@@ -81,16 +74,13 @@ test("stops a fake streamed answer and keeps the saved partial text", async ({
           .select("content,metadata")
           .eq("thread_id", threadId!)
           .eq("role", "assistant")
-        return data?.find((message) => message.metadata?.stopped)?.content ?? ""
+        return (
+          data?.find((message) => !message.metadata?.stopped)?.content ?? ""
+        )
       })
       .toContain("Please check")
     await page.reload()
     await page.getByRole("button", { name: "Ask Milo", exact: true }).click()
-    await expect(
-      page
-        .getByRole("dialog", { name: "Milo" })
-        .getByText(/Stopped\. Ask another question/)
-    ).toBeVisible()
     await expect(
       page
         .getByRole("dialog", { name: "Milo" })

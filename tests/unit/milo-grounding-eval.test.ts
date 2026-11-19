@@ -7,6 +7,12 @@ const fixture = vi.hoisted(() => ({
     covered: boolean
     related: boolean
     source: { title: string; url: string; snippet: string }
+    answer?: string
+    answerSupported?: boolean
+    extraChunk?: string
+    toolContent?: unknown
+    vectorSimilarity?: number
+    multipleChunks?: boolean
   },
   fallback: false,
 }))
@@ -16,7 +22,7 @@ const provider = vi.hoisted(() => ({
   getFormatModel: () => "fixture-format",
   createEmbeddingsWithOpenAI: vi.fn(async () => [[0.1, 0.2]]),
   createChatResponseWithOpenAI: vi.fn(async () => ({
-    output_text: fixture.active!.source.snippet,
+    output_text: fixture.active!.answer ?? fixture.active!.source.snippet,
   })),
   streamMiloResponse: vi.fn(),
   createAgentResponseWithOpenAI: vi.fn(
@@ -31,12 +37,13 @@ const provider = vi.hoisted(() => ({
         return {
           output_text: JSON.stringify({
             covered: active.covered,
+            answerSupported: active.answerSupported ?? active.covered,
             related: active.related ? [0] : [],
           }),
           output: [],
         }
       if (fixture.fallback) throw new Error("Agent unavailable")
-      return { output_text: active.source.snippet, output: [] }
+      return { output_text: active.answer ?? active.source.snippet, output: [] }
     }
   ),
 }))
@@ -68,7 +75,7 @@ const mcp = vi.hoisted(() => ({
     return {
       ok: true,
       toolName: name,
-      content: {},
+      content: active.toolContent ?? {},
       sources: found
         ? [
             {
@@ -76,6 +83,7 @@ const mcp = vi.hoisted(() => ({
               sourceType: "wiki_page",
               knowledgeSourceId: "source",
               knowledgeChunkId: "chunk",
+              vectorSimilarity: active.vectorSimilarity,
             },
           ]
         : [],
@@ -294,9 +302,321 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
       const evidenceRequest = requests.find(
         (request) => request.text?.format?.name === "milo_evidence"
       ) as unknown as { input: string }
-      expect(JSON.parse(evidenceRequest.input).currentPage).toEqual(pageContext)
+      expect(JSON.parse(evidenceRequest.input).currentPage).toMatchObject({
+        ...pageContext,
+        kind: "app_page",
+      })
     })
   }
+
+  function fixtureClient(extraChunk?: string) {
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      order: () => chain,
+      limit: async () => ({
+        data: extraChunk
+          ? [
+              {
+                id: "extra",
+                content: extraChunk,
+                metadata: { headingPath: ["Steps"] },
+              },
+            ]
+          : [],
+      }),
+    }
+    return {
+      from: () => chain,
+      rpc: vi.fn(async (name: string) => ({
+        data: name.startsWith("match_knowledge_chunks")
+          ? [
+              {
+                chunk_id: "chunk",
+                source_id: "source",
+                source_type: "wiki_page",
+                source_title: fixture.active!.source.title,
+                source_url: fixture.active!.source.url,
+                content: fixture.active!.source.snippet,
+                metadata: {},
+                similarity: fixture.active!.vectorSimilarity ?? 0.5,
+              },
+            ]
+          : null,
+        error: null,
+      })),
+    }
+  }
+
+  for (const mode of ["agent", "fallback"] as const) {
+    it(`${mode}: uses Hub map and successful tool results for a Hub how-to`, async () => {
+      fixture.active = {
+        question: "how do I find someone's phone number?",
+        intent: "hub",
+        covered: true,
+        related: false,
+        source: unrelated,
+        answer: "Open [People](/people) to find employees and mobile phones.",
+        toolContent: { directory: "People", phone: "mobile phones" },
+      }
+      fixture.fallback = mode === "fallback"
+      const answer = await answerKnowledgeQuestion({
+        question: fixture.active.question,
+        supabase: fixtureClient() as never,
+        userContext,
+        pageContext,
+      })
+      expect(answer.metadata?.abstained).toBe(false)
+      expect(answer.answer).toContain("People")
+      expect(answer.answer).not.toMatch(/couldn't find|could not be verified/i)
+      const request = provider.createAgentResponseWithOpenAI.mock.calls.find(
+        (call) => call[0].text?.format?.name === "milo_evidence"
+      )![0] as unknown as { input: string }
+      const evidence = JSON.parse(request.input)
+      expect(evidence.hubMap).toContain("mobile phones")
+      if (mode === "agent")
+        expect(JSON.stringify(evidence.toolResults)).toContain("mobile phones")
+    })
+
+    it(`${mode}: reads additional chunks and answers a covered procedure without a hedge`, async () => {
+      fixture.active = {
+        question: "how do I publish a wiki page",
+        intent: "hub",
+        covered: true,
+        related: true,
+        source: {
+          ...publishing,
+          snippet: "Writing and Publishing covers editing.",
+        },
+        extraChunk: "To publish, choose Published and save your changes.",
+        answer:
+          "In Writing and Publishing, choose Published, then save your changes.",
+      }
+      fixture.fallback = mode === "fallback"
+      const answer = await answerKnowledgeQuestion({
+        question: fixture.active.question,
+        supabase: fixtureClient(fixture.active.extraChunk) as never,
+        userContext,
+        pageContext,
+      })
+      expect(answer.answer).toContain("Published")
+      expect(answer.answer).not.toMatch(/can't verify|could not be verified/i)
+      const request = provider.createAgentResponseWithOpenAI.mock.calls.find(
+        (call) => call[0].text?.format?.name === "milo_evidence"
+      )![0] as unknown as { input: string }
+      expect(request.input).toContain("choose Published and save your changes")
+      if (mode === "agent") {
+        const agent = provider.createAgentResponseWithOpenAI.mock.calls.find(
+          (call) => !call[0].text?.format?.name
+        )![0]
+        expect(
+          JSON.stringify((agent as unknown as { input: unknown }).input)
+        ).toContain("choose Published and save your changes")
+      } else
+        expect(
+          JSON.stringify(provider.createChatResponseWithOpenAI.mock.calls)
+        ).toContain("choose Published and save your changes")
+    })
+
+    it(`${mode}: abstains without irrelevant sources`, async () => {
+      fixture.active = {
+        question: "what is the cafeteria menu",
+        intent: "other",
+        covered: false,
+        related: false,
+        source: unrelated,
+        vectorSimilarity: 0.96,
+      }
+      fixture.fallback = mode === "fallback"
+      const answer = await answerKnowledgeQuestion({
+        question: fixture.active.question,
+        supabase: fixtureClient() as never,
+        userContext,
+        pageContext,
+      })
+      expect(answer.metadata?.abstained).toBe(true)
+      expect(answer.citations).toEqual([])
+      expect(answer.answer).not.toContain("related pages")
+    })
+
+    it(`${mode}: passes wiki and app page types and locations to the model`, async () => {
+      for (const page of [
+        {
+          title: "Home Dashboard",
+          url: "/wiki/1/10/11",
+          kind: "wiki_page" as const,
+          area: "Canopy Wiki",
+          section: "Hub",
+        },
+        { title: "Home", url: "/home", kind: "app_page" as const },
+      ]) {
+        fixture.active = {
+          question: "where am I",
+          intent: "page",
+          covered: true,
+          related: false,
+          source: unrelated,
+          answer:
+            page.kind === "wiki_page"
+              ? 'The user is reading the wiki page "Home Dashboard" in the Hub section of the Canopy Wiki.'
+              : 'The user is on the Canopy Hub app page "Home".',
+        }
+        fixture.fallback = mode === "fallback"
+        const answer = await answerKnowledgeQuestion({
+          question: fixture.active.question,
+          supabase: fixtureClient() as never,
+          userContext,
+          pageContext: page,
+        })
+        expect(answer.metadata?.abstained).toBe(false)
+        expect(answer.answer.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")).toContain(
+          page.kind === "wiki_page" ? "wiki page" : "app page"
+        )
+        const request = provider.createAgentResponseWithOpenAI.mock.calls
+          .filter((call) => call[0].text?.format?.name === "milo_evidence")
+          .at(-1)![0] as unknown as { input: string }
+        const context = JSON.parse(request.input).currentPage
+        expect(context).toMatchObject(page)
+        if (page.kind === "wiki_page")
+          expect(context.description).toContain(
+            "in the Hub section of the Canopy Wiki"
+          )
+      }
+    })
+  }
+
+  it("warns when semantic assessment finds an unsupported claim even beside a named source", async () => {
+    fixture.active = {
+      question: "how do I publish a wiki page",
+      intent: "hub",
+      covered: true,
+      related: true,
+      answerSupported: false,
+      source: publishing,
+      answer: "Writing and Publishing says the CEO must approve every page.",
+    }
+    const answer = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+    })
+    expect(answer.answer).toContain("could not be verified")
+  })
+
+  it("deduplicates multiple supported chunks of one page", async () => {
+    fixture.active = {
+      question: "how do I publish a wiki page",
+      intent: "hub",
+      covered: true,
+      related: true,
+      source: publishing,
+      extraChunk: "Save the wiki page before publishing.",
+      answer: `${publishing.snippet} Save the wiki page before publishing.`,
+    }
+    const answer = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient(fixture.active.extraChunk) as never,
+      userContext,
+      pageContext,
+    })
+    expect(
+      answer.citations.filter((citation) =>
+        citation.url?.startsWith(publishing.url)
+      )
+    ).toHaveLength(1)
+  })
+
+  it("skips evidence assessment for a high-similarity answer supported by a cited source", async () => {
+    fixture.active = {
+      question: "how do I publish a wiki page",
+      intent: "hub",
+      covered: true,
+      related: true,
+      source: publishing,
+      vectorSimilarity: 0.96,
+    }
+    const answer = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+    })
+    expect(answer.metadata?.abstained).toBe(false)
+    expect(
+      provider.createAgentResponseWithOpenAI.mock.calls.filter(
+        (call) => call[0].text?.format?.name === "milo_evidence"
+      )
+    ).toHaveLength(0)
+  })
+
+  it("starts the initial retrieval while intent classification is pending", async () => {
+    fixture.active = {
+      question: "how do I publish a wiki page",
+      intent: "hub",
+      covered: true,
+      related: true,
+      source: publishing,
+    }
+    let finishIntent!: (value: { output_text: string; output: never[] }) => void
+    let searchStarted!: () => void
+    const search = new Promise<void>((resolve) => {
+      searchStarted = resolve
+    })
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishIntent = resolve
+        })
+    )
+    mcp.callMiloMcpTool.mockImplementationOnce(async () => {
+      searchStarted()
+      return {
+        ok: true,
+        toolName: "knowledge_search",
+        content: {},
+        sources: [],
+      }
+    })
+    const pending = answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+    })
+    await search
+    expect(finishIntent).toBeTypeOf("function")
+    finishIntent({ output_text: JSON.stringify({ intent: "hub" }), output: [] })
+    await expect(pending).resolves.toMatchObject({
+      metadata: { abstained: false },
+    })
+  })
+
+  it("emits only the checked answer and does not generate it a second time", async () => {
+    fixture.active = {
+      question: "what is the cafeteria menu",
+      intent: "other",
+      covered: false,
+      related: false,
+      source: unrelated,
+    }
+    const onToken = vi.fn()
+    const result = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      onToken,
+    })
+    expect(onToken).toHaveBeenCalledOnce()
+    expect(onToken).toHaveBeenCalledWith(result.answer)
+    expect(provider.streamMiloResponse).not.toHaveBeenCalled()
+    const calls = provider.createAgentResponseWithOpenAI.mock.calls
+    expect(calls.filter((call) => !call[0].text?.format?.name)).toHaveLength(1)
+    expect(
+      calls.filter((call) => call[0].text?.format?.name === "milo_evidence")
+    ).toHaveLength(1)
+  })
 
   it("reports an assessment failure without claiming the wiki lacks an answer", async () => {
     const { assessMiloEvidence } = await import("@/lib/milo/grounding")
@@ -309,6 +629,7 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
       covered: false,
       related: [],
       unavailable: true,
+      answerSupported: false,
     })
   })
 
