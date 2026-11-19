@@ -28,19 +28,33 @@ test("settings pages and redirects for a manager; viewer access remains gated", 
     await page.setViewportSize({ width, height })
     for (const [route, title] of pages) {
       await page.goto(`/settings/${route}`)
-      await expect(
-        page.getByRole("heading", { name: title, exact: true })
-      ).toBeVisible()
+      const heading = page.getByRole("heading", {
+        name: title,
+        exact: true,
+        level: 1,
+      })
+      await expect(heading).toBeVisible()
+      const nav = page.getByRole("navigation", { name: "Settings sections" })
       if (device === "desktop") {
         await expect(
-          page
-            .getByRole("navigation", { name: "Settings sections" })
-            .getByRole("link", { name: title, exact: true })
+          nav.getByRole("link", { name: title, exact: true })
         ).toHaveAttribute("aria-current", "page")
+        await expect(nav.getByRole("link")).toHaveText(
+          pages.map(([, label]) => label)
+        )
+        expect((await nav.boundingBox())!.y).toBe(
+          (await heading.boundingBox())!.y
+        )
       } else {
-        await expect(
-          page.getByRole("combobox", { name: "Settings section" })
-        ).toHaveValue(route)
+        const select = page.getByRole("combobox", { name: "Settings section" })
+        await expect(select).toHaveValue(route)
+        await expect(select.locator("optgroup")).toHaveCount(0)
+        await expect(select.locator("option")).toHaveText(
+          pages.map(([, label]) => label)
+        )
+        expect((await heading.boundingBox())!.y).toBeLessThan(
+          (await select.boundingBox())!.y
+        )
       }
       if (route === "milo" || route === "data-sync") {
         await expect(
