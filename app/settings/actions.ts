@@ -204,6 +204,7 @@ export async function updatePermissionAction(formData: FormData) {
   }
 
   revalidatePath("/settings/permissions")
+  revalidatePath("/settings/requests")
 }
 
 export async function addPermissionUserAction(formData: FormData) {
@@ -231,6 +232,7 @@ export async function addPermissionUserAction(formData: FormData) {
   }
 
   revalidatePath("/settings/permissions")
+  revalidatePath("/settings/requests")
 }
 
 export async function addPermissionUsersAction(formData: FormData) {
@@ -273,6 +275,7 @@ export async function addPermissionUsersAction(formData: FormData) {
   }
 
   revalidatePath("/settings/permissions")
+  revalidatePath("/settings/requests")
 }
 
 export async function removePermissionUserAction(formData: FormData) {
@@ -295,6 +298,7 @@ export async function removePermissionUserAction(formData: FormData) {
   }
 
   revalidatePath("/settings/permissions")
+  revalidatePath("/settings/requests")
 }
 
 export async function approvePermissionRequestAction(formData: FormData) {
@@ -355,6 +359,7 @@ export async function approvePermissionRequestAction(formData: FormData) {
   }
 
   revalidatePath("/settings/permissions")
+  revalidatePath("/settings/requests")
 }
 
 export async function denyPermissionRequestAction(formData: FormData) {
@@ -400,6 +405,7 @@ export async function denyPermissionRequestAction(formData: FormData) {
   }
 
   revalidatePath("/settings/permissions")
+  revalidatePath("/settings/requests")
 }
 
 interface SourceConfigRow {
@@ -486,7 +492,7 @@ export async function runAllDataSyncsAction(): Promise<RunAllDataSyncsResult> {
     dispatchedCount += 1
   }
 
-  revalidatePath("/settings/advanced")
+  revalidatePath("/settings/data-sync")
 
   if (failures.length > 0) {
     const preview = failures.slice(0, 5).join(" | ")
@@ -575,7 +581,7 @@ export async function runMiloKnowledgeIndexAction(): Promise<RunMiloKnowledgeInd
 
     const indexedCount =
       curatedIndexedCount + wikiIndexedCount + fileIndexedCount
-    revalidatePath("/settings/advanced")
+    revalidatePath("/settings/milo")
 
     return {
       ok: true,

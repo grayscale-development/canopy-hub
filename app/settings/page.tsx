@@ -67,11 +67,11 @@ export default async function SettingsPage() {
   }
 
   if (canAccessAiSettings && canAccessBeta1) {
-    redirect("/settings/ai")
+    redirect("/settings/milo")
   }
 
   if (canAccessAdvancedSettings) {
-    redirect("/settings/advanced")
+    redirect("/settings/alerts")
   }
 
   redirect("/settings/permissions")
