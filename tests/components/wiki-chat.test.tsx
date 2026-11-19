@@ -85,10 +85,10 @@ describe("WikiChat", () => {
     )
   }
 
-  it("places the phone empty state above the composer while keeping desktop alignment", () => {
+  it("centers the phone greeting and keeps the composer available", () => {
     render(<WikiChat />)
     const greeting = screen.getByText(/How can I help/)
-    expect(greeting.parentElement).toHaveClass("mt-auto", "sm:mt-0")
+    expect(greeting.parentElement).toHaveClass("my-auto", "sm:my-0")
     expect(greeting.parentElement?.parentElement).toHaveClass(
       "flex",
       "flex-col"
@@ -643,7 +643,26 @@ describe("WikiChat", () => {
     )
   })
 
-  it("offers page-aware questions and removes context before sending", async () => {
+  it("uses Enter for a new line on phones", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(max-width: 639px)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+    const user = userEvent.setup()
+    render(<WikiChat />)
+    const input = await screen.findByRole("textbox", {
+      name: "Ask a follow-up",
+    })
+    await user.type(input, "First{Enter}second")
+    expect(input).toHaveValue("First\nsecond")
+    expect(fetchMock).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    expect(await screen.findByText("First answer.")).toBeVisible()
+  })
+
+  it("shows only the greeting and removes context before sending", async () => {
     const user = userEvent.setup()
     function Example() {
       const [page, setPage] = React.useState<{
@@ -661,59 +680,41 @@ describe("WikiChat", () => {
     render(<Example />)
     expect(await screen.findByText("Hi, Alex. How can I help?")).toBeVisible()
     expect(
-      screen.getByRole("button", { name: "Summarize this page" })
-    ).toBeVisible()
+      screen.queryByRole("button", { name: "Summarize this page" })
+    ).not.toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Who do I ask about Operations?" })
-    ).toBeVisible()
+      screen.queryByRole("button", { name: "Find a wiki page" })
+    ).not.toBeInTheDocument()
     await user.click(
       screen.getByRole("button", { name: "Remove Operations page context" })
     )
-    expect(screen.queryByText("About: Operations")).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Find a wiki page" }))
+    const input = screen.getByRole("textbox", { name: "Ask a follow-up" })
+    await user.type(input, "Find a wiki page{Enter}")
     expect(await screen.findByText("First answer.")).toBeVisible()
-    const request = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/wiki/chat"
-    )
-    expect(JSON.parse(request![1].body)).toEqual({
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       threadId: null,
       message: "Find a wiki page",
     })
     expect(
-      screen.getByText(
-        "Milo can make mistakes. Check the linked page. Don't paste borrower information."
-      )
+      screen.getByText("Milo can make mistakes. Don't paste borrower info.")
     ).toBeVisible()
   })
 
-  it("sends page context with a suggested question", async () => {
-    render(<WikiChat pageContext={{ pageId: "page-1", title: "Operations" }} />)
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Summarize this page" })
-    )
-    await screen.findByText("First answer.")
-    const request = fetchMock.mock.calls.find(
-      ([url]) => url === "/api/wiki/chat"
-    )
-    expect(JSON.parse(request![1].body)).toMatchObject({
-      pageContext: { pageId: "page-1" },
-    })
-  })
-
-  it("includes the file and page context when sending a suggestion", async () => {
+  it("sends an attachment and page context with a typed question", async () => {
     const user = userEvent.setup()
     const { container } = render(
       <WikiChat pageContext={{ pageId: "page-1", title: "Operations" }} />
     )
-    await screen.findByRole("button", { name: "Summarize this page" })
+    await screen.findByText(/How can I help/)
     const input =
       container.querySelector<HTMLInputElement>('input[type="file"]')!
     await user.upload(
       input,
       new File(["source"], "source.txt", { type: "text/plain" })
     )
-    await user.click(
-      screen.getByRole("button", { name: "Summarize this page" })
+    await user.type(
+      screen.getByRole("textbox", { name: "Ask a follow-up" }),
+      "Summarize this page{Enter}"
     )
     await screen.findByText("First answer.")
     const request = fetchMock.mock.calls.find(
@@ -795,14 +796,24 @@ describe("WikiChat", () => {
     const view = render(<WikiChat />)
     await screen.findByText("An answer")
     await user.click(screen.getByRole("button", { name: "Helpful answer" }))
-    expect(await screen.findByText("Thanks for your feedback")).toBeVisible()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Helpful answer" })
+      ).toHaveAttribute("aria-pressed", "true")
+    )
     expect(
       screen.getByRole("button", { name: "Helpful answer" })
     ).toHaveAttribute("aria-pressed", "true")
     await user.click(screen.getByRole("button", { name: "Unhelpful answer" }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Unhelpful answer", hidden: true })
+      ).toHaveAttribute("aria-pressed", "true")
+    )
     expect(
-      screen.getByRole("button", { name: "Unhelpful answer" })
-    ).toHaveAttribute("aria-pressed", "true")
+      screen.getByRole("dialog", { name: "What went wrong?" })
+    ).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/wiki/chat/rating",
       expect.objectContaining({
@@ -818,6 +829,144 @@ describe("WikiChat", () => {
     expect(
       screen.getByRole("button", { name: "Unhelpful answer" })
     ).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("shares selected feedback only on submission, and cancel keeps the rating", async () => {
+    localStorage.setItem("milo-active-thread", "thread-1")
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/wiki/chat?"))
+        return {
+          ok: true,
+          json: async () => ({
+            messages: [
+              { id: "answer-1", role: "assistant", content: "An answer" },
+            ],
+          }),
+        }
+      return { ok: true }
+    })
+    const user = userEvent.setup()
+    render(<WikiChat />)
+    await screen.findByText("An answer")
+    await user.click(screen.getByRole("button", { name: "Unhelpful answer" }))
+    let dialog = screen.getByRole("dialog", { name: "What went wrong?" })
+    await user.click(within(dialog).getByRole("button", { name: "Wrong link" }))
+    await user.type(
+      within(dialog).getByLabelText("Tell managers more (optional)"),
+      "This link is old"
+    )
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === "/api/wiki/chat/flag")
+    ).toHaveLength(0)
+    expect(
+      screen.getByRole("button", { name: "Unhelpful answer" })
+    ).toHaveAttribute("aria-pressed", "true")
+    await user.click(screen.getByRole("button", { name: "Unhelpful answer" }))
+    dialog = screen.getByRole("dialog", { name: "What went wrong?" })
+    await user.click(within(dialog).getByRole("button", { name: "Wrong link" }))
+    await user.type(
+      within(dialog).getByLabelText("Tell managers more (optional)"),
+      "This link is old"
+    )
+    await user.click(
+      within(dialog).getByRole("button", { name: "Send to managers" })
+    )
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/wiki/chat/flag",
+        expect.objectContaining({
+          body: JSON.stringify({
+            assistantMessageId: "answer-1",
+            reason: "Reason: Wrong link\nMessage: This link is old",
+          }),
+        })
+      )
+    )
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "What went wrong?" })
+      ).not.toBeInTheDocument()
+    )
+  })
+
+  it("keeps the separate gap flag and its original reason", async () => {
+    localStorage.setItem("milo-active-thread", "thread-1")
+    fetchMock.mockImplementation(async (url: string) =>
+      url.startsWith("/api/wiki/chat?")
+        ? {
+            ok: true,
+            json: async () => ({
+              messages: [
+                {
+                  id: "answer-1",
+                  role: "assistant",
+                  content: "No answer",
+                  abstained: true,
+                },
+              ],
+            }),
+          }
+        : { ok: true }
+    )
+    const user = userEvent.setup()
+    render(<WikiChat />)
+    await user.click(
+      await screen.findByRole("button", { name: "Flag this gap" })
+    )
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/wiki/chat/flag",
+        expect.objectContaining({
+          body: JSON.stringify({
+            assistantMessageId: "answer-1",
+            reason: "Milo could not find an answer in the wiki.",
+          }),
+        })
+      )
+    )
+    expect(
+      await screen.findByRole("button", { name: "Gap flagged" })
+    ).toBeDisabled()
+  })
+
+  it("allows empty optional feedback without pretending a duplicate was shared", async () => {
+    localStorage.setItem("milo-active-thread", "thread-1")
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/wiki/chat?"))
+        return {
+          ok: true,
+          json: async () => ({
+            messages: [
+              { id: "answer-1", role: "assistant", content: "An answer" },
+            ],
+          }),
+        }
+      return url === "/api/wiki/chat/flag"
+        ? { ok: false, status: 409 }
+        : { ok: true }
+    })
+    const user = userEvent.setup()
+    render(<WikiChat />)
+    await user.click(
+      await screen.findByRole("button", { name: "Unhelpful answer" })
+    )
+    const dialog = screen.getByRole("dialog", { name: "What went wrong?" })
+    await user.click(
+      await within(dialog).findByRole("button", { name: "Send to managers" })
+    )
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "already been shared"
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/wiki/chat/flag",
+      expect.objectContaining({
+        body: JSON.stringify({
+          assistantMessageId: "answer-1",
+          reason: "Reason: Not specified\nMessage: Not provided",
+        }),
+      })
+    )
   })
 
   it("renders cards safely, submits actions, and restores applied cards on reload", async () => {
