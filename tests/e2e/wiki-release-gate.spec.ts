@@ -26,14 +26,19 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
   const ids: string[] = []
   let tagId: string | undefined
   let userId: string | undefined
-  const add = async (parent: string, type: "folder" | "page", name: string) => {
+  const add = async (
+    parent: string,
+    type: "folder" | "page",
+    name: string,
+    title = name
+  ) => {
     const { data, error } = await db
       .from("wiki_nodes")
       .insert({
         parent_id: parent,
         type,
         slug: `${name}-${token}`,
-        title: `${name} ${token}`,
+        title: `${title} ${token}`,
         status: "published",
       })
       .select("id,slug,title")
@@ -55,6 +60,12 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
     const section = await add(canopy.id, "folder", "section")
     const group = await add(section.id, "folder", "group")
     const source = await add(group.id, "page", "release-notes")
+    const untagged = await add(
+      group.id,
+      "page",
+      "untagged",
+      "A long untagged page title that wraps on a small phone screen"
+    )
     const otherSection = await add(learning.id, "folder", "learning-section")
     const otherGroup = await add(otherSection.id, "folder", "learning-group")
     const target = await add(otherGroup.id, "page", "target")
@@ -163,11 +174,52 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
       .last()
       .getByRole("link", { name: group.title, exact: true })
       .click()
-    await page
-      .getByRole("main")
-      .last()
-      .getByRole("button", { name: tag.data.name, exact: true })
-      .click()
+    const main = page.getByRole("main").last()
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 })
+      const taggedRow = main.getByRole("row").filter({
+        has: page.getByRole("link", { name: source.title, exact: true }),
+      })
+      const untaggedRow = main.getByRole("row").filter({
+        has: page.getByRole("link", { name: untagged.title, exact: true }),
+      })
+      const taggedTitle = taggedRow
+        .getByRole("link", { name: source.title })
+        .locator("span")
+      const tagPill = taggedRow
+        .locator("td")
+        .filter({ hasText: tag.data.name })
+        .locator("span")
+        .first()
+      const untaggedTitle = untaggedRow
+        .getByRole("link", { name: untagged.title })
+        .locator("span")
+      const untaggedTime = untaggedRow.locator("time")
+      await expect(tagPill).toBeVisible()
+      await expect(untaggedTime).toBeVisible()
+      for (const [title, secondary] of [
+        [taggedTitle, tagPill],
+        [untaggedTitle, untaggedTime],
+      ]) {
+        const titleBounds = await title.boundingBox()
+        const secondaryBounds = await secondary.boundingBox()
+        expect(titleBounds).not.toBeNull()
+        expect(secondaryBounds).not.toBeNull()
+        expect(
+          Math.abs(titleBounds!.x - secondaryBounds!.x)
+        ).toBeLessThanOrEqual(1)
+      }
+      const longTitleBounds = await untaggedTitle.boundingBox()
+      expect(longTitleBounds!.height).toBeGreaterThan(24)
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const tagFilter = main.getByRole("combobox", { name: "Filter by tag" })
+    await tagFilter.click()
+    await page.getByRole("option", { name: tag.data.name, exact: true }).click()
+    await expect(tagFilter).toHaveText(tag.data.name)
+    await expect(
+      main.getByRole("link", { name: untagged.title, exact: true })
+    ).toHaveCount(0)
     await expect(
       page
         .getByRole("main")

@@ -272,9 +272,9 @@ export function WikiFolderContents({
                 return (
                   <TableRow
                     key={node.id}
-                    className="relative block py-2 focus-within:ring-2 focus-within:ring-ring md:table-row md:py-0"
+                    className="relative flex flex-wrap py-2 pl-6 focus-within:ring-2 focus-within:ring-ring md:table-row md:py-0 md:pl-0"
                   >
-                    <TableCell className="block min-w-0 whitespace-normal md:table-cell">
+                    <TableCell className="-ml-6 block w-[calc(100%+1.5rem)] min-w-0 whitespace-normal md:ml-0 md:table-cell md:w-auto">
                       <Link
                         href={`/wiki/${buildNumericWikiPath(visibleNodes, node)}`}
                         aria-label={node.title}
@@ -283,19 +283,19 @@ export function WikiFolderContents({
                             ? `Updated ${absoluteDate}`
                             : undefined
                         }
-                        className="flex min-w-0 items-center gap-2 font-medium after:absolute after:inset-0 focus-visible:outline-none"
+                        className="flex min-w-0 items-start gap-2 font-medium after:absolute after:inset-0 focus-visible:outline-none"
                       >
                         <Icon
-                          className="size-4 shrink-0 text-muted-foreground"
+                          className="mt-0.5 size-4 shrink-0 text-muted-foreground"
                           aria-hidden="true"
                         />
-                        <span className="min-w-0 break-words">
+                        <span className="min-w-0 [overflow-wrap:anywhere]">
                           {node.title}
                         </span>
                       </Link>
                     </TableCell>
                     {canManageWiki ? (
-                      <TableCell className="inline-block py-1 md:table-cell md:py-2">
+                      <TableCell className="order-last block py-1 md:table-cell md:py-2">
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${node.status === "published" ? "bg-success-background text-success" : "bg-muted text-muted-foreground"}`}
                         >
@@ -303,7 +303,9 @@ export function WikiFolderContents({
                         </span>
                       </TableCell>
                     ) : null}
-                    <TableCell className="inline-block max-w-full py-1 whitespace-normal md:table-cell md:py-2">
+                    <TableCell
+                      className={`${node.type === "page" && node.tags?.length ? "block" : "hidden"} w-full min-w-0 py-1 whitespace-normal md:table-cell md:w-auto md:py-2`}
+                    >
                       {node.type === "page" && node.tags?.length ? (
                         <div className="flex flex-wrap gap-1">
                           {node.tags.slice(0, 2).map((tag) => (
@@ -332,7 +334,7 @@ export function WikiFolderContents({
                         </div>
                       ) : null}
                     </TableCell>
-                    <TableCell className="inline-block py-1 text-xs text-muted-foreground md:table-cell md:py-2 md:text-sm">
+                    <TableCell className="block py-1 pr-1 text-xs text-muted-foreground md:table-cell md:py-2 md:pr-2 md:text-sm">
                       {node.type === "folder" ? (
                         `${count} ${count === 1 ? "page" : "pages"}`
                       ) : (
@@ -344,7 +346,7 @@ export function WikiFolderContents({
                         </time>
                       )}
                     </TableCell>
-                    <TableCell className="inline-block max-w-full py-1 text-xs whitespace-normal text-muted-foreground md:table-cell md:py-2 md:text-sm">
+                    <TableCell className="block max-w-full py-1 pl-1 text-xs [overflow-wrap:anywhere] whitespace-normal text-muted-foreground md:table-cell md:py-2 md:pl-2 md:text-sm">
                       {node.type === "page"
                         ? (updatedBy[node.id] ?? "Unknown")
                         : null}
