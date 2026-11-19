@@ -25,6 +25,21 @@ describe("Milo evidence", () => {
     expect(result.citations).toHaveLength(1)
   })
 
+  it("does not flag a closing recap of checked claims, but still flags claims labelled Summary", () => {
+    expect(
+      checkAnswer(
+        "Track returned checks in the refund ledger.\n\n**Overall takeaway**\n\nIn short:\n- Refunds are tracked in one ledger.",
+        [source]
+      ).answer
+    ).not.toContain("could not be verified")
+    expect(
+      checkAnswer(
+        "Track returned checks in the refund ledger.\n\nSummary: The CEO approves every refund.",
+        [source]
+      ).answer
+    ).toContain("could not be verified")
+  })
+
   it("does not preserve invented links", () => {
     expect(
       checkAnswer("See [Refunds](/wiki/1/2) and [Invented](/wiki/999).", [

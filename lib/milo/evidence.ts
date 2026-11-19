@@ -6,6 +6,9 @@ const STOP = new Set(
     " "
   )
 )
+// Only a bare heading line counts, e.g. "In short:" or "**Overall takeaway**".
+const RECAP_HEADING =
+  /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:in short|in summary|summary|overall(?: takeaway)?|key takeaways?|takeaways?|bottom line|tl;?dr)\s*:?\s*(?:\*\*)?\s*:?\s*$/i
 const RETRIEVAL_FILLER = new Set([
   "everything",
   "summarize",
@@ -133,6 +136,8 @@ export function checkAnswer(
 ) {
   const citations: Evidence[] = []
   let unsupported = false
+  // A closing recap ("In short:", "Overall takeaway") restates checked claims.
+  let inRecap = false
   function addCitation(source: Evidence, snippet: string) {
     const url = sourceUrl(source)
     let index = citations.findIndex(
@@ -187,7 +192,8 @@ export function checkAnswer(
           claim
         ) ||
         /\?\s*$/.test(claim)
-      if (!references.length && !heading && terms(claim).length)
+      if (RECAP_HEADING.test(claim)) inRecap = true
+      if (!references.length && !heading && !inRecap && terms(claim).length)
         unsupported = true
       return claim
     })
