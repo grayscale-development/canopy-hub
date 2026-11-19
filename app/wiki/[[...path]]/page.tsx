@@ -89,6 +89,8 @@ function DirectoryView({
   headingLevel = 2,
   assignments = [],
   initialTag = "",
+  updatedBy = {},
+  referenceTime,
 }: {
   title?: string
   items: WikiNodeRow[]
@@ -99,6 +101,8 @@ function DirectoryView({
   headingLevel?: 1 | 2
   assignments?: WikiTagAssignment[]
   initialTag?: string
+  updatedBy?: Record<string, string>
+  referenceTime?: string
 }) {
   const folder = nodes.find((node) => node.id === parentId)
   const parent = nodes.find((node) => node.id === folder?.parent_id)
@@ -156,6 +160,8 @@ function DirectoryView({
         parentId={parentId}
         assignments={assignments}
         initialTag={initialTag}
+        updatedBy={updatedBy}
+        referenceTime={referenceTime}
       />
     </div>
   )
@@ -343,7 +349,13 @@ export default async function WikiPage({
     email: string | null
     full_name: string | null
   }> = []
-  if (pageData?.node.updated_by || revisionRows.length) {
+  if (
+    pageData?.node.updated_by ||
+    pageData?.children.some((node) => node.updated_by) ||
+    revisionRows.length ||
+    (!path.length &&
+      nodes.some((node) => node.parent_id === null && node.updated_by))
+  ) {
     try {
       const { data, error } = await supabase.rpc(
         "list_permission_directory_users"
@@ -359,6 +371,12 @@ export default async function WikiPage({
     return person?.full_name || person?.email?.split("@")[0] || "Unknown"
   }
   const lastUpdatedBy = displayName(pageData?.node.updated_by ?? null)
+  const updatedBy = Object.fromEntries(
+    nodes
+      .filter((node) => node.updated_by)
+      .map((node) => [node.id, displayName(node.updated_by)])
+  )
+  const referenceTime = new Date().toISOString()
   const lastUpdatedAt = pageData?.node.updated_at ?? null
   const revisions: WikiRevisionMetadata[] = revisionRows.map((revision) => ({
     ...revision,
@@ -506,6 +524,8 @@ export default async function WikiPage({
                         parentId={displayedNode.id}
                         assignments={assignments}
                         initialTag={highlightedTag}
+                        updatedBy={updatedBy}
+                        referenceTime={referenceTime}
                       />
                     </>
                   ) : pageData ? (
@@ -583,6 +603,8 @@ export default async function WikiPage({
                   items={rootChildren}
                   nodes={nodes}
                   canManageWiki={canManageWiki}
+                  updatedBy={updatedBy}
+                  referenceTime={referenceTime}
                   parentId={null}
                   showCreateControl
                 />
