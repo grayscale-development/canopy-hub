@@ -23,7 +23,7 @@ dbDescribe("alerts scan duplicate detection", { timeout: 60_000 }, () => {
       ids.map((id, index) => ({
         id,
         type: "page",
-        status: "published",
+        status: index === 0 ? "draft" : "published",
         slug: `alert-scan-${fixture}-${index}`,
         title: `Alert scan ${index}`,
       }))
@@ -62,7 +62,7 @@ dbDescribe("alerts scan duplicate detection", { timeout: 60_000 }, () => {
       if (result.error) throw result.error
     }
   })
-  it("finds fixture overlap using the service-role job path", async () => {
+  it("finds identical pages including a draft in either direction using the service-role job path", async () => {
     const result = await detectWikiDuplicates(
       service,
       `job-${fixture}`,
@@ -76,6 +76,21 @@ dbDescribe("alerts scan duplicate detection", { timeout: 60_000 }, () => {
         .find((passage) => passage.blockId === `block-${ids[0]}`)
         ?.matches.some((match) => match.pageId === ids[1])
     ).toBe(true)
+    const reverse = await detectWikiDuplicates(
+      service,
+      `job-${fixture}`,
+      ids[1],
+      undefined,
+      false,
+      true
+    )
+    expect(reverse?.passages[0].matches).toContainEqual(
+      expect.objectContaining({
+        pageId: ids[0],
+        classification: "identical",
+        page: expect.objectContaining({ status: "draft" }),
+      })
+    )
   })
 
   it("writes an applicable alert for an edited fixture and skips the next unchanged scan", async () => {
@@ -174,6 +189,13 @@ dbDescribe("alerts scan duplicate detection", { timeout: 60_000 }, () => {
         reason: "unchanged",
       })
       expect(scanState?.["last_page_updated_at"]).toBe(watermark)
+      const manual = await scanWikiAlerts(client, { full: true })
+      expect(manual).toMatchObject({
+        skipped: false,
+        pages: 2,
+        opened: 0,
+        updated: 1,
+      })
     } finally {
       vi.unstubAllEnvs()
     }

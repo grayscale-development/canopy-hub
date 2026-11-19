@@ -297,6 +297,12 @@ describe("WikiEditor", () => {
     )
     const data = vi.mocked(updateWikiNodeStatusAction).mock.calls[0][0]
     expect(data.get("status")).toBe("published")
+    const published = screen.getByRole("button", { name: "Published" })
+    expect(published).toHaveClass("text-success")
+    await user.click(published)
+    expect(
+      screen.getByRole("menuitem", { name: "Published" }).querySelector("span")
+    ).toHaveClass("text-success")
   })
 
   it("searches, selects, and creates page tags", async () => {
