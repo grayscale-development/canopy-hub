@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     skippedCount: 0,
   })),
   admin: vi.fn(),
+  notifier: vi.fn(),
 }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
 vi.mock("@/lib/supabase/server", () => ({
@@ -49,7 +50,7 @@ describe("runWikiAlertsAction", () => {
     vi.clearAllMocks()
     mocks.permission.mockResolvedValue(true)
     mocks.gate.mockReturnValue({ allowed: true })
-    mocks.admin.mockReturnValue({ rpc: mocks.rpc })
+    mocks.admin.mockReturnValue({ rpc: mocks.rpc, notify: mocks.notifier })
     mocks.rpc.mockImplementation(async (name) => ({
       data: name === "acquire_wiki_alert_manual_scan" ? true : null,
       error: null,
@@ -88,7 +89,11 @@ describe("runWikiAlertsAction", () => {
       durationMs: expect.any(Number),
       partial: false,
     })
-    expect(mocks.scan).toHaveBeenCalledOnce()
+    expect(mocks.scan).toHaveBeenCalledWith(
+      { rpc: mocks.rpc, notify: mocks.notifier },
+      { full: true }
+    )
+    expect(mocks.notifier).not.toHaveBeenCalled()
     expect(mocks.rpc).toHaveBeenCalledTimes(2)
     expect(mocks.rpc.mock.calls[0][1]).toEqual(mocks.rpc.mock.calls[1][1])
   })
