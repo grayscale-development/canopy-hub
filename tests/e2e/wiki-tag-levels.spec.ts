@@ -29,6 +29,9 @@ async function screenshot(locator: Locator, name: string) {
 async function openCreatePage(page: Page) {
   await expect(async () => {
     await openWikiPath(page, "Canopy Wiki", "Operations", "Closing")
+    // On narrow screens the page list (with the editor switch) sits behind "Pages".
+    const pages = page.getByRole("button", { name: "Pages", exact: true })
+    if (await pages.isVisible()) await pages.click()
     await expect(
       page.getByRole("switch", { name: "Toggle wiki editor mode" })
     ).toBeVisible({ timeout: 5000 })
