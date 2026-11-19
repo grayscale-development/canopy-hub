@@ -89,8 +89,14 @@ export function WikiChatModalProvider({
   firstName?: string
 }) {
   const pathname = usePathname()
+  const [embedded, setEmbedded] = React.useState(false)
+  React.useEffect(() => {
+    // Fallback for browsers that don't send Sec-Fetch-Dest.
+    if (window.self !== window.top) queueMicrotask(() => setEmbedded(true))
+  }, [])
   const available =
     canUseMilo &&
+    !embedded &&
     signedIn &&
     pathname !== "/login" &&
     !pathname?.startsWith("/login/")

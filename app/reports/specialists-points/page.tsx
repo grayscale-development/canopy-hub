@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 
 import { SpecialistsPointsReport } from "@/components/points-specialists/specialists-points-report"
 import { fetchPointsSpecialistsSummary } from "@/lib/hub-data"
+import { getBusinessCalendarDate } from "@/lib/leaderboard-month"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export const metadata = {
@@ -46,7 +47,7 @@ export default async function SpecialistsPointsViewPage({
 
   try {
     summary = await fetchPointsSpecialistsSummary({
-      referenceDate: new Date(),
+      referenceDate: getBusinessCalendarDate(),
       paOrgIds: selectedOrgIds,
     })
   } catch {
@@ -67,12 +68,12 @@ export default async function SpecialistsPointsViewPage({
   )
 
   return (
-    <main className="h-screen overflow-hidden bg-background text-foreground">
-      <div className="mx-auto h-full w-full max-w-[1900px]">
+    <main className="min-h-screen bg-background text-foreground xl:h-screen xl:overflow-hidden">
+      <div className="mx-auto w-full max-w-[1900px] xl:h-full">
         <SpecialistsPointsReport
           summary={summary}
           validSelectedOrgIds={validSelectedOrgIds}
-          className="flex h-full min-w-0 flex-col gap-4 px-4 py-6 md:px-6"
+          className="flex min-w-0 flex-col gap-4 px-4 py-6 md:px-6 xl:h-full"
         />
       </div>
     </main>

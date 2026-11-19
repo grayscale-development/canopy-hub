@@ -85,4 +85,19 @@ describe("fetchDepartmentDashboard event access", () => {
       orgs: [{ id: "PA1", label: "Org One" }],
     })
   })
+
+  it("defaults the reference date to today in Mountain time, not UTC", async () => {
+    vi.useFakeTimers()
+    // 8:30 PM MST on Nov 18 is already Nov 19 in UTC.
+    vi.setSystemTime(new Date("2026-11-19T03:30:00.000Z"))
+    try {
+      await fetchDepartmentDashboard({ department: "processing", query })
+      expect(mocks.rpc).toHaveBeenCalledWith(
+        "get_department_dashboard",
+        expect.objectContaining({ p_reference_date: "2026-11-18" })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
