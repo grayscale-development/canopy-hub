@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -122,14 +128,17 @@ describe("WikiImportWizardDialog", () => {
 
     expect(screen.getByRole("heading", { name: "AI Update" })).toBeVisible()
     expect(screen.queryByLabelText("Add to")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Choose a file or paste text to continue.")
+    ).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Attach file" })
+    ).toHaveAccessibleDescription(/PDF/)
+    await user.click(screen.getByText("More options"))
     const replaceChoice = screen.getByRole("checkbox", {
       name: "Replace the whole page",
     })
-    expect(screen.getByText("Update this page")).toBeVisible()
     expect(replaceChoice).not.toBeChecked()
-    expect(
-      screen.getByText("Choose a file or paste text to continue.")
-    ).toBeVisible()
     expect(
       screen.getByRole("button", { name: "Review changes" })
     ).toBeDisabled()
@@ -297,6 +306,29 @@ describe("WikiImportWizardDialog", () => {
     expect(applyBody.get("signed_preview")).toBe("signed-file")
     expect(applyBody.get("preview_signature")).toBe("sig-file")
     expect(applyBody.get("file")).toBeInstanceOf(File)
+  })
+
+  it("accepts a dropped update file and removes it again", async () => {
+    const user = userEvent.setup()
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    const dialog = screen.getByRole("dialog")
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" })
+    fireEvent.drop(dialog, {
+      dataTransfer: { files: { length: 1, item: () => file } },
+    })
+    expect(screen.getByText(/notes.txt/)).toBeVisible()
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: "Remove notes.txt" }))
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toBeDisabled()
   })
 
   it("leaves the page untouched when the review is cancelled", async () => {
