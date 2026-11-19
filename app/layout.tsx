@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { headers } from "next/headers"
 import { Geist_Mono, Inter } from "next/font/google"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -30,13 +31,17 @@ export default async function RootLayout({
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  const canUseMilo = user
-    ? await userHasPermissionCode({
-        supabase,
-        userId: user.id,
-        code: BETA_1_PERMISSION,
-      }).catch(() => false)
-    : false
+  // Report Shuffle embeds report pages in an iframe; the outer page already
+  // has Milo, so embedded pages get no second launcher.
+  const embedded = (await headers()).get("sec-fetch-dest") === "iframe"
+  const canUseMilo =
+    user && !embedded
+      ? await userHasPermissionCode({
+          supabase,
+          userId: user.id,
+          code: BETA_1_PERMISSION,
+        }).catch(() => false)
+      : false
   const identity = user?.identities?.find(
     (item) => item.provider === "google"
   )?.identity_data
