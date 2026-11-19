@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     .select("id")
     .eq("id", threadId)
     .eq("user_id", user.id)
+    .is("deleted_at", null)
     .maybeSingle()
   if (threadError)
     return NextResponse.json({ error: "Could not stop." }, { status: 500 })
