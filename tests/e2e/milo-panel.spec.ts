@@ -172,17 +172,12 @@ for (const viewport of [
         expect(box.width).toBeGreaterThanOrEqual(44)
         expect(box.height).toBeGreaterThanOrEqual(44)
       }
-      const suggestionButton = panel.getByRole("button", {
-        name: "Where do I find the latest newsletter?",
-      })
-      await suggestionButton.scrollIntoViewIfNeeded()
-      const suggestion = (await suggestionButton.boundingBox())!
-      const composer = (await panel
-        .getByRole("textbox", { name: "Ask a follow-up" })
-        .boundingBox())!
-      expect(suggestion.y + suggestion.height).toBeLessThan(composer.y)
-      if (viewport.width < 640)
-        expect(composer.y - suggestion.y - suggestion.height).toBeLessThan(50)
+      await expect(panel.getByText(/How can I help\?/)).toBeVisible()
+      await expect(
+        panel.getByRole("button", {
+          name: "Where do I find the latest newsletter?",
+        })
+      ).toHaveCount(0)
       const send = panel.getByRole("button", { name: "Send follow-up" })
       const contrast = await send.evaluate((el) => {
         const style = getComputedStyle(el)

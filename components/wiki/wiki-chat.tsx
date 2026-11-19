@@ -18,6 +18,8 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import {
   Tooltip,
   TooltipContent,
@@ -99,8 +101,27 @@ interface ChatMessage {
 }
 
 const activeThreadKey = "milo-active-thread"
-const disclaimer =
-  "Milo can make mistakes. Check the linked page. Don't paste borrower information."
+const disclaimer = "Milo can make mistakes. Don't paste borrower info."
+const feedbackReasons = [
+  "Wrong or outdated",
+  "Missing information",
+  "Wrong link",
+  "Other",
+] as const
+
+function subscribePhone(callback: () => void) {
+  const media = window.matchMedia("(max-width: 639px)")
+  media.addEventListener("change", callback)
+  return () => media.removeEventListener("change", callback)
+}
+
+function isPhone() {
+  return window.matchMedia("(max-width: 639px)").matches
+}
+
+function serverIsPhone() {
+  return false
+}
 
 function Sources({
   citations,
@@ -263,6 +284,11 @@ export function WikiChat({
   const [threadId, setThreadId] = React.useState<string | null>(null)
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
   const [input, setInput] = React.useState(initialDraft)
+  const phone = React.useSyncExternalStore(
+    subscribePhone,
+    isPhone,
+    serverIsPhone
+  )
   const [file, setFile] = React.useState<File | null>(null)
   const [fileError, setFileError] = React.useState("")
   const fileInput = React.useRef<HTMLInputElement>(null)
@@ -300,11 +326,14 @@ export function WikiChat({
   const scrollTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const smoothNext = React.useRef(false)
   const programmaticScroll = React.useRef(false)
-  const pinToBottom = React.useCallback((smooth = false) => {
-    nearBottom.current = true
-    setShowJump(false)
-    smoothNext.current = smooth
-  }, [])
+  const pinToBottom = React.useCallback(
+    (smooth = false) => {
+      nearBottom.current = true
+      setShowJump(false)
+      smoothNext.current = smooth
+    },
+    [setShowJump]
+  )
   const activeRequest = React.useRef<AbortController | null>(null)
   const activeStop = React.useRef<(() => void) | null>(null)
   const [pending, setPending] = React.useState(false)
@@ -908,7 +937,11 @@ export function WikiChat({
     void sendQuestion(input, file)
   }
 
-  async function flagAnswer(answer: ChatMessage, reason: string) {
+  async function flagAnswer(
+    answer: ChatMessage,
+    reason: string,
+    feedback = false
+  ) {
     if (!answer.serverId || flagPending) return
     setFlagPending(true)
     try {
@@ -920,8 +953,13 @@ export function WikiChat({
           reason,
         }),
       })
-      if (!response.ok && response.status !== 409)
+      if (!response.ok) {
+        if (response.status === 409) {
+          setFlagError("This answer has already been shared with managers.")
+          return
+        }
         throw new Error("Could not share feedback. Please try again.")
+      }
       setMessages((current) =>
         current.map((item) =>
           item.id === answer.id ? { ...item, flagged: true } : item
@@ -929,7 +967,9 @@ export function WikiChat({
       )
       setShareAnswer(null)
       setShareReason("")
+      setShareMessage("")
       setFlagError("")
+      if (feedback) toast.success("Thanks, managers will see this.")
     } catch {
       setFlagError("Could not share feedback. Please try again.")
     } finally {
@@ -940,6 +980,9 @@ export function WikiChat({
   const [flagPending, setFlagPending] = React.useState(false)
   const [shareAnswer, setShareAnswer] = React.useState<string | null>(null)
   const [shareReason, setShareReason] = React.useState("")
+  const [shareMessage, setShareMessage] = React.useState("")
+  const [ratingStatus, setRatingStatus] = React.useState("")
+  const ratingTrigger = React.useRef<HTMLButtonElement | null>(null)
   const [ratingPending, setRatingPending] = React.useState<string | null>(null)
 
   async function rateAnswer(answer: ChatMessage, rating: "up" | "down") {
@@ -956,6 +999,9 @@ export function WikiChat({
         current.map((item) =>
           item.id === answer.id ? { ...item, rating } : item
         )
+      )
+      setRatingStatus(
+        rating === "up" ? "Helpful rating saved." : "Unhelpful rating saved."
       )
     } catch {
       toast.error("Could not save feedback. Please try again.")
@@ -1128,6 +1174,17 @@ export function WikiChat({
     measureScroll()
   }
 
+  const FeedbackRoot = phone ? Sheet : Dialog
+  const FeedbackContent = phone ? SheetContent : DialogContent
+  const FeedbackTitle = phone ? SheetTitle : DialogTitle
+  const selectedAnswer = messages.find((message) => message.id === shareAnswer)
+  const closeFeedback = () => {
+    setShareAnswer(null)
+    setShareReason("")
+    setShareMessage("")
+    setFlagError("")
+  }
+
   return (
     <div
       className={cn(
@@ -1136,6 +1193,108 @@ export function WikiChat({
         className
       )}
     >
+      <span className="sr-only" role="status" aria-live="polite">
+        {ratingStatus}
+      </span>
+      <FeedbackRoot
+        open={!!shareAnswer}
+        onOpenChange={(open) => !open && closeFeedback()}
+      >
+        <FeedbackContent
+          {...(phone ? { side: "bottom" as const } : {})}
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className={cn(
+            "max-h-[90dvh] overflow-y-auto p-5",
+            phone
+              ? "rounded-t-2xl pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+              : "max-w-md"
+          )}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            if (ratingTrigger.current && !ratingTrigger.current.disabled) {
+              ratingTrigger.current.focus()
+            } else {
+              composer.current?.focus()
+            }
+          }}
+          onEscapeKeyDown={(event) => {
+            event.preventDefault()
+            closeFeedback()
+          }}
+        >
+          <FeedbackTitle>What went wrong?</FeedbackTitle>
+          <span className="sr-only" role="status" aria-live="polite">
+            {ratingStatus}
+          </span>
+          <p className="text-sm text-muted-foreground">
+            Share your question and Milo&apos;s answer with managers.
+          </p>
+          <div
+            className="flex flex-wrap gap-2"
+            role="group"
+            aria-label="Optional reason"
+          >
+            {feedbackReasons.map((reason) => (
+              <Button
+                key={reason}
+                type="button"
+                variant={shareReason === reason ? "secondary" : "outline"}
+                size="sm"
+                className="rounded-full"
+                aria-pressed={shareReason === reason}
+                onClick={() =>
+                  setShareReason(shareReason === reason ? "" : reason)
+                }
+              >
+                {reason}
+              </Button>
+            ))}
+          </div>
+          <label
+            htmlFor="milo-feedback-message"
+            className="text-sm font-medium"
+          >
+            Tell managers more (optional)
+          </label>
+          <textarea
+            id="milo-feedback-message"
+            value={shareMessage}
+            onChange={(event) => setShareMessage(event.target.value)}
+            maxLength={1800}
+            rows={3}
+            className="w-full resize-y rounded-lg border bg-background px-3 py-2 text-base focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none sm:text-sm"
+          />
+          {flagError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {flagError}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={flagPending}
+              onClick={closeFeedback}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                flagPending || ratingPending !== null || !selectedAnswer
+              }
+              onClick={() => {
+                if (!selectedAnswer) return
+                const reason = `Reason: ${shareReason || "Not specified"}\nMessage: ${shareMessage.trim() || "Not provided"}`
+                void flagAnswer(selectedAnswer, reason, true)
+              }}
+            >
+              Send to managers
+            </Button>
+          </div>
+        </FeedbackContent>
+      </FeedbackRoot>
       <div
         ref={threadView}
         role="region"
@@ -1203,275 +1362,166 @@ export function WikiChat({
                 </div>
               ) : (
                 <section key={answer.id}>
-                  <div className="flex items-start gap-3">
-                    <span
-                      className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-sm"
-                      aria-label="Milo"
-                    >
-                      ✦
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div aria-live="polite">
-                        {pending &&
-                        index === messages.length - 1 &&
-                        !answer.content &&
-                        !answer.cards?.length ? (
-                          <div className="flex min-h-7 items-center gap-2 text-sm text-muted-foreground">
-                            <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-                            <span>{answer.status || "Thinking…"}</span>
-                          </div>
-                        ) : answer.content &&
-                          !answer.cards?.some(
-                            (card) =>
-                              card.type === "error" &&
-                              card.message === answer.content
-                          ) ? (
-                          <MessageContent
-                            content={answer.content}
-                            citations={answer.citations}
-                            onNavigate={onNavigate}
-                            trustedLinks={answer.trustedLinks}
-                          />
-                        ) : null}
-                      </div>
-                      {answer.stopped ? (
-                        <p
-                          role="status"
-                          className="mt-2 text-xs text-muted-foreground"
-                        >
-                          Stopped. Ask another question to continue.
-                        </p>
+                  <div className="min-w-0">
+                    <div aria-live="polite">
+                      {pending &&
+                      index === messages.length - 1 &&
+                      !answer.content &&
+                      !answer.cards?.length ? (
+                        <div className="flex min-h-7 items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
+                          <span>{answer.status || "Thinking…"}</span>
+                        </div>
+                      ) : answer.content &&
+                        !answer.cards?.some(
+                          (card) =>
+                            card.type === "error" &&
+                            card.message === answer.content
+                        ) ? (
+                        <MessageContent
+                          content={answer.content}
+                          citations={answer.citations}
+                          onNavigate={onNavigate}
+                          trustedLinks={answer.trustedLinks}
+                        />
                       ) : null}
-                      {answer.error && !pending ? (
+                    </div>
+                    {answer.stopped ? (
+                      <p
+                        role="status"
+                        className="mt-2 text-xs text-muted-foreground"
+                      >
+                        Stopped. Ask another question to continue.
+                      </p>
+                    ) : null}
+                    {answer.error && !pending ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => {
+                          const previous = messages[index - 1]
+                          if (
+                            answer.retryQuestion !== undefined ||
+                            answer.retryFile
+                          )
+                            void sendQuestion(
+                              answer.retryQuestion ?? "",
+                              answer.retryFile
+                            )
+                          else if (previous?.role === "user")
+                            void sendQuestion(previous.content)
+                        }}
+                      >
+                        Retry
+                      </Button>
+                    ) : null}
+                    <Sources
+                      citations={answer.citations ?? []}
+                      onNavigate={onNavigate}
+                    />
+                    <div
+                      aria-live="polite"
+                      className={cn(answer.cards?.length && "mt-3 space-y-3")}
+                    >
+                      {answer.cards?.map((card, cardIndex) => (
+                        <WikiChatCard
+                          key={cardIndex}
+                          card={card}
+                          threadId={threadId}
+                          messageId={answer.serverId}
+                          onNavigate={onNavigate}
+                        />
+                      ))}
+                    </div>
+                    {answer.abstained && !pending ? (
+                      <div className="mt-3">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="mt-2"
-                          onClick={() => {
-                            const previous = messages[index - 1]
-                            if (
-                              answer.retryQuestion !== undefined ||
-                              answer.retryFile
+                          disabled={
+                            answer.flagged || !answer.serverId || flagPending
+                          }
+                          onClick={() =>
+                            void flagAnswer(
+                              answer,
+                              "Milo could not find an answer in the wiki."
                             )
-                              void sendQuestion(
-                                answer.retryQuestion ?? "",
-                                answer.retryFile
-                              )
-                            else if (previous?.role === "user")
-                              void sendQuestion(previous.content)
+                          }
+                        >
+                          {answer.flagged ? "Gap flagged" : "Flag this gap"}
+                        </Button>
+                        {!answer.flagged ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Shares your question and answer with wiki managers.
+                          </p>
+                        ) : null}
+                        {flagError ? (
+                          <p
+                            role="alert"
+                            className="mt-2 text-sm text-destructive"
+                          >
+                            {flagError}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {!pending && answer.serverId && !answer.error ? (
+                      <div className="mt-1 flex items-center gap-3 sm:gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="relative size-7 text-muted-foreground aria-pressed:bg-muted aria-pressed:text-foreground max-sm:after:absolute max-sm:after:-inset-1.5"
+                          aria-label="Helpful answer"
+                          aria-pressed={answer.rating === "up"}
+                          disabled={ratingPending !== null}
+                          onClick={() => void rateAnswer(answer, "up")}
+                        >
+                          <ThumbsUpIcon className="size-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="relative size-7 text-muted-foreground aria-pressed:bg-muted aria-pressed:text-foreground max-sm:after:absolute max-sm:after:-inset-1.5"
+                          aria-label="Unhelpful answer"
+                          aria-pressed={answer.rating === "down"}
+                          disabled={ratingPending !== null}
+                          onClick={(event) => {
+                            ratingTrigger.current = event.currentTarget
+                            setRatingStatus("")
+                            setShareAnswer(answer.id)
+                            setShareReason("")
+                            setShareMessage("")
+                            setFlagError("")
+                            void rateAnswer(answer, "down")
                           }}
                         >
-                          Retry
+                          <ThumbsDownIcon className="size-3.5" />
                         </Button>
-                      ) : null}
-                      <Sources
-                        citations={answer.citations ?? []}
-                        onNavigate={onNavigate}
-                      />
-                      <div
-                        aria-live="polite"
-                        className={cn(answer.cards?.length && "mt-3 space-y-3")}
-                      >
-                        {answer.cards?.map((card, cardIndex) => (
-                          <WikiChatCard
-                            key={cardIndex}
-                            card={card}
-                            threadId={threadId}
-                            messageId={answer.serverId}
-                            onNavigate={onNavigate}
-                          />
-                        ))}
                       </div>
-                      {answer.abstained && !pending ? (
-                        <div className="mt-3">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={
-                              answer.flagged || !answer.serverId || flagPending
-                            }
-                            onClick={() =>
-                              void flagAnswer(
-                                answer,
-                                "Milo could not find an answer in the wiki."
-                              )
-                            }
-                          >
-                            {answer.flagged ? "Gap flagged" : "Flag this gap"}
-                          </Button>
-                          {!answer.flagged ? (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Shares your question and answer with wiki
-                              managers.
-                            </p>
-                          ) : null}
-                          {flagError ? (
-                            <p
-                              role="alert"
-                              className="mt-2 text-sm text-destructive"
-                            >
-                              {flagError}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {!pending && answer.serverId && !answer.error ? (
-                        <div className="mt-3 flex flex-wrap items-center gap-1">
-                          <Button
-                            type="button"
-                            variant={
-                              answer.rating === "up" ? "secondary" : "ghost"
-                            }
-                            size="icon"
-                            aria-label="Helpful answer"
-                            aria-pressed={answer.rating === "up"}
-                            disabled={ratingPending !== null}
-                            onClick={() => void rateAnswer(answer, "up")}
-                          >
-                            <ThumbsUpIcon />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={
-                              answer.rating === "down" ? "secondary" : "ghost"
-                            }
-                            size="icon"
-                            aria-label="Unhelpful answer"
-                            aria-pressed={answer.rating === "down"}
-                            disabled={ratingPending !== null}
-                            onClick={() => void rateAnswer(answer, "down")}
-                          >
-                            <ThumbsDownIcon />
-                          </Button>
-                          {answer.rating ? (
-                            <span
-                              className="text-sm text-muted-foreground"
-                              role="status"
-                            >
-                              Thanks for your feedback
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {!pending &&
-                      answer.rating === "down" &&
-                      !answer.flagged ? (
-                        <div className="mt-2 space-y-2 text-sm">
-                          <p>Want to tell the wiki managers what went wrong?</p>
-                          {shareAnswer === answer.id ? (
-                            <div className="space-y-2">
-                              <p className="text-muted-foreground">
-                                Sharing sends your question, Milo&apos;s answer,
-                                and your reason to wiki managers.
-                              </p>
-                              <label
-                                htmlFor={`milo-reason-${answer.id}`}
-                                className="font-medium"
-                              >
-                                What went wrong?
-                              </label>
-                              <textarea
-                                id={`milo-reason-${answer.id}`}
-                                value={shareReason}
-                                maxLength={2000}
-                                rows={3}
-                                className="w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-                                onChange={(event) =>
-                                  setShareReason(event.target.value)
-                                }
-                              />
-                              <div className="flex flex-wrap gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  disabled={!shareReason.trim() || flagPending}
-                                  onClick={() =>
-                                    void flagAnswer(answer, shareReason.trim())
-                                  }
-                                >
-                                  Share feedback
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setShareAnswer(null)
-                                    setShareReason("")
-                                  }}
-                                >
-                                  Cancel
-                                </Button>
-                              </div>
-                              {flagError ? (
-                                <p role="alert" className="text-destructive">
-                                  {flagError}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setShareAnswer(answer.id)
-                                setShareReason("")
-                                setFlagError("")
-                              }}
-                            >
-                              Tell managers
-                            </Button>
-                          )}
-                        </div>
-                      ) : null}
-                      {answer.flagged && !answer.abstained ? (
-                        <p
-                          className="mt-2 text-sm text-muted-foreground"
-                          role="status"
-                        >
-                          Shared with wiki managers
-                        </p>
-                      ) : null}
-                    </div>
+                    ) : null}
+                    {answer.flagged && !answer.abstained ? (
+                      <p
+                        className="mt-2 text-sm text-muted-foreground"
+                        role="status"
+                      >
+                        Shared with wiki managers
+                      </p>
+                    ) : null}
                   </div>
                 </section>
               )
             )}
           </div>
         ) : !loadingHistory ? (
-          <div className="mt-auto space-y-4 sm:mt-0">
+          <div className="my-auto sm:my-0">
             <p className="text-base font-medium">
               {firstName ? `Hi, ${firstName}.` : "Hi."} How can I help?
             </p>
-            <div className="flex flex-col items-start gap-2">
-              {(pageContext
-                ? [
-                    "Summarize this page",
-                    "What are the key steps on this page?",
-                    `Who do I ask about ${pageContext.title.length > 45 ? `${pageContext.title.slice(0, 42)}…` : pageContext.title}?`,
-                  ]
-                : [
-                    "Find a wiki page",
-                    "Who is my branch manager?",
-                    "Where do I find the latest newsletter?",
-                  ]
-              ).map((prompt) => (
-                <Button
-                  key={prompt}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-auto max-w-full justify-start text-left whitespace-normal"
-                  disabled={pending}
-                  onClick={() => void sendQuestion(prompt, file)}
-                >
-                  {prompt}
-                </Button>
-              ))}
-            </div>
           </div>
         ) : null}
       </div>
@@ -1549,107 +1599,105 @@ export function WikiChat({
             </button>
           </div>
         ) : null}
-        {file ? (
-          <div className="mb-2 flex items-center gap-2 text-sm">
-            <span className="min-w-0 truncate">{file.name}</span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setFile(null)
-                if (fileInput.current) fileInput.current.value = ""
-              }}
-            >
-              Remove
-            </Button>
-          </div>
-        ) : null}
-        <div className="flex items-end gap-2">
-          <input
-            ref={fileInput}
-            type="file"
-            className="sr-only"
-            tabIndex={-1}
-            accept=".eml,.txt,.pdf,.docx"
-            onChange={(event) => {
-              const selected = event.currentTarget.files?.[0] ?? null
-              if (selected && !/\.(?:eml|txt|pdf|docx)$/i.test(selected.name)) {
-                setFileError("Choose an .eml, .txt, .pdf, or .docx file.")
-                setFile(null)
-              } else if (selected && selected.size > MILO_FILE_MAX_BYTES) {
-                setFileError("File is too large. Choose a file under 5 MB.")
-                setFile(null)
-              } else {
-                setFileError("")
-                setFile(selected)
-              }
-              event.currentTarget.value = ""
-            }}
-          />
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  disabled={pending || loadingHistory || restoreError}
-                  onClick={() => fileInput.current?.click()}
-                  aria-label="Attach a file"
-                >
-                  <PaperclipIcon />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                Attach .eml, .txt, .pdf, or .docx (up to 5 MB).
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+        <div className="rounded-3xl border bg-background p-2 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
+          {file ? (
+            <div className="mb-1 inline-flex max-w-full items-center gap-1 rounded-full bg-muted py-1 pr-1 pl-3 text-xs">
+              <span className="min-w-0 truncate">{file.name}</span>
+              <button
+                type="button"
+                className="flex size-7 shrink-0 items-center justify-center rounded-full text-base hover:bg-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                aria-label={`Remove ${file.name}`}
+                onClick={() => {
+                  setFile(null)
+                  if (fileInput.current) fileInput.current.value = ""
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
           <textarea
             ref={composer}
             value={input}
-            onChange={(event) => {
-              setInput(event.currentTarget.value)
-            }}
+            onChange={(event) => setInput(event.currentTarget.value)}
             onKeyDown={(event) => {
               if (
                 event.key === "Enter" &&
                 !event.shiftKey &&
-                !event.nativeEvent.isComposing
+                !event.nativeEvent.isComposing &&
+                !phone
               ) {
                 event.preventDefault()
                 void sendQuestion(input, file)
               }
             }}
-            rows={Math.min(6, Math.max(1, input.split("\n").length))}
-            placeholder="Ask a question or paste source text"
+            rows={1}
+            placeholder="Ask Milo…"
             aria-label="Ask a follow-up"
             disabled={pending || loadingHistory || restoreError}
-            className="field-sizing-content max-h-40 min-h-10 min-w-0 flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            className="slim-scrollbar block field-sizing-content max-h-40 min-h-10 w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-base leading-6 outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
           />
-          <Button
-            type={pending ? "button" : "submit"}
-            size="icon"
-            aria-label={pending ? "Stop" : "Send follow-up"}
-            onClick={
-              pending
-                ? () => {
-                    activeStop.current?.()
-                  }
-                : undefined
-            }
-            disabled={
-              loadingHistory ||
-              restoreError ||
-              (!pending &&
-                ((!input.trim() && !file) ||
-                  input.length > MILO_SOURCE_MAX_CHARS))
-            }
-            className="cursor-pointer disabled:bg-muted disabled:text-foreground disabled:opacity-100"
-          >
-            {pending ? <SquareIcon /> : <SendIcon />}
-          </Button>
+          <div className="flex items-center justify-between">
+            <input
+              ref={fileInput}
+              type="file"
+              className="sr-only"
+              tabIndex={-1}
+              accept=".eml,.txt,.pdf,.docx"
+              onChange={(event) => {
+                const selected = event.currentTarget.files?.[0] ?? null
+                if (
+                  selected &&
+                  !/\.(?:eml|txt|pdf|docx)$/i.test(selected.name)
+                ) {
+                  setFileError("Choose an .eml, .txt, .pdf, or .docx file.")
+                  setFile(null)
+                } else if (selected && selected.size > MILO_FILE_MAX_BYTES) {
+                  setFileError("File is too large. Choose a file under 5 MB.")
+                  setFile(null)
+                } else {
+                  setFileError("")
+                  setFile(selected)
+                }
+                event.currentTarget.value = ""
+              }}
+            />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={pending || loadingHistory || restoreError}
+                    onClick={() => fileInput.current?.click()}
+                    aria-label="Attach a file"
+                  >
+                    <PaperclipIcon />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Attach .eml, .txt, .pdf, or .docx (up to 5 MB).
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Button
+              type={pending ? "button" : "submit"}
+              size="icon-sm"
+              aria-label={pending ? "Stop" : "Send follow-up"}
+              onClick={pending ? () => activeStop.current?.() : undefined}
+              disabled={
+                loadingHistory ||
+                restoreError ||
+                (!pending &&
+                  ((!input.trim() && !file) ||
+                    input.length > MILO_SOURCE_MAX_CHARS))
+              }
+              className="cursor-pointer rounded-full disabled:bg-muted disabled:text-foreground disabled:opacity-100"
+            >
+              {pending ? <SquareIcon /> : <SendIcon />}
+            </Button>
+          </div>
         </div>
         {input.length > MILO_SOURCE_MAX_CHARS ? (
           <p role="alert" className="mt-2 text-sm text-destructive">
@@ -1661,7 +1709,9 @@ export function WikiChat({
             {fileError}
           </p>
         ) : null}
-        <p className="mt-2 text-xs text-muted-foreground">{disclaimer}</p>
+        <p className="mt-2 text-center text-[11px] whitespace-nowrap text-muted-foreground">
+          {disclaimer}
+        </p>
       </form>
     </div>
   )

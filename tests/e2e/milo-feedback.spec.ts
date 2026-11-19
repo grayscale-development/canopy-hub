@@ -31,7 +31,7 @@ test("rates a Milo answer on desktop and narrow screens", async ({ page }) => {
     await page.route("**/api/wiki/chat/flag", async (route) => {
       shared++
       expect(route.request().postDataJSON().reason).toBe(
-        "The answer is incomplete"
+        "Reason: Missing information\nMessage: The answer is incomplete"
       )
       await route.fulfill({ status: 200, json: { ok: true } })
     })
@@ -58,12 +58,16 @@ test("rates a Milo answer on desktop and narrow screens", async ({ page }) => {
     await expect(up).toBeVisible()
     await up.click()
     await expect(up).toHaveAttribute("aria-pressed", "true")
-    await expect(dialog.getByText("Thanks for your feedback")).toBeVisible()
     await down.click()
-    await expect(down).toHaveAttribute("aria-pressed", "true")
+    const feedback = page.getByRole("dialog", { name: "What went wrong?" })
+    await expect(feedback).toBeVisible()
     await expect(
-      dialog.getByText("Want to tell the wiki managers what went wrong?")
-    ).toBeVisible()
+      page.locator(
+        width < 640
+          ? '[data-slot="sheet-content"]'
+          : '[data-slot="dialog-content"]'
+      )
+    ).toHaveCount(1)
     expect(shared).toBe(0)
     if (shots)
       await page.screenshot({
@@ -75,15 +79,25 @@ test("rates a Milo answer on desktop and narrow screens", async ({ page }) => {
             : "04-sharing-narrow.png"
         ),
       })
-    await dialog.getByRole("button", { name: "Tell managers" }).click()
-    await expect(dialog.getByText(/Sharing sends your question/)).toBeVisible()
-    await dialog.getByLabel("What went wrong?").fill("The answer is incomplete")
-    await dialog.getByRole("button", { name: "Cancel" }).click()
+    await feedback.getByRole("button", { name: "Missing information" }).click()
+    await feedback
+      .getByLabel("Tell managers more (optional)")
+      .fill("The answer is incomplete")
+    await feedback.getByRole("button", { name: "Cancel" }).click()
+    await expect(feedback).toBeHidden()
+    await expect(down).toHaveAttribute("aria-pressed", "true")
     expect(shared).toBe(0)
-    await dialog.getByRole("button", { name: "Tell managers" }).click()
-    await dialog.getByLabel("What went wrong?").fill("The answer is incomplete")
-    await dialog.getByRole("button", { name: "Share feedback" }).click()
-    await expect(dialog.getByText("Shared with wiki managers")).toBeVisible()
+    await down.click()
+    await feedback.getByRole("button", { name: "Missing information" }).click()
+    await feedback
+      .getByLabel("Tell managers more (optional)")
+      .fill("The answer is incomplete")
+    await feedback.getByRole("button", { name: "Send to managers" }).click()
+    await expect(feedback).toBeHidden()
+    await expect(
+      page.getByText("Thanks, managers will see this.")
+    ).toBeVisible()
+    await expect(down).toHaveAttribute("aria-pressed", "true")
     expect(shared).toBe(1)
     await dialog.getByRole("button", { name: "Close" }).click()
     await expect(dialog).toBeHidden()
