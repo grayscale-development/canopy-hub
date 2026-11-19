@@ -315,11 +315,14 @@ test("cancel leaves the revision untouched and a reviewed file save persists @wi
   await expect(page.getByText("CANCEL-TOKEN")).toHaveCount(0)
 
   await openUpdate(page)
-  await page.setInputFiles('input[type="file"]', {
-    name: "notes-reviewed.txt",
-    mimeType: "text/plain",
-    buffer: Buffer.from("Reviewed file sentence FILE-TOKEN."),
-  })
+  await page
+    .getByRole("dialog", { name: "AI Update" })
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: "notes-reviewed.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Reviewed file sentence FILE-TOKEN."),
+    })
   await page.getByRole("button", { name: "Review changes" }).click()
   await expect(page.getByText("FILE-TOKEN")).toBeVisible()
   const savedFile = waitForAppliedPreview(page)
