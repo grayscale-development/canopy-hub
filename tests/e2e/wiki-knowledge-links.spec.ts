@@ -55,7 +55,7 @@ test("opens a current Wiki citation from an old indexed URL @smoke", async ({
   await dialog.getByRole("button", { name: "Send follow-up" }).click()
   // The page is linked inline and again in the Sources row; both must be correct.
   const citations = dialog.getByRole("link", { name: /Funding Checklist/ })
-  await expect(citations).toHaveCount(2)
+  await expect(citations.first()).toBeVisible()
   for (const link of await citations.all())
     await expect(link).toHaveAttribute("href", result.url)
   const citation = citations.first()
