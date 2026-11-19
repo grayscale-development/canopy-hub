@@ -119,6 +119,12 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
       .from("wiki_page_tags")
       .insert({ node_id: source.id, tag_id: tagId })
     if (assignment.error) throw assignment.error
+    // Mirror sync_wiki_page_tags, which keeps wiki_nodes.tags (row pills) in step.
+    const named = await db
+      .from("wiki_nodes")
+      .update({ tags: [tag.data.name] })
+      .eq("id", source.id)
+    if (named.error) throw named.error
 
     // Exercise the same preview and transaction as the release rewrite.
     const data = await readData(db)
