@@ -82,6 +82,26 @@ describe("combined tags page", () => {
     )
   })
 
+  it("uses concise scope labels and distinguishes an empty directory from an empty search", async () => {
+    const user = userEvent.setup()
+    const view = render(
+      <WikiTagsManage entries={entries} sections={sections} canManage={false} />
+    )
+    expect(screen.getByRole("columnheader", { name: "Where" })).toBeVisible()
+    expect(screen.getByRole("columnheader", { name: "Pages" })).toBeVisible()
+    expect(screen.getByText("Operations", { selector: "td" })).toBeVisible()
+    await user.type(
+      screen.getByRole("textbox", { name: "Search tags" }),
+      "missing"
+    )
+    expect(screen.getByText("No tags match your search.")).toBeVisible()
+    view.unmount()
+    render(
+      <WikiTagsManage entries={[]} sections={sections} canManage={false} />
+    )
+    expect(screen.getByText("There are no tags yet.")).toBeVisible()
+  })
+
   it("highlights and opens the requested section without filtering the list", () => {
     render(
       <WikiTagsManage
