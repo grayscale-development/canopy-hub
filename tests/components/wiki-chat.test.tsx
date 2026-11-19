@@ -719,7 +719,10 @@ describe("WikiChat", () => {
   it("sends an attachment and page context with a typed question", async () => {
     const user = userEvent.setup()
     const { container } = render(
-      <WikiChat pageContext={{ pageId: "page-1", title: "Operations" }} />
+      <WikiChat
+        currentPath="/wiki/1/2"
+        pageContext={{ pageId: "page-1", title: "Operations" }}
+      />
     )
     await screen.findByText(/How can I help/)
     const input =
@@ -739,6 +742,7 @@ describe("WikiChat", () => {
     expect(JSON.parse(request![1].body.get("pageContext"))).toEqual({
       pageId: "page-1",
     })
+    expect(request![1].body.get("currentPath")).toBe("/wiki/1/2")
     expect(request![1].body.get("file").name).toBe("source.txt")
   })
 

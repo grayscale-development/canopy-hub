@@ -42,8 +42,20 @@ export type Evidence = {
 // Require half of the question's meaningful terms in one source, or across the
 // retrieved sources together so a multi-topic question can draw on several pages.
 export const RETRIEVAL_OVERLAP_THRESHOLD = 0.5
+function retrievalStem(word: string) {
+  if (word.length > 5 && word.endsWith("ies")) return `${word.slice(0, -3)}y`
+  if (word.length > 5 && word.endsWith("ing"))
+    return word.slice(0, -3).replace(/(.)\1$/, "$1")
+  if (word.length > 4 && word.endsWith("ed")) return word.slice(0, -2)
+  if (word.length > 4 && word.endsWith("s") && !word.endsWith("ss"))
+    return word.slice(0, -1)
+  return word
+}
+
 export function hasRetrievalConfidence(question: string, sources: Evidence[]) {
-  const query = terms(question).filter((word) => !RETRIEVAL_FILLER.has(word))
+  const query = terms(question)
+    .filter((word) => !RETRIEVAL_FILLER.has(word))
+    .map(retrievalStem)
   if (!query.length && /\bwiki\b/i.test(question))
     return sources.some((source) =>
       /\bwiki\b/i.test(`${source.title} ${source.snippet}`)
@@ -51,7 +63,9 @@ export function hasRetrievalConfidence(question: string, sources: Evidence[]) {
   if (!query.length) return false
   const covered = new Set<string>()
   for (const source of sources) {
-    const text = new Set(terms(`${source.title} ${source.snippet}`))
+    const text = new Set(
+      terms(`${source.title} ${source.snippet}`).map(retrievalStem)
+    )
     const hits = query.filter((word) => text.has(word))
     if (hits.length / query.length >= RETRIEVAL_OVERLAP_THRESHOLD) return true
     for (const word of hits) covered.add(word)

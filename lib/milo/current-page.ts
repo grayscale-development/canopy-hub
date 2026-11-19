@@ -4,7 +4,7 @@ import type { SupabaseWikiClient } from "@/lib/wiki"
 import type { MiloSourceCard } from "@/lib/milo/mcp/tools"
 
 export type MiloCurrentPage = {
-  pageId: string
+  pageId?: string
   title: string
   url: string
   updatedAt?: string
@@ -14,6 +14,7 @@ export async function currentPageEvidence(
   supabase: SupabaseWikiClient,
   page: MiloCurrentPage
 ): Promise<MiloSourceCard[]> {
+  if (!page.pageId) return []
   const { data: source } = await supabase
     .from("knowledge_sources")
     .select("id")

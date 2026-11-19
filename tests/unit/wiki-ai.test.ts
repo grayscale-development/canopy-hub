@@ -530,7 +530,7 @@ describe("wiki AI orchestration", () => {
       citations: [],
       metadata: {
         abstained: true,
-        abstainReason: "low_retrieval_overlap",
+        abstainReason: "not_covered",
         mode: "agentic_mcp",
         toolCalls: [
           { toolName: "knowledge_search", ok: true, error: undefined },

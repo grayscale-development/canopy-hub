@@ -256,6 +256,7 @@ export function WikiChat({
   onQueuedPromptConsumed,
   onNavigate,
   pageContext,
+  currentPath,
   onRemovePage,
   firstName,
 }: {
@@ -268,6 +269,7 @@ export function WikiChat({
   onQueuedPromptConsumed?: () => void
   onNavigate?: () => void
   pageContext?: { pageId: string; title: string } | null
+  currentPath?: string | null
   onRemovePage?: () => void
   firstName?: string
 }) {
@@ -715,6 +717,7 @@ export function WikiChat({
         if (form && attachment) {
           form.set("message", question)
           if (threadId) form.set("threadId", threadId)
+          if (currentPath) form.set("currentPath", currentPath)
           form.set("file", attachment)
           if (pageContext)
             form.set(
@@ -732,6 +735,7 @@ export function WikiChat({
                 body: JSON.stringify({
                   threadId,
                   message: question,
+                  ...(currentPath ? { currentPath } : {}),
                   ...(pageContext
                     ? { pageContext: { pageId: pageContext.pageId } }
                     : {}),
@@ -913,7 +917,7 @@ export function WikiChat({
         }
       }
     },
-    [pending, threadId, pageContext, pinToBottom]
+    [pending, threadId, pageContext, currentPath, pinToBottom]
   )
 
   React.useEffect(() => {

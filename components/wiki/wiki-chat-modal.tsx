@@ -801,6 +801,7 @@ export function WikiChatModalProvider({
               <WikiChat
                 ref={chatRef}
                 firstName={firstName}
+                currentPath={pathname}
                 pageContext={
                   page?.pathname === pathname && page.pageId !== removedPageId
                     ? page

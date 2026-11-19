@@ -112,6 +112,8 @@ vi.mock("@/lib/supabase/server", () => ({
       new FakeSupabaseQuery(table),
     rpc: async (_name: string, args: { p_message_id: string }) => {
       testState.rpcCalls++
+      if (_name === "get_current_user_role_code")
+        return { data: "employee", error: null }
       const stored = testState.proposals[args.p_message_id]
       const message = testState.tables.ai_chat_messages.find(
         (row) => row.id === args.p_message_id
@@ -756,6 +758,40 @@ describe("/api/wiki/chat route", () => {
     }
   })
 
+  it("derives recognized Hub locations and ignores forged or unsafe paths", async () => {
+    testState.user = { id: "user-1" }
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    for (const [currentPath, expected] of [
+      ["/home", { title: "Home", url: "/home" }],
+      [
+        "/reports/file-quality",
+        { title: "File Quality Dashboard", url: "/reports/file-quality" },
+      ],
+      [
+        "/settings/feedback",
+        { title: "Settings: Feedback", url: "/settings/feedback" },
+      ],
+      ["/wiki/private-page", undefined],
+      ["https://example.invalid/home", undefined],
+    ] as const) {
+      vi.mocked(answerKnowledgeQuestion).mockClear()
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            message: "What is this page about?",
+            currentPath,
+          }),
+        })
+      )
+      await response.text()
+      expect(
+        vi.mocked(answerKnowledgeQuestion).mock.calls[0][0].pageContext
+      ).toEqual(expected)
+    }
+  })
+
   it("validates page context in multipart requests", async () => {
     testState.user = { id: "user-1" }
     const pageId = "12345678-1234-4234-8234-123456789abc"
@@ -849,6 +885,7 @@ describe("/api/wiki/chat route", () => {
               "ai.settings.access": false,
             },
             wikiManagers: null,
+            role: "employee",
           },
         })
       )
