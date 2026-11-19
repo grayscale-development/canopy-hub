@@ -163,6 +163,12 @@ test("editor mode opens history only from the footer date and restore appends a 
   })
   await dialog.getByRole("button", { name: "Restore this version" }).click()
   await expect(page.getByText("RESTORE-OLD").first()).toBeVisible()
+  // Wait for the restore to be saved before reloading (was flaky in CI).
+  await expect
+    .poll(async () => (await revisionTexts(reviewed.id)).length, {
+      timeout: 20_000,
+    })
+    .toBe(before.length + 1)
   await page.reload()
   await expect(page.getByText("RESTORE-OLD").first()).toBeVisible()
 
