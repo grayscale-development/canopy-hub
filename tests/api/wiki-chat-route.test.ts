@@ -196,6 +196,11 @@ class FakeSupabaseQuery {
     return this
   }
 
+  is(key: string, value: null) {
+    this.filters.push({ key, value })
+    return this
+  }
+
   in(key: string, values: unknown[]) {
     this.inFilters.push({ key, values })
     return this
@@ -315,7 +320,11 @@ class FakeSupabaseQuery {
   private getFilteredRows() {
     return testState.tables[this.table].filter((row) => {
       return (
-        this.filters.every((filter) => row[filter.key] === filter.value) &&
+        this.filters.every((filter) =>
+          filter.value === null
+            ? row[filter.key] == null
+            : row[filter.key] === filter.value
+        ) &&
         this.inFilters.every((filter) =>
           filter.values.includes(row[filter.key])
         )
@@ -371,6 +380,68 @@ describe("/api/wiki/chat route", () => {
     testState.tables.milo_wiki_nodes = []
     testState.answerError = null
     testState.answer.metadata = {}
+  })
+
+  it("soft-deletes only the owner's chat and hides it from list, load, send and stop", async () => {
+    const { GET, POST, DELETE } = await import("@/app/api/wiki/chat/route")
+    const { POST: stop } = await import("@/app/api/wiki/chat/stop/route")
+    const id = "11111111-1111-4111-8111-111111111111"
+    const otherId = "33333333-3333-4333-8333-333333333333"
+    const messageId = "22222222-2222-4222-8222-222222222222"
+    const url = (threadId?: string) =>
+      `http://test.local/api/wiki/chat${threadId ? `?threadId=${threadId}` : ""}`
+    const deletion = (threadId: string) =>
+      new Request(url(threadId), { method: "DELETE" })
+    testState.tables.ai_chat_threads = [
+      { id, user_id: "user-1", title: "Mine" },
+      { id: otherId, user_id: "other", title: "Theirs" },
+    ]
+    testState.tables.ai_chat_messages = [
+      {
+        id: messageId,
+        thread_id: id,
+        user_id: "user-1",
+        role: "user",
+        metadata: {},
+      },
+    ]
+    testState.tables.ai_chat_message_flags = [
+      { id: "flag", thread_id: id, assistant_message_id: "answer" },
+    ]
+    expect((await DELETE(deletion(id))).status).toBe(401)
+    testState.user = { id: "other" }
+    expect((await DELETE(deletion(id))).status).toBe(403)
+    testState.user = { id: "user-1" }
+    expect((await DELETE(deletion(otherId))).status).toBe(404)
+    expect((await DELETE(deletion(id))).status).toBe(200)
+    const deletedAt = testState.tables.ai_chat_threads[0].deleted_at
+    expect(deletedAt).toBeTruthy()
+    expect((await DELETE(deletion(id))).status).toBe(200)
+    expect(testState.tables.ai_chat_threads[0].deleted_at).toBe(deletedAt)
+    expect((await (await GET(new Request(url()))).json()).threads).toEqual([])
+    expect((await GET(new Request(url(id)))).status).toBe(404)
+    expect(
+      (
+        await POST(
+          new Request(url(), {
+            method: "POST",
+            body: JSON.stringify({ threadId: id, message: "Follow up" }),
+          })
+        )
+      ).status
+    ).toBe(404)
+    expect(
+      (
+        await stop(
+          new Request(`${url()}/stop`, {
+            method: "POST",
+            body: JSON.stringify({ threadId: id, userMessageId: messageId }),
+          })
+        )
+      ).status
+    ).toBe(404)
+    expect(testState.tables.ai_chat_messages).toHaveLength(1)
+    expect(testState.tables.ai_chat_message_flags).toHaveLength(1)
   })
 
   it("only records stops for the signed-in beta user's own user message", async () => {

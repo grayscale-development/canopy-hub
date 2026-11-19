@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { usePathname } from "next/navigation"
-import { Move } from "lucide-react"
+import { History, Move, SquarePen } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -24,7 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { WikiChat } from "@/components/wiki/wiki-chat"
+import { WikiChat, type WikiChatHandle } from "@/components/wiki/wiki-chat"
 
 interface WikiChatModalContextValue {
   available: boolean
@@ -129,6 +129,7 @@ export function WikiChatModalProvider({
   >()
   const launcherRef = React.useRef<HTMLButtonElement>(null)
   const closeRef = React.useRef<HTMLButtonElement>(null)
+  const chatRef = React.useRef<WikiChatHandle>(null)
   const interactedRef = React.useRef(false)
   const [corner, setCorner] = React.useState<MiloCorner>(defaultMiloCorner)
   const [cachedForUser, setCachedForUser] = React.useState<string | null>(null)
@@ -610,6 +611,34 @@ export function WikiChatModalProvider({
                 Milo
               </h2>
               <div className="flex items-center gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="New chat"
+                      onClick={() => chatRef.current?.newChat()}
+                    >
+                      <SquarePen aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>New chat</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="History"
+                      onClick={() => chatRef.current?.showHistory()}
+                    >
+                      <History aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>History</TooltipContent>
+                </Tooltip>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -660,6 +689,7 @@ export function WikiChatModalProvider({
             </div>
             {hasOpened && (
               <WikiChat
+                ref={chatRef}
                 firstName={firstName}
                 pageContext={
                   page?.pathname === pathname && page.pageId !== removedPageId

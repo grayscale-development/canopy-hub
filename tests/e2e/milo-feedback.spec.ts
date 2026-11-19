@@ -213,6 +213,22 @@ test("managers review shared flags and private gap counts", async ({
       ).error
     )
 
+    // Delete as the owner through the API before opening the manager queue.
+    await signInAsSeededUser(page, "standard@canopy.test")
+    const deleted = await page.request.delete(
+      `/api/wiki/chat?threadId=${threadId}`
+    )
+    expect(deleted.status()).toBe(200)
+    expect(
+      (await page.request.get(`/api/wiki/chat?threadId=${threadId}`)).status()
+    ).toBe(404)
+    const list = await page.request.get("/api/wiki/chat")
+    expect(
+      (await list.json()).threads.some(
+        (thread: { id: string }) => thread.id === threadId
+      )
+    ).toBe(false)
+
     for (const [label, width, height] of [
       ["desktop", 1440, 900],
       ["narrow", 390, 844],
