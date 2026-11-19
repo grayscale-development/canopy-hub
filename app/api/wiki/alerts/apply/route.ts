@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { revalidatePath } from "next/cache"
 
 import { logAiAction } from "@/lib/ai-action-log"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
@@ -72,8 +73,10 @@ export async function POST(request: Request) {
   if (
     !page ||
     !canonical ||
-    page.status !== "published" ||
-    canonical.status !== "published" ||
+    page.status === "archived" ||
+    canonical.status === "archived" ||
+    (recommendation.version === 2 &&
+      canonical.current_revision_id !== recommendation.canonicalRevisionId) ||
     !canonical.current_revision_id ||
     (canonicalHash &&
       canonicalHash !== alertPageHash(canonical.current_revision_id)) ||
@@ -85,6 +88,31 @@ export async function POST(request: Request) {
       recommendation.canonicalPath
   )
     return NextResponse.json({ error: changed }, { status: 409 })
+  if (recommendation.version === 2 && recommendation.kind === "identical") {
+    if (body.confirmArchive !== true)
+      return NextResponse.json(
+        { error: "Confirm before archiving this page." },
+        { status: 400 }
+      )
+    const archived = await supabase.rpc("apply_identical_wiki_alert", {
+      p_alert_id: row.id,
+    })
+    if (archived.error) {
+      if (archived.error.message.includes("stale"))
+        return NextResponse.json({ error: changed }, { status: 409 })
+      return NextResponse.json(
+        { error: "Unable to archive this page. Please try again." },
+        { status: 400 }
+      )
+    }
+    revalidatePath("/wiki")
+    await logAiAction(supabase, {
+      type: "alert_apply",
+      pageId: page.id,
+      alertId: row.id,
+    })
+    return NextResponse.json({ ok: true, archived: true })
+  }
   const revision = await supabase
     .from("wiki_page_revisions")
     .select("blocks")

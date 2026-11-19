@@ -283,9 +283,10 @@ describe("duplicate route", () => {
     })
     state.user = "another"
     state.nodes[4].status = "archived"
+    state.nodes[3].status = "archived"
     const lessCommon = await (await POST(request({ nodeId: source }))).json()
     expect(lessCommon.passages[0].common).toBe(false)
-    expect(lessCommon.passages[0].matches).toHaveLength(3)
+    expect(lessCommon.passages[0].matches).toHaveLength(2)
   })
   it("applies dismissals to cached results immediately and only includes them when requested", async () => {
     const first = await (await POST(request({ nodeId: source }))).json()

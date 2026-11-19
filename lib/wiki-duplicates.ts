@@ -9,8 +9,9 @@ import {
   type WikiNodeRow,
 } from "@/lib/wiki"
 import { buildNumericWikiPath } from "@/lib/wiki-paths"
+import { inspectWikiHref } from "@/lib/wiki-link-rewrite"
 
-// A passage occurring on more than this many other pages is boilerplate.
+// A passage appearing on more than this many pages is boilerplate.
 export const COMMON_PAGE_LIMIT = 3
 export const MIN_PASSAGE_LENGTH = 40
 export const NEAR_EXACT_THRESHOLD = 0.72
@@ -24,7 +25,60 @@ const CACHE_TTL_MS = 30_000
 const CACHE_SIZE = 50
 const PAGE_SIZE = 1000
 
-type Passage = { blockId: string; text: string; hashText?: string }
+type Passage = {
+  blockId: string
+  text: string
+  hashText?: string
+  heading?: string
+}
+export type DuplicatePage = {
+  id: string
+  title: string
+  path: string
+  status: string
+  createdAt: string
+  inboundLinks: number
+}
+
+export function chooseCanonicalPage(
+  a: DuplicatePage,
+  b: DuplicatePage
+): DuplicatePage {
+  return [a, b].sort(
+    (x, y) =>
+      Number(y.status === "published") - Number(x.status === "published") ||
+      x.createdAt.localeCompare(y.createdAt) ||
+      y.inboundLinks - x.inboundLinks ||
+      x.id.localeCompare(y.id)
+  )[0]
+}
+
+export function classifyDuplicatePages(
+  left: string[],
+  right: string[]
+): "identical" | "overlap" | null {
+  const a = left.map(normalizeDuplicateText).filter(Boolean)
+  const b = right.map(normalizeDuplicateText).filter(Boolean)
+  if (!a.length || !b.length) return null
+  if (a.join(" ") === b.join(" ")) return "identical"
+  const used = new Set<number>()
+  let matched = 0
+  for (const text of a) {
+    const index = b.findIndex(
+      (candidate, i) =>
+        !used.has(i) && nearExactScore(text, candidate) >= NEAR_EXACT_THRESHOLD
+    )
+    if (index !== -1) {
+      used.add(index)
+      matched++
+    }
+  }
+  return matched / Math.max(a.length, b.length) >= 0.9
+    ? "identical"
+    : matched
+      ? "overlap"
+      : null
+}
 export type DuplicateHit = {
   pageId: string
   revisionId: string
@@ -34,9 +88,15 @@ export type DuplicateHit = {
   text: string
   score: number
   type: "near-exact" | "paraphrase"
+  page?: DuplicatePage
+  classification?: "identical" | "overlap"
+  exact?: boolean
+  blockId?: string
+  heading?: string
 }
 export type DuplicateResult = {
   revisionId: string
+  page?: DuplicatePage
   passages: {
     blockId: string
     passageHash: string
@@ -112,13 +172,22 @@ function wikiBlocks(blocks: unknown): (Passage & { type: unknown })[] {
 }
 
 export function wikiPassages(blocks: unknown): Passage[] {
+  let heading: string | undefined
   return wikiBlocks(blocks)
+    .map((block) => {
+      if (block.type === "heading") heading = block.text
+      return { ...block, heading }
+    })
     .filter(
       (block) =>
         block.type !== "heading" &&
         normalizeDuplicateText(block.text).length >= MIN_PASSAGE_LENGTH
     )
-    .map(({ blockId, text }) => ({ blockId, text }))
+    .map(({ blockId, text, heading }) => ({
+      blockId,
+      text,
+      ...(heading ? { heading } : {}),
+    }))
 }
 
 function selectedPassages(blocks: unknown, selection: string): Passage[] {
@@ -195,7 +264,9 @@ async function visibleNodes(supabase: SupabaseWikiClient, job = false) {
     for (let start = 0; start < ids.length; start += 100) {
       const details = await supabase
         .from("wiki_nodes")
-        .select("id,short_id,parent_id,type,title,status,current_revision_id")
+        .select(
+          "id,short_id,parent_id,type,slug,title,status,current_revision_id,created_at"
+        )
         .in("id", ids.slice(start, start + 100))
       if (details.error) throw new Error(details.error.message)
       nodes.push(...((details.data ?? []) as WikiNodeRow[]))
@@ -247,7 +318,6 @@ export async function detectWikiDuplicates(
   if (
     !node ||
     node.type !== "page" ||
-    (job && node.status !== "published") ||
     !validPath(node, byId) ||
     !node.current_revision_id
   )
@@ -268,10 +338,7 @@ export async function detectWikiDuplicates(
   cache.delete(key)
   const pages = nodes.filter(
     (item) =>
-      item.type === "page" &&
-      (!job || item.status === "published") &&
-      item.current_revision_id &&
-      validPath(item, byId)
+      item.type === "page" && item.current_revision_id && validPath(item, byId)
   )
   const revisions = new Map<string, unknown>()
   const ids = pages.map((page) => page.current_revision_id!)
@@ -287,6 +354,46 @@ export async function detectWikiDuplicates(
     }
   }
   if (!revisions.has(nodeId)) return null
+  const documentText = (blocks: unknown) =>
+    normalizeDuplicateText(blockNoteToPlainText(blocks))
+  const inbound = new Map<string, number>()
+  if (job) {
+    const paths = new Map(
+      pages.map((page) => [
+        `/wiki/${buildNumericWikiPath(nodes, page)}`,
+        page.id,
+      ])
+    )
+    const visit = (value: unknown, found: Set<string>) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => visit(item, found))
+        return
+      }
+      if (!value || typeof value !== "object") return
+      const item = value as Record<string, unknown>
+      if (item.type === "link" && typeof item.href === "string") {
+        const finding = inspectWikiHref(item.href, nodes, "")
+        const href = finding?.proposed_href || item.href
+        const id = paths.get(href.split(/[?#]/)[0].replace(/\/$/, ""))
+        if (id) found.add(id)
+      }
+      Object.values(item).forEach((child) => visit(child, found))
+    }
+    for (const page of pages) {
+      const found = new Set<string>()
+      visit(revisions.get(page.id), found)
+      found.delete(page.id)
+      found.forEach((id) => inbound.set(id, (inbound.get(id) ?? 0) + 1))
+    }
+  }
+  const pageInfo = (page: WikiNodeRow): DuplicatePage => ({
+    id: page.id,
+    title: page.title,
+    path: `/wiki/${buildNumericWikiPath(nodes, page)}`,
+    status: page.status,
+    createdAt: page.created_at ?? "",
+    inboundLinks: inbound.get(page.id) ?? 0,
+  })
   const passages =
     selection === undefined
       ? wikiPassages(revisions.get(nodeId))
@@ -326,15 +433,23 @@ export async function detectWikiDuplicates(
   }))
   const result: DuplicateResult = {
     revisionId: node.current_revision_id,
+    ...(job ? { page: pageInfo(node) } : {}),
     passages: passages.map((passage) => {
       const prepared = prepareText(passage.text)
       const hits = preparedOthers.flatMap(
         ({ page, passages: candidates }): DuplicateHit[] => {
-          let best: { text: string; score: number } | undefined
+          let best:
+            | { text: string; score: number; blockId: string; heading?: string }
+            | undefined
           for (const candidate of candidates) {
             const score = preparedScore(prepared, candidate.prepared)
             if (score >= NEAR_EXACT_THRESHOLD && (!best || score > best.score))
-              best = { text: candidate.text, score }
+              best = {
+                text: candidate.text,
+                score,
+                blockId: candidate.blockId,
+                heading: candidate.heading,
+              }
           }
           return best
             ? [
@@ -347,6 +462,13 @@ export async function detectWikiDuplicates(
                   text: best.text,
                   score: best.score,
                   type: "near-exact",
+                  ...(job
+                    ? {
+                        page: pageInfo(page),
+                        blockId: best.blockId,
+                        heading: best.heading,
+                      }
+                    : {}),
                 },
               ]
             : []
@@ -356,8 +478,8 @@ export async function detectWikiDuplicates(
         blockId: passage.blockId,
         passageHash: hashDuplicatePassage(passage.hashText ?? passage.text),
         text: passage.hashText ?? passage.text,
-        common: hits.length > COMMON_PAGE_LIMIT,
-        matches: hits.length > COMMON_PAGE_LIMIT ? [] : hits,
+        common: hits.length >= COMMON_PAGE_LIMIT,
+        matches: hits.length >= COMMON_PAGE_LIMIT ? [] : hits,
       }
     }),
   }
@@ -419,6 +541,12 @@ export async function detectWikiDuplicates(
                 text: String(row.content).trim(),
                 score: row.similarity,
                 type: "paraphrase",
+                ...(job
+                  ? {
+                      page: pageInfo(candidate),
+                      classification: "overlap" as const,
+                    }
+                  : {}),
               })
             }
           }
@@ -426,6 +554,97 @@ export async function detectWikiDuplicates(
       )
     } catch {
       // Exact matching remains available when the provider is unavailable.
+    }
+  }
+  if (job) {
+    const sourceBlocks = revisions.get(nodeId)
+    const sourceText = documentText(sourceBlocks)
+    const sourceParts = wikiBlocks(sourceBlocks).filter(
+      (block) => block.type !== "heading"
+    )
+    const comparisons = others.map(({ page, passages: otherPassages }) => {
+      const otherBlocks = revisions.get(page.id)
+      const otherParts = wikiBlocks(otherBlocks).filter(
+        (block) => block.type !== "heading"
+      )
+      const sameText = !!sourceText && sourceText === documentText(otherBlocks)
+      return {
+        page,
+        otherPassages,
+        otherParts,
+        sameText,
+        classification: sameText
+          ? "identical"
+          : classifyDuplicatePages(
+              sourceParts.map((block) => block.text),
+              otherParts.map((block) => block.text)
+            ),
+      }
+    })
+    const identicalCount = comparisons.filter(
+      (item) => item.classification === "identical"
+    ).length
+    for (const {
+      page,
+      otherPassages,
+      otherParts,
+      sameText,
+      classification,
+    } of comparisons) {
+      const existing = result.passages
+        .flatMap((passage) => passage.matches)
+        .filter((hit) => hit.pageId === page.id)
+      if (
+        classification === "identical" &&
+        (existing.length || identicalCount < COMMON_PAGE_LIMIT)
+      ) {
+        for (const hit of existing) {
+          hit.classification = "identical"
+          hit.exact = sameText
+        }
+        // Short passages can establish a whole-page copy even when none qualify
+        // for a passage-level replacement. Do not resurrect common boilerplate.
+        if (
+          !existing.length &&
+          !result.passages.some((passage) => passage.common)
+        ) {
+          const block = sourceParts.find((item) =>
+            otherParts.some(
+              (other) =>
+                nearExactScore(item.text, other.text) >= NEAR_EXACT_THRESHOLD
+            )
+          )
+          const excerpt =
+            block?.text ?? blockNoteToPlainText(sourceBlocks).trim()
+          const matchedText =
+            otherParts.find(
+              (other) =>
+                nearExactScore(excerpt, other.text) >= NEAR_EXACT_THRESHOLD
+            )?.text ?? excerpt
+          result.passages.push({
+            blockId: block?.blockId ?? "whole-page",
+            passageHash: hashDuplicatePassage(excerpt),
+            text: excerpt,
+            common: false,
+            matches: [
+              {
+                pageId: page.id,
+                revisionId: page.current_revision_id!,
+                title: page.title,
+                path: pageInfo(page).path,
+                snippet: matchedText.slice(0, 260),
+                text: matchedText,
+                score: sameText ? 1 : nearExactScore(excerpt, matchedText),
+                type: "near-exact",
+                classification: "identical",
+                exact: sameText,
+                page: pageInfo(page),
+                blockId: otherPassages[0]?.blockId,
+              },
+            ],
+          })
+        }
+      } else for (const hit of existing) hit.classification = "overlap"
     }
   }
   for (const passage of result.passages)
