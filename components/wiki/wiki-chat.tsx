@@ -26,20 +26,13 @@ import {
 } from "@/lib/milo/source-limits"
 import { WikiChatCard } from "@/components/wiki/wiki-chat-card"
 import {
-  fetchMiloResults,
-  MiloSearchResults,
-  searchableQuery,
-  useMiloSearch,
-  type MiloSearchResult,
-} from "@/components/wiki/milo-search-results"
-import {
   cardEventSchema,
   displayCard,
   type DisplayCard,
   type MiloStreamEvent,
 } from "@/lib/milo/chat-cards"
 import { cn } from "@/lib/utils"
-import { inlineCitations } from "@/lib/milo/inline-citations"
+import { inlineCitations, isWikiTagUrl } from "@/lib/milo/inline-citations"
 
 interface Citation {
   title: string
@@ -59,7 +52,6 @@ interface ChatMessage {
   abstained?: boolean
   flagged?: boolean
   rating?: "up" | "down"
-  matchingPages?: MiloSearchResult[]
   status?: string
 }
 
@@ -82,7 +74,10 @@ function Sources({
   const unique = [
     ...new Map(
       citations
-        .filter((citation) => citation.url)
+        .filter(
+          (citation) =>
+            citation.url && !/^\/wiki\/tags(?:[?#]|$)/i.test(citation.url)
+        )
         .map((citation) => [citation.url, citation])
     ).values(),
   ]
@@ -155,7 +150,12 @@ function MessageContent({
             <ol className="list-decimal space-y-1 pl-5">{children}</ol>
           ),
           a: ({ href, children }) =>
-            href ? (
+            href &&
+            (!isWikiTagUrl(href) ||
+              citations.some(
+                (citation) =>
+                  citation.url === href || citation.url?.split("#")[0] === href
+              )) ? (
               <Link
                 href={href}
                 onClick={onNavigate}
@@ -208,10 +208,15 @@ export function WikiChat({
   const nearBottom = React.useRef(true)
   const [pending, setPending] = React.useState(false)
   const [loadingHistory, setLoadingHistory] = React.useState(true)
-  const search = useMiloSearch(input, pending || loadingHistory)
-  const searchRequests = React.useRef(new Set<AbortController>())
   const consumedPromptRef = React.useRef<string | null>(null)
   const isMountedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   React.useEffect(() => {
     if (draftRequest) setInput(draftRequest.value)
@@ -232,16 +237,6 @@ export function WikiChat({
     if (threadView.current && nearBottom.current)
       threadView.current.scrollTop = threadView.current.scrollHeight
   }, [messages])
-
-  React.useEffect(() => {
-    isMountedRef.current = true
-    const requests = searchRequests.current
-    return () => {
-      isMountedRef.current = false
-      for (const controller of requests) controller.abort()
-      requests.clear()
-    }
-  }, [])
 
   React.useEffect(() => {
     let active = true
@@ -299,11 +294,6 @@ export function WikiChat({
         return
       }
 
-      const matchingQuery = searchableQuery(questionValue)
-      const cachedResults =
-        search.completed && search.query === matchingQuery
-          ? search.results
-          : null
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -317,7 +307,6 @@ export function WikiChat({
           id: assistantId,
           role: "assistant",
           content: "",
-          matchingPages: cachedResults ?? [],
         },
       ])
       setPending(true)
@@ -350,24 +339,6 @@ export function WikiChat({
               }),
         })
 
-        if (matchingQuery && !cachedResults) {
-          const controller = new AbortController()
-          searchRequests.current.add(controller)
-          void fetchMiloResults(matchingQuery, controller.signal)
-            .then((results) => {
-              if (!controller.signal.aborted && isMountedRef.current) {
-                setMessages((current) =>
-                  current.map((message) =>
-                    message.id === assistantId
-                      ? { ...message, matchingPages: results }
-                      : message
-                  )
-                )
-              }
-            })
-            .catch(() => {})
-            .finally(() => searchRequests.current.delete(controller))
-        }
         const response = await chatRequest
         if (!response.ok || !response.body) {
           const payload = (await response.json().catch(() => null)) as {
@@ -476,14 +447,7 @@ export function WikiChat({
         }
       }
     },
-    [
-      pending,
-      threadId,
-      search.completed,
-      search.query,
-      search.results,
-      pageContext,
-    ]
+    [pending, threadId, pageContext]
   )
 
   React.useEffect(() => {
@@ -598,40 +562,6 @@ export function WikiChat({
                       ✦
                     </span>
                     <div className="min-w-0 flex-1">
-                      {(() => {
-                        const renderedAnswer = inlineCitations(
-                          answer.content,
-                          answer.citations ?? []
-                        )
-                        const links = new Set(
-                          Array.from(
-                            renderedAnswer.matchAll(/\]\(([^\s)]+)\)/g),
-                            (match) => match[1]
-                          )
-                        )
-                        const matches = (answer.matchingPages ?? []).filter(
-                          (result) => !links.has(result.url)
-                        )
-                        return matches.length ? (
-                          <div className="mb-4 text-sm">
-                            <h3 className="mb-1 font-medium text-muted-foreground">
-                              Matching pages
-                            </h3>
-                            <div className="flex flex-wrap gap-x-3 gap-y-1">
-                              {matches.map((result) => (
-                                <Link
-                                  key={`${result.type}-${result.id}`}
-                                  href={result.url}
-                                  onClick={onNavigate}
-                                  className="text-sidebar-primary underline underline-offset-4 hover:no-underline dark:text-chart-2"
-                                >
-                                  {result.title}
-                                </Link>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null
-                      })()}
                       <div aria-live="polite">
                         {pending &&
                         index === messages.length - 1 &&
@@ -866,7 +796,6 @@ export function WikiChat({
       </div>
 
       <form onSubmit={askQuestion} className="border-t p-4">
-        <MiloSearchResults search={search} onNavigate={() => setInput("")} />
         {pageContext ? (
           <div className="mb-2 inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs">
             <span className="truncate">About: {pageContext.title}</span>
@@ -941,14 +870,9 @@ export function WikiChat({
             ref={composer}
             value={input}
             onChange={(event) => {
-              search.clearSelection()
               setInput(event.currentTarget.value)
             }}
             onKeyDown={(event) => {
-              if (search.onKeyDown(event)) {
-                if (event.key === "Enter") setInput("")
-                return
-              }
               if (
                 event.key === "Enter" &&
                 !event.shiftKey &&
@@ -958,7 +882,6 @@ export function WikiChat({
                 void sendQuestion(input, file)
               }
             }}
-            {...search.inputProps}
             rows={Math.min(8, Math.max(1, input.split("\n").length))}
             placeholder="Ask a question or paste source text"
             aria-label="Ask a follow-up"
