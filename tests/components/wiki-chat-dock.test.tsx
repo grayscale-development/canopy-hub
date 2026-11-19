@@ -33,15 +33,17 @@ vi.mock("next/navigation", () => ({
 function Harness({
   signedIn = true,
   canUseMilo = true,
+  userId = "test-user",
 }: {
   signedIn?: boolean
   canUseMilo?: boolean
+  userId?: string
 }) {
   return (
     <TooltipProvider>
       <WikiChatModalProvider
         signedIn={signedIn}
-        userId={signedIn ? "test-user" : null}
+        userId={signedIn ? userId : null}
         canUseMilo={canUseMilo}
       >
         <WikiHeaderSearch />
@@ -193,9 +195,182 @@ describe("floating Milo", () => {
     link.addEventListener("click", (event) => event.preventDefault())
     await user.click(link)
     expect(dialog).toBeVisible()
-    await user.click(screen.getByRole("button", { name: "Close" }))
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
     await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
     expect(screen.getByText("Where is the loan policy?")).toBeVisible()
+  })
+
+  it("preserves messages, draft, and scroll when minimized, and New chat clears them", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
+    await user.click(launcher)
+    const composer = await screen.findByRole("textbox", {
+      name: "Ask a follow-up",
+    })
+    await user.type(composer, "A question{Enter}")
+    await screen.findAllByRole("link", { name: "Loan policy" })
+    await waitFor(() => expect(composer).toBeEnabled())
+    await user.type(composer, "Unfinished draft")
+    const area = screen.getByRole("region", { name: "Chat messages" })
+    Object.defineProperties(area, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+    })
+    area.scrollTop = 123
+    fireEvent.scroll(area)
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    expect(launcher).toHaveAccessibleDescription("Chat in progress")
+    expect(localStorage.getItem("milo-draft:test-user")).toBe(
+      "Unfinished draft"
+    )
+    // Browsers can reset scrollTop when an element is hidden.
+    area.scrollTop = 0
+    await user.click(launcher)
+    expect(screen.getByText("A question")).toBeVisible()
+    expect(composer).toHaveValue("Unfinished draft")
+    expect(area.scrollTop).toBe(123)
+    await user.click(screen.getByRole("button", { name: "New chat" }))
+    expect(composer).toHaveValue("")
+    expect(screen.queryByText("A question")).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    expect(launcher).not.toHaveAccessibleDescription("Chat in progress")
+    expect(localStorage.getItem("milo-draft:test-user")).toBeNull()
+  })
+
+  it("continues a stream while minimized and announces an unread answer", async () => {
+    const user = userEvent.setup()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const signal = { current: null as AbortSignal | null }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/wiki/chat" && init?.method === "POST") {
+          signal.current = init.signal as AbortSignal
+          return new Response(
+            new ReadableStream({
+              start(value) {
+                controller = value
+              },
+            })
+          )
+        }
+        return { ok: true, json: async () => ({ position: null }) }
+      })
+    )
+    render(<Harness />)
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
+    await user.click(launcher)
+    const composer = await screen.findByRole("textbox", {
+      name: "Ask a follow-up",
+    })
+    await user.type(composer, "Tell me more{Enter}")
+    await screen.findByRole("button", { name: "Stop" })
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    expect(launcher).toHaveAccessibleDescription("Chat in progress")
+    expect(signal.current?.aborted).toBe(false)
+    await act(async () => {
+      controller.enqueue(
+        new TextEncoder().encode(
+          [
+            'data: {"type":"meta","threadId":"thread-1"}',
+            'data: {"type":"token","token":"Finished answer"}',
+            'data: {"type":"done","threadId":"thread-1","citations":[]}',
+            "",
+          ].join("\n\n")
+        )
+      )
+      controller.close()
+    })
+    await waitFor(() =>
+      expect(launcher).toHaveAccessibleDescription(
+        "Chat in progress. New response available"
+      )
+    )
+    await user.click(launcher)
+    expect(await screen.findByText("Finished answer")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    expect(launcher).toHaveAccessibleDescription("Chat in progress")
+  })
+
+  it("keeps a draft when a separate header question is sent", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
+    const composer = await screen.findByRole("textbox", {
+      name: "Ask a follow-up",
+    })
+    await user.type(composer, "Keep this draft")
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Ask Milo" }),
+      "Another question{Enter}"
+    )
+    expect(await screen.findByText("Another question")).toBeVisible()
+    await waitFor(() => expect(composer).toBeEnabled())
+    expect(composer).toHaveValue("Keep this draft")
+    expect(localStorage.getItem("milo-draft:test-user")).toBe("Keep this draft")
+  })
+
+  it("preserves a draft when opening Milo from the header", async () => {
+    const user = userEvent.setup()
+    const view = render(<Harness />)
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
+    const composer = await screen.findByRole("textbox", {
+      name: "Ask a follow-up",
+    })
+    await user.type(composer, "Original draft")
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    await user.click(screen.getByRole("button", { name: "Open Milo chat" }))
+    expect(composer).toHaveValue("Original draft")
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    await user.type(
+      screen.getByRole("textbox", { name: "Ask Milo" }),
+      "Added text"
+    )
+    await user.click(screen.getByRole("button", { name: "Open Milo chat" }))
+    await waitFor(() =>
+      expect(composer).toHaveValue("Original draft\nAdded text")
+    )
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    view.unmount()
+    render(<Harness />)
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
+    expect(
+      await screen.findByRole("textbox", { name: "Ask a follow-up" })
+    ).toHaveValue("Original draft\nAdded text")
+  })
+
+  it("restores each user's draft after remount without leaking it to another user", async () => {
+    const user = userEvent.setup()
+    const view = render(<Harness />)
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
+    await user.type(
+      await screen.findByRole("textbox", { name: "Ask a follow-up" }),
+      "Private draft"
+    )
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    view.unmount()
+    const other = render(<Harness userId="other-user" />)
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
+    expect(launcher).not.toHaveAccessibleDescription("Chat in progress")
+    await user.click(launcher)
+    expect(
+      await screen.findByRole("textbox", { name: "Ask a follow-up" })
+    ).toHaveValue("")
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
+    other.unmount()
+    render(<Harness />)
+    const restoredLauncher = await screen.findByRole("button", {
+      name: "Ask Milo",
+    })
+    await waitFor(() =>
+      expect(restoredLauncher).toHaveAccessibleDescription("Chat in progress")
+    )
+    await user.click(restoredLauncher)
+    expect(
+      await screen.findByRole("textbox", { name: "Ask a follow-up" })
+    ).toHaveValue("Private draft")
   })
 
   it("updates page context on navigation and reattaches it after leaving a page", async () => {
@@ -247,7 +422,7 @@ describe("floating Milo", () => {
     expect(await screen.findByText(/Milo lives here now/)).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Dismiss Milo tip" }))
     await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
-    await user.click(screen.getByRole("button", { name: "Close" }))
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
     await user.click(screen.getByRole("button", { name: "Open draft" }))
     expect(
       screen.getByRole("textbox", { name: "Ask a follow-up" })
@@ -286,7 +461,7 @@ describe("floating Milo", () => {
     const user = userEvent.setup()
     render(<Harness />)
     await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
-    await user.click(screen.getByRole("button", { name: "Close" }))
+    await user.click(screen.getByRole("button", { name: "Minimize Milo" }))
     expect(screen.queryByText(/Milo lives here now/)).toBeNull()
     expect(localStorage.getItem("milo-moved-tip-seen")).toBeNull()
   })
@@ -372,7 +547,7 @@ describe("floating Milo", () => {
     pointer("pointerup", 897, 699)
     fireEvent.click(launcher)
     expect(screen.getByRole("dialog", { name: "Milo" })).toBeVisible()
-    await userEvent.click(screen.getByRole("button", { name: "Close" }))
+    await userEvent.click(screen.getByRole("button", { name: "Minimize Milo" }))
     pointer("pointerdown", 900, 700)
     pointer("pointermove", 20, 20)
     expect(document.body.style.userSelect).toBe("none")

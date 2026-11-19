@@ -66,7 +66,7 @@ export async function runWikiAlertsAction(): Promise<AlertsRunResult> {
       }
     const start = Date.now()
     try {
-      const result = await scanWikiAlerts(admin)
+      const result = await scanWikiAlerts(admin, { full: true })
       revalidatePath("/settings/alerts")
       return {
         ok: true,

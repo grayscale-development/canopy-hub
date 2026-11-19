@@ -238,6 +238,7 @@ test("a long reviewed replacement shows non-text changes and persists after relo
   await signInAsLocalDev(page)
   await page.goto(reviewed.path)
   await openUpdate(page)
+  await page.getByText("More options", { exact: true }).click()
   await page.getByRole("checkbox", { name: "Replace the whole page" }).click()
   await page
     .getByLabel("What should change?")
@@ -314,11 +315,14 @@ test("cancel leaves the revision untouched and a reviewed file save persists @wi
   await expect(page.getByText("CANCEL-TOKEN")).toHaveCount(0)
 
   await openUpdate(page)
-  await page.setInputFiles('input[type="file"]', {
-    name: "notes-reviewed.txt",
-    mimeType: "text/plain",
-    buffer: Buffer.from("Reviewed file sentence FILE-TOKEN."),
-  })
+  await page
+    .getByRole("dialog", { name: "AI Update" })
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: "notes-reviewed.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Reviewed file sentence FILE-TOKEN."),
+    })
   await page.getByRole("button", { name: "Review changes" }).click()
   await expect(page.getByText("FILE-TOKEN")).toBeVisible()
   const savedFile = waitForAppliedPreview(page)

@@ -73,7 +73,7 @@ for (const viewport of [
         new RegExp(`/wiki/tags\\?tag=${encodeURIComponent(name)}`)
       )
       await expect(panel).toBeVisible()
-      await panel.getByRole("button", { name: "Close" }).click()
+      await panel.getByRole("button", { name: "Minimize Milo" }).click()
       const row = page
         .locator("tr")
         .filter({ has: page.getByRole("button", { name, exact: true }) })

@@ -8,6 +8,7 @@ type Action =
       type: "alert_apply" | "alert_recommendation"
       pageId: string
       alertId: string
+      kind?: "identical" | "overlap"
     }
 
 export async function logAiAction(
@@ -21,7 +22,10 @@ export async function logAiAction(
             action_type: action.type,
             target_page_id: action.pageId,
             target_alert_id: action.alertId,
-            summary: "Recommended replacing a duplicated passage",
+            summary:
+              action.kind === "identical"
+                ? "Recommended archiving a duplicate page"
+                : "Recommended replacing a duplicated passage",
           })
         : await supabase.rpc("log_user_ai_action", {
             p_action_type: action.type,
