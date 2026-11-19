@@ -90,6 +90,15 @@ function stream(answer: string) {
 describe("floating Milo", () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query === "(hover: hover) and (pointer: fine)",
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+    )
     if (!HTMLElement.prototype.setPointerCapture) {
       Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
         configurable: true,
@@ -117,10 +126,17 @@ describe("floating Milo", () => {
     render(<Harness />)
     const launcher = await screen.findByRole("button", { name: "Ask Milo" })
     expect(launcher).toHaveAttribute("aria-expanded", "false")
+    expect(document.body).toHaveAttribute("data-milo-launcher", "bottom")
+    await waitFor(() =>
+      expect(
+        document.body.style.getPropertyValue("--milo-launcher-clearance")
+      ).toBe("72px")
+    )
     expect(
       document.getElementById(launcher.getAttribute("aria-controls")!)
     ).toBeInTheDocument()
     await user.click(launcher)
+    expect(document.body).toHaveAttribute("data-milo-launcher", "bottom")
     const dialog = screen.getByRole("dialog", { name: "Milo" })
     expect(dialog).not.toHaveAttribute("aria-modal")
     await waitFor(() =>
@@ -228,7 +244,7 @@ describe("floating Milo", () => {
   it("updates a draft when reopening a mounted chat and shows the tip once", async () => {
     const user = userEvent.setup()
     const { unmount } = render(<Harness />)
-    expect(await screen.findByText(/Milo moved here/)).toBeVisible()
+    expect(await screen.findByText(/Milo lives here now/)).toBeVisible()
     await user.click(screen.getByRole("button", { name: "Dismiss Milo tip" }))
     await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
     await user.click(screen.getByRole("button", { name: "Close" }))
@@ -239,22 +255,86 @@ describe("floating Milo", () => {
     unmount()
     render(<Harness />)
     await act(async () => {})
-    expect(screen.queryByText(/Milo moved here/)).toBeNull()
+    expect(screen.queryByText(/Milo lives here now/)).toBeNull()
   })
 
   it("keeps the tip until it is dismissed or Milo is opened", async () => {
     const user = userEvent.setup()
     const first = render(<Harness />)
-    expect(await screen.findByText(/Milo moved here/)).toBeVisible()
+    expect(await screen.findByText(/Milo lives here now/)).toBeVisible()
     first.unmount()
     const second = render(<Harness />)
-    expect(await screen.findByText(/Milo moved here/)).toBeVisible()
+    expect(await screen.findByText(/Milo lives here now/)).toBeVisible()
     await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
     second.unmount()
     localStorage.removeItem("milo-chat-open")
     render(<Harness />)
     await act(async () => {})
-    expect(screen.queryByText(/Milo moved here/)).toBeNull()
+    expect(screen.queryByText(/Milo lives here now/)).toBeNull()
+  })
+
+  it("never shows or marks the tip seen on a coarse pointer", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+    )
+    const user = userEvent.setup()
+    render(<Harness />)
+    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
+    await user.click(screen.getByRole("button", { name: "Close" }))
+    expect(screen.queryByText(/Milo lives here now/)).toBeNull()
+    expect(localStorage.getItem("milo-moved-tip-seen")).toBeNull()
+  })
+
+  it.each([
+    ["MacIntel", "⌘J"],
+    ["Win32", "Ctrl+J"],
+  ])(
+    "shows only the platform shortcut on %s and remembers dismissal",
+    async (platform, shortcut) => {
+      vi.spyOn(navigator, "platform", "get").mockReturnValue(platform)
+      const user = userEvent.setup()
+      const first = render(<Harness />)
+      const tip = await screen.findByText(`Milo lives here now · ${shortcut}`)
+      expect(tip).toBeVisible()
+      expect(tip.parentElement).toHaveClass("top-1/2")
+      await user.click(screen.getByRole("button", { name: "Dismiss Milo tip" }))
+      first.unmount()
+      render(<Harness />)
+      await act(async () => {})
+      expect(screen.queryByText(/Milo lives here now/)).toBeNull()
+    }
+  )
+
+  it("does not open the shortcut tooltip when close returns focus", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
+    await user.click(launcher)
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(launcher).toHaveFocus())
+    expect(screen.queryByRole("tooltip")).toBeNull()
+  })
+
+  it("shows the platform shortcut on keyboard focus and mouse hover", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel")
+    const user = userEvent.setup()
+    render(<Harness />)
+    const launcher = await screen.findByRole("button", { name: "Ask Milo" })
+    fireEvent.keyDown(window, { key: "Tab" })
+    launcher.focus()
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("⌘J")
+    launcher.blur()
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull())
+    await user.hover(launcher)
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("⌘J")
+    await user.unhover(launcher)
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull())
   })
 
   it("keeps a small pointer movement as a click and snaps a drag without opening", async () => {

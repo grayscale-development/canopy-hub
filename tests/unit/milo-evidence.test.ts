@@ -130,6 +130,35 @@ describe("Milo evidence", () => {
     ).toBe(false)
     expect(sourceUrl(source)).toBe("/wiki/1/2#servicing-refund-status")
   })
+  it("answers a broad multi-topic request from several relevant pages, not from one weak match", () => {
+    const pages = [
+      { ...source, title: "Funding Checklist", snippet: "Confirm the wire before funding." },
+      { ...source, title: "Closing Desk Notes", snippet: "Closing desk steps." },
+      { ...source, title: "Wiki Basics", snippet: "How the wiki works." },
+    ]
+    expect(
+      hasRetrievalConfidence(
+        "Summarize everything in the wiki about funding, closing, and wiki basics in detail, step by step.",
+        pages
+      )
+    ).toBe(true)
+    expect(
+      hasRetrievalConfidence(
+        "Summarize everything about refunds, payroll, and cafeteria menus",
+        [source]
+      )
+    ).toBe(false)
+    expect(
+      hasRetrievalConfidence("What is the PTO policy for loan officers?", [
+        { ...source, title: "Funding Checklist", snippet: "The loan must have a signed CD." },
+      ])
+    ).toBe(false)
+    expect(
+      hasRetrievalConfidence("Summarize everything about cafeteria menus", [
+        { ...source, snippet: "A summary of company policies." },
+      ])
+    ).toBe(false)
+  })
   it("does not cite a source for changed numbers or negation", () => {
     expect(
       checkAnswer("Do not track returned checks in the refund ledger.", [

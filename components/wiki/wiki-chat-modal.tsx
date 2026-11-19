@@ -46,6 +46,7 @@ const WikiChatModalContext =
 const openChatKey = "milo-chat-open"
 const tipSeenKey = "milo-moved-tip-seen"
 const panelId = "milo-panel"
+const finePointerQuery = "(hover: hover) and (pointer: fine)"
 
 export function useWikiChatModal() {
   const context = React.useContext(WikiChatModalContext)
@@ -96,9 +97,44 @@ export function WikiChatModalProvider({
   const [isOpen, setIsOpen] = React.useState(false)
   const [hasOpened, setHasOpened] = React.useState(false)
   const [showTip, setShowTip] = React.useState(false)
+  const [finePointer, setFinePointer] = React.useState(false)
+  const [shortcut, setShortcut] = React.useState("Ctrl+J")
+  const [tooltipOpen, setTooltipOpen] = React.useState(false)
+  const keyboardInput = React.useRef(false)
+  const keyboardFocus = React.useRef(false)
+  const hoveringLauncher = React.useRef(false)
+  const restoringFocus = React.useRef(false)
+  React.useEffect(() => {
+    const media = window.matchMedia(finePointerQuery)
+    const update = () => setFinePointer(media.matches)
+    let active = true
+    queueMicrotask(() => {
+      if (!active) return
+      update()
+      setShortcut(
+        /Mac|iPhone|iPad|iPod/i.test(navigator.platform) ? "⌘J" : "Ctrl+J"
+      )
+    })
+    media.addEventListener("change", update)
+    const onKey = () => {
+      keyboardInput.current = true
+    }
+    const onPointer = () => {
+      keyboardInput.current = false
+    }
+    window.addEventListener("keydown", onKey, true)
+    window.addEventListener("pointerdown", onPointer, true)
+    return () => {
+      active = false
+      media.removeEventListener("change", update)
+      window.removeEventListener("keydown", onKey, true)
+      window.removeEventListener("pointerdown", onPointer, true)
+    }
+  }, [])
   // The tip counts as seen only once it is dismissed or Milo is opened.
   const dismissTip = React.useCallback(() => {
     setShowTip(false)
+    if (!window.matchMedia(finePointerQuery).matches) return
     try {
       localStorage.setItem(tipSeenKey, "true")
     } catch {
@@ -376,6 +412,13 @@ export function WikiChatModalProvider({
     obstruction?.top ?? null,
     overlapsBar
   )
+  const launcherBottomOffset = miloBottomOffset(
+    baseBottom,
+    viewport.height,
+    obstruction?.top ?? null,
+    !isLeft ||
+      (obstruction !== null && baseBottom + launcherWidth > obstruction.left)
+  )
   // On phones the panel is full screen, but it stops above the editor's Save bar.
   const phoneAboveBar = isOpen && !desktop && obstruction !== null
   const positionStyle = {
@@ -391,6 +434,20 @@ export function WikiChatModalProvider({
       ? `translate(${dragOffset.x}px, ${dragOffset.y}px)`
       : undefined,
   } as React.CSSProperties
+
+  React.useLayoutEffect(() => {
+    if (!available) return
+    const body = document.body
+    body.dataset.miloLauncher = isTop ? "top" : "bottom"
+    body.style.setProperty(
+      "--milo-launcher-clearance",
+      `${launcherBottomOffset + (desktop ? 40 : 48) + 8}px`
+    )
+    return () => {
+      delete body.dataset.miloLauncher
+      body.style.removeProperty("--milo-launcher-clearance")
+    }
+  }, [available, isTop, launcherBottomOffset, desktop])
 
   React.useEffect(() => {
     if (!available) return
@@ -415,7 +472,7 @@ export function WikiChatModalProvider({
   }, [available])
 
   React.useEffect(() => {
-    if (!available || isOpen) return
+    if (!available || isOpen || !finePointer) return
     let active = true
     void Promise.resolve().then(() => {
       if (!active) return
@@ -433,13 +490,16 @@ export function WikiChatModalProvider({
     return () => {
       active = false
     }
-  }, [available, isOpen])
+  }, [available, isOpen, finePointer])
 
   const setOpen = React.useCallback(
     (open: boolean) => {
       if (!available) return
       interactedRef.current = true
       if (open) {
+        setTooltipOpen(false)
+        hoveringLauncher.current = false
+        keyboardFocus.current = false
         setHasOpened(true)
         dismissTip()
       }
@@ -456,8 +516,13 @@ export function WikiChatModalProvider({
   const close = React.useCallback(() => {
     setOpen(false)
     setQueuedPrompt(null)
+    setTooltipOpen(false)
     // The launcher is revealed in the next render.
-    requestAnimationFrame(() => launcherRef.current?.focus())
+    requestAnimationFrame(() => {
+      restoringFocus.current = true
+      launcherRef.current?.focus()
+      restoringFocus.current = false
+    })
   }, [setOpen])
 
   const openWithPrompt = React.useCallback(
@@ -539,18 +604,18 @@ export function WikiChatModalProvider({
             style={positionStyle}
             hidden={isOpen}
           >
-            {showTip ? (
+            {showTip && finePointer ? (
               <div
-                className={`absolute flex w-64 items-start gap-2 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-md ${isLeft ? "left-0" : "right-0"} ${isTop ? "top-full mt-3" : "bottom-full mb-3"}`}
+                className={`absolute top-1/2 flex w-max max-w-[min(280px,calc(100vw-6rem))] -translate-y-1/2 items-center gap-1 rounded-lg border bg-popover py-0 pr-1 pl-2 text-xs text-popover-foreground shadow-md ${isLeft ? "left-full ml-2" : "right-full mr-2"}`}
                 role="status"
               >
-                <p className="flex-1">
-                  Milo moved here. Press ⌘J / Ctrl+J any time.
+                <p className="min-w-0 truncate">
+                  Milo lives here now · {shortcut}
                 </p>
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon-xs"
                   aria-label="Dismiss Milo tip"
                   onClick={dismissTip}
                 >
@@ -558,7 +623,14 @@ export function WikiChatModalProvider({
                 </Button>
               </div>
             ) : null}
-            <Tooltip>
+            <Tooltip
+              open={tooltipOpen}
+              onOpenChange={(open) =>
+                setTooltipOpen(
+                  open && (hoveringLauncher.current || keyboardFocus.current)
+                )
+              }
+            >
               <TooltipTrigger asChild>
                 <Button
                   ref={launcherRef}
@@ -572,7 +644,24 @@ export function WikiChatModalProvider({
                     toggle()
                   }}
                   onPointerDown={(event) => startDrag(event, false)}
-                  onPointerMove={moveDrag}
+                  onPointerMove={(event) => {
+                    hoveringLauncher.current = event.pointerType === "mouse"
+                    moveDrag(event)
+                  }}
+                  onPointerLeave={() => {
+                    hoveringLauncher.current = false
+                    if (!keyboardFocus.current) setTooltipOpen(false)
+                  }}
+                  onFocus={(event) => {
+                    keyboardFocus.current =
+                      !restoringFocus.current &&
+                      keyboardInput.current &&
+                      event.currentTarget.matches(":focus-visible")
+                  }}
+                  onBlur={() => {
+                    keyboardFocus.current = false
+                    if (!hoveringLauncher.current) setTooltipOpen(false)
+                  }}
                   onPointerUp={(event) => endDrag(event)}
                   onPointerCancel={(event) => endDrag(event, true)}
                   onLostPointerCapture={(event) => endDrag(event, true)}
@@ -586,7 +675,7 @@ export function WikiChatModalProvider({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side={isTop ? "bottom" : "top"} sideOffset={6}>
-                ⌘J / Ctrl+J
+                {shortcut}
               </TooltipContent>
             </Tooltip>
           </div>

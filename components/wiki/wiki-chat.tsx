@@ -1031,7 +1031,13 @@ export function WikiChat({
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
       <div
         ref={threadView}
-        className="min-h-0 flex-1 overflow-y-auto px-6 py-5"
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6",
+          !messages.length &&
+            !loadingHistory &&
+            !restoreError &&
+            "flex flex-col"
+        )}
         onScroll={(event) => {
           const el = event.currentTarget
           nearBottom.current =
@@ -1182,7 +1188,7 @@ export function WikiChat({
                         </div>
                       ) : null}
                       {!pending && answer.serverId && !answer.error ? (
-                        <div className="mt-3 flex items-center gap-1">
+                        <div className="mt-3 flex flex-wrap items-center gap-1">
                           <Button
                             type="button"
                             variant={
@@ -1246,7 +1252,7 @@ export function WikiChat({
                                   setShareReason(event.target.value)
                                 }
                               />
-                              <div className="flex gap-2">
+                              <div className="flex flex-wrap gap-2">
                                 <Button
                                   type="button"
                                   size="sm"
@@ -1306,7 +1312,7 @@ export function WikiChat({
             )}
           </div>
         ) : !loadingHistory ? (
-          <div className="space-y-4">
+          <div className="mt-auto space-y-4 sm:mt-0">
             <p className="text-base font-medium">
               {firstName ? `Hi, ${firstName}.` : "Hi."} How can I help?
             </p>
@@ -1340,7 +1346,7 @@ export function WikiChat({
         ) : null}
       </div>
 
-      <form onSubmit={askQuestion} className="border-t p-4">
+      <form onSubmit={askQuestion} className="shrink-0 border-t p-4">
         {pageContext ? (
           <div className="mb-2 inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs">
             <span className="truncate">About: {pageContext.title}</span>
@@ -1451,7 +1457,7 @@ export function WikiChat({
                 ((!input.trim() && !file) ||
                   input.length > MILO_SOURCE_MAX_CHARS))
             }
-            className="cursor-pointer"
+            className="cursor-pointer disabled:bg-muted disabled:text-foreground disabled:opacity-100"
           >
             {pending ? <SquareIcon /> : <SendIcon />}
           </Button>
