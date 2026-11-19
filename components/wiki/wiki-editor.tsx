@@ -190,6 +190,7 @@ function WikiEditorMounted({
   const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
   const [surface, setSurface] = React.useState<HTMLDivElement | null>(null)
+  const scrolledHash = React.useRef<string | null>(null)
   const showEditorControls = canEditPage && showStatusControl
 
   async function uploadWikiFile(file: File) {
@@ -230,25 +231,29 @@ function WikiEditorMounted({
 
   React.useEffect(() => {
     if (!surface) return
-    let scrolled = false
     const update = () => {
       const path: string[] = []
-      surface
-        .querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")
-        .forEach((heading) => {
-          const level = Number(heading.tagName.slice(1))
-          path.length = level - 1
-          path[level - 1] = heading.textContent?.trim() ?? ""
-          heading.id = wikiHeadingAnchor(path.filter(Boolean))
-        })
-      if (!scrolled && window.location.hash) {
-        const target = document.getElementById(
-          decodeURIComponent(window.location.hash.slice(1))
-        )
-        if (target && surface.contains(target)) {
-          target.scrollIntoView()
-          scrolled = true
+      const hash = window.location.hash
+        ? decodeURIComponent(window.location.hash.slice(1))
+        : null
+      let target: HTMLElement | null = null
+      for (const heading of surface.querySelectorAll<HTMLElement>(
+        "h1, h2, h3, h4, h5, h6"
+      )) {
+        const level = Number(heading.tagName.slice(1))
+        path.length = level - 1
+        path[level - 1] = heading.textContent?.trim() ?? ""
+        const anchor = wikiHeadingAnchor(path.filter(Boolean))
+        // ProseMirror replaces headings when foreign attributes are written
+        // while editing, which would cause an endless mutation loop.
+        if (!canEditPage && !editor.isEditable) {
+          heading.id = anchor
         }
+        if (!target && hash === anchor) target = heading
+      }
+      if (target && hash && scrolledHash.current !== hash) {
+        target.scrollIntoView()
+        scrolledHash.current = hash
       }
     }
     update()
@@ -259,7 +264,7 @@ function WikiEditorMounted({
       characterData: true,
     })
     const hashChange = () => {
-      scrolled = false
+      scrolledHash.current = null
       update()
     }
     window.addEventListener("hashchange", hashChange)
@@ -267,7 +272,7 @@ function WikiEditorMounted({
       observer.disconnect()
       window.removeEventListener("hashchange", hashChange)
     }
-  }, [surface])
+  }, [surface, canEditPage, editor])
 
   React.useEffect(() => {
     if (!isDirty) return
