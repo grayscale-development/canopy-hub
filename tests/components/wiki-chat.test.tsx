@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
-import { WikiChat } from "@/components/wiki/wiki-chat"
+import { WikiChat, type WikiChatHandle } from "@/components/wiki/wiki-chat"
 
 function streamedResponse(
   threadId: string,
@@ -71,6 +71,224 @@ describe("WikiChat", () => {
     cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  function HistoryHarness() {
+    const chat = React.useRef<WikiChatHandle>(null)
+    return (
+      <>
+        <button onClick={() => chat.current?.newChat()}>New chat</button>
+        <button onClick={() => chat.current?.showHistory()}>History</button>
+        <WikiChat ref={chat} />
+      </>
+    )
+  }
+
+  it("opens a previous chat, starts a new one and confirms deletion of the active chat", async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") return { ok: true }
+      if (url.includes("threadId="))
+        return {
+          ok: true,
+          json: async () => ({
+            messages: [{ id: "q", role: "user", content: "Saved question" }],
+          }),
+        }
+      return {
+        ok: true,
+        json: async () => ({
+          threads: [
+            {
+              id: "one",
+              title: "Saved chat",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      }
+    })
+    render(<HistoryHarness />)
+    await user.click(screen.getByRole("button", { name: "History" }))
+    await user.click(await screen.findByRole("button", { name: /^Saved chat/ }))
+    expect(await screen.findByText("Saved question")).toBeVisible()
+    expect(localStorage.getItem("milo-active-thread")).toBe("one")
+    await user.click(screen.getByRole("button", { name: "New chat" }))
+    expect(await screen.findByText(/How can I help/)).toBeVisible()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Ask a follow-up" })
+      ).toHaveFocus()
+    )
+    expect(localStorage.getItem("milo-active-thread")).toBeNull()
+    await user.click(screen.getByRole("button", { name: "History" }))
+    await user.click(await screen.findByRole("button", { name: /^Saved chat/ }))
+    await screen.findByText("Saved question")
+    await user.click(screen.getByRole("button", { name: "History" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Delete chat Saved chat" })
+    )
+    expect(screen.getByRole("button", { name: /^Delete$/ })).toHaveFocus()
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Delete chat Saved chat" })
+      ).toHaveFocus()
+    )
+    expect(
+      screen.getByRole("button", { name: "Delete chat Saved chat" })
+    ).toBeVisible()
+    await user.click(
+      screen.getByRole("button", { name: "Delete chat Saved chat" })
+    )
+    await user.click(screen.getByRole("button", { name: /^Delete$/ }))
+    expect(await screen.findByText("Chat deleted.")).toBeVisible()
+    expect(screen.getByText("No chats yet.")).toBeVisible()
+    expect(localStorage.getItem("milo-active-thread")).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Back" }))
+    expect(screen.getByText(/How can I help/)).toBeVisible()
+  })
+
+  it("does not restore an in-flight chat after starting a new one", async () => {
+    const user = userEvent.setup()
+    let stream!: ReadableStreamDefaultController<Uint8Array>
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && _url === "/api/wiki/chat") {
+        return {
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              stream = controller
+            },
+          }),
+        }
+      }
+      return { ok: true, json: async () => ({ messages: [] }) }
+    })
+    render(<HistoryHarness />)
+    await user.type(
+      await screen.findByRole("textbox", { name: "Ask a follow-up" }),
+      "First topic"
+    )
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    await user.click(screen.getByRole("button", { name: "New chat" }))
+    stream.enqueue(
+      new TextEncoder().encode(
+        'data: {"type":"meta","threadId":"old","userMessageId":"q"}\n\n'
+      )
+    )
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/wiki/chat/stop",
+        expect.objectContaining({ method: "POST" })
+      )
+    )
+    expect(localStorage.getItem("milo-active-thread")).toBeNull()
+    expect(screen.getByText(/How can I help/)).toBeVisible()
+  })
+
+  it("offers a retry for history load and delete errors and shows an empty list", async () => {
+    const user = userEvent.setup()
+    fetchMock.mockRejectedValueOnce(new Error("private error"))
+    render(<HistoryHarness />)
+    await user.click(screen.getByRole("button", { name: "History" }))
+    expect(
+      await screen.findByText("Couldn't load recent chats. Please try again.")
+    ).toBeVisible()
+    expect(screen.queryByText("private error")).not.toBeInTheDocument()
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        threads: [
+          {
+            id: "one",
+            title: "Saved chat",
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    })
+    await user.click(screen.getByRole("button", { name: "Retry" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Delete chat Saved chat" })
+    )
+    fetchMock.mockRejectedValueOnce(new Error("private error"))
+    await user.click(screen.getByRole("button", { name: /^Delete$/ }))
+    expect(
+      await screen.findByText("Couldn't delete chat. Please try again.")
+    ).toBeVisible()
+    fetchMock.mockResolvedValueOnce({ ok: true })
+    await user.click(screen.getByRole("button", { name: /^Delete$/ }))
+    expect(await screen.findByText("No chats yet.")).toBeVisible()
+  })
+
+  it("clears a chat deleted elsewhere when opened from history", async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.includes("threadId=")) return { ok: false, status: 404 }
+      if (init?.method === "POST")
+        return streamedResponse("new-thread", "New answer")
+      return {
+        ok: true,
+        json: async () => ({
+          threads: [
+            {
+              id: "missing",
+              title: "Missing chat",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      }
+    })
+    render(<HistoryHarness />)
+    await user.click(screen.getByRole("button", { name: "History" }))
+    await user.click(
+      await screen.findByRole("button", { name: /^Missing chat/ })
+    )
+    expect(await screen.findByText(/How can I help/)).toBeVisible()
+    expect(localStorage.getItem("milo-active-thread")).toBeNull()
+    const input = screen.getByRole("textbox", { name: "Ask a follow-up" })
+    await user.type(input, "New topic")
+    await user.click(screen.getByRole("button", { name: "Send follow-up" }))
+    expect(await screen.findByText("New answer")).toBeVisible()
+    const request = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "POST"
+    )
+    expect(JSON.parse(request![1].body).threadId).toBeNull()
+  })
+
+  it("retries a failed chat load without exposing internal errors", async () => {
+    const user = userEvent.setup()
+    localStorage.setItem("milo-active-thread", "saved")
+    fetchMock.mockRejectedValueOnce(new Error("private detail"))
+    render(<HistoryHarness />)
+    expect(
+      await screen.findByText(
+        "Couldn't load this chat. Try again or start a new chat."
+      )
+    ).toBeVisible()
+    expect(screen.queryByText("private detail")).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("textbox", { name: "Ask a follow-up" })
+    ).toBeDisabled()
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        messages: [{ id: "q", role: "user", content: "Saved question" }],
+      }),
+    })
+    await user.click(screen.getByRole("button", { name: "Retry" }))
+    expect(await screen.findByText("Saved question")).toBeVisible()
+  })
+
+  it("quietly clears a saved deleted chat", async () => {
+    localStorage.setItem("milo-active-thread", "deleted")
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 404 })
+    render(<HistoryHarness />)
+    expect(await screen.findByText(/How can I help/)).toBeVisible()
+    expect(localStorage.getItem("milo-active-thread")).toBeNull()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 
   it("shows the empty state and makes a network error retryable", async () => {

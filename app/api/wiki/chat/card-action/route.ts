@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     .select("id")
     .eq("id", action.threadId)
     .eq("user_id", user.id)
+    .is("deleted_at", null)
     .maybeSingle()
   if (threadError)
     return NextResponse.json({ error: "Unable to load chat." }, { status: 400 })

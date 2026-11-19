@@ -6,6 +6,8 @@ import ReactMarkdown from "react-markdown"
 import {
   Loader2Icon,
   FileTextIcon,
+  ArrowLeftIcon,
+  Trash2Icon,
   PaperclipIcon,
   SendIcon,
   SquareIcon,
@@ -34,6 +36,38 @@ import {
 } from "@/lib/milo/chat-cards"
 import { cn } from "@/lib/utils"
 import { inlineCitations, isWikiTagUrl } from "@/lib/milo/inline-citations"
+
+interface ChatThread {
+  id: string
+  title: string | null
+  updatedAt: string
+}
+
+export interface WikiChatHandle {
+  newChat: () => void
+  showHistory: () => void
+}
+
+function relativeTime(value: string) {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ""
+  const elapsed = Math.max(0, Date.now() - date.getTime())
+  if (elapsed < 60_000) return "Just now"
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`
+  const today = new Date()
+  const yesterday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - 1
+  )
+  if (date >= yesterday) return "Yesterday"
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}),
+  })
+}
 
 interface Citation {
   title: string
@@ -185,6 +219,7 @@ function MessageContent({
 }
 
 export function WikiChat({
+  ref,
   className,
   queuedPrompt,
   initialDraft = "",
@@ -196,6 +231,7 @@ export function WikiChat({
   onRemovePage,
   firstName,
 }: {
+  ref?: React.Ref<WikiChatHandle>
   className?: string
   queuedPrompt?: string | null
   initialDraft?: string
@@ -207,6 +243,22 @@ export function WikiChat({
   onRemovePage?: () => void
   firstName?: string
 }) {
+  const [view, setView] = React.useState<"chat" | "history">("chat")
+  const [threads, setThreads] = React.useState<ChatThread[]>([])
+  const [listState, setListState] = React.useState<
+    "loading" | "ready" | "error"
+  >("loading")
+  const [confirmId, setConfirmId] = React.useState<string | null>(null)
+  const [deletingId, setDeletingId] = React.useState<string | null>(null)
+  const [historyStatus, setHistoryStatus] = React.useState("")
+  // A fresh object requests the same thread again; null cancels a pending load.
+  const [loadTarget, setLoadTarget] = React.useState<{ id?: string } | null>({})
+  const backButton = React.useRef<HTMLButtonElement>(null)
+  const confirmButton = React.useRef<HTMLButtonElement>(null)
+  const deleteButtons = React.useRef(new Map<string, HTMLButtonElement>())
+  const listVersion = React.useRef(0)
+  const loadVersion = React.useRef(0)
+  const activeThread = React.useRef<string | null>(null)
   const [threadId, setThreadId] = React.useState<string | null>(null)
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
   const [input, setInput] = React.useState(initialDraft)
@@ -232,8 +284,21 @@ export function WikiChat({
   }, [])
 
   React.useEffect(() => {
-    if (draftRequest) setInput(draftRequest.value)
+    if (!draftRequest) return
+    let active = true
+    queueMicrotask(() => {
+      if (!active) return
+      setView("chat")
+      setInput(draftRequest.value)
+    })
+    return () => {
+      active = false
+    }
   }, [draftRequest])
+
+  React.useEffect(() => {
+    if (confirmId) confirmButton.current?.focus()
+  }, [confirmId])
 
   React.useEffect(() => {
     if (
@@ -253,24 +318,39 @@ export function WikiChat({
 
   React.useEffect(() => {
     let active = true
+    const version = loadVersion.current
     async function restoreThread() {
+      if (!loadTarget) return
       try {
-        const saved = localStorage.getItem(activeThreadKey)
+        const saved = loadTarget.id ?? localStorage.getItem(activeThreadKey)
         if (!saved) return
         const response = await fetch(
           `/api/wiki/chat?threadId=${encodeURIComponent(saved)}`
         )
+        if (!active || version !== loadVersion.current) return
         if (!response.ok) {
           if (response.status === 403 || response.status === 404) {
             localStorage.removeItem(activeThreadKey)
+            activeThread.current = null
+            setThreadId(null)
           } else if (active) {
             setRestoreError(true)
           }
           return
         }
         const data = await response.json()
-        if (active && Array.isArray(data.messages)) {
+        if (
+          active &&
+          version === loadVersion.current &&
+          Array.isArray(data.messages)
+        ) {
+          activeThread.current = saved
           setThreadId(saved)
+          try {
+            localStorage.setItem(activeThreadKey, saved)
+          } catch {
+            /* Storage is optional. */
+          }
           setMessages(
             data.messages
               .filter(
@@ -341,16 +421,123 @@ export function WikiChat({
           )
         }
       } catch {
-        if (active) setRestoreError(true)
+        if (active && version === loadVersion.current) setRestoreError(true)
       } finally {
-        if (active) setLoadingHistory(false)
+        if (active && version === loadVersion.current) {
+          setLoadingHistory(false)
+          if (loadTarget.id)
+            requestAnimationFrame(() => composer.current?.focus())
+        }
       }
     }
     void restoreThread()
     return () => {
       active = false
     }
-  }, [])
+  }, [loadTarget])
+
+  function stopActiveAnswer() {
+    activeStop.current?.()
+  }
+
+  function newChat() {
+    loadVersion.current++
+    activeThread.current = null
+    stopActiveAnswer()
+    setLoadTarget(null)
+    setLoadingHistory(false)
+    setRestoreError(false)
+    setThreadId(null)
+    setMessages([])
+    setInput("")
+    setFile(null)
+    setFileError("")
+    setConfirmId(null)
+    setView("chat")
+    try {
+      localStorage.removeItem(activeThreadKey)
+    } catch {
+      /* Storage is optional. */
+    }
+    requestAnimationFrame(() => composer.current?.focus())
+  }
+
+  async function loadList() {
+    const version = ++listVersion.current
+    setListState("loading")
+    setConfirmId(null)
+    try {
+      const response = await fetch("/api/wiki/chat")
+      if (!response.ok) throw new Error("Unable to load chats")
+      const data = await response.json()
+      if (!Array.isArray(data.threads)) throw new Error("Invalid response")
+      if (version !== listVersion.current) return
+      setThreads(data.threads)
+      setListState("ready")
+    } catch {
+      if (version === listVersion.current) setListState("error")
+    }
+  }
+
+  function showHistory() {
+    setHistoryStatus("")
+    setView("history")
+    void loadList()
+  }
+
+  function openThread(id: string) {
+    loadVersion.current++
+    activeThread.current = id
+    stopActiveAnswer()
+    setLoadingHistory(true)
+    setRestoreError(false)
+    setMessages([])
+    setThreadId(id)
+    setLoadTarget({ id })
+    setView("chat")
+  }
+
+  async function deleteThread(id: string) {
+    if (deletingId) return
+    setDeletingId(id)
+    setHistoryStatus("")
+    try {
+      const response = await fetch(
+        `/api/wiki/chat?threadId=${encodeURIComponent(id)}`,
+        { method: "DELETE" }
+      )
+      if (!response.ok) throw new Error("Unable to delete")
+      setThreads((current) => current.filter((thread) => thread.id !== id))
+      setConfirmId(null)
+      if (activeThread.current === id) {
+        loadVersion.current++
+        activeThread.current = null
+        stopActiveAnswer()
+        setLoadTarget(null)
+        setLoadingHistory(false)
+        setRestoreError(false)
+        setThreadId(null)
+        setMessages([])
+        setInput("")
+        setFile(null)
+        setFileError("")
+        try {
+          localStorage.removeItem(activeThreadKey)
+        } catch {
+          /* Storage is optional. */
+        }
+      }
+      setHistoryStatus("Chat deleted.")
+      requestAnimationFrame(() => backButton.current?.focus())
+    } catch {
+      setHistoryStatus("Couldn't delete chat. Please try again.")
+      requestAnimationFrame(() => confirmButton.current?.focus())
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  React.useImperativeHandle(ref, () => ({ newChat, showHistory }))
 
   const sendQuestion = React.useCallback(
     async (questionValue: string, attachment?: File | null) => {
@@ -479,15 +666,16 @@ export function WikiChat({
             if (data.type === "meta") {
               sentThreadId = data.threadId
               sentUserId = data.userMessageId
+              if (stopRequested) {
+                finishStop()
+                throw new DOMException("Aborted", "AbortError")
+              }
+              activeThread.current = data.threadId
               setThreadId(data.threadId)
               try {
                 localStorage.setItem(activeThreadKey, data.threadId)
               } catch {
                 /* Storage is optional. */
-              }
-              if (stopRequested) {
-                finishStop()
-                throw new DOMException("Aborted", "AbortError")
               }
             }
             if (stopRequested) continue
@@ -533,6 +721,7 @@ export function WikiChat({
             }
             if (data.type === "done") {
               completed = true
+              activeThread.current = data.threadId
               setThreadId(data.threadId)
               setMessages((current) =>
                 current.map((message) =>
@@ -636,6 +825,7 @@ export function WikiChat({
     }
 
     consumedPromptRef.current = prompt
+    setView("chat")
     onQueuedPromptConsumed?.()
     void sendQuestion(prompt)
   }, [
@@ -707,6 +897,136 @@ export function WikiChat({
     }
   }
 
+  if (view === "history") {
+    return (
+      <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+        <p
+          className={cn("text-sm", historyStatus ? "px-4 pt-3" : "sr-only")}
+          role="status"
+          aria-live="polite"
+        >
+          {historyStatus}
+        </p>
+        <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Back"
+            ref={backButton}
+            onClick={() => {
+              setView("chat")
+              requestAnimationFrame(() => composer.current?.focus())
+            }}
+          >
+            <ArrowLeftIcon />
+          </Button>
+          <h3 className="font-semibold">Recent chats</h3>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          {listState === "loading" ? (
+            <div
+              aria-label="Loading recent chats"
+              role="status"
+              className="space-y-2"
+            >
+              {[0, 1, 2].map((item) => (
+                <div
+                  key={item}
+                  className="h-16 animate-pulse rounded-lg bg-muted"
+                />
+              ))}
+            </div>
+          ) : listState === "error" ? (
+            <div className="space-y-3 text-sm" role="alert">
+              <p>Couldn&apos;t load recent chats. Please try again.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void loadList()}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : threads.length === 0 ? (
+            <p className="py-3 text-sm text-muted-foreground">No chats yet.</p>
+          ) : (
+            <ul className="divide-y">
+              {threads.map((thread) => {
+                const title = thread.title?.trim() || "Untitled chat"
+                return (
+                  <li
+                    key={thread.id}
+                    className="flex min-h-16 items-center gap-1 py-1"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => openThread(thread.id)}
+                      className="min-w-0 flex-1 rounded-md px-2 py-2 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    >
+                      <span className="block truncate text-sm font-medium">
+                        {title}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {relativeTime(thread.updatedAt)}
+                      </span>
+                    </button>
+                    {confirmId === thread.id ? (
+                      <div className="flex shrink-0 items-center gap-1 text-xs">
+                        <span>Delete?</span>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          ref={confirmButton}
+                          size="xs"
+                          disabled={deletingId !== null}
+                          onClick={() => void deleteThread(thread.id)}
+                        >
+                          Delete
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          disabled={deletingId !== null}
+                          onClick={() => {
+                            setConfirmId(null)
+                            requestAnimationFrame(() =>
+                              deleteButtons.current.get(thread.id)?.focus()
+                            )
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete chat ${title}`}
+                        ref={(element) => {
+                          if (element)
+                            deleteButtons.current.set(thread.id, element)
+                          else deleteButtons.current.delete(thread.id)
+                        }}
+                        disabled={deletingId !== null}
+                        onClick={() => setConfirmId(thread.id)}
+                      >
+                        <Trash2Icon />
+                      </Button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
       <div
@@ -720,18 +1040,19 @@ export function WikiChat({
       >
         {restoreError ? (
           <div role="alert" className="mb-4 text-sm text-muted-foreground">
-            <p>
-              Couldn&apos;t load the previous chat. Reload to try again, or
-              start a new question.
-            </p>
+            <p>Couldn&apos;t load this chat. Try again or start a new chat.</p>
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="mt-2"
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                setRestoreError(false)
+                setLoadingHistory(true)
+                setLoadTarget({ id: loadTarget?.id })
+              }}
             >
-              Reload
+              Retry
             </Button>
           </div>
         ) : null}
@@ -1078,7 +1399,7 @@ export function WikiChat({
                   type="button"
                   variant="outline"
                   size="icon"
-                  disabled={pending || loadingHistory}
+                  disabled={pending || loadingHistory || restoreError}
                   onClick={() => fileInput.current?.click()}
                   aria-label="Attach a file"
                 >
@@ -1109,7 +1430,7 @@ export function WikiChat({
             rows={Math.min(6, Math.max(1, input.split("\n").length))}
             placeholder="Ask a question or paste source text"
             aria-label="Ask a follow-up"
-            disabled={pending || loadingHistory}
+            disabled={pending || loadingHistory || restoreError}
             className="field-sizing-content max-h-40 min-h-10 min-w-0 flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           />
           <Button
@@ -1125,6 +1446,7 @@ export function WikiChat({
             }
             disabled={
               loadingHistory ||
+              restoreError ||
               (!pending &&
                 ((!input.trim() && !file) ||
                   input.length > MILO_SOURCE_MAX_CHARS))

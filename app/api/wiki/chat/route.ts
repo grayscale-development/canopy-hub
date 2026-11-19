@@ -86,6 +86,7 @@ export async function GET(request: Request) {
       .from("ai_chat_threads")
       .select("id,title,created_at,updated_at")
       .eq("user_id", user.id)
+      .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(30)
 
@@ -108,6 +109,7 @@ export async function GET(request: Request) {
     .select("id,title,created_at,updated_at")
     .eq("id", threadId)
     .eq("user_id", user.id)
+    .is("deleted_at", null)
     .maybeSingle()
 
   if (threadError) {
@@ -334,6 +336,55 @@ async function readSourceFile(file: File) {
   return extractWikiDocumentText(file)
 }
 
+export async function DELETE(request: Request) {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (
+    !(await userHasPermissionCode({
+      supabase,
+      userId: user.id,
+      code: BETA_1_PERMISSION,
+    }))
+  ) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+  const threadId = new URL(request.url).searchParams.get("threadId")?.trim()
+  if (!z.string().uuid().safeParse(threadId).success) {
+    return NextResponse.json({ error: "Chat not found." }, { status: 404 })
+  }
+  const { data: thread, error } = await supabase
+    .from("ai_chat_threads")
+    .select("id,deleted_at")
+    .eq("id", threadId)
+    .eq("user_id", user.id)
+    .maybeSingle()
+  if (error)
+    return NextResponse.json(
+      { error: "Could not delete chat." },
+      { status: 500 }
+    )
+  if (!thread)
+    return NextResponse.json({ error: "Chat not found." }, { status: 404 })
+  if (!thread.deleted_at) {
+    const { error: updateError } = await supabase
+      .from("ai_chat_threads")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", threadId)
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
+    if (updateError)
+      return NextResponse.json(
+        { error: "Could not delete chat." },
+        { status: 500 }
+      )
+  }
+  return NextResponse.json({ ok: true })
+}
+
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -467,6 +518,7 @@ export async function POST(request: Request) {
       .select("id")
       .eq("id", threadId)
       .eq("user_id", user.id)
+      .is("deleted_at", null)
       .maybeSingle()
 
     if (threadError) {
