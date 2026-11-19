@@ -202,7 +202,14 @@ test("an instruction updates a fact after review @wiki-reviewed", async ({
   await expect(
     dialog.getByRole("heading", { name: "Page after update" })
   ).toBeVisible()
-  await expect(dialog.getByText("The wire cutoff is 2 PM.")).toBeVisible()
+  // The review shows a word-level diff, so the sentence is split into marks.
+  await expect(dialog).toContainText("The wire cutoff is")
+  await expect(
+    dialog.locator("mark", { hasText: /Put in:\s*2\b/ }).first()
+  ).toBeVisible()
+  await expect(
+    dialog.locator("mark", { hasText: /Taken out:\s*4\b/ }).first()
+  ).toBeVisible()
   const saved = waitForAppliedPreview(page)
   await dialog.getByRole("button", { name: "Save as new version" }).click()
   expect((await saved).status()).toBe(200)
