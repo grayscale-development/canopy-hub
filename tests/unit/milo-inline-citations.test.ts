@@ -72,6 +72,19 @@ Funding Checklist: /wiki/1/16/17 and [Closing Desk Notes: /wiki/1/16/18](/wiki/1
     )
   })
 
+  it("links a page once even when different sections were retrieved", () => {
+    const sections = [
+      { title: "Funding Checklist", url: "/wiki/1/16/17#first" },
+      { title: "Funding Checklist", url: "/wiki/1/16/17#second" },
+    ]
+    expect(
+      inlineCitations(
+        "[Funding Checklist](/wiki/1/16/17#first) and [another section](/wiki/1/16/17#second).",
+        sections
+      )
+    ).toBe("[Funding Checklist](/wiki/1/16/17#first) and another section.")
+  })
+
   it("links only returned tags on their first mention using the canonical scoped URL", () => {
     const answer =
       "Hub Process helps. [Hub Process](/wiki/tags?tag=Hub%20Process) and [Hub Process](/wiki/tags?tag=Hub%20Process#tag-hub-process) help. [Unknown](/wiki/tags?tag=Unknown) is unverified."

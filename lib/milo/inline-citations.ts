@@ -7,6 +7,8 @@ const escapePattern = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 const safeUrl = (url: string | null): url is string =>
   Boolean(url && /^(?:\/(?!\/)|https?:\/\/)/i.test(url))
+const linkIdentity = (url: string) =>
+  /^\/wiki(?:\/\d+)+(?=#|$)/i.test(url) ? url.split("#")[0] : url
 export const isWikiTagUrl = (url: string) => {
   try {
     return /^\/wiki\/tags\/?$/i.test(
@@ -116,16 +118,18 @@ export function inlineCitations(answer: string, citations: Citation[]) {
       )
       if (!reference && !/^\/wiki(?:\/\d+)+$/.test(link[2])) return token
       const url = reference?.url ?? link[2]
-      if (linked.has(url)) return link[1]
-      linked.add(url)
+      const identity = linkIdentity(url)
+      if (linked.has(identity)) return link[1]
+      linked.add(identity)
       return token
     }
     if (token.startsWith("`")) return token
     const reference = names.find(
       ({ name }) => name.toLocaleLowerCase() === token.toLocaleLowerCase()
     )!
-    if (linked.has(reference.url)) return token
-    linked.add(reference.url)
+    const identity = linkIdentity(reference.url)
+    if (linked.has(identity)) return token
+    linked.add(identity)
     return `[${token}](${reference.url})`
   })
 }

@@ -84,6 +84,21 @@ describe("WikiChat", () => {
     )
   }
 
+  it("places the phone empty state above the composer while keeping desktop alignment", () => {
+    render(<WikiChat />)
+    const greeting = screen.getByText(/How can I help/)
+    expect(greeting.parentElement).toHaveClass("mt-auto", "sm:mt-0")
+    expect(greeting.parentElement?.parentElement).toHaveClass(
+      "flex",
+      "flex-col"
+    )
+    expect(screen.getByRole("button", { name: "Send follow-up" })).toHaveClass(
+      "disabled:bg-muted",
+      "disabled:text-foreground",
+      "disabled:opacity-100"
+    )
+  })
+
   it("opens a previous chat, starts a new one and confirms deletion of the active chat", async () => {
     const user = userEvent.setup()
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
