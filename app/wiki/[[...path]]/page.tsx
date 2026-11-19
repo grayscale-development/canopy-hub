@@ -163,7 +163,7 @@ function DirectoryView({
 
 function HiddenDraftView({ title }: { title: string }) {
   return (
-    <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+    <section className="mx-auto flex min-h-full w-full max-w-[1120px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
       <WikiViewModeTitleSpacing className="flex flex-col items-start gap-10">
         <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
           {title}
@@ -266,7 +266,7 @@ export default async function WikiPage({
     if (target && (target.status === "archived" || archivedParent)) {
       return (
         <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
-          <section className="mx-auto w-full max-w-[864px] px-6 py-4 md:px-8 md:py-6">
+          <section className="mx-auto w-full max-w-[1120px] px-6 py-4 md:px-8 md:py-6">
             <ArchivedWikiPageView
               node={target}
               archivedParent={archivedParent}
@@ -494,7 +494,7 @@ export default async function WikiPage({
                     title={displayedNode.title}
                   />
                 ) : null}
-                <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+                <section className="mx-auto flex min-h-full w-full max-w-[1120px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
                   {pageData?.node.type === "folder" ? (
                     <>
                       <DirectoryView
@@ -571,7 +571,7 @@ export default async function WikiPage({
                 </section>
               </WikiVisibleNodeGate>
             ) : (
-              <section className="mx-auto flex w-full max-w-[864px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
+              <section className="mx-auto flex w-full max-w-[1120px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
                 <div>
                   <h1 className="text-4xl font-semibold dark:text-[#CFCFCF]">
                     Welcome to the Wiki

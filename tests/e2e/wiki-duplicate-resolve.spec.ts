@@ -136,7 +136,7 @@ test("compare and review duplicate resolution @wiki", async ({ page }) => {
     const wizard = page.getByRole("dialog", {
       name: "AI Update: Closing Checklist",
     })
-    await expect(wizard.getByLabel("Paste text")).toHaveValue(text)
+    await expect(wizard.getByLabel("What should change?")).toHaveValue(text)
     await wizard.getByRole("button", { name: "Close" }).click()
     await expect(wizard).toHaveCount(0)
     await marker.click()

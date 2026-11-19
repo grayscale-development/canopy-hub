@@ -183,6 +183,36 @@ test("editor mode opens history only from the footer date and restore appends a 
   )
 })
 
+test("an instruction updates a fact after review @wiki-reviewed", async ({
+  page,
+}) => {
+  const reviewed = await createReviewedPage({
+    slug: `wire-cutoff-${Date.now()}`,
+    title: "Wire cutoff review",
+    paragraphs: ["The wire cutoff is 4 PM.", "Keep the approval step."],
+  })
+  await signInAsLocalDev(page)
+  await page.goto(reviewed.path)
+  await openUpdate(page)
+  const dialog = page.getByRole("dialog")
+  const instructions = dialog.getByLabel("What should change?")
+  await expect(instructions).toBeFocused()
+  await instructions.fill("Change 4 PM to 2 PM.")
+  await dialog.getByRole("button", { name: "Review changes" }).click()
+  await expect(
+    dialog.getByRole("heading", { name: "Page after update" })
+  ).toBeVisible()
+  await expect(dialog.getByText("The wire cutoff is 2 PM.")).toBeVisible()
+  const saved = waitForAppliedPreview(page)
+  await dialog.getByRole("button", { name: "Save as new version" }).click()
+  expect((await saved).status()).toBe(200)
+  await expect(dialog).toBeHidden()
+  await page.reload()
+  await expect(page.getByText("The wire cutoff is 2 PM.")).toBeVisible()
+  await expect(page.getByText("Keep the approval step.")).toBeVisible()
+  await expect(page.getByText("The wire cutoff is 4 PM.")).toHaveCount(0)
+})
+
 test("a long reviewed replacement shows non-text changes and persists after reload @wiki-reviewed", async ({
   page,
 }) => {
@@ -195,9 +225,9 @@ test("a long reviewed replacement shows non-text changes and persists after relo
   await signInAsLocalDev(page)
   await page.goto(reviewed.path)
   await openUpdate(page)
-  await page.getByRole("radio", { name: "Replace this page" }).click()
+  await page.getByRole("checkbox", { name: "Replace the whole page" }).click()
   await page
-    .getByLabel("Paste text")
+    .getByLabel("What should change?")
     .fill(
       `${changedLines.join("\n\n")}\n\n[Send the file](https://example.com/new-guide)\n\n![Reviewed chart](https://example.com/chart.png)\n\n| Fee | Amount |\n| --- | --- |\n| Review | 125 |`
     )
@@ -257,7 +287,9 @@ test("cancel leaves the revision untouched and a reviewed file save persists @wi
   await signInAsLocalDev(page)
   await page.goto(reviewed.path)
   await openUpdate(page)
-  await page.getByLabel("Paste text").fill("Cancelled sentence CANCEL-TOKEN.")
+  await page
+    .getByLabel("What should change?")
+    .fill("Cancelled sentence CANCEL-TOKEN.")
   await page.getByRole("button", { name: "Review changes" }).click()
   await expect(page.getByText("CANCEL-TOKEN")).toBeVisible()
   await page.getByRole("button", { name: "Back" }).click()
@@ -320,7 +352,9 @@ test("a stale or tampered preview is refused without a new revision @wiki-review
       response.url().includes("/api/wiki/import") &&
       response.request().method() === "POST"
   )
-  await page.getByLabel("Paste text").fill("Tampered sentence TAMPER-TOKEN.")
+  await page
+    .getByLabel("What should change?")
+    .fill("Tampered sentence TAMPER-TOKEN.")
   await page.getByRole("button", { name: "Review changes" }).click()
   const payload = await (await previewResponse).json()
   const tampered = String(payload.signedPreview).replace("Tampered", "Swapped")
