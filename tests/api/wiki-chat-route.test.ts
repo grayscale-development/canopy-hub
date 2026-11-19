@@ -865,6 +865,57 @@ describe("/api/wiki/chat route", () => {
     expect(testState.tables.ai_chat_citations).toHaveLength(1)
   })
 
+  it("streams and restores a processed tag citation without counting it as a page", async () => {
+    const { checkAnswer } = await import("@/lib/milo/evidence")
+    const tag = {
+      title: "Tag: Hub Process (Global)",
+      url: "/wiki/tags?tag=Hub%20Process#tag-hub-process",
+      snippet: "Accessible pages: Checklist",
+      sourceType: "wiki_tag",
+    }
+    const processed = checkAnswer(
+      "Hub Process applies. Hub Process helps.",
+      [],
+      [tag]
+    )
+    const oldAnswer = { ...testState.answer }
+    try {
+      testState.user = { id: "user-1" }
+      testState.answer.answer = processed.answer
+      testState.answer.citations = processed.citations.map((citation) => ({
+        ...citation,
+        knowledgeSourceId: "",
+        knowledgeChunkId: "",
+        url: citation.url!,
+      }))
+      const { POST, GET } = await import("@/app/api/wiki/chat/route")
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({ message: "Tell me about Hub Process" }),
+        })
+      )
+      const events = await readSseEvents(response)
+      expect(events.map((event) => event.token ?? "").join("")).toContain(
+        "[Hub Process](/wiki/tags?tag=Hub%20Process#tag-hub-process) applies. Hub Process helps."
+      )
+      expect(events.at(-1)).toMatchObject({
+        citations: [{ title: tag.title, url: tag.url }],
+      })
+      const history = await GET(
+        new Request(
+          "http://test.local/api/wiki/chat?threadId=ai_chat_threads-1"
+        )
+      )
+      expect((await history.json()).messages.at(-1)).toMatchObject({
+        content: processed.answer,
+        citations: [{ title: tag.title, url: tag.url }],
+      })
+    } finally {
+      Object.assign(testState.answer, oldAnswer)
+    }
+  })
+
   it("persists abstention and restores citation anchors and update details", async () => {
     testState.user = { id: "user-1" }
     const oldAnswer = { ...testState.answer }

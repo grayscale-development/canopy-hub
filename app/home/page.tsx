@@ -419,9 +419,7 @@ export default async function HomePage() {
                   Everything your team reaches for most is organized here, with
                   clear paths into files, reports, people, and support.
                 </p>
-                <div className="mt-6 w-full max-w-xl">
-                  <WikiHeaderSearch className="max-w-xl" />
-                </div>
+                <WikiHeaderSearch className="max-w-xl" />
               </div>
               <div className="flex flex-col justify-center border-t border-white/20 pt-6 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
                 <div className="flex items-center justify-between gap-3">

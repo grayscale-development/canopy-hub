@@ -8,7 +8,7 @@ import { useWikiChatModal } from "@/components/wiki/wiki-chat-modal"
 import { cn } from "@/lib/utils"
 
 export function WikiHeaderSearch({ className }: { className?: string }) {
-  const { openWithPrompt, openWithDraft } = useWikiChatModal()
+  const { available, openWithPrompt, openWithDraft } = useWikiChatModal()
   const [query, setQuery] = React.useState("")
   function askMilo(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -16,10 +16,12 @@ export function WikiHeaderSearch({ className }: { className?: string }) {
     setQuery("")
   }
 
+  if (!available) return null
+
   return (
     <form
       onSubmit={askMilo}
-      className={cn("relative w-full max-w-xl", className)}
+      className={cn("relative mt-6 w-full max-w-xl", className)}
     >
       <button
         type="button"

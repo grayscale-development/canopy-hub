@@ -9,6 +9,10 @@ const citations = [
   { title: "Funding Checklist", url: "/wiki/1/16/17" },
   { title: "Funding Checklist", url: "/wiki/1/16/17" },
   { title: "Closing Desk Notes", url: "/wiki/1/16/18" },
+  {
+    title: "Tag: Hub Process (Global)",
+    url: "/wiki/tags?tag=Hub%20Process#tag-hub-process",
+  },
 ]
 
 describe("inline citations", () => {
@@ -52,7 +56,9 @@ Funding Checklist: /wiki/1/16/17 and [Closing Desk Notes: /wiki/1/16/18](/wiki/1
     expect(result).toContain("the closer must:\n- confirm")
     expect(result).toContain("callback\n- verify the CD was signed\n- check")
     expect(result).toContain("Funding Checklist and Closing Desk Notes contain")
-    expect(result).toContain("[Hub Process](/wiki/tags?tag=Hub%20Process)")
+    expect(result).toContain(
+      "[Hub Process](/wiki/tags?tag=Hub%20Process#tag-hub-process)"
+    )
     expect(result).not.toMatch(/\[\d+\]/)
     expect(result.replace(/\]\([^)]+\)/g, "]")).not.toContain("/wiki/")
     expect(inlineCitations(result, citations)).toBe(result)
@@ -64,6 +70,21 @@ Funding Checklist: /wiki/1/16/17 and [Closing Desk Notes: /wiki/1/16/18](/wiki/1
     expect(inlineCitations(answer, citations)).toBe(
       "Read [Funding Checklist](/wiki/1/16/17). Funding Checklist has steps. See Funding Checklist."
     )
+  })
+
+  it("links only returned tags on their first mention using the canonical scoped URL", () => {
+    const answer =
+      "Hub Process helps. [Hub Process](/wiki/tags?tag=Hub%20Process) and [Hub Process](/wiki/tags?tag=Hub%20Process#tag-hub-process) help. [Unknown](/wiki/tags?tag=Unknown) is unverified."
+    expect(inlineCitations(answer, citations)).toBe(
+      "[Hub Process](/wiki/tags?tag=Hub%20Process#tag-hub-process) helps. Hub Process and Hub Process help. Unknown is unverified."
+    )
+    expect(inlineCitations("Hub Process", [])).toBe("Hub Process")
+    expect(
+      inlineCitations(
+        '[Unknown](</wiki/tags?tag=Unknown>) and [Other](https://example.com/wiki/tags?tag=Other "title")',
+        citations
+      )
+    ).toBe("Unknown and Other")
   })
 
   it("drops markers without inventing a link when no title is mentioned", () => {
@@ -78,6 +99,9 @@ Funding Checklist: /wiki/1/16/17 and [Closing Desk Notes: /wiki/1/16/18](/wiki/1
   it("instructs the model to link each page once, naturally, without numbered markers", () => {
     expect(INLINE_CITATION_INSTRUCTIONS).toMatch(
       /each page once, naturally at its first mention/i
+    )
+    expect(INLINE_CITATION_INSTRUCTIONS).toMatch(
+      /each wiki tag once, at its first mention/i
     )
     expect(INLINE_CITATION_INSTRUCTIONS).toMatch(
       /never repeat a page link or use numbered citation markers/i

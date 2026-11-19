@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import * as React from "react"
-import { cleanup, render, screen, within } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -106,7 +112,7 @@ describe("WikiChat", () => {
             id: "answer",
             role: "assistant",
             content:
-              "The best match is **Funding Checklist**: `/wiki/1/16/17`. [1]\n\n- *Closing Desk Notes*\n- [Hub Process](/wiki/tags?tag=Hub%20Process)\n- [**Manual**](/wiki/1/16/19)\n- [`/wiki/1/16/17`](/wiki/1/16/17)",
+              "The best match is **Funding Checklist**: `/wiki/1/16/17`. [1]\n\n- *Closing Desk Notes*\n- [Hub Process](/wiki/tags?tag=Hub%20Process)\n- [**Manual**](/wiki/1/16/19)\n- [`/wiki/1/16/17`](/wiki/1/16/17)\n- [Unknown][invented]\n\n[invented]: /wiki/tags?tag=Unknown",
             citations: [
               {
                 title: "Funding Checklist",
@@ -119,6 +125,11 @@ describe("WikiChat", () => {
                 snippet: "Closing notes",
               },
               { title: "Manual", url: "/wiki/1/16/19", snippet: "Manual" },
+              {
+                title: "Tag: Hub Process (Global)",
+                url: "/wiki/tags?tag=Hub%20Process",
+                snippet: "Tag",
+              },
             ],
           },
         ],
@@ -150,14 +161,39 @@ describe("WikiChat", () => {
       "href",
       "/wiki/tags?tag=Hub%20Process"
     )
+    expect(screen.getByText("Unknown")).toBeVisible()
+    expect(screen.queryByRole("link", { name: "Unknown" })).toBeNull()
     expect(screen.getByRole("list")).toBeInTheDocument()
     expect(screen.getByText("Sources")).toBeVisible()
+    expect(
+      within(screen.getByLabelText("Sources")).queryByRole("link", {
+        name: /Hub Process/,
+      })
+    ).toBeNull()
     const link = screen.getAllByRole("link", { name: "Funding Checklist" })[0]
     link.addEventListener("click", (event) => event.preventDefault(), {
       once: true,
     })
     await userEvent.click(link)
     expect(onNavigate).toHaveBeenCalled()
+  })
+
+  it("sends on Enter and inserts a newline on Shift+Enter without searching", async () => {
+    const user = userEvent.setup()
+    render(<WikiChat />)
+    const input = await screen.findByRole("textbox", {
+      name: "Ask a follow-up",
+    })
+    await waitFor(() => expect(input).toBeEnabled())
+    await user.type(input, "First{Shift>}{Enter}{/Shift}second")
+    expect(input).toHaveValue("First\nsecond")
+    expect(fetchMock).not.toHaveBeenCalled()
+    await user.keyboard("{Enter}")
+    expect(await screen.findByText("First answer.")).toBeVisible()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).message).toBe(
+      "First\nsecond"
+    )
   })
 
   it("offers page-aware questions and removes context before sending", async () => {

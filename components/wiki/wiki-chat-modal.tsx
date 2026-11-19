@@ -25,9 +25,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { WikiChat } from "@/components/wiki/wiki-chat"
-import { MiloSearchOnly } from "@/components/wiki/milo-search-results"
 
 interface WikiChatModalContextValue {
+  available: boolean
   openWithPrompt: (prompt: string) => void
   openWithDraft: (draft: string) => void
   close: () => void
@@ -89,7 +89,10 @@ export function WikiChatModalProvider({
 }) {
   const pathname = usePathname()
   const available =
-    signedIn && pathname !== "/login" && !pathname?.startsWith("/login/")
+    canUseMilo &&
+    signedIn &&
+    pathname !== "/login" &&
+    !pathname?.startsWith("/login/")
   const [isOpen, setIsOpen] = React.useState(false)
   const [hasOpened, setHasOpened] = React.useState(false)
   const [showTip, setShowTip] = React.useState(false)
@@ -433,6 +436,7 @@ export function WikiChatModalProvider({
 
   const setOpen = React.useCallback(
     (open: boolean) => {
+      if (!available) return
       interactedRef.current = true
       if (open) {
         setHasOpened(true)
@@ -445,7 +449,7 @@ export function WikiChatModalProvider({
         /* Storage is optional. */
       }
     },
-    [dismissTip]
+    [available, dismissTip]
   )
 
   const close = React.useCallback(() => {
@@ -457,22 +461,24 @@ export function WikiChatModalProvider({
 
   const openWithPrompt = React.useCallback(
     (prompt: string) => {
+      if (!available) return
       const trimmedPrompt = prompt.trim()
       if (!trimmedPrompt) return
-      setDraftRequest({ value: canUseMilo ? "" : trimmedPrompt })
-      setQueuedPrompt(canUseMilo ? trimmedPrompt : null)
+      setDraftRequest({ value: "" })
+      setQueuedPrompt(trimmedPrompt)
       setOpen(true)
     },
-    [canUseMilo, setOpen]
+    [available, setOpen]
   )
 
   const openWithDraft = React.useCallback(
     (value: string) => {
+      if (!available) return
       setQueuedPrompt(null)
       setDraftRequest({ value })
       setOpen(true)
     },
-    [setOpen]
+    [available, setOpen]
   )
 
   const toggle = React.useCallback(() => {
@@ -510,8 +516,15 @@ export function WikiChatModalProvider({
   }, [available, isOpen, cachedForUser, cacheKey])
 
   const value = React.useMemo(
-    () => ({ openWithPrompt, openWithDraft, close, toggle, registerPage }),
-    [close, openWithDraft, openWithPrompt, toggle, registerPage]
+    () => ({
+      available,
+      openWithPrompt,
+      openWithDraft,
+      close,
+      toggle,
+      registerPage,
+    }),
+    [available, close, openWithDraft, openWithPrompt, toggle, registerPage]
   )
 
   return (
@@ -594,7 +607,7 @@ export function WikiChatModalProvider({
               onLostPointerCapture={(event) => endDrag(event, true)}
             >
               <h2 id="milo-panel-title" className="font-semibold">
-                {canUseMilo ? "Milo" : "Search"}
+                Milo
               </h2>
               <div className="flex items-center gap-1">
                 <DropdownMenu>
@@ -645,27 +658,21 @@ export function WikiChatModalProvider({
                 </Button>
               </div>
             </div>
-            {hasOpened &&
-              (canUseMilo ? (
-                <WikiChat
-                  firstName={firstName}
-                  pageContext={
-                    page?.pathname === pathname && page.pageId !== removedPageId
-                      ? page
-                      : null
-                  }
-                  onRemovePage={() => setRemovedPageId(page?.pageId ?? null)}
-                  queuedPrompt={queuedPrompt}
-                  draftRequest={draftRequest}
-                  autoFocus={isOpen}
-                  onQueuedPromptConsumed={() => setQueuedPrompt(null)}
-                />
-              ) : (
-                <MiloSearchOnly
-                  draftRequest={draftRequest}
-                  autoFocus={isOpen}
-                />
-              ))}
+            {hasOpened && (
+              <WikiChat
+                firstName={firstName}
+                pageContext={
+                  page?.pathname === pathname && page.pageId !== removedPageId
+                    ? page
+                    : null
+                }
+                onRemovePage={() => setRemovedPageId(page?.pageId ?? null)}
+                queuedPrompt={queuedPrompt}
+                draftRequest={draftRequest}
+                autoFocus={isOpen}
+                onQueuedPromptConsumed={() => setQueuedPrompt(null)}
+              />
+            )}
           </section>
         </>
       ) : null}

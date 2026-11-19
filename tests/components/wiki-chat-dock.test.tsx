@@ -7,7 +7,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -361,7 +360,7 @@ describe("floating Milo", () => {
     )
   })
 
-  it("gates login and signed-out users and shows search without beta access", async () => {
+  it("gates login and signed-out users and removes Milo without beta access", async () => {
     const user = userEvent.setup()
     const view = render(<Harness signedIn={false} />)
     expect(screen.queryByRole("button", { name: "Ask Milo" })).toBeNull()
@@ -369,40 +368,23 @@ describe("floating Milo", () => {
     view.rerender(<Harness />)
     expect(screen.queryByRole("button", { name: "Ask Milo" })).toBeNull()
     route.pathname = "/home"
+    localStorage.setItem("milo-chat-open", "true")
     view.rerender(<Harness canUseMilo={false} />)
-    await user.click(await screen.findByRole("button", { name: "Ask Milo" }))
-    expect(screen.getByRole("dialog", { name: "Search" })).toBeVisible()
-    expect(
-      screen.getByPlaceholderText("Search people, branches and documents")
-    ).toBeVisible()
-    expect(fetch).not.toHaveBeenCalledWith("/api/wiki/chat", expect.anything())
-  })
-  it("opens a home question as a search draft without beta access", async () => {
-    const user = userEvent.setup()
-    const fetchMock = vi.fn<
-      (
-        url: string
-      ) => Promise<{ ok: boolean; json: () => Promise<{ results: never[] }> }>
-    >(async () => ({ ok: true, json: async () => ({ results: [] }) }))
-    vi.stubGlobal("fetch", fetchMock)
-    render(<Harness canUseMilo={false} />)
-    await user.type(
-      screen.getByRole("textbox", { name: "Ask Milo" }),
-      "people{Enter}"
-    )
-    const dialog = screen.getByRole("dialog", { name: "Search" })
-    expect(
-      within(dialog).getByRole("textbox", {
-        name: "Search people, branches and documents",
-      })
-    ).toHaveValue("people")
-    const calls = () =>
-      fetchMock.mock.calls
-        .map(([url]) => String(url))
-        .filter((url) => url !== "/api/milo/preferences")
-    await waitFor(() => expect(calls().length).toBeGreaterThan(0))
-    expect(calls().every((url) => url.startsWith("/api/wiki/search"))).toBe(
-      true
-    )
+    await user.click(screen.getByRole("button", { name: "Open draft" }))
+    const shortcut = new KeyboardEvent("keydown", {
+      key: "j",
+      ctrlKey: true,
+      cancelable: true,
+      bubbles: true,
+    })
+    window.dispatchEvent(shortcut)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(shortcut.defaultPrevented).toBe(false)
+    expect(screen.queryByRole("button", { name: "Ask Milo" })).toBeNull()
+    expect(screen.queryByRole("textbox", { name: "Ask Milo" })).toBeNull()
+    expect(screen.queryByRole("dialog", { hidden: true })).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
   })
 })
