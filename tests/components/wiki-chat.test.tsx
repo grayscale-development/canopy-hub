@@ -643,9 +643,25 @@ describe("WikiChat", () => {
     )
   })
 
-  it("uses Enter for a new line on phones", async () => {
+  it("sends on Enter in a narrow desktop window", async () => {
     vi.stubGlobal("matchMedia", (query: string) => ({
       matches: query === "(max-width: 639px)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+    const user = userEvent.setup()
+    render(<WikiChat />)
+    const input = await screen.findByRole("textbox", {
+      name: "Ask a follow-up",
+    })
+    await user.type(input, "First{Enter}")
+    expect(await screen.findByText("First answer.")).toBeVisible()
+  })
+
+  it("uses Enter for a new line on touch keyboards", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(max-width: 639px)" || query === "(pointer: coarse)",
       media: query,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),

@@ -119,6 +119,12 @@ function isPhone() {
   return window.matchMedia("(max-width: 639px)").matches
 }
 
+// Touch keyboards add a new line on Enter (send with the button), like
+// other AI chat apps. A narrow desktop window still sends on Enter.
+function touchKeyboard() {
+  return window.matchMedia("(pointer: coarse)").matches
+}
+
 function serverIsPhone() {
   return false
 }
@@ -1625,7 +1631,7 @@ export function WikiChat({
                 event.key === "Enter" &&
                 !event.shiftKey &&
                 !event.nativeEvent.isComposing &&
-                !phone
+                !touchKeyboard()
               ) {
                 event.preventDefault()
                 void sendQuestion(input, file)
