@@ -1,4 +1,3 @@
-import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -15,6 +14,8 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+
+const BRIDGE_LOGIN_URL = "https://canopymortgage.bridgeapp.com/login"
 
 export const metadata = {
   title: "Bridge",
@@ -52,15 +53,19 @@ export default async function BridgePage() {
           <div className="px-1 py-2">
             <h1 className="text-3xl font-semibold tracking-tight">Bridge</h1>
           </div>
-          <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            <h2 className="font-semibold text-foreground">Coming soon</h2>
-            <p className="mt-2">Bridge isn&apos;t available yet.</p>
-            <Link
-              href="/home"
-              className="mt-3 inline-block text-primary underline underline-offset-4"
+          <div className="rounded-lg border p-6 text-sm text-muted-foreground">
+            <p>
+              Bridge is Canopy&apos;s learning and development hub for courses,
+              skills, performance, and reporting. It opens on its own site.
+            </p>
+            <a
+              href={BRIDGE_LOGIN_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
-              Go to Home
-            </Link>
+              Open Bridge
+            </a>
           </div>
         </div>
       </SidebarInset>

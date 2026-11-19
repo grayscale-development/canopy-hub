@@ -74,12 +74,11 @@ beforeEach(() => {
 })
 
 describe("regression empty states", () => {
-  it("gives Bridge an explanation and a home link", async () => {
+  it("explains Bridge and links to it", async () => {
     render(await BridgePage())
-    expect(screen.getByText("Bridge isn't available yet.")).toBeVisible()
-    expect(screen.getByRole("link", { name: "Go to Home" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Open Bridge" })).toHaveAttribute(
       "href",
-      "/home"
+      "https://canopymortgage.bridgeapp.com/login"
     )
   })
   it("distinguishes an empty directory from a search with no matches", async () => {
