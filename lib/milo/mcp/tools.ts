@@ -36,6 +36,7 @@ export interface MiloSourceCard {
   headingPath?: string[]
   updatedAt?: string
   updatedBy?: string
+  vectorSimilarity?: number
 }
 
 export interface MiloMcpToolResult {
@@ -831,6 +832,7 @@ async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
       sourceType: getString(row.source_type) || "knowledge",
       knowledgeSourceId: getString(row.source_id) || null,
       knowledgeChunkId: getString(row.chunk_id) || null,
+      vectorSimilarity: row.vectorSimilarity,
     }))
   )
 }
