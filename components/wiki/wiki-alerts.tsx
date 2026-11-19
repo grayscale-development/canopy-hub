@@ -48,6 +48,7 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<string | null>(null)
   const [open, setOpen] = React.useState(false)
+  const [confirming, setConfirming] = React.useState<string | null>(null)
   const requestId = React.useRef(0)
   const { setEditorMode } = useWikiEditMode()
 
@@ -119,14 +120,17 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
     setBusy(null)
   }
 
-  async function apply(id: string) {
+  async function apply(id: string, archive = false) {
     setBusy(id)
     setError(null)
     try {
       const response = await fetch("/api/wiki/alerts/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({
+          id,
+          ...(archive ? { confirmArchive: true } : {}),
+        }),
       })
       const result = await response.json()
       if (!response.ok)
@@ -135,8 +139,12 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
       setAlerts(
         (current) => current?.filter((alert) => alert.id !== id) ?? null
       )
+      setConfirming(null)
+      if (archive) await load()
       toast.success(
-        "Recommendation applied. To undo, turn on editor mode, select Last updated below the page, and restore an earlier version."
+        archive
+          ? "Page archived. You can restore it from the wiki archive."
+          : "Recommendation applied. To undo, turn on editor mode, select Last updated below the page, and restore an earlier version."
       )
     } catch (error) {
       setError(
@@ -156,6 +164,7 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
           title: node.title,
           path: `/wiki/${buildNumericWikiPath(nodes, node)}`,
           editable: isUnarchivedWikiBranch(nodes, node),
+          draft: node.status === "draft",
         }
       : null
   }
@@ -165,6 +174,7 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
       open={open}
       onOpenChange={(value) => {
         setOpen(value)
+        if (!value) setConfirming(null)
         if (value) void load()
       }}
     >
@@ -229,14 +239,20 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
               key={alert.id}
               className="space-y-3 border-t py-4 first:border-t-0"
             >
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-medium">
+              {applicable?.version === 2 ? (
+                <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
+                  {applicable.kind === "identical" ? "Identical" : "Overlap"}
+                </span>
+              ) : null}
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-medium break-words">
                 {first ? (
                   <Link
-                    className="underline underline-offset-4"
+                    className="max-w-full min-w-0 break-words underline underline-offset-4"
                     href={first.path}
                     onClick={() => setOpen(false)}
                   >
                     {first.title}
+                    {first.draft ? " (Draft)" : ""}
                   </Link>
                 ) : (
                   <span>Unavailable page</span>
@@ -244,25 +260,82 @@ export function WikiAlerts({ nodes }: { nodes: WikiNodeRow[] }) {
                 <span className="text-muted-foreground">and</span>
                 {second ? (
                   <Link
-                    className="underline underline-offset-4"
+                    className="max-w-full min-w-0 break-words underline underline-offset-4"
                     href={second.path}
                     onClick={() => setOpen(false)}
                   >
                     {second.title}
+                    {second.draft ? " (Draft)" : ""}
                   </Link>
                 ) : (
                   <span>Unavailable page</span>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm break-words text-muted-foreground">
                 {summary || "These pages may contain duplicate information."}
               </p>
+              {applicable?.version === 2 ? (
+                <details className="text-sm">
+                  <summary className="cursor-pointer rounded-sm font-medium underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                    Show duplicated text
+                  </summary>
+                  <p className="mt-2 rounded-md bg-muted p-3 break-words whitespace-pre-wrap text-foreground">
+                    {applicable.excerpt}
+                  </p>
+                </details>
+              ) : null}
+              {confirming === alert.id &&
+              applicable?.version === 2 &&
+              applicable.kind === "identical" ? (
+                <div
+                  role="group"
+                  aria-label="Confirm archive"
+                  className="space-y-2 rounded-md border p-3 text-sm"
+                >
+                  <p>
+                    Archive {editPage?.title ?? "the copy"}? You can restore it
+                    from the wiki archive.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      autoFocus
+                      disabled={busy !== null}
+                      onClick={() => {
+                        setConfirming(null)
+                        requestAnimationFrame(() =>
+                          document
+                            .getElementById(`apply-alert-${alert.id}`)
+                            ?.focus()
+                        )
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy !== null}
+                      onClick={() => void apply(alert.id, true)}
+                    >
+                      Archive page
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={!applicable || busy !== null}
-                  onClick={() => void apply(alert.id)}
+                  id={`apply-alert-${alert.id}`}
+                  disabled={
+                    !applicable || busy !== null || confirming === alert.id
+                  }
+                  onClick={() =>
+                    applicable?.version === 2 && applicable.kind === "identical"
+                      ? setConfirming(alert.id)
+                      : void apply(alert.id)
+                  }
                 >
                   Apply recommendation
                 </Button>

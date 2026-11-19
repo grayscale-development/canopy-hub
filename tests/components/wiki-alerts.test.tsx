@@ -149,4 +149,50 @@ describe("wiki alerts", () => {
       screen.queryByText("This recommendation cannot be applied yet.")
     ).not.toBeInTheDocument()
   })
+  it("labels a draft copy, reveals its excerpt and lets the manager cancel archiving", async () => {
+    state.rows = [
+      {
+        id: "alert",
+        page_id: "a",
+        other_page_id: "b",
+        recommendation: {
+          version: 2,
+          kind: "identical",
+          summary:
+            "First is an exact copy of Second. Keep Second and archive the copy for one source of truth.",
+          excerpt: "Shared text",
+          targetPageId: "a",
+          baseRevisionId: "rev-1",
+          canonicalPageId: "b",
+          canonicalRevisionId: "rev-2",
+          canonicalTitle: "Second",
+          canonicalPath: "/wiki/2",
+          blockId: "one",
+          changeNote: "Consolidated",
+        },
+      },
+    ]
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    render(<WikiAlerts nodes={[{ ...nodes[0], status: "draft" }, nodes[1]]} />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: /Alerts 1/ }))
+    expect(screen.getByText("Identical")).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "First (Draft)" })
+    ).toBeInTheDocument()
+    await user.click(screen.getByText("Show duplicated text"))
+    expect(screen.getByText("Shared text")).toBeVisible()
+    await user.click(
+      screen.getByRole("button", { name: "Apply recommendation" })
+    )
+    const confirmation = screen.getByRole("group", { name: "Confirm archive" })
+    expect(within(confirmation).getByText(/Archive First/)).toBeInTheDocument()
+    await user.click(
+      within(confirmation).getByRole("button", { name: "Cancel" })
+    )
+    expect(
+      screen.queryByRole("group", { name: "Confirm archive" })
+    ).not.toBeInTheDocument()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })

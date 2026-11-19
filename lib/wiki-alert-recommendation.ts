@@ -10,11 +10,21 @@ export type WikiAlertRecommendationV1 = {
   changeNote: string
 }
 
+export type WikiAlertRecommendationV2 = Omit<
+  WikiAlertRecommendationV1,
+  "version"
+> & {
+  version: 2
+  kind: "identical" | "overlap"
+  excerpt: string
+  canonicalRevisionId: string
+}
+
 export function parseWikiAlertRecommendation(
   value: unknown,
   pageId: string,
   otherPageId: string
-): WikiAlertRecommendationV1 | null {
+): WikiAlertRecommendationV1 | WikiAlertRecommendationV2 | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const item = value as Record<string, unknown>
   const keys = [
@@ -27,9 +37,19 @@ export function parseWikiAlertRecommendation(
     "blockId",
     "changeNote",
   ] as const
+  const validVersion =
+    item.version === 1
+      ? Object.keys(item).length === keys.length + 1
+      : item.version === 2 &&
+        Object.keys(item).length === keys.length + 4 &&
+        (item.kind === "identical" || item.kind === "overlap") &&
+        typeof item.excerpt === "string" &&
+        !!item.excerpt.trim() &&
+        item.excerpt.length <= 1000 &&
+        typeof item.canonicalRevisionId === "string" &&
+        !!item.canonicalRevisionId.trim()
   if (
-    item.version !== 1 ||
-    Object.keys(item).length !== keys.length + 1 ||
+    !validVersion ||
     keys.some(
       (key) => typeof item[key] !== "string" || !(item[key] as string).trim()
     ) ||
@@ -40,5 +60,5 @@ export function parseWikiAlertRecommendation(
     item.targetPageId === item.canonicalPageId
   )
     return null
-  return item as WikiAlertRecommendationV1
+  return item as WikiAlertRecommendationV1 | WikiAlertRecommendationV2
 }

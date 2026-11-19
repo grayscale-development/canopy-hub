@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@/lib/wiki-duplicates", () => ({ detectWikiDuplicates: vi.fn() }))
+vi.mock("@/lib/wiki-duplicates", async (original) => ({
+  ...(await original<typeof import("@/lib/wiki-duplicates")>()),
+  detectWikiDuplicates: vi.fn(),
+}))
 vi.mock("@/lib/ai/provider", () => ({
   createChatResponseWithOpenAI: vi.fn(),
   getChatModel: () => "fake-chat",
@@ -37,6 +40,7 @@ function scanClient(
   const stateWrites: Record<string, unknown>[] = []
   const alerts: Record<string, unknown>[] = []
   const actionLogs: Record<string, unknown>[] = []
+  const filters: string[] = []
   const pages = [
     { id: "a", title: "Target", current_revision_id: "rev-a" },
     { id: "b", title: "Second", current_revision_id: "rev-b" },
@@ -48,7 +52,11 @@ function scanClient(
       const query = {
         select: () => query,
         eq: () => query,
-        gt: () => query,
+        neq: () => query,
+        gt: () => {
+          filters.push(table)
+          return query
+        },
         lte: () => query,
         in: () => query,
         order: () => query,
@@ -123,7 +131,7 @@ function scanClient(
       return query
     },
   } as unknown as Parameters<typeof scanWikiAlerts>[0]
-  return { client, stateWrites, alerts, actionLogs }
+  return { client, stateWrites, alerts, actionLogs, filters }
 }
 
 function duplicate(revisionId: string, matches = ["c"]) {
@@ -151,6 +159,22 @@ function duplicate(revisionId: string, matches = ["c"]) {
 }
 
 describe("alerts scan", () => {
+  it("manual scans ignore the watermark, while scheduled scans use it", async () => {
+    vi.mocked(detectWikiDuplicates).mockImplementation(
+      async (_client, _user, id) => duplicate(`rev-${id}`, [])
+    )
+    const manual = scanClient({ watermark: "2026-11-01T00:00:00Z" })
+    expect(await scanWikiAlerts(manual.client, { full: true })).toMatchObject({
+      skipped: false,
+      pages: 2,
+    })
+    expect(manual.filters).toEqual([])
+    expect(detectWikiDuplicates).toHaveBeenCalledTimes(2)
+    vi.mocked(detectWikiDuplicates).mockClear()
+    const scheduled = scanClient({ watermark: "2026-11-01T00:00:00Z" })
+    await scanWikiAlerts(scheduled.client)
+    expect(scheduled.filters).toEqual(["wiki_nodes", "wiki_nodes"])
+  })
   it("keeps recommendation instructions stable across pages", () => {
     const firstData = {
       pageTitle: "First page",
@@ -309,7 +333,8 @@ describe("alerts scan", () => {
     vi.stubEnv("OPENAI_CHAT_MODEL", "fake-chat")
     vi.mocked(createChatResponseWithOpenAI).mockResolvedValueOnce({
       output_text: JSON.stringify({
-        summary: "Link to the canonical page.",
+        summary:
+          "Target repeats content from Canonical c. Keep it on Canonical c and link to it from Target for one source of truth, so the guidance stays consistent.",
         changeNote: "Removed duplicated guidance.",
       }),
     } as Awaited<ReturnType<typeof createChatResponseWithOpenAI>>)
@@ -327,7 +352,8 @@ describe("alerts scan", () => {
       },
     ])
     expect(alerts[0].recommendation).toMatchObject({
-      summary: "Link to the canonical page.",
+      summary:
+        "Target repeats content from Canonical c. Keep it on Canonical c and link to it from Target for one source of truth, so the guidance stays consistent.",
       changeNote: "Removed duplicated guidance.",
       blockId: "block",
       baseRevisionId: "rev-a",
@@ -345,6 +371,28 @@ describe("alerts scan", () => {
     ).toContain("A matching canonical passage.")
   })
 
+  it("falls back when model wording implies the edit already happened", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "fake-test-key")
+    vi.stubEnv("OPENAI_CHAT_MODEL", "fake-chat")
+    vi.mocked(createChatResponseWithOpenAI).mockResolvedValueOnce({
+      output_text: JSON.stringify({
+        summary:
+          "Target was replaced. Keep it on Canonical c and link to it from Target for one source of truth.",
+        changeNote: "Consolidated",
+      }),
+    } as Awaited<ReturnType<typeof createChatResponseWithOpenAI>>)
+    vi.mocked(detectWikiDuplicates).mockImplementation(
+      async (_client, _user, id) =>
+        id === "a" ? duplicate("rev-a") : duplicate("rev-b", [])
+    )
+    const { client, alerts } = scanClient()
+    await scanWikiAlerts(client)
+    expect(alerts[0].recommendation).toMatchObject({
+      summary:
+        "Target repeats content from Canonical c. Keep it on Canonical c and link to it from Target for one source of truth.",
+    })
+  })
+
   it("writes the deterministic recommendation if the model fails", async () => {
     vi.stubEnv("OPENAI_API_KEY", "fake-test-key")
     vi.stubEnv("OPENAI_CHAT_MODEL", "fake-chat")
@@ -360,7 +408,7 @@ describe("alerts scan", () => {
     expect(result).toMatchObject({ written: 1, skippedCount: 1 })
     expect(alerts[0].recommendation).toMatchObject({
       summary:
-        "Replace the duplicated passage on Target with a link to Canonical c.",
+        "Target repeats content from Canonical c. Keep it on Canonical c and link to it from Target for one source of truth.",
       changeNote: "Consolidated duplicate with Canonical c",
       blockId: "block",
     })
@@ -373,6 +421,7 @@ describe("alerts scan", () => {
       const query = {
         select: () => query,
         eq: () => query,
+        neq: () => query,
         gt: () => query,
         order: () => query,
         limit: () => query,
@@ -467,6 +516,7 @@ describe("alerts scan", () => {
         const query = {
           select: () => query,
           eq: () => query,
+          neq: () => query,
           in: () => query,
           order: () => query,
           range: () => query,
@@ -535,7 +585,7 @@ describe("alerts scan", () => {
     await scanWikiAlerts(client)
     expect(rows).toHaveLength(1)
     expect(rows[0].recommendation).toMatchObject({
-      version: 1,
+      version: 2,
       targetPageId: "a",
       baseRevisionId: "rev-a",
       blockId: "block",
