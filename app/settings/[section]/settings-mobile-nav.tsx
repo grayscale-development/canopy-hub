@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 
-type Item = { key: string; label: string; group: string }
+type Item = { key: string; label: string }
 
 export function SettingsMobileNav({
   items,
@@ -13,7 +13,6 @@ export function SettingsMobileNav({
 }) {
   const router = useRouter()
   if (!items.length) return null
-  const groups = [...new Set(items.map((item) => item.group))]
   return (
     <div className="md:hidden">
       <label htmlFor="settings-section" className="sr-only">
@@ -30,16 +29,10 @@ export function SettingsMobileNav({
             Select a settings section
           </option>
         )}
-        {groups.map((group) => (
-          <optgroup label={group} key={group}>
-            {items
-              .filter((item) => item.group === group)
-              .map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.label}
-                </option>
-              ))}
-          </optgroup>
+        {items.map((item) => (
+          <option key={item.key} value={item.key}>
+            {item.label}
+          </option>
         ))}
       </select>
     </div>

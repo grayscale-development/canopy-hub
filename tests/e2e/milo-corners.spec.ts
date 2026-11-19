@@ -146,7 +146,7 @@ test("Save bar remains accessible on desktop and phone", async ({
     await page.setViewportSize({ width: 640, height: 450 })
     await noOverlap(panel, bar)
     await page.setViewportSize({ width: 390, height: 844 })
-    await panel.getByRole("button", { name: "Close" }).click()
+    await panel.getByRole("button", { name: "Minimize Milo" }).click()
     await noOverlap(launcher, bar)
     await capture(page, info, "milo-save-bar-mobile")
     await launcher.click()

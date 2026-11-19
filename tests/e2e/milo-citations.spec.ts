@@ -136,7 +136,7 @@ Funding Checklist: ${fixture.path} has more details. [3]`
       await expect(page.getByRole("main").last()).toContainText(
         "Funding Checklist"
       )
-      await dialog.getByRole("button", { name: "Close" }).click()
+      await dialog.getByRole("button", { name: "Minimize Milo" }).click()
       await page.evaluate(() => localStorage.clear())
       await page.goto("/wiki/999999999")
       abstained = true
@@ -154,7 +154,7 @@ Funding Checklist: ${fixture.path} has more details. [3]`
       await expect(
         dialog.getByRole("button", { name: "Gap flagged" })
       ).toBeDisabled()
-      await dialog.getByRole("button", { name: "Close" }).click()
+      await dialog.getByRole("button", { name: "Minimize Milo" }).click()
       await expect(dialog).toBeHidden()
       await page.unrouteAll({ behavior: "wait" })
     }
