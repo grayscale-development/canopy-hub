@@ -113,6 +113,7 @@ test("sidebar filter finds pages without changing saved expansion @wiki", async 
       header.getByRole("button", { name: "Filter wiki navigation" })
     ).toBeFocused()
     await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByRole("button", { name: "Pages", exact: true }).click()
     await header.getByRole("button", { name: "Filter wiki navigation" }).click()
     await input.fill(`est loan ${stamp}`)
     await expect(result).toBeVisible()
@@ -227,6 +228,13 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
     await expect(page.getByRole("main").last()).toContainText("Tags")
     await page.setViewportSize({ width: 390, height: 844 })
     await openWikiPath(page, "Canopy Wiki", "Hub", renamed)
+    const pagesToggle = page.getByRole("button", { name: "Pages", exact: true })
+    await expect(pagesToggle).toHaveAttribute("aria-expanded", "false")
+    await pagesToggle.click()
+    await expect(
+      page.getByRole("button", { name: "Hide pages" })
+    ).toHaveAttribute("aria-expanded", "true")
+    await page.getByRole("button", { name: "Hide pages" }).click()
     await expect(
       page.getByRole("navigation", { name: "breadcrumb" })
     ).toContainText("Hub")

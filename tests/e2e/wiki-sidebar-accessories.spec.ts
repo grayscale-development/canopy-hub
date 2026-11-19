@@ -146,6 +146,9 @@ test("sidebar accessories stay aligned across editor modes and viewport sizes", 
       [390, 844, "mobile"],
     ] as const) {
       await page.setViewportSize({ width, height })
+      if (device === "mobile") {
+        await page.getByRole("button", { name: "Pages", exact: true }).click()
+      }
       await setWikiEditorMode(page, false)
       await expect(draft).toBeVisible()
       await expect(sectionAdd).toHaveCount(0)
