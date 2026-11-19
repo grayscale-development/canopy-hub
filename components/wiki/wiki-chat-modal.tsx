@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { usePathname } from "next/navigation"
-import { History, SquarePen } from "lucide-react"
+import { History, Minus, SquarePen } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -96,7 +96,12 @@ export function WikiChatModalProvider({
     pathname !== "/login" &&
     !pathname?.startsWith("/login/")
   const [isOpen, setIsOpen] = React.useState(false)
-  const [hasOpened, setHasOpened] = React.useState(false)
+  const openRef = React.useRef(false)
+  const [progress, setProgress] = React.useState<{
+    userId: string
+    active: boolean
+  } | null>(null)
+  const [unreadForUser, setUnreadForUser] = React.useState<string | null>(null)
   const [showTip, setShowTip] = React.useState(false)
   const [finePointer, setFinePointer] = React.useState(false)
   const [shortcut, setShortcut] = React.useState("Ctrl+J")
@@ -502,7 +507,7 @@ export function WikiChatModalProvider({
           !interactedRef.current &&
           localStorage.getItem(openChatKey) === "true"
         ) {
-          setHasOpened(true)
+          openRef.current = true
           setIsOpen(true)
         }
       } catch {
@@ -543,9 +548,10 @@ export function WikiChatModalProvider({
         setTooltipOpen(false)
         hoveringLauncher.current = false
         keyboardFocus.current = false
-        setHasOpened(true)
+        setUnreadForUser(null)
         dismissTip()
       }
+      openRef.current = open
       setIsOpen(open)
       try {
         localStorage.setItem(openChatKey, String(open))
@@ -557,8 +563,8 @@ export function WikiChatModalProvider({
   )
 
   const close = React.useCallback(() => {
+    chatRef.current?.captureScroll()
     setOpen(false)
-    setQueuedPrompt(null)
     setTooltipOpen(false)
     // The launcher is revealed in the next render.
     requestAnimationFrame(() => {
@@ -573,7 +579,6 @@ export function WikiChatModalProvider({
       if (!available) return
       const trimmedPrompt = prompt.trim()
       if (!trimmedPrompt) return
-      setDraftRequest({ value: "" })
       setQueuedPrompt(trimmedPrompt)
       setOpen(true)
     },
@@ -584,7 +589,7 @@ export function WikiChatModalProvider({
     (value: string) => {
       if (!available) return
       setQueuedPrompt(null)
-      setDraftRequest({ value })
+      if (value) setDraftRequest({ value })
       setOpen(true)
     },
     [available, setOpen]
@@ -623,6 +628,24 @@ export function WikiChatModalProvider({
       ;(composer ?? closeRef.current)?.focus()
     }
   }, [available, isOpen, cachedForUser, cacheKey])
+
+  const onProgressChange = React.useCallback(
+    (active: boolean) => {
+      if (userId) setProgress({ userId, active })
+    },
+    [userId]
+  )
+  const onAnswerCompleted = React.useCallback(() => {
+    if (!openRef.current && userId) setUnreadForUser(userId)
+  }, [userId])
+  const onDraftRequestConsumed = React.useCallback(
+    (request: { value: string }) => {
+      setDraftRequest((current) => (current === request ? undefined : current))
+    },
+    []
+  )
+  const inProgress = progress?.userId === userId && progress.active
+  const unread = unreadForUser === userId && inProgress
 
   const value = React.useMemo(
     () => ({
@@ -710,17 +733,42 @@ export function WikiChatModalProvider({
                   onLostPointerCapture={(event) => endDrag(event, true)}
                   aria-label="Ask Milo"
                   aria-expanded={isOpen}
+                  aria-describedby="milo-launcher-status"
                   aria-controls={panelId}
-                  className="size-12 touch-none rounded-full shadow-lg sm:h-10 sm:w-auto sm:px-4"
+                  className="relative size-12 touch-none rounded-full shadow-lg sm:h-10 sm:w-auto sm:px-4"
                 >
                   <span aria-hidden="true">✦</span>
                   <span className="hidden sm:inline">Ask Milo</span>
+                  {inProgress ? (
+                    <span
+                      aria-hidden="true"
+                      className={`absolute top-0 right-0 size-2 rounded-full ring-2 ring-background ${unread ? "bg-chart-2" : "bg-foreground"}`}
+                    >
+                      {unread ? (
+                        <span className="absolute inset-0.5 rounded-full bg-background" />
+                      ) : null}
+                    </span>
+                  ) : null}
                 </Button>
               </TooltipTrigger>
               <TooltipContent side={isTop ? "bottom" : "top"} sideOffset={6}>
+                {unread
+                  ? "New response available · "
+                  : inProgress
+                    ? "Chat in progress · "
+                    : ""}
                 {shortcut}
               </TooltipContent>
             </Tooltip>
+            <span
+              id="milo-launcher-status"
+              className="sr-only"
+              aria-live="polite"
+            >
+              {inProgress
+                ? `Chat in progress${unread ? ". New response available" : ""}`
+                : ""}
+            </span>
           </div>
           <section
             id={panelId}
@@ -784,21 +832,31 @@ export function WikiChatModalProvider({
                   </TooltipTrigger>
                   <TooltipContent>History</TooltipContent>
                 </Tooltip>
-                <Button
-                  ref={closeRef}
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Close"
-                  onClick={close}
-                  className="text-xl"
-                >
-                  ×
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      ref={closeRef}
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Minimize Milo"
+                      onClick={close}
+                    >
+                      <Minus aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Minimize (Esc)</TooltipContent>
+                </Tooltip>
               </div>
             </div>
-            {hasOpened && (
+            {ready && userId && (
               <WikiChat
+                key={userId}
+                draftStorageKey={`milo-draft:${userId}`}
+                visible={isOpen}
+                onProgressChange={onProgressChange}
+                onAnswerCompleted={onAnswerCompleted}
+                onDraftRequestConsumed={onDraftRequestConsumed}
                 ref={chatRef}
                 firstName={firstName}
                 currentPath={pathname}
