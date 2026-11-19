@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { MoreHorizontal } from "lucide-react"
+import { ChevronRight, MoreHorizontal } from "lucide-react"
 
 import { manageWikiTagAction } from "@/app/wiki/tags/manage/actions"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import {
@@ -204,14 +205,11 @@ export function WikiTagsManage({
               : true
 
   return (
-    <section className="mx-auto flex w-full max-w-[864px] flex-col gap-6 px-6 py-10 md:px-8">
+    <section className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 py-10 md:px-8">
       <div className="space-y-3">
         <h1 className="text-4xl font-bold">Tags</h1>
         <p className="text-sm text-muted-foreground">
-          Browse tags and the published Wiki pages that use them.
-          {canManage
-            ? " Cleanup actions include drafts and archived pages."
-            : null}
+          Every tag in the wiki and the published pages that use it.
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -285,9 +283,23 @@ export function WikiTagsManage({
               <React.Fragment key={tag.id}>
                 <TableRow
                   id={wikiTagAnchor(tag)}
-                  className={
-                    highlighted?.id === tag.id ? "bg-muted/50" : undefined
-                  }
+                  onClick={(event) => {
+                    if (
+                      (event.target as HTMLElement).closest(
+                        "button, a, [role=menu]"
+                      )
+                    )
+                      return
+                    setToggled((current) => ({
+                      ...current,
+                      [tag.id]: !isOpen,
+                    }))
+                  }}
+                  className={cn(
+                    "cursor-pointer",
+                    highlighted?.id === tag.id && "bg-muted/50",
+                    isOpen && "border-b-0"
+                  )}
                 >
                   <TableCell className="font-medium whitespace-normal">
                     {legacyAnchor ? <span id={legacyAnchor} /> : null}
@@ -301,19 +313,23 @@ export function WikiTagsManage({
                         }))
                       }
                       aria-label={tag.name}
-                      className="flex max-w-full cursor-pointer flex-wrap items-center gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-ring"
+                      className="flex max-w-full cursor-pointer items-center gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-ring"
                     >
+                      <ChevronRight
+                        aria-hidden
+                        className={cn(
+                          "size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
+                          isOpen && "rotate-90"
+                        )}
+                      />
                       <WikiTagPill
                         scope={tag.scope}
                         className="max-w-full break-all"
                       >
                         {tag.name}
                       </WikiTagPill>
-                      <span className="text-xs font-normal text-muted-foreground underline-offset-4 hover:underline">
-                        {isOpen ? "Hide pages" : "Show pages"}
-                      </span>
                     </button>
-                    <span className="mt-1 block text-xs font-normal break-words text-muted-foreground sm:hidden">
+                    <span className="mt-1 block pl-6 text-xs font-normal break-words text-muted-foreground sm:hidden">
                       {where(tag)} · {tag.publishedPages.length} published{" "}
                       {tag.publishedPages.length === 1 ? "page" : "pages"}
                     </span>
@@ -372,13 +388,13 @@ export function WikiTagsManage({
                   ) : null}
                 </TableRow>
                 {isOpen ? (
-                  <TableRow>
+                  <TableRow className="hover:bg-transparent">
                     <TableCell
-                      className="whitespace-normal"
+                      className="pt-0 whitespace-normal"
                       colSpan={canManage ? 4 : 3}
                     >
                       {tag.publishedPages.length ? (
-                        <ul className="space-y-2 py-2 pl-6">
+                        <ul className="ml-[7px] space-y-1.5 border-l py-1 pl-5">
                           {tag.publishedPages.map((page) => (
                             <li key={page.id}>
                               <Link
@@ -394,7 +410,7 @@ export function WikiTagsManage({
                           ))}
                         </ul>
                       ) : (
-                        <p className="py-2 pl-6 text-sm text-muted-foreground">
+                        <p className="ml-[7px] border-l py-1 pl-5 text-sm text-muted-foreground">
                           No published pages use this tag yet.
                         </p>
                       )}
