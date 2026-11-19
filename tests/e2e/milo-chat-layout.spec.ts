@@ -85,14 +85,23 @@ for (const viewport of [
       await page.getByRole("button", { name: "Ask Milo", exact: true }).click()
       const dialog = page.getByRole("dialog", { name: "Milo" })
       await expect(dialog.getByText("About: Milo layout fixture")).toBeVisible()
+      await expect(dialog.getByText(/How can I help\?/)).toBeVisible()
       await expect(
         dialog.getByRole("button", { name: "Summarize this page" })
-      ).toBeVisible()
+      ).toHaveCount(0)
       await testInfo.attach(`empty-${viewport.name}`, {
         body: await page.screenshot({ animations: "disabled" }),
         contentType: "image/png",
       })
-      await dialog.getByRole("button", { name: "Summarize this page" }).click()
+      const composer = dialog.getByRole("textbox", { name: "Ask a follow-up" })
+      await composer.fill(
+        "Summarize this page with a detailed explanation of the key steps and who to ask for help when closing a file."
+      )
+      await testInfo.attach(`composer-${viewport.name}`, {
+        body: await page.screenshot({ animations: "disabled" }),
+        contentType: "image/png",
+      })
+      await dialog.getByRole("button", { name: "Send follow-up" }).click()
       await expect(dialog.getByText("Sources", { exact: true })).toBeVisible()
       await testInfo.attach(`sources-${viewport.name}`, {
         body: await page.screenshot({ animations: "disabled" }),
