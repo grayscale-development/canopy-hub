@@ -45,10 +45,11 @@ export function buildAlertRecommendationPrompt(
 async function saveScanState(
   supabase: Client,
   exists: boolean,
-  watermark?: string | null
+  watermark?: string | null,
+  successful = true
 ) {
   const values = {
-    last_success_at: new Date().toISOString(),
+    ...(successful ? { last_success_at: new Date().toISOString() } : {}),
     ...(watermark !== undefined ? { last_page_updated_at: watermark } : {}),
   }
   try {
@@ -187,7 +188,7 @@ export async function scanWikiAlerts(supabase: Client) {
       skippedUnchanged: 1,
     })
     return {
-      skipped: true,
+      skipped: true as const,
       reason: "unchanged",
       ...(!stateSaved && { stateSaved: false }),
     }
@@ -216,6 +217,8 @@ export async function scanWikiAlerts(supabase: Client) {
   let hadFailure = false
   let pairs = 0,
     written = 0,
+    opened = 0,
+    updated = 0,
     skipped = 0
   const seen = new Set<string>()
   for (const page of pages) {
@@ -347,6 +350,8 @@ export async function scanWikiAlerts(supabase: Client) {
             if (saved.error) throw saved.error
             if (saved.data) {
               written++
+              if (open) updated++
+              else opened++
               await logAiAction(supabase, {
                 type: "alert_recommendation",
                 pageId: page.id,
@@ -371,7 +376,8 @@ export async function scanWikiAlerts(supabase: Client) {
   const stateSaved = await saveScanState(
     supabase,
     !!state.data,
-    hadFailure ? watermark : maxUpdated
+    hadFailure ? watermark : maxUpdated,
+    !hadFailure
   )
   console.info("Wiki alerts scan", {
     pages: pages.length,
@@ -381,11 +387,14 @@ export async function scanWikiAlerts(supabase: Client) {
     skippedUnchanged: 0,
   })
   return {
-    skipped: false,
+    skipped: false as const,
     pages: pages.length,
     pairs,
     written,
+    opened,
+    updated,
     skippedCount: skipped,
+    ...(hadFailure && { partial: true }),
     ...(!stateSaved && { stateSaved: false }),
   }
 }
