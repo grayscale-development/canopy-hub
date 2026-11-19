@@ -117,6 +117,15 @@
   --sidebar-ring: #4395ce;
 }
 
+/* Leave the fixed Milo launcher and its tip clear of the end of page content. */
+body[data-milo-launcher] main:not(:has(main)) {
+  padding-bottom: max(var(--milo-launcher-clearance), 1.5rem);
+}
+
+body[data-milo-launcher="top"] main:not(:has(main)) {
+  padding-top: 8rem;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

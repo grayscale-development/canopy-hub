@@ -6,6 +6,16 @@ const STOP = new Set(
     " "
   )
 )
+const RETRIEVAL_FILLER = new Set([
+  "everything",
+  "summarize",
+  "summarise",
+  "summary",
+  "detail",
+  "details",
+  "step",
+  "steps",
+])
 const terms = (text: string) => [
   ...new Set(
     (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
@@ -26,22 +36,24 @@ export type Evidence = {
   updatedBy?: string
 }
 
-// Require at least half of the question's meaningful terms in one retrieved source.
+// Require half of the question's meaningful terms in one source, or across the
+// retrieved sources together so a multi-topic question can draw on several pages.
 export const RETRIEVAL_OVERLAP_THRESHOLD = 0.5
 export function hasRetrievalConfidence(question: string, sources: Evidence[]) {
-  const query = terms(question)
+  const query = terms(question).filter((word) => !RETRIEVAL_FILLER.has(word))
   if (!query.length && /\bwiki\b/i.test(question))
     return sources.some((source) =>
       /\bwiki\b/i.test(`${source.title} ${source.snippet}`)
     )
   if (!query.length) return false
-  return sources.some((source) => {
+  const covered = new Set<string>()
+  for (const source of sources) {
     const text = new Set(terms(`${source.title} ${source.snippet}`))
-    return (
-      query.filter((word) => text.has(word)).length / query.length >=
-      RETRIEVAL_OVERLAP_THRESHOLD
-    )
-  })
+    const hits = query.filter((word) => text.has(word))
+    if (hits.length / query.length >= RETRIEVAL_OVERLAP_THRESHOLD) return true
+    for (const word of hits) covered.add(word)
+  }
+  return covered.size / query.length >= RETRIEVAL_OVERLAP_THRESHOLD
 }
 
 function quoteFor(paragraph: string, source: Evidence) {

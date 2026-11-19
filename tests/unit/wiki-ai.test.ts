@@ -112,6 +112,59 @@ describe("wiki AI orchestration", () => {
     )
   })
 
+  it("answers a broad summary from relevant pages and links each page once", async () => {
+    const { answerMiloQuestionWithAgent } = await import("@/lib/milo/agent")
+    const sources = [
+      {
+        title: "Funding Checklist",
+        url: "/wiki/1/1",
+        snippet: "Funding steps are reviewed.",
+        sourceType: "wiki_page",
+        knowledgeChunkId: "funding",
+      },
+      {
+        title: "Closing Guide",
+        url: "/wiki/1/2",
+        snippet: "Closing steps are documented.",
+        sourceType: "wiki_page",
+        knowledgeChunkId: "closing",
+      },
+      {
+        title: "Wiki Basics",
+        url: "/wiki/1/3",
+        snippet: "Wiki basics explain navigation.",
+        sourceType: "wiki_page",
+        knowledgeChunkId: "basics",
+      },
+    ]
+    miloMcp.callMiloMcpTool.mockImplementation(async (toolName: string) => ({
+      ok: true,
+      toolName,
+      content: {},
+      sources: toolName === "knowledge_search" ? sources : [],
+    }))
+    aiProvider.createAgentResponseWithOpenAI.mockResolvedValueOnce({
+      output_text:
+        "See Funding Checklist. Funding steps are reviewed.\n\nSee Closing Guide. Closing steps are documented.\n\nSee Wiki Basics. Wiki basics explain navigation.",
+      output: [],
+    })
+    const result = await answerMiloQuestionWithAgent({
+      question:
+        "Summarize everything in the wiki about funding, closing, and wiki basics",
+      supabase: {} as never,
+      userContext,
+    })
+    expect(result.metadata.abstained).toBe(false)
+    for (const source of sources) {
+      expect(result.answer.split(`](${source.url})`)).toHaveLength(2)
+      expect(result.citations).toEqual(
+        expect.arrayContaining([expect.objectContaining({ url: source.url })])
+      )
+    }
+    expect(result.answer).not.toContain("couldn't find")
+    expect(aiProvider.createAgentResponseWithOpenAI).toHaveBeenCalled()
+  })
+
   it("searches the requested tag phrase in a multi-part question and accepts tag evidence", async () => {
     const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
     miloMcp.callMiloMcpTool.mockImplementation(async (toolName, args) => ({
