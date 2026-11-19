@@ -365,11 +365,16 @@ function WikiEditorMounted({
           >
             {node.title}
           </WikiEditableTitle>
-          {canEditPage ? createAction : null}
-          {showEditorControls ? (
-            <WikiStatusSelect nodeId={node.id} status={node.status} />
+          {showEditorControls ||
+          (canEditPage && (createAction || headerActions)) ? (
+            <div className="flex shrink-0 items-center gap-2">
+              {showEditorControls ? (
+                <WikiStatusSelect nodeId={node.id} status={node.status} />
+              ) : null}
+              {canEditPage ? createAction : null}
+              {canEditPage ? headerActions : null}
+            </div>
           ) : null}
-          {canEditPage ? headerActions : null}
         </div>
       </WikiViewModeTitleSpacing>
       {canEditPage && canInspectDuplicates ? (
@@ -387,7 +392,7 @@ function WikiEditorMounted({
       ) : null}
       <div
         ref={setSurface}
-        className={`wiki-blocknote-surface relative min-w-0 p-0 ${canEditPage ? "pl-4" : ""}`}
+        className="wiki-blocknote-surface relative min-w-0 p-0"
       >
         <BlockNoteView
           editor={editor}

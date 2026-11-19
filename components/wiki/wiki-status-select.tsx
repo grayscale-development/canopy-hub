@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
+import { CheckIcon, ChevronDownIcon } from "lucide-react"
 
 import { updateWikiNodeStatusAction } from "@/app/wiki/actions"
 import { Button } from "@/components/ui/button"
@@ -13,8 +14,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import type { WikiNodeRow } from "@/lib/wiki"
-import { cn } from "@/lib/utils"
 
 type PublishableWikiStatus = Extract<
   WikiNodeRow["status"],
@@ -70,34 +76,36 @@ export function WikiStatusSelect({
 
   return (
     <>
-      <div className="inline-flex h-10 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        {STATUS_OPTIONS.map((option) => {
-          const isSelected = value === option.value
-          return (
-            <button
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="outline" size="xs" disabled={pending}>
+            <span
+              aria-hidden="true"
+              className={
+                value === "published"
+                  ? "size-2 rounded-full bg-primary"
+                  : "size-2 rounded-full bg-muted-foreground"
+              }
+            />
+            {STATUS_OPTIONS.find((option) => option.value === value)?.label ??
+              "Draft"}
+            <ChevronDownIcon aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {STATUS_OPTIONS.map((option) => (
+            <DropdownMenuItem
               key={option.value}
-              type="button"
-              disabled={pending}
-              aria-pressed={isSelected}
-              onClick={() => requestStatus(option.value)}
-              className={cn(
-                "h-9 min-w-24 rounded-md px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70",
-                option.value === "published" && isSelected
-                  ? "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 dark:bg-emerald-500 dark:text-emerald-950 dark:hover:bg-emerald-400"
-                  : null,
-                option.value === "draft" && isSelected
-                  ? "bg-zinc-500 text-white shadow-sm hover:bg-zinc-600 dark:bg-zinc-400 dark:text-zinc-950 dark:hover:bg-zinc-300"
-                  : null,
-                !isSelected
-                  ? "text-muted-foreground hover:bg-background hover:text-foreground dark:hover:bg-zinc-800"
-                  : null
-              )}
+              onSelect={() => requestStatus(option.value)}
             >
               {option.label}
-            </button>
-          )
-        })}
-      </div>
+              {value === option.value ? (
+                <CheckIcon aria-hidden="true" className="ml-auto" />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Dialog
         open={Boolean(requestedStatus)}

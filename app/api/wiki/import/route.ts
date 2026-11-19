@@ -129,6 +129,7 @@ async function completeWikiVideoImport({
   supabase,
   userId,
   consolidationTitle,
+  instructions,
 }: {
   assetId: string
   nodeId: string
@@ -138,6 +139,7 @@ async function completeWikiVideoImport({
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userId: string
   consolidationTitle?: string
+  instructions?: string
 }) {
   if (!assetId || !nodeId) {
     return NextResponse.json(
@@ -164,8 +166,16 @@ async function completeWikiVideoImport({
   }
 
   const [
-    { normalizeWikiImportText, createWikiVideoImportDraft },
-    { mergeWikiPageContent },
+    {
+      normalizeWikiImportText,
+      createWikiVideoImportDraft,
+      createWikiImportDraft,
+      isFaithfulWikiUpdate,
+      isFaithfulWikiImportOutput,
+      requestedWikiSectionRemoval,
+      preserveWikiUpdateBlocks,
+    },
+    { mergeWikiPageContent, getImportAiOutput },
   ] = await Promise.all([
     import("@/lib/wiki-import"),
     import("@/lib/ai/wiki-import-pipeline"),
@@ -215,11 +225,84 @@ async function completeWikiVideoImport({
             .maybeSingle()
         ).data as WikiRevisionRow | null)
       : null
-  const content = mergeWikiPageContent({
+  let content = mergeWikiPageContent({
     existingRevision: currentRevision,
     draft,
     mode,
   })
+  if (instructions?.trim()) {
+    if (instructions.length > 2 * 1024 * 1024)
+      return NextResponse.json(
+        { error: "The instructions are too large." },
+        { status: 400 }
+      )
+    const existingText =
+      mode === "update" ? (currentRevision?.plain_text ?? "") : ""
+    let output: WikiImportAiOutput | null = null
+    try {
+      output = await getImportAiOutput(
+        transcript,
+        asset.file_name,
+        "",
+        existingText,
+        "",
+        instructions
+      )
+    } catch {
+      // Do not silently discard the user's instructions.
+    }
+    const markdown =
+      typeof output?.markdown === "string"
+        ? output.markdown.replace(/^\s*#\s+[^\n]+\n+/, "")
+        : ""
+    const faithful =
+      markdown &&
+      (existingText
+        ? isFaithfulWikiUpdate(
+            existingText,
+            markdown,
+            `${transcript}\n${instructions}`,
+            "",
+            requestedWikiSectionRemoval(currentRevision?.blocks, instructions)
+          )
+        : isFaithfulWikiImportOutput(
+            markdown,
+            `${transcript}\n${instructions}`
+          ))
+    if (!faithful)
+      return NextResponse.json(
+        {
+          error:
+            "We could not match that to this page. Name the exact sentence or section to change, then try again.",
+        },
+        { status: 422 }
+      )
+    const revised = createWikiImportDraft({
+      text: transcript,
+      fileName: asset.file_name,
+      aiOutput: output,
+      validatedUpdate: true,
+    })
+    const preserved =
+      currentRevision && mode === "update"
+        ? preserveWikiUpdateBlocks(
+            currentRevision.blocks,
+            revised.blocks,
+            requestedWikiSectionRemoval(currentRevision.blocks, instructions)
+          )
+        : revised.blocks
+    if (!preserved)
+      return NextResponse.json(
+        {
+          error:
+            "This change would remove formatting, links, or embedded content. Edit the page directly instead.",
+        },
+        { status: 422 }
+      )
+    const videoBlock = draft.blocks.find((block) => block.type === "video")
+    const blocks = videoBlock ? [videoBlock, ...preserved] : preserved
+    content = { blocks, plainText: blockNoteToPlainText(blocks) }
+  }
   if (preview) {
     return signedPreviewResponse(
       {
@@ -740,6 +823,7 @@ export async function POST(request: Request) {
       nodeId,
       mode,
       isPageUpdate: Boolean(targetPageId),
+      instructions: pastedText,
       preview: formData.get("preview") === "1",
       supabase,
       userId: user.id,
@@ -759,6 +843,9 @@ export async function POST(request: Request) {
       createWikiImportDraft,
       isSupportedWikiImportFile,
       isFaithfulWikiUpdate,
+      isFaithfulWikiImportOutput,
+      requestedWikiSectionRemoval,
+      preserveWikiUpdateBlocks,
       isWikiImportVideoFile,
       normalizeWikiImportText,
       titleFromWikiImportFileName,
@@ -801,12 +888,6 @@ export async function POST(request: Request) {
     }
   }
 
-  if (file && pastedText.trim()) {
-    return NextResponse.json(
-      { error: "Choose a file or paste text, not both." },
-      { status: 400 }
-    )
-  }
   if (!isVideoImportStart && !file && !pastedText.trim()) {
     return NextResponse.json(
       {
@@ -876,7 +957,10 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    if (normalizedText.length > WIKI_IMPORT_MAX_TEXT_LENGTH) {
+    if (
+      normalizedText.length > WIKI_IMPORT_MAX_TEXT_LENGTH ||
+      pastedText.length > WIKI_IMPORT_MAX_TEXT_LENGTH
+    ) {
       return NextResponse.json(
         {
           error:
@@ -1012,7 +1096,11 @@ export async function POST(request: Request) {
   }
 
   let aiOutput: WikiImportAiOutput | null = null
-  if (!docxDocument) {
+  if (
+    !docxDocument ||
+    (targetPage && mode === "update") ||
+    (file && pastedText.trim())
+  ) {
     try {
       aiOutput = await getImportAiOutput(
         normalizedText,
@@ -1020,7 +1108,9 @@ export async function POST(request: Request) {
         pdfDocument ? buildWikiPdfStructureHints(pdfDocument.pages) : "",
         targetPage && mode === "update"
           ? (targetRevision?.plain_text ?? "")
-          : ""
+          : "",
+        "",
+        targetPage && mode === "update" ? pastedText : file ? pastedText : ""
       )
     } catch (error) {
       console.debug(
@@ -1049,39 +1139,125 @@ export async function POST(request: Request) {
       storagePath: `${nodeId}/${id}/${fileName}`,
     }
   })
-  const draft = docxDocument
-    ? createWikiDocxImportDraft({
-        html: docxDocument.html,
-        text: normalizedText,
-        fileName,
-        imageUrls: new Map(
-          importedImageAssets.map((image) => [
-            image.source,
-            `/api/wiki/assets/${image.id}`,
-          ])
-        ),
-      })
-    : createWikiImportDraft({
-        text: normalizedText,
-        fileName,
-        aiOutput,
-        pdfPages: pdfDocument?.pages,
-        imageUrls: importedImageAssets.map(
-          (image) => `/api/wiki/assets/${image.id}`
-        ),
-      })
-  const aiMergedCurrentPage = Boolean(
+  const updateMarkdown =
+    typeof aiOutput?.markdown === "string"
+      ? aiOutput.markdown.replace(/^\s*#\s+[^\n]+\n+/, "")
+      : ""
+  const hasInstructions = Boolean(
+    targetPage &&
+    !sourcePageId &&
+    !duplicateSourceTitle &&
+    mode === "update" &&
+    (file
+      ? pastedText.trim()
+      : /\b(?:change|replace|remove|delete|update|correct|add|include|move|rewrite|rename)\b/i.test(
+          pastedText
+        ))
+  )
+  const validatedUpdate = Boolean(
     targetPage &&
     mode === "update" &&
     targetRevision &&
-    draft.usedAi &&
+    updateMarkdown &&
     isFaithfulWikiUpdate(
       targetRevision.plain_text,
-      draft.markdown,
-      normalizedText,
-      draft.title
+      updateMarkdown,
+      [normalizedText, file ? pastedText : ""].filter(Boolean).join("\n"),
+      "",
+      requestedWikiSectionRemoval(targetRevision.blocks, pastedText)
+    ) &&
+    (hasInstructions ||
+      isFaithfulWikiImportOutput(normalizedText, updateMarkdown)) &&
+    !(
+      hasInstructions &&
+      !file &&
+      updateMarkdown.toLowerCase().includes(pastedText.trim().toLowerCase())
+    ) &&
+    !(
+      hasInstructions &&
+      !file &&
+      normalizeWikiImportText(updateMarkdown) ===
+        normalizeWikiImportText(targetRevision.plain_text)
     )
   )
+  const fileInstructions = Boolean(
+    file && pastedText.trim() && (!targetPage || mode === "replace")
+  )
+  const outputWords = new Set<string>(
+    updateMarkdown.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+  )
+  const validatedFileInstructions = Boolean(
+    fileInstructions &&
+    updateMarkdown &&
+    isFaithfulWikiImportOutput(
+      updateMarkdown,
+      `${normalizedText}\n${pastedText}`
+    ) &&
+    !updateMarkdown.toLowerCase().includes(pastedText.trim().toLowerCase()) &&
+    (normalizedText.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).some((word) =>
+      outputWords.has(word)
+    )
+  )
+  if (fileInstructions && !validatedFileInstructions)
+    return NextResponse.json(
+      {
+        error:
+          "We could not match that to this page. Name the exact sentence or section to change, then try again.",
+      },
+      { status: 422 }
+    )
+  if (hasInstructions && !validatedUpdate) {
+    return NextResponse.json(
+      {
+        error:
+          "We could not match that to this page. Name the exact sentence or section to change, then try again.",
+      },
+      { status: 422 }
+    )
+  }
+  let draft =
+    docxDocument && !validatedUpdate && !validatedFileInstructions
+      ? createWikiDocxImportDraft({
+          html: docxDocument.html,
+          text: normalizedText,
+          fileName,
+          imageUrls: new Map(
+            importedImageAssets.map((image) => [
+              image.source,
+              `/api/wiki/assets/${image.id}`,
+            ])
+          ),
+        })
+      : createWikiImportDraft({
+          text: normalizedText,
+          fileName,
+          aiOutput,
+          validatedUpdate: validatedUpdate || validatedFileInstructions,
+          pdfPages:
+            validatedUpdate || validatedFileInstructions
+              ? undefined
+              : pdfDocument?.pages,
+          imageUrls: importedImageAssets.map(
+            (image) => `/api/wiki/assets/${image.id}`
+          ),
+        })
+  const aiMergedCurrentPage = validatedUpdate && draft.usedAi
+  if (aiMergedCurrentPage && targetRevision) {
+    const preserved = preserveWikiUpdateBlocks(
+      targetRevision.blocks,
+      draft.blocks,
+      requestedWikiSectionRemoval(targetRevision.blocks, pastedText)
+    )
+    if (!preserved)
+      return NextResponse.json(
+        {
+          error:
+            "This change would remove formatting, links, or embedded content. Edit the page directly instead.",
+        },
+        { status: 422 }
+      )
+    draft = { ...draft, blocks: preserved }
+  }
   const revisionDraft = aiMergedCurrentPage
     ? { ...draft, plainText: blockNoteToPlainText(draft.blocks) }
     : draft

@@ -89,6 +89,8 @@ function DirectoryView({
   headingLevel = 2,
   assignments = [],
   initialTag = "",
+  updatedBy = {},
+  referenceTime,
 }: {
   title?: string
   items: WikiNodeRow[]
@@ -99,6 +101,8 @@ function DirectoryView({
   headingLevel?: 1 | 2
   assignments?: WikiTagAssignment[]
   initialTag?: string
+  updatedBy?: Record<string, string>
+  referenceTime?: string
 }) {
   const folder = nodes.find((node) => node.id === parentId)
   const parent = nodes.find((node) => node.id === folder?.parent_id)
@@ -156,6 +160,8 @@ function DirectoryView({
         parentId={parentId}
         assignments={assignments}
         initialTag={initialTag}
+        updatedBy={updatedBy}
+        referenceTime={referenceTime}
       />
     </div>
   )
@@ -163,7 +169,7 @@ function DirectoryView({
 
 function HiddenDraftView({ title }: { title: string }) {
   return (
-    <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+    <section className="mx-auto flex min-h-full w-full max-w-[1120px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
       <WikiViewModeTitleSpacing className="flex flex-col items-start gap-10">
         <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
           {title}
@@ -266,7 +272,7 @@ export default async function WikiPage({
     if (target && (target.status === "archived" || archivedParent)) {
       return (
         <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
-          <section className="mx-auto w-full max-w-[864px] px-6 py-4 md:px-8 md:py-6">
+          <section className="mx-auto w-full max-w-[1120px] px-6 py-4 md:px-8 md:py-6">
             <ArchivedWikiPageView
               node={target}
               archivedParent={archivedParent}
@@ -343,7 +349,13 @@ export default async function WikiPage({
     email: string | null
     full_name: string | null
   }> = []
-  if (pageData?.node.updated_by || revisionRows.length) {
+  if (
+    pageData?.node.updated_by ||
+    pageData?.children.some((node) => node.updated_by) ||
+    revisionRows.length ||
+    (!path.length &&
+      nodes.some((node) => node.parent_id === null && node.updated_by))
+  ) {
     try {
       const { data, error } = await supabase.rpc(
         "list_permission_directory_users"
@@ -359,6 +371,12 @@ export default async function WikiPage({
     return person?.full_name || person?.email?.split("@")[0] || "Unknown"
   }
   const lastUpdatedBy = displayName(pageData?.node.updated_by ?? null)
+  const updatedBy = Object.fromEntries(
+    nodes
+      .filter((node) => node.updated_by)
+      .map((node) => [node.id, displayName(node.updated_by)])
+  )
+  const referenceTime = new Date().toISOString()
   const lastUpdatedAt = pageData?.node.updated_at ?? null
   const revisions: WikiRevisionMetadata[] = revisionRows.map((revision) => ({
     ...revision,
@@ -494,7 +512,7 @@ export default async function WikiPage({
                     title={displayedNode.title}
                   />
                 ) : null}
-                <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+                <section className="mx-auto flex min-h-full w-full max-w-[1120px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
                   {pageData?.node.type === "folder" ? (
                     <>
                       <DirectoryView
@@ -506,6 +524,8 @@ export default async function WikiPage({
                         parentId={displayedNode.id}
                         assignments={assignments}
                         initialTag={highlightedTag}
+                        updatedBy={updatedBy}
+                        referenceTime={referenceTime}
                       />
                     </>
                   ) : pageData ? (
@@ -571,7 +591,7 @@ export default async function WikiPage({
                 </section>
               </WikiVisibleNodeGate>
             ) : (
-              <section className="mx-auto flex w-full max-w-[864px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
+              <section className="mx-auto flex w-full max-w-[1120px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
                 <div>
                   <h1 className="text-4xl font-semibold dark:text-[#CFCFCF]">
                     Welcome to the Wiki
@@ -583,6 +603,8 @@ export default async function WikiPage({
                   items={rootChildren}
                   nodes={nodes}
                   canManageWiki={canManageWiki}
+                  updatedBy={updatedBy}
+                  referenceTime={referenceTime}
                   parentId={null}
                   showCreateControl
                 />

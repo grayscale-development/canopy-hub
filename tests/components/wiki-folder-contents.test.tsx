@@ -146,15 +146,19 @@ describe("Wiki folder contents", () => {
       links.findIndex((link) => link.textContent?.includes("Tagged"))
     )
     expect(
-      within(screen.getByRole("link", { name: "group" })).getByText("3 pages")
+      within(
+        screen.getByRole("link", { name: "group" }).closest("tr")!
+      ).getByText("3 pages")
     ).toBeVisible()
     expect(
-      within(screen.getByRole("link", { name: "empty" })).getByText("Empty")
+      within(
+        screen.getByRole("link", { name: "empty" }).closest("tr")!
+      ).getByText("0 pages")
     ).toBeVisible()
     expect(
-      within(screen.getByRole("link", { name: /Draft group/ })).getByText(
-        "Draft"
-      )
+      within(
+        screen.getByRole("link", { name: /Draft group/ }).closest("tr")!
+      ).getByText("Draft")
     ).toBeVisible()
   })
 
@@ -170,7 +174,9 @@ describe("Wiki folder contents", () => {
       />
     )
     expect(
-      within(screen.getByRole("link", { name: "group" })).getByText("1 page")
+      within(
+        screen.getByRole("link", { name: "group" }).closest("tr")!
+      ).getByText("1 page")
     ).toBeVisible()
     view.rerender(
       <WikiFolderContents
@@ -180,9 +186,9 @@ describe("Wiki folder contents", () => {
       />
     )
     expect(
-      within(screen.getByRole("link", { name: "Draft page" })).getByText(
-        "Draft"
-      )
+      within(
+        screen.getByRole("link", { name: "Draft page" }).closest("tr")!
+      ).getByText("Draft")
     ).toBeVisible()
   })
 
@@ -197,7 +203,9 @@ describe("Wiki folder contents", () => {
       </WikiEditModeProvider>
     )
     expect(
-      within(screen.getByRole("link", { name: "group" })).getByText("2 pages")
+      within(
+        screen.getByRole("link", { name: "group" }).closest("tr")!
+      ).getByText("2 pages")
     ).toBeVisible()
     expect(screen.queryByText("Draft")).toBeNull()
     expect(screen.queryByRole("button", { name: "Secret" })).toBeNull()
@@ -220,10 +228,56 @@ describe("Wiki folder contents", () => {
         <WikiFolderContents nodes={nodes} items={[]} parentId="empty" />
       </WikiEditModeProvider>
     )
-    expect(screen.getByText("Nothing here yet.")).toBeVisible()
+    expect(screen.getByText("No pages here yet.")).toBeVisible()
     expect(screen.queryByRole("button", { name: "Add a page" })).toBeNull()
     view.unmount()
     render(<WikiFolderContents nodes={nodes} items={[]} parentId="empty" />)
     expect(screen.getByRole("button", { name: "Add a page" })).toBeVisible()
+  })
+
+  it("sorts by name and update time and shows bounded tags and author metadata", async () => {
+    const user = userEvent.setup()
+    const first = {
+      ...nodes[3],
+      tags: ["Loans", "Two", "Three"],
+      updated_at: "2026-01-02T00:00:00Z",
+    }
+    const second = { ...nodes[4], updated_at: "2026-01-03T00:00:00Z" }
+    render(
+      <WikiFolderContents
+        nodes={[...nodes.slice(0, 3), first, second]}
+        items={[second, first]}
+        parentId="group"
+        referenceTime="2026-01-04T00:00:00Z"
+        updatedBy={{ Tagged: "Alex" }}
+      />
+    )
+    const row = screen.getByRole("link", { name: "Tagged" }).closest("tr")!
+    expect(within(row).getByText("+1")).toBeVisible()
+    expect(within(row).queryByText("Three")).toBeNull()
+    expect(within(row).getByText("Alex")).toBeVisible()
+    expect(within(row).getByText("2d ago")).toHaveAttribute(
+      "aria-label",
+      "2d ago, January 2, 2026"
+    )
+    expect(screen.getByRole("link", { name: "Tagged" })).toHaveAttribute(
+      "title",
+      "Updated January 2, 2026"
+    )
+    const rowNames = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((item) =>
+          within(item).getByRole("link").getAttribute("aria-label")
+        )
+    await user.click(screen.getByRole("button", { name: "Name" }))
+    expect(rowNames()).toEqual(["Tagged", "Untagged"])
+    await user.click(screen.getByRole("button", { name: "Updated" }))
+    await user.click(screen.getByRole("button", { name: "Updated" }))
+    expect(rowNames()).toEqual(["Untagged", "Tagged"])
+    expect(
+      screen.getByRole("columnheader", { name: "Updated" })
+    ).toHaveAttribute("aria-sort", "descending")
   })
 })

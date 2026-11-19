@@ -174,7 +174,7 @@ export function SectionArchive({
       >
         <ArchiveCount count={items.length} />
       </SidebarAccordionHeader>
-      <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
+      <div id={contentId} hidden={!isOpen} className="mt-1">
         <ArchiveItems items={items} nodes={nodes} filtering={filtering} />
       </div>
     </div>

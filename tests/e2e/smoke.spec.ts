@@ -81,7 +81,7 @@ test("Wiki folder URLs show their landing contents @wiki @smoke", async ({
   await openWikiPath(page, "Canopy Wiki")
   await expect(page).toHaveURL(/\/wiki\/\d+$/)
   const main = page.getByRole("main")
-  const landingCards = main.locator("div.grid")
+  const landingCards = main.getByRole("table")
   await expect(
     landingCards.getByRole("link", { name: "Hub", exact: true })
   ).toHaveAttribute("href", /\/wiki\/\d+\/\d+$/)

@@ -91,6 +91,13 @@ test("combined tags work for managers and readers, with flat page tags", async (
       await expect(
         row.getByRole("button", { name: /Actions for/ })
       ).toBeVisible()
+      const table = page.locator("table")
+      await expect(table).toBeVisible()
+      expect(
+        await table.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth
+        )
+      ).toBe(true)
       await screenshot(page, `${prefix}-manager-deep-link.png`)
     }
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -98,14 +105,19 @@ test("combined tags work for managers and readers, with flat page tags", async (
     const privateRow = page.locator("tr").filter({
       has: page.getByRole("button", { name: privateName, exact: true }),
     })
-    await privateRow
-      .getByRole("button", { name: privateName, exact: true })
-      .click()
+    await expect(
+      privateRow.getByRole("button", { name: privateName, exact: true })
+    ).toHaveAttribute("aria-expanded", "true")
     await expect(
       page.getByText("No published pages use this tag yet.")
     ).toBeVisible()
     await expect(page.locator("table").getByText("Draft SOP")).toHaveCount(0)
     await expect(page.locator("table").getByText("Archived SOP")).toHaveCount(0)
+    await page
+      .getByRole("textbox", { name: "Search tags" })
+      .fill(`missing-${suffix}`)
+    await expect(page.getByText("No tags match your search.")).toBeVisible()
+    await page.getByRole("textbox", { name: "Search tags" }).fill(privateName)
     await privateRow.getByRole("button", { name: /Actions for/ }).click()
     await expect(
       page.getByRole("menuitem", { name: "Delete", exact: true })
@@ -172,7 +184,9 @@ test("combined tags work for managers and readers, with flat page tags", async (
       await screenshot(page, `${prefix}-viewer-deep-link.png`)
     }
     await page.getByRole("textbox", { name: "Search tags" }).fill(privateName)
-    await page.getByRole("button", { name: `${privateName} renamed` }).click()
+    await expect(
+      page.getByRole("button", { name: `${privateName} renamed` })
+    ).toHaveAttribute("aria-expanded", "true")
     await expect(
       page.getByText("No published pages use this tag yet.")
     ).toBeVisible()

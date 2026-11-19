@@ -697,8 +697,8 @@ export function WikiNodeActionsMenu({
           <DropdownMenuTrigger asChild>
             <Button
               type="button"
-              variant="ghost"
-              size="icon"
+              variant="outline"
+              size="icon-xs"
               aria-label="More actions for this page"
             >
               <MoreHorizontalIcon />
