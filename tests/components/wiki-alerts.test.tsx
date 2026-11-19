@@ -65,6 +65,64 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("wiki alerts", () => {
+  it("puts identical alerts first and keeps newest first within each severity", async () => {
+    const recommendation = (
+      kind: "identical" | "overlap",
+      summary: string
+    ) => ({
+      version: 2,
+      kind,
+      summary,
+      excerpt: "Shared text",
+      targetPageId: "a",
+      baseRevisionId: "rev-1",
+      canonicalPageId: "b",
+      canonicalRevisionId: "rev-2",
+      canonicalTitle: "Second",
+      canonicalPath: "/wiki/2",
+      blockId: "one",
+      changeNote: "Consolidated",
+    })
+    state.rows = [
+      {
+        id: "overlap-new",
+        page_id: "a",
+        other_page_id: "b",
+        recommendation: recommendation("overlap", "New overlap"),
+      },
+      {
+        id: "identical-new",
+        page_id: "a",
+        other_page_id: "b",
+        recommendation: recommendation("identical", "New identical"),
+      },
+      {
+        id: "overlap-old",
+        page_id: "a",
+        other_page_id: "b",
+        recommendation: recommendation("overlap", "Old overlap"),
+      },
+      {
+        id: "identical-old",
+        page_id: "a",
+        other_page_id: "b",
+        recommendation: recommendation("identical", "Old identical"),
+      },
+    ]
+    render(<WikiAlerts nodes={nodes} />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: /Alerts 4/ }))
+    const dialog = await screen.findByRole("dialog")
+    const labels = within(dialog).getAllByText(
+      /^(New|Old) (identical|overlap)$/
+    )
+    expect(labels.map((label) => label.textContent)).toEqual([
+      "New identical",
+      "Old identical",
+      "New overlap",
+      "Old overlap",
+    ])
+  })
   it("shows a compact empty state", async () => {
     render(<WikiAlerts nodes={nodes} />)
     const user = userEvent.setup()

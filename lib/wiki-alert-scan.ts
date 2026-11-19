@@ -8,6 +8,7 @@ import type { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import {
   chooseCanonicalPage,
   detectWikiDuplicates,
+  type DuplicateResult,
 } from "@/lib/wiki-duplicates"
 import { replaceDuplicateBlock } from "@/lib/wiki-duplicate-resolution"
 import { parseWikiAlertRecommendation } from "@/lib/wiki-alert-recommendation"
@@ -151,6 +152,8 @@ export function closedPairUnchanged(
     page_id: string
     page_hash: string | null
     other_page_hash: string | null
+    dismissed_by?: string | null
+    dismissed_at?: string | null
   }[],
   pageId: string,
   pageHash: string,
@@ -159,10 +162,82 @@ export function closedPairUnchanged(
   return rows.some(
     (row) =>
       row.status !== "open" &&
+      !(
+        row.status === "dismissed" &&
+        row.dismissed_by === null &&
+        row.dismissed_at
+      ) &&
       (row.page_id === pageId
         ? row.page_hash === pageHash && row.other_page_hash === otherHash
         : row.page_hash === otherHash && row.other_page_hash === pageHash)
   )
+}
+
+type OpenAlert = {
+  id: string
+  page_id: string
+  other_page_id: string
+  recommendation: unknown
+}
+
+async function fetchOpenAlerts(supabase: Client) {
+  const alerts: OpenAlert[] = []
+  for (let offset = 0; ; offset += 1000) {
+    const result = await supabase
+      .from("wiki_alerts")
+      .select("id,page_id,other_page_id,recommendation")
+      .eq("status", "open")
+      .order("id")
+      .range(offset, offset + 999)
+    if (result.error) throw result.error
+    alerts.push(...(result.data ?? []))
+    if ((result.data ?? []).length < 1000) break
+  }
+  return alerts
+}
+
+function copyTargets(alerts: OpenAlert[]) {
+  const copies = new Set<string>()
+  for (const alert of alerts) {
+    const recommendation = parseWikiAlertRecommendation(
+      alert.recommendation,
+      alert.page_id,
+      alert.other_page_id
+    )
+    if (recommendation?.version === 2 && recommendation.kind === "identical")
+      copies.add(recommendation.targetPageId)
+  }
+  return copies
+}
+
+// A system dismissal is temporary: if the identical alert is later closed,
+// the unchanged overlap may become useful again on a subsequent scan.
+async function dismissOverlapsForCopies(supabase: Client) {
+  const alerts = await fetchOpenAlerts(supabase)
+  const copies = copyTargets(alerts)
+  for (const alert of alerts) {
+    const recommendation = alert.recommendation
+    // Preserve even a malformed identical recommendation for manual review.
+    if (
+      recommendation &&
+      typeof recommendation === "object" &&
+      "kind" in recommendation &&
+      recommendation.kind === "identical"
+    )
+      continue
+    if (!copies.has(alert.page_id) && !copies.has(alert.other_page_id)) continue
+    const dismissed = await supabase
+      .from("wiki_alerts")
+      .update({
+        status: "dismissed",
+        dismissed_by: null,
+        dismissed_at: new Date().toISOString(),
+      })
+      .eq("id", alert.id)
+      .eq("status", "open")
+    if (dismissed.error) throw dismissed.error
+  }
+  return copies
 }
 
 export async function scanWikiAlerts(
@@ -201,6 +276,7 @@ export async function scanWikiAlerts(
       : null
   if (newer?.error) throw newer.error
   if (!options.full && watermark && !newer?.data?.length) {
+    await dismissOverlapsForCopies(supabase)
     const stateSaved = await saveScanState(supabase, true)
     console.info("Wiki alerts scan", {
       pages: 0,
@@ -243,7 +319,16 @@ export async function scanWikiAlerts(
     opened = 0,
     updated = 0,
     skipped = 0
-  const seen = new Set<string>()
+  const candidates = new Map<
+    string,
+    {
+      page: (typeof pages)[number]
+      detected: DuplicateResult
+      passage: DuplicateResult["passages"][number]
+      match: DuplicateResult["passages"][number]["matches"][number]
+      blocks: unknown
+    }
+  >()
   for (const page of pages) {
     if (!page.current_revision_id) {
       skipped++
@@ -276,157 +361,228 @@ export async function scanWikiAlerts(
       for (const passage of detected.passages) {
         for (const match of passage.matches) {
           const key = [page.id, match.pageId].sort().join(":")
-          if (seen.has(key)) continue
-          seen.add(key)
-          pairs++
-          try {
-            const pageHash = alertPageHash(detected.revisionId)
-            const otherHash = alertPageHash(match.revisionId)
-            const rows: {
-              id: string
-              status: string
-              page_id: string
-              page_hash: string | null
-              other_page_hash: string | null
-            }[] = []
-            for (let offset = 0; ; offset += 1000) {
-              const existing = await supabase
-                .from("wiki_alerts")
-                .select("id,status,page_id,page_hash,other_page_hash")
-                .in("page_id", [page.id, match.pageId])
-                .in("other_page_id", [page.id, match.pageId])
-                .order("id")
-                .range(offset, offset + 999)
-              if (existing.error) throw existing.error
-              rows.push(...(existing.data ?? []))
-              if ((existing.data ?? []).length < 1000) break
-            }
-            const open = rows.find((row) => row.status === "open")
-            if (
-              !open &&
-              closedPairUnchanged(rows, page.id, pageHash, otherHash)
-            ) {
-              skipped++
-              continue
-            }
-            const identical =
-              match.classification === "identical" &&
-              detected.page &&
-              match.page
-            const canonical = identical
-              ? chooseCanonicalPage(detected.page!, match.page!)
-              : null
-            const reverse = !!canonical && canonical.id === page.id
-            const target = reverse ? match.page! : detected.page
-            const title = reverse ? page.title : match.title
-            const targetTitle = target?.title ?? page.title
-            const targetId = reverse ? match.pageId : page.id
-            const targetRevision = reverse
-              ? match.revisionId
-              : detected.revisionId
-            const canonicalId = reverse ? page.id : match.pageId
-            const canonicalPath = reverse ? detected.page!.path : match.path
-            const blockId = reverse ? match.blockId : passage.blockId
-            const recommendation = {
-              version: 2 as const,
-              kind: identical ? ("identical" as const) : ("overlap" as const),
-              summary: identical
-                ? `${targetTitle} ${match.exact ? "is an exact copy of" : "is nearly identical to"} ${title}. Keep ${title} and archive the copy to maintain one source of truth.`
-                : `${targetTitle} repeats ${match.heading ? `the '${match.heading}' section` : "content"} from ${title}. Keep it on ${title} and link to it from ${targetTitle} for one source of truth.`,
-              excerpt: passage.text.slice(0, 1000),
-              targetPageId: targetId,
-              baseRevisionId: targetRevision,
-              canonicalPageId: canonicalId,
-              canonicalRevisionId: reverse
-                ? detected.revisionId
-                : match.revisionId,
-              canonicalTitle: title,
-              canonicalPath,
-              blockId: blockId ?? passage.blockId,
-              changeNote: `Consolidated duplicate with ${title}`.slice(0, 1000),
-            }
-            if (
-              !parseWikiAlertRecommendation(
-                recommendation,
-                page.id,
-                match.pageId
-              ) ||
-              (!identical &&
-                !replaceDuplicateBlock(
-                  revision.data?.blocks,
-                  passage.blockId,
-                  title,
-                  canonicalPath
-                ))
-            ) {
-              skipped++
-              continue
-            }
-            if (!identical) {
-              const text = await recommendationText(
-                targetTitle,
-                passage.text,
-                title,
-                canonicalPath,
-                match.text,
-                match.heading
-              )
-              if (
-                text.summary !==
-                `${targetTitle} repeats content from ${title}. Keep it on ${title} and link to it from ${targetTitle} for one source of truth.`
-              )
-                recommendation.summary = text.summary
-              recommendation.changeNote = text.changeNote
-              if (text.failed) skipped++
-            }
-            const values = {
-              recommendation,
-              page_hash:
-                open && open.page_id !== page.id ? otherHash : pageHash,
-              other_page_hash:
-                open && open.page_id !== page.id ? pageHash : otherHash,
-            }
-            const saved = open
-              ? await supabase
-                  .from("wiki_alerts")
-                  .update(values)
-                  .eq("id", open.id)
-                  .eq("status", "open")
-                  .select("id")
-                  .maybeSingle()
-              : await supabase
-                  .from("wiki_alerts")
-                  .insert({
-                    ...values,
-                    page_id: page.id,
-                    other_page_id: match.pageId,
-                  })
-                  .select("id")
-                  .single()
-            if (saved.error) throw saved.error
-            if (saved.data) {
-              written++
-              if (open) updated++
-              else opened++
-              await logAiAction(supabase, {
-                type: "alert_recommendation",
-                pageId: targetId,
-                alertId: saved.data.id,
-                kind: recommendation.kind,
-              })
-            } else {
-              hadFailure = true
-              skipped++
-            }
-          } catch {
-            hadFailure = true
-            skipped++
-          }
+          const previous = candidates.get(key)
+          if (
+            !previous ||
+            (match.classification === "identical" &&
+              previous.match.classification !== "identical")
+          )
+            candidates.set(key, {
+              page,
+              detected,
+              passage,
+              match,
+              blocks: revision.data?.blocks,
+            })
         }
       }
     } catch {
       hadFailure = true
       skipped++
+    }
+  }
+  pairs = candidates.size
+  let copies = new Set<string>()
+  let openAlerts: OpenAlert[] = []
+  const reclassified = new Set<string>()
+  for (const phase of ["identical", "reclassified", "overlap"] as const) {
+    if (phase === "reclassified") {
+      try {
+        openAlerts = await fetchOpenAlerts(supabase)
+      } catch {
+        hadFailure = true
+        break
+      }
+    }
+    if (phase === "overlap") {
+      try {
+        copies = await dismissOverlapsForCopies(supabase)
+      } catch {
+        // Never write overlap recommendations when the protected set is unknown.
+        hadFailure = true
+        break
+      }
+    }
+    for (const {
+      page,
+      detected,
+      passage,
+      match,
+      blocks,
+    } of candidates.values()) {
+      const isIdentical =
+        match.classification === "identical" && !!detected.page && !!match.page
+      const key = [page.id, match.pageId].sort().join(":")
+      if (phase === "identical" ? !isIdentical : isIdentical) continue
+      let oldIdentical: OpenAlert | undefined
+      if (phase === "reclassified") {
+        oldIdentical = openAlerts.find((alert) => {
+          const recommendation = parseWikiAlertRecommendation(
+            alert.recommendation,
+            alert.page_id,
+            alert.other_page_id
+          )
+          return (
+            [alert.page_id, alert.other_page_id].sort().join(":") === key &&
+            recommendation?.version === 2 &&
+            recommendation.kind === "identical"
+          )
+        })
+        if (!oldIdentical) continue
+        const otherCopies = copyTargets(
+          openAlerts.filter((alert) => alert.id !== oldIdentical!.id)
+        )
+        if (otherCopies.has(page.id) || otherCopies.has(match.pageId)) continue
+      }
+      if (phase === "overlap" && reclassified.has(key)) continue
+      if (
+        phase === "overlap" &&
+        (copies.has(page.id) || copies.has(match.pageId))
+      ) {
+        skipped++
+        continue
+      }
+      try {
+        const pageHash = alertPageHash(detected.revisionId)
+        const otherHash = alertPageHash(match.revisionId)
+        const rows: {
+          id: string
+          status: string
+          page_id: string
+          page_hash: string | null
+          other_page_hash: string | null
+          dismissed_by: string | null
+          dismissed_at: string | null
+        }[] = []
+        for (let offset = 0; ; offset += 1000) {
+          const existing = await supabase
+            .from("wiki_alerts")
+            .select(
+              "id,status,page_id,page_hash,other_page_hash,dismissed_by,dismissed_at"
+            )
+            .in("page_id", [page.id, match.pageId])
+            .in("other_page_id", [page.id, match.pageId])
+            .order("id")
+            .range(offset, offset + 999)
+          if (existing.error) throw existing.error
+          rows.push(...(existing.data ?? []))
+          if ((existing.data ?? []).length < 1000) break
+        }
+        const open = rows.find((row) => row.status === "open")
+        if (!open && closedPairUnchanged(rows, page.id, pageHash, otherHash)) {
+          skipped++
+          continue
+        }
+        const identical =
+          match.classification === "identical" && detected.page && match.page
+        const canonical = identical
+          ? chooseCanonicalPage(detected.page!, match.page!)
+          : null
+        const reverse = !!canonical && canonical.id === page.id
+        const target = reverse ? match.page! : detected.page
+        const title = reverse ? page.title : match.title
+        const targetTitle = target?.title ?? page.title
+        const targetId = reverse ? match.pageId : page.id
+        const targetRevision = reverse ? match.revisionId : detected.revisionId
+        const canonicalId = reverse ? page.id : match.pageId
+        const canonicalPath = reverse ? detected.page!.path : match.path
+        const blockId = reverse ? match.blockId : passage.blockId
+        const recommendation = {
+          version: 2 as const,
+          kind: identical ? ("identical" as const) : ("overlap" as const),
+          summary: identical
+            ? `${targetTitle} ${match.exact ? "is an exact copy of" : "is nearly identical to"} ${title}. Keep ${title} and archive the copy to maintain one source of truth.`
+            : `${targetTitle} repeats ${match.heading ? `the '${match.heading}' section` : "content"} from ${title}. Keep it on ${title} and link to it from ${targetTitle} for one source of truth.`,
+          excerpt: passage.text.slice(0, 1000),
+          targetPageId: targetId,
+          baseRevisionId: targetRevision,
+          canonicalPageId: canonicalId,
+          canonicalRevisionId: reverse ? detected.revisionId : match.revisionId,
+          canonicalTitle: title,
+          canonicalPath,
+          blockId: blockId ?? passage.blockId,
+          changeNote: `Consolidated duplicate with ${title}`.slice(0, 1000),
+        }
+        if (
+          !parseWikiAlertRecommendation(
+            recommendation,
+            page.id,
+            match.pageId
+          ) ||
+          (!identical &&
+            !replaceDuplicateBlock(
+              blocks,
+              passage.blockId,
+              title,
+              canonicalPath
+            ))
+        ) {
+          skipped++
+          continue
+        }
+        if (!identical) {
+          const text = await recommendationText(
+            targetTitle,
+            passage.text,
+            title,
+            canonicalPath,
+            match.text,
+            match.heading
+          )
+          if (
+            text.summary !==
+            `${targetTitle} repeats content from ${title}. Keep it on ${title} and link to it from ${targetTitle} for one source of truth.`
+          )
+            recommendation.summary = text.summary
+          recommendation.changeNote = text.changeNote
+          if (text.failed) skipped++
+        }
+        const values = {
+          recommendation,
+          page_hash: open && open.page_id !== page.id ? otherHash : pageHash,
+          other_page_hash:
+            open && open.page_id !== page.id ? pageHash : otherHash,
+        }
+        const saved = open
+          ? await supabase
+              .from("wiki_alerts")
+              .update(values)
+              .eq("id", open.id)
+              .eq("status", "open")
+              .select("id")
+              .maybeSingle()
+          : await supabase
+              .from("wiki_alerts")
+              .insert({
+                ...values,
+                page_id: page.id,
+                other_page_id: match.pageId,
+              })
+              .select("id")
+              .single()
+        if (saved.error) throw saved.error
+        if (saved.data) {
+          if (oldIdentical) {
+            oldIdentical.recommendation = recommendation
+            reclassified.add(key)
+          }
+          written++
+          if (open) updated++
+          else opened++
+          await logAiAction(supabase, {
+            type: "alert_recommendation",
+            pageId: targetId,
+            alertId: saved.data.id,
+            kind: recommendation.kind,
+          })
+        } else {
+          hadFailure = true
+          skipped++
+        }
+      } catch {
+        hadFailure = true
+        skipped++
+      }
     }
   }
   // Failed work must remain eligible for the next scan.

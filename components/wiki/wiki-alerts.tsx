@@ -39,7 +39,24 @@ async function fetchAlerts(): Promise<Alert[]> {
       .range(offset, offset + 999)
     if (error) throw error
     rows.push(...(data ?? []))
-    if ((data ?? []).length < 1000) return rows
+    if ((data ?? []).length < 1000) {
+      // The query already orders newest first; stable sorting keeps that order
+      // within each severity, including across fetched pages.
+      return rows.sort((a, b) => {
+        const severity = (alert: Alert) => {
+          const recommendation = parseWikiAlertRecommendation(
+            alert.recommendation,
+            alert.page_id,
+            alert.other_page_id
+          )
+          return recommendation?.version === 2 &&
+            recommendation.kind === "identical"
+            ? 0
+            : 1
+        }
+        return severity(a) - severity(b)
+      })
+    }
   }
 }
 
