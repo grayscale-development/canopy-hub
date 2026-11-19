@@ -73,6 +73,25 @@ describe("Milo evidence", () => {
     ])
   })
 
+  it("cites a returned tag in ordinary prose at its first mention", () => {
+    const tag = {
+      title: "Tag: Hub Process (Global)",
+      url: "/wiki/tags?tag=Hub%20Process#tag-hub-process",
+      snippet: "Accessible pages: Checklist",
+      sourceType: "wiki_tag",
+    }
+    const result = checkAnswer(
+      "Hub Process applies. Hub Process is useful. Unknown is not linked.",
+      [],
+      [tag]
+    )
+    expect(result.answer).toContain(
+      "[Hub Process](/wiki/tags?tag=Hub%20Process#tag-hub-process) applies. Hub Process is useful."
+    )
+    expect(result.answer).not.toContain("[Unknown]")
+    expect(result.citations.map((item) => item.url)).toEqual([tag.url])
+  })
+
   it("warns only once when several claims cannot be verified", () => {
     const result = checkAnswer(
       "The CEO approves refunds. Every refund takes 20 days.",

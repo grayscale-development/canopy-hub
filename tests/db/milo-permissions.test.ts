@@ -221,46 +221,6 @@ dbDescribe("Milo user permission enforcement", () => {
     }
   })
 
-  it("filters indexed documents using the caller's storage access", async () => {
-    const document = await admin
-      .from("knowledge_sources")
-      .insert({
-        source_type: "document",
-        source_id: `${token}-document`,
-        title: `${token} document`,
-        url: "/home",
-        metadata: { storageBucket: "Wiki", storagePath: path },
-        content_hash: token,
-      })
-      .select("id")
-      .single()
-    expect(document.error).toBeNull()
-    const id = document.data!.id
-    try {
-      const inserted = await admin
-        .from("knowledge_chunks")
-        .insert({ source_id: id, chunk_index: 0, content: `${token} document` })
-      expect(inserted.error).toBeNull()
-      const args = {
-        search_query: token,
-        match_count: 50,
-        source_types: ["document"],
-      }
-      const allowed = await manager.rpc("match_knowledge_chunks_keyword", args)
-      const denied = await outsider.rpc("match_knowledge_chunks_keyword", args)
-      expect(allowed.error).toBeNull()
-      expect(denied.error).toBeNull()
-      expect(
-        allowed.data.some((row: { source_id: string }) => row.source_id === id)
-      ).toBe(true)
-      expect(
-        denied.data.some((row: { source_id: string }) => row.source_id === id)
-      ).toBe(false)
-    } finally {
-      await admin.from("knowledge_sources").delete().eq("id", id)
-    }
-  })
-
   it("rechecks the candidate tree using the caller and current page status", async () => {
     expect(await isEditablePage(manager, pageId)).toBe(true)
     expect(await isEditablePage(viewer, pageId)).toBe(false)

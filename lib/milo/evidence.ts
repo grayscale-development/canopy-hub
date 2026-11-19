@@ -103,16 +103,15 @@ function mentionsReference(sentence: string, source: Evidence) {
     /(?:^\s*[-*]\s+|\b(?:see|open|visit|read|find|match|page|link|tag|section)\b|\*\*|\[)/i.test(
       sentence
     )
-  return (
-    isNavigation &&
-    referenceNames(source).some((name) => {
-      if (name.length < 3) return false
-      return new RegExp(
-        `(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`,
-        "iu"
-      ).test(sentence)
-    })
-  )
+  const tag = /^Tag: (.+) \((.+)\)$/.exec(source.title)
+  return referenceNames(source).some((name) => {
+    if (!(isNavigation || (tag && name === tag[1]))) return false
+    if (name.length < 3 && !(tag && name === tag[1])) return false
+    return new RegExp(
+      `(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`,
+      "iu"
+    ).test(sentence)
+  })
 }
 
 export function checkAnswer(
