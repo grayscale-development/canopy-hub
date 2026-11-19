@@ -147,7 +147,7 @@ for (const viewport of [
       await page.emulateMedia({ colorScheme })
       await mockMiloChatApi(page)
       await page.route("**/api/milo/preferences", (route) =>
-        route.fulfill({ json: { corner: "bottom-right" } })
+        route.fulfill({ json: { position: null } })
       )
       await signInAsLocalDev(page)
       const launcher = page.getByRole("button", {

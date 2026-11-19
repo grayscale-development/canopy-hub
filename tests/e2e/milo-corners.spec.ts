@@ -33,65 +33,82 @@ async function noOverlap(
     .toBe(true)
 }
 
-test("drag, corner menu, reload and screenshots", async ({ page }, info) => {
+test("drag freely, persist, resize and use the keyboard", async ({
+  page,
+}, info) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.emulateMedia({ reducedMotion: "reduce" })
   await mockMiloChatApi(page)
-  let saved = "bottom-right"
+  let saved: { x: number; y: number } | null = null
   await page.route("**/api/milo/preferences", async (route) => {
     if (route.request().method() === "PUT")
-      saved = route.request().postDataJSON().corner
-    await route.fulfill({ json: { corner: saved } })
+      saved = route.request().postDataJSON().position
+    await route.fulfill({ json: { position: saved } })
   })
   await signInAsSeededUser(page, "wiki-manager@canopy.test")
   await page.goto("/home")
   const launcher = page.getByRole("button", { name: "Ask Milo", exact: true })
-  await expect(launcher).toBeVisible()
-  const box = (await launcher.boundingBox())!
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(40, 100, { steps: 8 })
-  await page.mouse.up()
-  await expect.poll(() => saved).toBe("top-left")
-  await expect(page.getByRole("dialog", { name: "Milo" })).toHaveCount(0)
-  await expect
-    .poll(async () => (await launcher.boundingBox())!.x)
-    .toBeLessThan(40)
   await launcher.click()
   const panel = page.getByRole("dialog", { name: "Milo" })
-  for (const [label, corner] of [
-    ["Top left", "top-left"],
-    ["Top right", "top-right"],
-    ["Bottom left", "bottom-left"],
-    ["Bottom right", "bottom-right"],
-  ]) {
-    await panel.getByRole("button", { name: "Move to corner" }).click()
-    await page.getByRole("menuitemradio", { name: label }).focus()
-    await page.keyboard.press("Enter")
-    await expect.poll(() => saved).toBe(corner)
-    const bounds = (await panel.boundingBox())!
-    expect(
-      corner.endsWith("left") ? bounds.x : 1440 - bounds.x - bounds.width
-    ).toBeLessThan(30)
-    if (corner.startsWith("top")) expect(bounds.y).toBeGreaterThanOrEqual(80)
-    else expect(900 - bounds.y - bounds.height).toBeLessThan(30)
-    await capture(page, info, `milo-${corner}`)
-  }
-  const header = panel.getByRole("heading", { name: "Milo" })
-  const headBox = (await header.boundingBox())!
-  await page.mouse.move(headBox.x + 5, headBox.y + 5)
+  await expect(
+    panel.getByRole("button", { name: "Move to corner" })
+  ).toHaveCount(0)
+  const title = panel.getByRole("heading", { name: "Milo" })
+  const before = await page.evaluate(() => ({
+    scroll: window.scrollY,
+    selection: window.getSelection()?.toString(),
+  }))
+  const box = (await title.boundingBox())!
+  await page.mouse.move(box.x + 5, box.y + 5)
   await page.mouse.down()
-  await page.mouse.move(60, 100, { steps: 8 })
+  await page.mouse.move(box.x - 350, box.y - 100, { steps: 8 })
   await page.mouse.up()
-  await expect.poll(() => saved).toBe("top-left")
+  await expect.poll(() => saved).not.toBeNull()
+  const after = await page.evaluate(() => ({
+    scroll: window.scrollY,
+    selection: window.getSelection()?.toString(),
+  }))
+  expect(after).toEqual(before)
+  const moved = (await panel.boundingBox())!
+  expect(moved.x).toBeGreaterThanOrEqual(10)
+  expect(moved.y).toBeGreaterThanOrEqual(10)
+  expect(moved.x).toBeLessThan(800)
+  const input = panel.getByRole("textbox", { name: "Ask a follow-up" })
+  await input.focus()
+  const savedBeforeKey = JSON.stringify(saved)
+  await page.keyboard.press("Alt+ArrowRight")
+  await expect.poll(() => JSON.stringify(saved)).not.toBe(savedBeforeKey)
+  await expect
+    .poll(async () => (await panel.boundingBox())!.x)
+    .toBeGreaterThan(moved.x + 20)
+  const persisted = (await panel.boundingBox())!
   await page.reload()
   await expect(panel).toBeVisible()
-  await expect.poll(async () => (await panel.boundingBox())!.x).toBeLessThan(30)
+  await expect
+    .poll(async () => Math.abs((await panel.boundingBox())!.x - persisted.x))
+    .toBeLessThan(2)
+  await page.setViewportSize({ width: 800, height: 600 })
+  await expect
+    .poll(async () => {
+      const r = (await panel.boundingBox())!
+      return (
+        r.x >= 9.9 &&
+        r.y >= 9.9 &&
+        r.x + r.width <= 790.1 &&
+        r.y + r.height <= 590.1
+      )
+    })
+    .toBe(true)
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" })
   await capture(page, info, "milo-dark-desktop")
   await page.setViewportSize({ width: 390, height: 844 })
-  const phoneBounds = (await panel.boundingBox())!
-  expect(phoneBounds).toMatchObject({ x: 0, y: 0, width: 390, height: 844 })
+  await expect.poll(async () => (await panel.boundingBox())?.width).toBe(390)
+  expect(await panel.boundingBox()).toMatchObject({
+    x: 0,
+    y: 0,
+    width: 390,
+    height: 844,
+  })
   await capture(page, info, "milo-home-mobile")
 })
 
@@ -107,7 +124,7 @@ test("Save bar remains accessible on desktop and phone", async ({
   try {
     await mockMiloChatApi(page)
     await page.route("**/api/milo/preferences", (route) =>
-      route.fulfill({ json: { corner: "bottom-right" } })
+      route.fulfill({ json: { position: null } })
     )
     await signInAsSeededUser(page, "wiki-manager@canopy.test")
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -126,12 +143,8 @@ test("Save bar remains accessible on desktop and phone", async ({
     const panel = page.getByRole("dialog", { name: "Milo" })
     await noOverlap(panel, bar)
     await capture(page, info, "milo-save-bar-desktop")
-    await page.setViewportSize({ width: 640, height: 900 })
-    await panel.getByRole("button", { name: "Move to corner" }).click()
-    await page.getByRole("menuitemradio", { name: "Bottom left" }).click()
+    await page.setViewportSize({ width: 640, height: 450 })
     await noOverlap(panel, bar)
-    await panel.getByRole("button", { name: "Move to corner" }).click()
-    await page.getByRole("menuitemradio", { name: "Bottom right" }).click()
     await page.setViewportSize({ width: 390, height: 844 })
     await panel.getByRole("button", { name: "Close" }).click()
     await noOverlap(launcher, bar)
@@ -156,7 +169,7 @@ test("server preference survives a fresh browser context", async ({
   await page.goto("/home")
   const initial = await page.request.get("/api/milo/preferences")
   expect(initial.ok()).toBeTruthy()
-  const original = (await initial.json()).corner
+  const original = (await initial.json()).position
   const second = await browser.newContext({
     baseURL: new URL(page.url()).origin,
   })
@@ -164,7 +177,7 @@ test("server preference survives a fresh browser context", async ({
     expect(
       (
         await page.request.put("/api/milo/preferences", {
-          data: { corner: "top-right" },
+          data: { position: { x: 1, y: 0 } },
         })
       ).ok()
     ).toBeTruthy()
@@ -175,9 +188,9 @@ test("server preference survives a fresh browser context", async ({
       .poll(
         async () =>
           (await (await otherPage.request.get("/api/milo/preferences")).json())
-            .corner
+            .position
       )
-      .toBe("top-right")
+      .toEqual({ x: 1, y: 0 })
     const launcher = otherPage.getByRole("button", {
       name: "Ask Milo",
       exact: true,
@@ -187,8 +200,50 @@ test("server preference survives a fresh browser context", async ({
       .toBeLessThan(110)
   } finally {
     await page.request.put("/api/milo/preferences", {
-      data: { corner: original },
+      data: { position: original },
     })
     await second.close()
   }
+})
+
+test("touch dragging the phone launcher does not open Milo or move the page", async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName !== "chromium", "CDP touch input requires Chromium")
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockMiloChatApi(page)
+  let position: { x: number; y: number } | null = null
+  await page.route("**/api/milo/preferences", async (route) => {
+    if (route.request().method() === "PUT")
+      position = route.request().postDataJSON().position
+    await route.fulfill({ json: { position } })
+  })
+  await signInAsSeededUser(page, "standard@canopy.test")
+  await page.goto("/home")
+  const launcher = page.getByRole("button", { name: "Ask Milo", exact: true })
+  await expect(launcher).toBeVisible()
+  const box = (await launcher.boundingBox())!
+  const scroll = await page.evaluate(() => window.scrollY)
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true })
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: box.x + 20, y: box.y + 20 }],
+  })
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [{ x: 100, y: 250 }],
+  })
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  })
+  await expect.poll(() => position).not.toBeNull()
+  await expect(page.getByRole("dialog", { name: "Milo" })).toHaveCount(0)
+  expect(await page.evaluate(() => window.scrollY)).toBe(scroll)
+  await expect
+    .poll(async () => (await launcher.boundingBox())!.x)
+    .toBeLessThan(150)
+  await cdp.detach()
 })
