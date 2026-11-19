@@ -238,6 +238,7 @@ test("a long reviewed replacement shows non-text changes and persists after relo
   await signInAsLocalDev(page)
   await page.goto(reviewed.path)
   await openUpdate(page)
+  await page.getByText("More options", { exact: true }).click()
   await page.getByRole("checkbox", { name: "Replace the whole page" }).click()
   await page
     .getByLabel("What should change?")

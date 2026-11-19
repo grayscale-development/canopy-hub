@@ -78,12 +78,18 @@ export function WikiStatusSelect({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="outline" size="xs" disabled={pending}>
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            disabled={pending}
+            className={value === "published" ? "text-success" : undefined}
+          >
             <span
               aria-hidden="true"
               className={
                 value === "published"
-                  ? "size-2 rounded-full bg-primary"
+                  ? "size-2 rounded-full bg-success"
                   : "size-2 rounded-full bg-muted-foreground"
               }
             />
@@ -98,7 +104,13 @@ export function WikiStatusSelect({
               key={option.value}
               onSelect={() => requestStatus(option.value)}
             >
-              {option.label}
+              <span
+                className={
+                  option.value === "published" ? "text-success" : undefined
+                }
+              >
+                {option.label}
+              </span>
               {value === option.value ? (
                 <CheckIcon aria-hidden="true" className="ml-auto" />
               ) : null}

@@ -33,7 +33,10 @@ test("combined tags work for managers and readers, with flat page tags", async (
   const globalName = `QA Global ${suffix}`
   const sectionName = `QA Section ${suffix}`
   const privateName = `QA Draft ${suffix}`
+  const longName = `QA${"longtag".repeat(7)}${suffix}`
   const created: string[] = []
+  let longPageId: string | undefined
+  const longPageTitle = `QA${"longpagetitle".repeat(8)}${suffix}`
   await page.route("**/*", (route) => {
     const url = new URL(route.request().url())
     return ["localhost", "127.0.0.1"].includes(url.hostname)
@@ -48,16 +51,40 @@ test("combined tags work for managers and readers, with flat page tags", async (
         { name: globalName, scope: "global", section_id: null },
         { name: sectionName, scope: "section", section_id: sectionId },
         { name: privateName, scope: "global", section_id: null },
+        { name: longName, scope: "global", section_id: null },
       ])
       .select("id,name")
     if (tagError || !tags) throw tagError ?? new Error("No tags created")
     created.push(...tags.map((tag) => tag.id))
     const id = (name: string) => tags.find((tag) => tag.name === name)!.id
+    const { data: parent, error: parentError } = await admin
+      .from("wiki_nodes")
+      .select("parent_id")
+      .eq("id", publishedId)
+      .single()
+    if (parentError || !parent?.parent_id)
+      throw parentError ?? new Error("Published page has no parent")
+    const { data: longPage, error: pageError } = await admin
+      .from("wiki_nodes")
+      .insert({
+        parent_id: parent.parent_id,
+        type: "page",
+        slug: `qa-long-${suffix}`,
+        title: longPageTitle,
+        status: "published",
+      })
+      .select("id")
+      .single()
+    if (pageError || !longPage)
+      throw pageError ?? new Error("Long page was not created")
+    longPageId = longPage.id
     const { error: assignmentError } = await admin
       .from("wiki_page_tags")
       .insert([
         { node_id: publishedId, tag_id: id(globalName) },
         { node_id: publishedId, tag_id: id(sectionName) },
+        { node_id: publishedId, tag_id: id(longName) },
+        { node_id: longPageId, tag_id: id(longName) },
         { node_id: draftId, tag_id: id(privateName) },
         { node_id: archivedId, tag_id: id(privateName) },
       ])
@@ -69,6 +96,7 @@ test("combined tags work for managers and readers, with flat page tags", async (
     for (const [width, height, prefix] of [
       [1440, 900, "01"],
       [390, 844, "02"],
+      [320, 700, "02-small"],
     ] as const) {
       await page.setViewportSize({ width, height })
       await page.goto(`/wiki/tags/manage${query}`)
@@ -92,12 +120,41 @@ test("combined tags work for managers and readers, with flat page tags", async (
         row.getByRole("button", { name: /Actions for/ })
       ).toBeVisible()
       const table = page.locator("table")
+      const wrapper = page
+        .locator('[data-slot="table-container"]')
+        .filter({ has: table })
       await expect(table).toBeVisible()
-      expect(
-        await table.evaluate(
-          (element) => element.scrollWidth <= element.clientWidth
+      const searchBounds = await page
+        .getByRole("textbox", { name: "Search tags" })
+        .boundingBox()
+      const tableBounds = await wrapper.boundingBox()
+      expect(searchBounds).not.toBeNull()
+      expect(tableBounds).not.toBeNull()
+      expect(Math.abs(searchBounds!.x - tableBounds!.x)).toBeLessThanOrEqual(1)
+      if (width < 640) {
+        expect(
+          Math.abs(
+            searchBounds!.x +
+              searchBounds!.width -
+              tableBounds!.x -
+              tableBounds!.width
+          )
+        ).toBeLessThanOrEqual(1)
+      }
+      await page.getByRole("button", { name: longName, exact: true }).click()
+      await expect(
+        page.getByRole("button", { name: longName, exact: true })
+      ).toHaveAttribute("aria-expanded", "true")
+      await expect(
+        page.getByRole("link", { name: longPageTitle })
+      ).toBeVisible()
+      await expect
+        .poll(() =>
+          wrapper.evaluate(
+            (element) => element.scrollWidth - element.clientWidth
+          )
         )
-      ).toBe(true)
+        .toBeLessThanOrEqual(0)
       await screenshot(page, `${prefix}-manager-deep-link.png`)
     }
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -193,6 +250,13 @@ test("combined tags work for managers and readers, with flat page tags", async (
     await expect(page.locator("table").getByText("Draft SOP")).toHaveCount(0)
     await expect(page.locator("table").getByText("Archived SOP")).toHaveCount(0)
   } finally {
+    if (longPageId) {
+      const { error } = await admin
+        .from("wiki_nodes")
+        .delete()
+        .eq("id", longPageId)
+      if (error) throw error
+    }
     if (created.length) {
       const { error: assignmentError } = await admin
         .from("wiki_page_tags")
