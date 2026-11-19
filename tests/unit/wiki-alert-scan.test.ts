@@ -424,6 +424,7 @@ describe("alerts scan", () => {
         neq: () => query,
         gt: () => query,
         order: () => query,
+        range: () => query,
         limit: () => query,
         maybeSingle: async () => ({
           data:
@@ -450,7 +451,7 @@ describe("alerts scan", () => {
     })
     expect(detectWikiDuplicates).not.toHaveBeenCalled()
     expect(createChatResponseWithOpenAI).not.toHaveBeenCalled()
-    expect(client.from).not.toHaveBeenCalledWith("wiki_alerts")
+    expect(client.from).toHaveBeenCalledWith("wiki_alerts")
     expect(client.from).not.toHaveBeenCalledWith("ai_action_log")
     expect(writes).toEqual([{ last_success_at: expect.any(String) }])
   })
