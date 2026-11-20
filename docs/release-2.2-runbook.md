@@ -13,12 +13,13 @@ Nothing in this file has been run against production. Every production step belo
   5. Checks that the upgraded schema matches a fresh build.
 
   It also shows a plain `db push` refusing the out-of-order files, which is why Deploy now uses `--include-all`.
+
 - **Production matches the migrations (drift check).** A read-only catalog fingerprint of production (`scripts/release/schema-fingerprint-summary.sql`) matches the main-built schema for every app column, function, policy, RLS flag, grant and trigger. Known pre-existing differences that no v2.2 migration touches:
   - legacy `public.roles`, `public.user_roles`, `public.allowed_domains` and their 5 functions/trigger, created before the repo had migrations
   - two `raw.specialist_points_new` indexes that production lacks
 - **No production history repair.** `202611100001_restore_archived_wiki_folders` keeps its production version, so no `supabase migration repair` is needed.
 
-## 1. Pending migrations (23, applied in this order by Deploy)
+## 1. Pending migrations (24, applied in this order by Deploy)
 
 ```
 202611090002_wiki_tag_levels
@@ -44,32 +45,32 @@ Nothing in this file has been run against production. Every production step belo
 202611190003_feedback_inbox
 202611190004_wiki_identical_alert_apply
 202611190005_milo_visibility_initplan
+202611200001_drop_wiki_duplicates_inspect_permission
 ```
 
-All are additive (new tables, columns, functions, policies and grants). None deletes content.
+Earlier migrations are additive. The last removes the editor duplicate inspector permission and its grants; none deletes wiki content.
 
 ## 2. Before release day
 
 - [ ] Zach finishes the v2.2 test on the staging preview and says **go** on #52.
 - [ ] #54 tag cleanup: Zach approves the decisions CSV. This is only needed if the tag cleanup runs in this release; it can wait.
-- [ ] Decide the alerts schedule: on at release (default), or later.
 - [ ] No other PRs merge to `main` until the release is done.
 
 ## 3. Release day: production configuration (Zach or Grayscale with Zach's go)
 
 Vercel → canopy-hub → Settings → Environment Variables, **Production** target only:
 
-| Name | Value | Notes |
-|---|---|---|
-| `CANOPY_ALERTS_SCAN_SECRET` | new random value, e.g. `openssl rand -hex 32` | Secret for the alerts scan route. Never reuse the staging value. |
-| `CRON_SECRET` | the same value as `CANOPY_ALERTS_SCAN_SECRET` | Vercel Cron sends it as the Bearer token. |
-| `CANOPY_ALLOW_PRODUCTION_ALERTS_JOB` | `true` | Turns the daily scan on. Leave it unset to keep alerts off; the cron then gets 403 and touches nothing. |
+| Name                                 | Value                                         | Notes                                                                                                   |
+| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `CANOPY_ALERTS_SCAN_SECRET`          | new random value, e.g. `openssl rand -hex 32` | Secret for the alerts scan route. Never reuse the staging value.                                        |
+| `CRON_SECRET`                        | the same value as `CANOPY_ALERTS_SCAN_SECRET` | Vercel Cron sends it as the Bearer token.                                                               |
+| `CANOPY_ALLOW_PRODUCTION_ALERTS_JOB` | `true`                                        | Turns the daily scan on. Leave it unset to keep alerts off; the cron then gets 403 and touches nothing. |
 
 Already present in Production (no change): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` (shared with Preview, so it's the model Milo was tested with).
 
 Must **not** be in Production: `NEXT_PUBLIC_ALLOW_STAGING_PASSWORD_LOGIN`, `CANOPY_ALLOW_STAGING_ALERTS_JOB`. Even if they were present, the code gates both on the staging project ref.
 
-The alerts schedule is in `vercel.json`: `0 13 * * *`, which is 6:00 AM America/Phoenix, calling `/api/wiki/alerts/scan`. Vercel registers it on the production deploy. The scan never sends email.
+The alerts cron ships ON in `vercel.json`: `0 13 * * *`, daily at 6:00 AM Arizona (America/Phoenix), calling `/api/wiki/alerts/scan`. Vercel registers it on the production deploy. It remains inert until all three production settings above exist with matching secrets and the enable flag set to `true`. The scan never sends email.
 
 ## 4. Release day: preflight (read-only)
 
@@ -77,7 +78,7 @@ From a checkout of `v2.2`, with the Supabase CLI 2.67.1 linked to production and
 
 ```sh
 node scripts/release/preflight-2.2.mjs           # read-only checks: version, notes, history, env names, safeguards
-supabase db push --linked --include-all --dry-run # must list exactly the 23 migrations above, nothing else
+supabase db push --linked --include-all --dry-run # must list exactly the 24 migrations above, nothing else
 ```
 
 Stop if anything fails or the list differs. Optional: run `scripts/release/schema-fingerprint-summary.sql` read-only on production and compare it with the `Release migration check` log.
@@ -98,7 +99,7 @@ Confirm Supabase has a recent production backup (Dashboard → Database → Back
 
 ## 6. Right after deploy (verify)
 
-- [ ] `supabase migration list --linked`: 123 entries, local and remote aligned.
+- [ ] `supabase migration list --linked`: 124 entries, local and remote aligned.
 - [ ] Sign-in page shows **Version 2.2.0**.
 - [ ] Smoke test as a manager and a viewer:
   - Home
@@ -120,12 +121,14 @@ Confirm Supabase has a recent production backup (Dashboard → Database → Back
    5. Run Milo Index.
 
    Rollback: `scripts/wiki-link-rollback.sql` with the receipt run id.
+
 2. **#54 tag cleanup** (if approved for this release). Follow `docs/wiki-tag-audit.md`:
    1. Back up the tables.
    2. Run `scripts/wiki-tag-apply.ts <decisions.csv> --apply --i-have-approval`.
    3. Post before/after counts on #54.
 
    Rollback is in the same doc.
+
 3. **Hub help pages (#188).** The export bundle is the 9 pages, 23 figures and the import steps (prepared from staging Nov 20; kept in the Grayscale workspace, `runs/r4/hub-docs-export`). The import goes through the app, as a production wiki manager:
    1. Create "Getting Started" and "Settings and Feedback" under Hub.
    2. Note the production numeric ids of all 9 pages.
@@ -134,12 +137,13 @@ Confirm Supabase has a recent production backup (Dashboard → Database → Back
    5. QA as a viewer and a manager on desktop and phone.
 
    Production needs a signed-in manager browser for the import, since there is no password login.
+
 4. **Release notes page.** Publish `docs/releases/2.2.md` as "Version 2.2" under Canopy Wiki → Hub → Release Notes. Keep the older pages.
-5. **Duplicate highlighter permission.** "Check for duplicates" shows only to people with **Inspect Wiki Duplicates** (`wiki.duplicates.inspect`). The migration creates it but grants it to no one. Permissions are per person. Default per #128 is Zach only: in Settings → Permissions, give Zach "Inspect Wiki Duplicates". If Zach wants managers to have it, give it to each person with Manage Wiki.
+5. Retake the Hub help docs screenshots on production with real wiki data, then republish the 9 Hub help pages.
 
 ## 8. Rollback
 
-- **App:** Vercel → Deployments → the previous production deployment (2.1.1) → **Promote** (instant rollback). The new tables and columns stay. 2.1.1 doesn't use them, and every v2.2 migration is additive.
+- **App:** Vercel → Deployments → the previous production deployment (2.1.1) → **Promote** (instant rollback). The new tables and columns stay. 2.1.1 doesn't use them or the removed editor permission.
 - **Alerts:** remove `CANOPY_ALLOW_PRODUCTION_ALERTS_JOB` (the scan returns 403 from the next run). Or remove the cron in a follow-up PR.
 - **Migration failure mid-push:** each migration runs in its own transaction. The failed one rolls back; earlier ones stay applied and are harmless to 2.1.1. Don't reverse migrations by hand. Fix forward with a reviewed migration, or restore from the noted backup only if data was damaged (needs Zach).
 - **#64 / #54:** their own rollback scripts (above).

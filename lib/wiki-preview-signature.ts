@@ -15,7 +15,6 @@ export interface WikiPreviewClaim {
   sourcePageId: string | null
   sourceRevisionId?: string | null
   reviewedFile?: WikiPreviewFileClaim | null
-  consolidationTitle?: string
   blocks: unknown[]
 }
 
@@ -80,9 +79,6 @@ export function readSignedWikiPreview(
     (parsed.reviewedFile !== undefined &&
       parsed.reviewedFile !== null &&
       !isReviewedFileClaim(parsed.reviewedFile)) ||
-    (parsed.consolidationTitle !== undefined &&
-      (typeof parsed.consolidationTitle !== "string" ||
-        !parsed.consolidationTitle.trim())) ||
     !Array.isArray(parsed.blocks)
   ) {
     throw new Error("This review does not match. Look again before saving.")
@@ -95,9 +91,6 @@ export function readSignedWikiPreview(
     sourcePageId: parsed.sourcePageId ?? null,
     sourceRevisionId: parsed.sourceRevisionId ?? null,
     reviewedFile: parsed.reviewedFile ?? null,
-    ...(parsed.consolidationTitle
-      ? { consolidationTitle: parsed.consolidationTitle }
-      : {}),
     blocks: parsed.blocks,
   }
 }

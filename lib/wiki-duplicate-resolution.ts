@@ -36,15 +36,3 @@ export function replaceDuplicateBlock(
   const result = visit(blocks)
   return replaced === 1 ? result : null
 }
-
-export function duplicateBlockText(blocks: unknown, blockId: string): unknown {
-  if (!Array.isArray(blocks)) return null
-  for (const item of blocks) {
-    if (!item || typeof item !== "object") continue
-    const block = item as Record<string, unknown>
-    if (block.id === blockId) return { ...block, children: [] }
-    const child = duplicateBlockText(block.children, blockId)
-    if (child) return child
-  }
-  return null
-}

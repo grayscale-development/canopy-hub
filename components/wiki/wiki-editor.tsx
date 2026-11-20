@@ -37,7 +37,6 @@ import {
   WikiViewModeTitleSpacing,
 } from "@/components/wiki/wiki-edit-mode"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
-import { WikiDuplicates } from "@/components/wiki/wiki-duplicates"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
 import { WikiTagPicker, toScopedTag } from "@/components/wiki/wiki-tag-picker"
 import {
@@ -84,10 +83,8 @@ export function wikiBlocksPlainText(value: unknown): string {
 
 export function WikiEditor({
   node,
-  nodes = [],
   revision,
   canManage,
-  canInspectDuplicates = false,
   lastUpdatedAt,
   lastUpdatedBy,
   showStatusControl = false,
@@ -99,10 +96,8 @@ export function WikiEditor({
   sectionId = null,
 }: {
   node: WikiNodeRow
-  nodes?: WikiNodeRow[]
   revision: WikiRevisionRow | null
   canManage: boolean
-  canInspectDuplicates?: boolean
   lastUpdatedAt?: string | null
   lastUpdatedBy?: string
   showStatusControl?: boolean
@@ -126,10 +121,8 @@ export function WikiEditor({
   return (
     <WikiEditorMounted
       node={node}
-      nodes={nodes}
       revision={revision}
       canManage={canManage}
-      canInspectDuplicates={canInspectDuplicates}
       lastUpdatedAt={lastUpdatedAt}
       lastUpdatedBy={lastUpdatedBy}
       showStatusControl={showStatusControl}
@@ -145,10 +138,8 @@ export function WikiEditor({
 
 function WikiEditorMounted({
   node,
-  nodes,
   revision,
   canManage,
-  canInspectDuplicates = false,
   lastUpdatedAt,
   lastUpdatedBy,
   showStatusControl = false,
@@ -160,10 +151,8 @@ function WikiEditorMounted({
   sectionId,
 }: {
   node: WikiNodeRow
-  nodes: WikiNodeRow[]
   revision: WikiRevisionRow | null
   canManage: boolean
-  canInspectDuplicates?: boolean
   lastUpdatedAt?: string | null
   lastUpdatedBy?: string
   showStatusControl?: boolean
@@ -182,7 +171,6 @@ function WikiEditorMounted({
   const saveInFlight = React.useRef(false)
   const [state, setState] = React.useState<WikiActionResult | null>(null)
   const [isDirty, setIsDirty] = React.useState(false)
-  const [duplicateVersion, setDuplicateVersion] = React.useState(0)
   const [blocks, setBlocks] = React.useState<unknown>(
     normalizeInitialBlocks(revision?.blocks)
   )
@@ -290,7 +278,6 @@ function WikiEditorMounted({
     }
 
     saveInFlight.current = true
-    setDuplicateVersion((version) => version + 1)
     const formData = new FormData()
     setState(null)
     formData.set("node_id", node.id)
@@ -382,19 +369,6 @@ function WikiEditorMounted({
           ) : null}
         </div>
       </WikiViewModeTitleSpacing>
-      {canEditPage && canInspectDuplicates ? (
-        <WikiDuplicates
-          key={`${node.id}:${revision?.id}:${duplicateVersion}`}
-          nodeId={node.id}
-          revisionId={revision?.id ?? null}
-          savedBlocks={revision?.blocks}
-          nodes={nodes}
-          editor={editor}
-          surface={surface}
-          isDirty={isDirty}
-          blocks={blocks}
-        />
-      ) : null}
       <div
         ref={setSurface}
         className="wiki-blocknote-surface relative min-w-0 p-0"
