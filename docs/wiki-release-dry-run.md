@@ -14,3 +14,5 @@ For the actual release, an authorized release operator should keep wiki writes p
 The migration snapshot precedes the link rewrite and tag apply: those later operations intentionally change revisions or tags and must be verified using their own receipts. Hosted credentials and production actions are outside this local rehearsal.
 
 The browser citation check uses a mocked chat response with a URL from the real local search API. It does not verify a live fake-chat provider response.
+
+In CI, the **Release migration check** workflow runs this rehearsal in production's shape. It starts from `origin/main`'s migrations (production's applied history), sets `RELEASE_HEAD_MIGRATIONS_DIR` to the branch's migrations, and the script upgrades with `supabase db push --local --include-all`, the same command the Deploy workflow uses.
