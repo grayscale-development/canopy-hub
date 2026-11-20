@@ -161,14 +161,34 @@ it("reports non-text changes in the proposal that would actually be applied", as
     tags: [],
     markdown: linkedFact,
   })
+  // An empty page has no original content to keep, so the drafted link is
+  // applied and flagged for a manual check.
   const { card } = await prepareMiloProposal({
     supabase,
     pageId: "page",
     extraction: { ...extraction, facts: [linkedFact] },
-    baseRevisionId: "base",
+    baseRevisionId: null,
   })
   expect(card.keptOriginal).toBe(false)
   expect(card.nonTextNotes?.join(" ")).toContain("link")
+})
+
+it("appends only the facts when the model's full-page draft is not a faithful update", async () => {
+  includeImage = false
+  model.output = JSON.stringify({
+    title: "Escalation",
+    tags: [],
+    markdown: `# Escalation\n\n${before} Call the branch manager first.\n\n${fact}`,
+  })
+  const { card } = await prepareMiloProposal({
+    supabase,
+    pageId: "page",
+    extraction,
+    baseRevisionId: "base",
+  })
+  expect(card.after.split(before).length - 1).toBe(1)
+  expect(card.after).toContain(fact)
+  expect(card.after).not.toContain("Call the branch manager first.")
 })
 
 it("proposes a source-grounded replacement on a text-only page", async () => {

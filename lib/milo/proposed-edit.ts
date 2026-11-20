@@ -162,9 +162,20 @@ export async function prepareMiloProposal({
     draft.usedAi &&
     isFaithfulWikiUpdate(revision.plain_text, draft.markdown, text, draft.title)
   )
+  const factsDraft = {
+    blocks: extraction.facts.map((fact) => ({
+      type: "paragraph",
+      content: fact,
+      children: [],
+    })),
+    plainText: text,
+  }
+  // The model drafts the whole updated page. If that draft isn't a faithful
+  // update, append only the confirmed facts: appending the model's full page
+  // would repeat the existing content.
   const candidate = mergeWikiPageContent({
     existingRevision: revision,
-    draft,
+    draft: merged || !revision || !draft.usedAi ? draft : factsDraft,
     mode: merged ? "replace" : "update",
   })
   const notes = wikiNonTextChangeNotes(beforeBlocks, candidate.blocks)
@@ -177,14 +188,7 @@ export async function prepareMiloProposal({
     unsafe && merged
       ? mergeWikiPageContent({
           existingRevision: revision,
-          draft: {
-            blocks: extraction.facts.map((fact) => ({
-              type: "paragraph",
-              content: fact,
-              children: [],
-            })),
-            plainText: text,
-          },
+          draft: factsDraft,
           mode: "update",
         })
       : candidate
