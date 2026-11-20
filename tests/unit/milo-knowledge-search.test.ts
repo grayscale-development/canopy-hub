@@ -70,6 +70,56 @@ describe("Milo hybrid retrieval", () => {
     )
   })
 
+  it("starts the embedding while the keyword search is still pending", async () => {
+    let finishKeyword!: (result: { data: never[]; error: null }) => void
+    const keywordPending = new Promise<{ data: never[]; error: null }>(
+      (resolve) => {
+        finishKeyword = resolve
+      }
+    )
+    let markEmbeddingStarted!: () => void
+    const embeddingStarted = new Promise<void>((resolve) => {
+      markEmbeddingStarted = resolve
+    })
+    provider.createEmbeddingsWithOpenAI.mockImplementationOnce(async () => {
+      markEmbeddingStarted()
+      return [[1, 0]]
+    })
+    const rpc = vi.fn((name: string) =>
+      name === "match_knowledge_chunks_keyword"
+        ? keywordPending
+        : Promise.resolve({ data: [], error: null })
+    )
+    const pending = searchKnowledge({ rpc } as never, "query")
+    await embeddingStarted
+    expect(provider.createEmbeddingsWithOpenAI).toHaveBeenCalledOnce()
+    finishKeyword({ data: [], error: null })
+    await pending
+  })
+
+  it("deduplicates concurrent identical searches only for the same client", async () => {
+    let finish!: (result: { data: never[]; error: null }) => void
+    const keyword = new Promise<{ data: never[]; error: null }>((resolve) => {
+      finish = resolve
+    })
+    const rpc = vi.fn((name: string) =>
+      name === "match_knowledge_chunks_keyword"
+        ? keyword
+        : Promise.resolve({ data: [], error: null })
+    )
+    const client = { rpc } as never
+    const first = searchKnowledge(client, "query")
+    const second = searchKnowledge(client, "query")
+    expect(first).toBe(second)
+    const otherClient = searchKnowledge({ rpc } as never, "query")
+    expect(otherClient).not.toBe(first)
+    finish({ data: [], error: null })
+    await Promise.all([first, second, otherClient])
+    expect(provider.createEmbeddingsWithOpenAI).toHaveBeenCalledTimes(2)
+    await searchKnowledge(client, "query")
+    expect(provider.createEmbeddingsWithOpenAI).toHaveBeenCalledTimes(3)
+  })
+
   it("filters the retired Bridge site source before reindexing", async () => {
     const bridge = {
       ...row("bridge", 1),

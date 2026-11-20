@@ -77,6 +77,7 @@ interface Citation {
   title: string
   url: string | null
   snippet: string
+  knowledgeSourceId?: string | null
   updatedAt?: string
   updatedBy?: string
 }
@@ -142,16 +143,21 @@ function Sources({
   React.useEffect(() => {
     queueMicrotask(() => setNow(Date.now()))
   }, [])
-  const unique = [
-    ...new Map(
-      citations
-        .filter(
-          (citation) =>
-            citation.url && !/^\/wiki\/tags(?:[?#]|$)/i.test(citation.url)
-        )
-        .map((citation) => [citation.url, citation])
-    ).values(),
-  ]
+  const seenIds = new Set<string>()
+  const seenUrls = new Set<string>()
+  const unique = citations.filter((citation) => {
+    if (!citation.url || /^\/wiki\/tags(?:[?#]|$)/i.test(citation.url))
+      return false
+    const url = citation.url.split("#")[0]
+    if (
+      seenUrls.has(url) ||
+      (citation.knowledgeSourceId && seenIds.has(citation.knowledgeSourceId))
+    )
+      return false
+    seenUrls.add(url)
+    if (citation.knowledgeSourceId) seenIds.add(citation.knowledgeSourceId)
+    return true
+  })
   if (!unique.length) return null
   return (
     <div className="mt-3 space-y-1.5" aria-label="Sources">
@@ -258,6 +264,7 @@ export function WikiChat({
   onQueuedPromptConsumed,
   onNavigate,
   pageContext,
+  currentPath,
   onRemovePage,
   firstName,
   draftStorageKey,
@@ -275,6 +282,7 @@ export function WikiChat({
   onQueuedPromptConsumed?: () => void
   onNavigate?: () => void
   pageContext?: { pageId: string; title: string } | null
+  currentPath?: string | null
   onRemovePage?: () => void
   firstName?: string
   draftStorageKey?: string
@@ -721,6 +729,7 @@ export function WikiChat({
           id: assistantId,
           role: "assistant",
           content: "",
+          status: "Getting ready…",
           retryQuestion: question,
           retryFile: attachment,
         },
@@ -771,6 +780,7 @@ export function WikiChat({
         if (form && attachment) {
           form.set("message", question)
           if (threadId) form.set("threadId", threadId)
+          if (currentPath) form.set("currentPath", currentPath)
           form.set("file", attachment)
           if (pageContext)
             form.set(
@@ -788,6 +798,7 @@ export function WikiChat({
                 body: JSON.stringify({
                   threadId,
                   message: question,
+                  ...(currentPath ? { currentPath } : {}),
                   ...(pageContext
                     ? { pageContext: { pageId: pageContext.pageId } }
                     : {}),
@@ -970,7 +981,14 @@ export function WikiChat({
         }
       }
     },
-    [pending, threadId, pageContext, pinToBottom, onAnswerCompleted]
+    [
+      pending,
+      threadId,
+      pageContext,
+      currentPath,
+      pinToBottom,
+      onAnswerCompleted,
+    ]
   )
 
   React.useEffect(() => {
@@ -1432,9 +1450,11 @@ export function WikiChat({
                       index === messages.length - 1 &&
                       !answer.content &&
                       !answer.cards?.length ? (
-                        <div className="flex min-h-7 items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-                          <span>{answer.status || "Thinking…"}</span>
+                        <div className="flex min-h-7 min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2Icon className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                          <span className="truncate">
+                            {answer.status || "Thinking…"}
+                          </span>
                         </div>
                       ) : answer.content &&
                         !answer.cards?.some(

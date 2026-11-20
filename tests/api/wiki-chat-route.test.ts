@@ -93,7 +93,27 @@ vi.mock("@/lib/milo/proposal-store", () => ({
   },
 }))
 vi.mock("@/lib/milo/page-index", () => ({
-  miloPagePath: async () => ({ path: "1/2" }),
+  miloPagePath: async () => {
+    const root = {
+      id: "root",
+      parent_id: null,
+      type: "folder",
+      title: "Canopy Wiki",
+    }
+    const section = {
+      id: "section",
+      parent_id: "root",
+      type: "folder",
+      title: "Hub",
+    }
+    const node = {
+      id: "page",
+      parent_id: "section",
+      type: "page",
+      title: "Real page",
+    }
+    return { path: "1/2", nodes: [root, section, node], node }
+  },
   indexMiloPage: async () => {},
 }))
 
@@ -112,6 +132,8 @@ vi.mock("@/lib/supabase/server", () => ({
       new FakeSupabaseQuery(table),
     rpc: async (_name: string, args: { p_message_id: string }) => {
       testState.rpcCalls++
+      if (_name === "get_current_user_role_code")
+        return { data: "employee", error: null }
       const stored = testState.proposals[args.p_message_id]
       const message = testState.tables.ai_chat_messages.find(
         (row) => row.id === args.p_message_id
@@ -625,9 +647,11 @@ describe("/api/wiki/chat route", () => {
     const first = decoder.decode((await reader.read()).value)
     const second = decoder.decode((await reader.read()).value)
     const third = decoder.decode((await reader.read()).value)
+    const fourth = decoder.decode((await reader.read()).value)
     expect(first).toContain('"type":"meta"')
     expect(second).toContain('"type":"status"')
-    expect(third).toContain('"token":"First "')
+    expect(third).toContain('"type":"status"')
+    expect(fourth).toContain('"token":"First "')
     expect(
       testState.tables.ai_chat_messages.filter(
         (row) => row.role === "assistant"
@@ -649,6 +673,33 @@ describe("/api/wiki/chat route", () => {
         (row) => row.role === "assistant"
       )
     ).toHaveLength(1)
+  })
+
+  it("logs one timing record without the question, answer or user identifier", async () => {
+    testState.user = { id: "user-1" }
+    const log = vi.spyOn(console, "info").mockImplementation(() => {})
+    try {
+      const { POST } = await import("@/app/api/wiki/chat/route")
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({ message: "private question about funding" }),
+        })
+      )
+      await response.text()
+      const calls = log.mock.calls.filter(([label]) => label === "Milo timing")
+      expect(calls).toHaveLength(1)
+      const record = JSON.stringify(calls[0][1])
+      expect(record).not.toContain("private question about funding")
+      expect(record).not.toContain(testState.answer.answer)
+      expect(record).not.toContain("user-1")
+      expect(calls[0][1]).toMatchObject({
+        ms: { total: expect.any(Number) },
+        outcome: "complete",
+      })
+    } finally {
+      log.mockRestore()
+    }
   })
 
   it("saves the partial text on cancellation without an error message", async () => {
@@ -677,6 +728,7 @@ describe("/api/wiki/chat route", () => {
       })
     )
     const reader = response.body!.getReader()
+    await reader.read()
     await reader.read()
     expect(new TextDecoder().decode((await reader.read()).value)).toContain(
       "Partial answer"
@@ -751,8 +803,51 @@ describe("/api/wiki/chat route", () => {
       await response.text()
       const argument = vi.mocked(answerKnowledgeQuestion).mock.calls[0][0]
       expect(argument.pageContext).toEqual(
-        expected ? { pageId, title: "Real page", url: "/wiki/1/2" } : undefined
+        expected
+          ? {
+              pageId,
+              title: "Real page",
+              url: "/wiki/1/2",
+              kind: "wiki_page",
+              section: "Hub",
+              area: "Canopy Wiki",
+            }
+          : undefined
       )
+    }
+  })
+
+  it("derives recognized Hub locations and ignores forged or unsafe paths", async () => {
+    testState.user = { id: "user-1" }
+    const { POST } = await import("@/app/api/wiki/chat/route")
+    const { answerKnowledgeQuestion } = await import("@/lib/wiki-ai")
+    for (const [currentPath, expected] of [
+      ["/home", { title: "Home", url: "/home" }],
+      [
+        "/reports/file-quality",
+        { title: "File Quality Dashboard", url: "/reports/file-quality" },
+      ],
+      [
+        "/settings/feedback",
+        { title: "Settings: Feedback", url: "/settings/feedback" },
+      ],
+      ["/wiki/private-page", undefined],
+      ["https://example.invalid/home", undefined],
+    ] as const) {
+      vi.mocked(answerKnowledgeQuestion).mockClear()
+      const response = await POST(
+        new Request("http://test.local/api/wiki/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            message: "What is this page about?",
+            currentPath,
+          }),
+        })
+      )
+      await response.text()
+      expect(
+        vi.mocked(answerKnowledgeQuestion).mock.calls[0][0].pageContext
+      ).toEqual(expected)
     }
   })
 
@@ -785,7 +880,12 @@ describe("/api/wiki/chat route", () => {
       (message) => message.role === "user"
     )
     expect(userMessage?.metadata).toMatchObject({
-      pageContext: { pageId, title: "Real page", url: "/wiki/1/2" },
+      pageContext: {
+        pageId,
+        title: "Real page",
+        url: "/wiki/1/2",
+        kind: "wiki_page",
+      },
       sourceFileName: "source.txt",
     })
   })
@@ -849,6 +949,7 @@ describe("/api/wiki/chat route", () => {
               "ai.settings.access": false,
             },
             wikiManagers: null,
+            role: "employee",
           },
         })
       )

@@ -6,14 +6,6 @@ const state = vi.hoisted(() => ({
   calls: [] as { name: string; args: Record<string, unknown> }[],
   knowledge: [] as Array<Record<string, unknown>>,
 }))
-vi.mock("@/lib/wiki", async (original) => ({
-  ...(await original<typeof import("@/lib/wiki")>()),
-  fetchWikiNodes: async () => [
-    { id: "root", parent_id: null, short_id: 1, type: "folder" },
-    { id: "new-parent", parent_id: "root", short_id: 9, type: "folder" },
-    { id: "page", parent_id: "new-parent", short_id: 22, type: "page" },
-  ],
-}))
 vi.mock("@/lib/wiki-ai", async () => {
   const provider = await import("@/lib/ai/provider")
   return { embedTexts: provider.createEmbeddingsWithOpenAI }
@@ -72,7 +64,7 @@ vi.mock("@/lib/supabase/server", () => ({
               }),
             }
           : {
-              in: async () => ({
+              in: async (_column: string, ids: string[]) => ({
                 data:
                   table === "knowledge_sources"
                     ? [
@@ -82,7 +74,31 @@ vi.mock("@/lib/supabase/server", () => ({
                           source_id: "page",
                         },
                       ]
-                    : [{ id: "visible", title: "Operations" }],
+                    : table === "wiki_nodes"
+                      ? [
+                          {
+                            id: "root",
+                            parent_id: null,
+                            short_id: 1,
+                            type: "folder",
+                            status: "published",
+                          },
+                          {
+                            id: "new-parent",
+                            parent_id: "root",
+                            short_id: 9,
+                            type: "folder",
+                            status: "published",
+                          },
+                          {
+                            id: "page",
+                            parent_id: "new-parent",
+                            short_id: 22,
+                            type: "page",
+                            status: "published",
+                          },
+                        ].filter((node) => ids.includes(node.id))
+                      : [{ id: "visible", title: "Operations" }],
                 error: null,
               }),
             },
