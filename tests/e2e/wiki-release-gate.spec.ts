@@ -15,6 +15,7 @@ import {
   signInAsSeededUser,
   wikiPathForNode,
 } from "./wiki-reviewed-helpers"
+import { PAGE_CONTENT } from "./helpers"
 
 test("numeric routes, rewritten content, tags, history and permissions across both areas @smoke", async ({
   page,
@@ -167,20 +168,20 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
       const nodePath = await wikiPathForNode(node.id)
       await page.goto(nodePath)
       await expect(page).toHaveURL(new RegExp(`${nodePath}$`))
-      await expect(page.getByRole("main").last()).toContainText(node.title)
+      await expect(page.locator(PAGE_CONTENT).last()).toContainText(node.title)
     }
     await page.goto(await wikiPathForNode(canopy.id))
     await page
-      .getByRole("main")
+      .locator(PAGE_CONTENT)
       .last()
       .getByRole("link", { name: section.title, exact: true })
       .click()
     await page
-      .getByRole("main")
+      .locator(PAGE_CONTENT)
       .last()
       .getByRole("link", { name: group.title, exact: true })
       .click()
-    const main = page.getByRole("main").last()
+    const main = page.locator(PAGE_CONTENT).last()
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 844 })
       const taggedRow = main.getByRole("row").filter({
@@ -225,12 +226,12 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
     ).toHaveCount(0)
     await expect(
       page
-        .getByRole("main")
+        .locator(PAGE_CONTENT)
         .last()
         .getByRole("link", { name: source.title, exact: true })
     ).toBeVisible()
     await page
-      .getByRole("main")
+      .locator(PAGE_CONTENT)
       .last()
       .getByRole("link", { name: source.title, exact: true })
       .click()
@@ -238,7 +239,7 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
       page.getByRole("navigation", { name: "breadcrumb" })
     ).toContainText(group.title)
     const link = page
-      .getByRole("main")
+      .locator(PAGE_CONTENT)
       .last()
       .getByRole("link", { name: "Release destination" })
     await expect(link).toHaveAttribute("href", targetPath)
@@ -246,7 +247,7 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
     await link.click()
     const popup = await popupPromise
     await expect(popup).toHaveURL(new RegExp(`${targetPath}$`))
-    await expect(popup.getByRole("main").last()).toContainText(target.title)
+    await expect(popup.locator(PAGE_CONTENT).last()).toContainText(target.title)
     await popup.close()
     await page.goto(targetPath)
     await expect(page).toHaveURL(new RegExp(`${targetPath}$`))
@@ -256,12 +257,12 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
     await expect(page).toHaveURL(new RegExp(`${targetPath}$`))
     const tab = await context.newPage()
     await tab.goto(sourcePath)
-    await expect(tab.getByRole("main").last()).toContainText(source.title)
+    await expect(tab.locator(PAGE_CONTENT).last()).toContainText(source.title)
     await tab.close()
     await page.goto("/wiki/tags")
     await page.getByRole("textbox", { name: "Search tags" }).fill(tag.data.name)
     await page
-      .getByRole("main")
+      .locator(PAGE_CONTENT)
       .last()
       .getByRole("link", { name: new RegExp(source.title) })
       .click()
@@ -291,12 +292,12 @@ test("numeric routes, rewritten content, tags, history and permissions across bo
       ).toBeVisible()
       await page.goto(oldPath)
       await expect(page).toHaveURL(new RegExp(`${oldPath}$`))
-      await expect(page.getByRole("main").last()).toContainText(
+      await expect(page.locator(PAGE_CONTENT).last()).toContainText(
         `Renamed ${node.title}`
       )
     }
     await page.goto(sourcePath)
-    await expect(page.getByRole("main").last()).toContainText(source.title)
+    await expect(page.locator(PAGE_CONTENT).last()).toContainText(source.title)
 
     const outsider = await db.auth.admin.createUser({
       email: `${token}@canopy.test`,

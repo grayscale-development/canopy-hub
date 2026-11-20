@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs"
 import path from "node:path"
 import { expect, test } from "@playwright/test"
-import { mockMiloChatApi } from "./helpers"
+import { mockMiloChatApi, PAGE_CONTENT } from "./helpers"
 import {
   createReviewedPage,
   serviceWiki,
@@ -95,7 +95,7 @@ Funding Checklist: ${fixture.path} has more details. [3]`
       const search = page.getByRole("textbox", { name: "Search with Milo" })
       await search.fill("tell me about the funding process")
       await page
-        .getByRole("main")
+        .locator(PAGE_CONTENT)
         .last()
         .getByRole("button", { name: "Search" })
         .click()
@@ -145,7 +145,7 @@ Funding Checklist: ${fixture.path} has more details. [3]`
       await citation.first().click()
       await expect(dialog).toBeVisible()
       await expect(page).toHaveURL(new RegExp(`${fixture.path}$`))
-      await expect(page.getByRole("main").last()).toContainText(
+      await expect(page.locator(PAGE_CONTENT).last()).toContainText(
         "Funding Checklist"
       )
       await dialog.getByRole("button", { name: "Minimize Milo" }).click()
@@ -156,7 +156,7 @@ Funding Checklist: ${fixture.path} has more details. [3]`
         .getByRole("textbox", { name: "Search with Milo" })
         .fill("What is the cafeteria menu?")
       await page
-        .getByRole("main")
+        .locator(PAGE_CONTENT)
         .last()
         .getByRole("button", { name: "Search" })
         .click()
