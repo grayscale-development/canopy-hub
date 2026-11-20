@@ -91,6 +91,7 @@ dbDescribe("Milo hybrid visibility parity", { timeout: 120_000 }, () => {
               mime_type: "text/plain",
               size_bytes: 1,
               kind: "document",
+              status: "active",
             },
             {
               id: inactiveAsset,

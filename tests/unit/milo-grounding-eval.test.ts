@@ -3,10 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const fixture = vi.hoisted(() => ({
   active: null as null | {
     question: string
-    intent: "hub" | "page" | "other"
+    intent:
+      | "hub"
+      | "page"
+      | "other"
+      | "navigation"
+      | "identity"
+      | "hub_context"
+      | "page_context"
     covered: boolean
     related: boolean
     source: { title: string; url: string; snippet: string }
+    sourceType?: string
     answer?: string
     answerSupported?: boolean
     extraChunk?: string
@@ -56,7 +64,7 @@ const provider = vi.hoisted(() => ({
           output_text: JSON.stringify({
             coverage:
               active.coverage ?? (active.covered ? "covered" : "not_covered"),
-            relevantIds: active.related ? ["source"] : [],
+            relevantIds: active.related ? ["0"] : [],
           }),
           output: [] as unknown[],
         }
@@ -110,7 +118,7 @@ const mcp = vi.hoisted(() => ({
         ? [
             {
               ...active.source,
-              sourceType: "wiki_page",
+              sourceType: active.sourceType ?? "wiki_page",
               knowledgeSourceId: "source",
               knowledgeChunkId: "chunk",
               vectorSimilarity: active.vectorSimilarity ?? 0.9,
@@ -124,11 +132,9 @@ vi.mock("@/lib/milo/mcp/tools", () => mcp)
 
 import { answerKnowledgeQuestion } from "@/lib/wiki-ai"
 import { hasRetrievalConfidence } from "@/lib/milo/evidence"
-import {
-  abstention,
-  RELATED_PAGE_MIN_VECTOR_SIMILARITY,
-} from "@/lib/milo/grounding"
+import { abstention, gateMiloEvidence } from "@/lib/milo/grounding"
 import { buildInitialResearchCalls } from "@/lib/milo/agent"
+import { MiloTiming } from "@/lib/milo/timing"
 
 const hub = {
   title: "Getting Started",
@@ -266,22 +272,377 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
     fixture.fallback = false
   })
 
-  it("requires a vector match before suggesting a gate-selected related page", () => {
-    const source = { ...partial, sourceType: "wiki_page" }
-    expect(
-      abstention([
+  it("does not suggest pages when evidence does not answer the question", () => {
+    expect(abstention().pages).toEqual([])
+  })
+
+  it.each([
+    [
+      "how do I find someone's phone number?",
+      "People",
+      "/people",
+      "People searches employees by name, job title, work email, mobile phone, division or branch.",
+    ],
+    [
+      "how do I get a branch's address?",
+      "Branches",
+      "/branches",
+      "Branches lists branch names and addresses.",
+    ],
+  ])(
+    "streams the capability answer for %s",
+    async (question, title, url, snippet) => {
+      fixture.active = {
+        question,
+        intent: "hub",
+        covered: true,
+        related: true,
+        source: { title, url, snippet },
+        sourceType: "site",
+        answer: `Open [${title}](${url}).`,
+      }
+      const tokens: string[] = []
+      const result = await answerKnowledgeQuestion({
+        question,
+        supabase: fixtureClient() as never,
+        userContext,
+        pageContext,
+        onToken: (token) => tokens.push(token),
+      })
+      expect(result.metadata?.abstained).toBe(false)
+      expect(tokens.join("")).toContain(title)
+      const gate = provider.createAgentResponseWithOpenAI.mock.calls.find(
+        ([params]) => params.text?.format?.name === "milo_coverage"
+      )?.[0] as unknown as { instructions: string; input: string }
+      expect(gate.instructions).toContain("capability")
+      expect(JSON.parse(gate.input).sources[0].snippet).toContain(title)
+      expect(JSON.parse(gate.input).sources[0].sourceType).toBe("site")
+    }
+  )
+
+  it("recognizes identity supported by system context without a wiki warning", async () => {
+    fixture.active = {
+      question: "who are you?",
+      intent: "identity",
+      covered: true,
+      related: false,
+      answerSupported: false,
+      source: unrelated,
+      answer: "I'm Milo, the Canopy Hub assistant.",
+    }
+    const tokens: string[] = []
+    const timing = new MiloTiming()
+    const result = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      timing,
+      onToken: (token) => tokens.push(token),
+    })
+    expect(result.answer).toBe(tokens.join(""))
+    expect(result.answer).not.toContain("could not be verified")
+    expect(timing.gateOutcome).toBe("deterministic")
+    expect(result.answer).toContain("Milo")
+    expect(provider.streamMiloResponse).not.toHaveBeenCalled()
+  })
+
+  it("does not suppress a warning for unsupported claims alongside identity", async () => {
+    fixture.active = {
+      question: "Are you a Canopy Mortgage employee?",
+      intent: "other",
+      covered: true,
+      related: false,
+      answerSupported: false,
+      source: unrelated,
+      answer: "I'm a Canopy Mortgage employee.",
+    }
+    const result = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      onToken: vi.fn(),
+    })
+    expect(result.answer).toContain("could not be verified")
+  })
+
+  it("bypasses the gate for a high-vector navigation title or explicit context", async () => {
+    const timing = new MiloTiming()
+    const source = {
+      title: "Department Directory",
+      url: "/department-directory",
+      snippet: "Find support departments and contacts.",
+      sourceType: "site",
+      vectorSimilarity: 0.94,
+    }
+    await expect(
+      gateMiloEvidence(
+        "Where do I find the Department Directory?",
+        [],
+        [source],
+        undefined,
+        pageContext,
+        [],
+        "navigation",
+        timing
+      )
+    ).resolves.toMatchObject({ coverage: "covered" })
+    expect(timing.gateMode).toBe("deterministic")
+    expect(timing.gateMs).toEqual(expect.any(Number))
+    expect(provider.createAgentResponseWithOpenAI).not.toHaveBeenCalled()
+    await expect(
+      gateMiloEvidence(
+        "tell me about this website",
+        [],
+        [],
+        undefined,
+        pageContext,
+        [],
+        "hub_context"
+      )
+    ).resolves.toMatchObject({ coverage: "covered" })
+    await expect(
+      gateMiloEvidence(
+        "what is this page about",
+        [],
+        [],
+        undefined,
+        pageContext,
+        [],
+        "page_context"
+      )
+    ).resolves.toMatchObject({ coverage: "covered" })
+  })
+
+  it("does not bypass the gate for a high-vector title lacking the requested fact", async () => {
+    fixture.active = {
+      question: "What is the 401k match?",
+      intent: "other",
+      covered: false,
+      related: true,
+      source: partial,
+    }
+    const timing = new MiloTiming()
+    const result = await gateMiloEvidence(
+      fixture.active.question,
+      [],
+      [
         {
-          ...source,
-          vectorSimilarity: RELATED_PAGE_MIN_VECTOR_SIMILARITY - 0.01,
+          title: "401k Match",
+          url: "/wiki/benefits",
+          snippet: "Details coming soon.",
+          sourceType: "wiki_page",
+          vectorSimilarity: 0.95,
         },
-      ]).pages
-    ).toEqual([])
-    expect(
-      abstention([
-        { ...source, vectorSimilarity: RELATED_PAGE_MIN_VECTOR_SIMILARITY },
-      ]).pages
-    ).toHaveLength(1)
-    expect(abstention([source]).pages).toEqual([])
+      ],
+      undefined,
+      pageContext,
+      [],
+      "other",
+      timing
+    )
+    expect(timing.gateMode).toBe("model")
+    expect(result.coverage).toBe("not_covered")
+  })
+
+  it("includes later chunks from the same page in the bounded gate context", async () => {
+    fixture.active = {
+      question: "explain the process",
+      intent: "other",
+      covered: true,
+      related: true,
+      source: feedback,
+    }
+    const chunks = [
+      "introduction",
+      "background",
+      `${"x".repeat(1500)}actual procedure`,
+    ].map((snippet, index) => ({
+      title: "Process",
+      url: "/wiki/1/2",
+      snippet,
+      sourceType: "wiki_page",
+      knowledgeSourceId: "source",
+      knowledgeChunkId: `chunk-${index}`,
+    }))
+    while (chunks.length < 15)
+      chunks.push({ ...chunks[0], knowledgeChunkId: `chunk-${chunks.length}` })
+    chunks.push({
+      ...chunks[0],
+      title: "Other page",
+      knowledgeSourceId: "other",
+    })
+    await gateMiloEvidence(fixture.active.question, [], chunks)
+    const request = provider.createAgentResponseWithOpenAI.mock
+      .calls[0][0] as unknown as { input: string }
+    expect(JSON.parse(request.input).sources[2].snippet).toContain(
+      "actual procedure"
+    )
+    expect(JSON.parse(request.input).sources[15].title).toBe("Other page")
+  })
+
+  it("uses minimal effort and a bounded payload for the nano gate", async () => {
+    fixture.active = {
+      question: "explain feedback",
+      intent: "other",
+      covered: true,
+      related: true,
+      source: feedback,
+    }
+    provider.getFormatModel.mockReturnValue("gpt-5-nano")
+    try {
+      const timing = new MiloTiming()
+      await gateMiloEvidence(
+        fixture.active.question,
+        [],
+        [{ ...feedback, snippet: "x".repeat(3000), sourceType: "site" }],
+        undefined,
+        pageContext,
+        [],
+        "other",
+        timing
+      )
+      const request = provider.createAgentResponseWithOpenAI.mock
+        .calls[0][0] as unknown as {
+        reasoning: { effort: string }
+        max_output_tokens: number
+        input: string
+      }
+      expect(request.reasoning.effort).toBe("minimal")
+      expect(request.max_output_tokens).toBe(192)
+      expect(JSON.parse(request.input).sources[0].snippet).toHaveLength(2048)
+      expect(timing.gateOutcome).toBe("covered")
+    } finally {
+      provider.getFormatModel.mockReturnValue("fixture-format")
+    }
+  })
+
+  it.each([
+    "CEO's favorite color",
+    "401k match",
+    "branch wifi password",
+    "vacation days",
+    "Friday dress code",
+    "HQ parking",
+  ])("keeps an unknown without related pages: %s", async (question) => {
+    fixture.active = {
+      question,
+      intent: "other",
+      covered: false,
+      related: true,
+      source: unrelated,
+    }
+    const result = await answerKnowledgeQuestion({
+      question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      onToken: vi.fn(),
+    })
+    expect(result.metadata?.abstained).toBe(true)
+    expect(result.citations).toEqual([])
+  })
+
+  it.each(["timeout", "parse error"])(
+    "streams good evidence after a gate %s",
+    async (failure) => {
+      fixture.active = {
+        question: "explain feedback",
+        intent: "other",
+        covered: true,
+        related: true,
+        source: feedback,
+      }
+      const timing = new MiloTiming()
+      let started!: () => void
+      const gateStarted = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      provider.createAgentResponseWithOpenAI.mockImplementationOnce(
+        async () => ({
+          output_text: JSON.stringify({ intent: "other" }),
+          output: [],
+        })
+      )
+      provider.createAgentResponseWithOpenAI.mockImplementationOnce(
+        (_params, options) => {
+          started()
+          if (failure === "parse error")
+            return Promise.resolve({ output_text: "invalid JSON", output: [] })
+          return new Promise((_, reject) =>
+            options!.signal!.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true }
+            )
+          )
+        }
+      )
+      if (failure === "timeout") vi.useFakeTimers()
+      try {
+        const tokens: string[] = []
+        const pending = answerKnowledgeQuestion({
+          question: fixture.active.question,
+          supabase: fixtureClient() as never,
+          userContext,
+          pageContext,
+          timing,
+          onToken: (token) => tokens.push(token),
+        })
+        await gateStarted
+        if (failure === "timeout") await vi.advanceTimersByTimeAsync(6000)
+        const result = await pending
+        expect(tokens.join("")).toContain("feedback")
+        expect(result.metadata?.abstained).toBe(false)
+        expect(result.answer).not.toContain("couldn't check")
+        expect(result.answer).toContain("could not be verified")
+        expect(timing.gateMode).toBe("model")
+        expect(timing.gateOutcome).toBe(
+          failure === "timeout" ? "timeout" : "error"
+        )
+        expect(timing.gateMs).toEqual(expect.any(Number))
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+  )
+
+  it("recovers semantically relevant evidence even when the wording differs", async () => {
+    fixture.active = {
+      question: "how do I find someone's phone number?",
+      intent: "hub",
+      covered: true,
+      related: true,
+      sourceType: "site",
+      vectorSimilarity: 0.82,
+      source: {
+        title: "People",
+        url: "/people",
+        snippet:
+          "Search employees by name, job title, work email, mobile phone, division or branch.",
+      },
+      answer: "Open People to search for mobile phones.",
+    }
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
+      output_text: JSON.stringify({ intent: "hub" }),
+      output: [],
+    }))
+    provider.createAgentResponseWithOpenAI.mockImplementationOnce(async () => ({
+      output_text: "invalid JSON",
+      output: [],
+    }))
+    const tokens: string[] = []
+    const result = await answerKnowledgeQuestion({
+      question: fixture.active.question,
+      supabase: fixtureClient() as never,
+      userContext,
+      pageContext,
+      onToken: (token) => tokens.push(token),
+    })
+    expect(result.metadata?.abstained).toBe(false)
+    expect(tokens.join("")).toContain("People")
+    expect(result.answer).toContain("could not be verified")
   })
 
   it("searches wiki instructions first for a how-to", () => {
@@ -345,9 +706,8 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
         )
       } else {
         expect(answer.answer).toContain("couldn't find an answer")
-        expect(answer.citations).toHaveLength(item.related ? 1 : 0)
-        if (item.related)
-          expect(answer.answer).toContain("related pages may help")
+        expect(answer.citations).toHaveLength(0)
+        expect(answer.answer).not.toContain("related pages")
       }
       if (item.intent !== "other") {
         const queries =
@@ -843,7 +1203,7 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
     finishGate({
       output_text: JSON.stringify({
         coverage: "covered",
-        relevantIds: ["source"],
+        relevantIds: ["0"],
       }),
       output: [],
     })

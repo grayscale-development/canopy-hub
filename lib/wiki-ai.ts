@@ -27,8 +27,14 @@ import {
   gateMiloEvidence,
   trustedContextEvidence,
   relevantTrustedContext,
+  recoverRelevantEvidence,
 } from "@/lib/milo/grounding"
-import { curatedHubPages, HUB_IDENTITY, HUB_MAP } from "@/lib/milo/hub-map"
+import {
+  assistantIdentityAnswer,
+  curatedHubPages,
+  HUB_IDENTITY,
+  HUB_MAP,
+} from "@/lib/milo/hub-map"
 import {
   checkAnswer,
   hasStrongRetrievalConfidence,
@@ -878,6 +884,24 @@ async function generateKnowledgeAnswer({
       ? currentPageEvidence(supabase, pageContext)
       : Promise.resolve([]),
   ])
+  await checkStop?.()
+  signal?.throwIfAborted()
+  if (intent === "identity") {
+    const answer = assistantIdentityAnswer()
+    if (timing) {
+      timing.check = "fast"
+      timing.gateMode = "deterministic"
+      timing.gateOutcome = "deterministic"
+      timing.gateMs = 0
+    }
+    onToken?.(answer)
+    return {
+      answer,
+      model: null,
+      citations: [],
+      metadata: { abstained: false },
+    }
+  }
   const pageChunks: RetrievedChunk[] = pageSources.map((source) => ({
     chunk_id: source.knowledgeChunkId!,
     source_id: source.knowledgeSourceId!,
@@ -1030,10 +1054,8 @@ async function generateKnowledgeAnswer({
       if (decision.coverage === "not_covered") {
         await generation
         if (timing) timing.abstained = true
-        const { answer: abstainAnswer, pages } = abstention(decision.related)
-        const answer = decision.unavailable
-          ? "I couldn't check the wiki right now. Please try again."
-          : abstainAnswer
+        const { answer: abstainAnswer, pages } = abstention()
+        const answer = abstainAnswer
         onToken(answer)
         return {
           answer,
@@ -1041,9 +1063,7 @@ async function generateKnowledgeAnswer({
           citations: pages.map(toCitation),
           metadata: {
             abstained: true,
-            abstainReason: decision.unavailable
-              ? "assessment_unavailable"
-              : "not_covered",
+            abstainReason: "not_covered",
           },
         }
       }
@@ -1121,7 +1141,7 @@ async function generateKnowledgeAnswer({
     ) && quickCheck.allClaimsQuoted
   onStatus?.("Checking the answer…")
   if (timing) timing.check = strong ? "fast" : "assessment"
-  const assessment = strong
+  const rawAssessment = strong
     ? {
         covered: true,
         related: sources,
@@ -1139,15 +1159,18 @@ async function generateKnowledgeAnswer({
         intent,
         timing
       )
+  const recovered = rawAssessment.unavailable
+    ? recoverRelevantEvidence(question, history, sources)
+    : []
+  const assessment = recovered.length
+    ? { ...rawAssessment, covered: true, related: recovered }
+    : rawAssessment
   await checkStop?.()
   if (!assessment.covered) {
     if (timing) timing.abstained = true
-    const { answer: abstainAnswer, pages } = abstention(assessment.related)
-    const abstained = assessment.unavailable
-      ? "I couldn't check the wiki right now. Please try again."
-      : abstainAnswer
+    const { answer: abstainAnswer, pages } = abstention()
     return {
-      answer: abstained,
+      answer: abstainAnswer,
       model: null,
       citations: pages.map(toCitation),
       metadata: {
