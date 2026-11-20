@@ -70,7 +70,7 @@ export function SpecialistsPointsReport({
         <td className="px-3 py-2.5 break-words">
           <Link
             href={`/employee/${encodeURIComponent(row.userId)}`}
-            className="text-primary underline-offset-2 hover:underline"
+            className="text-link underline-offset-2 hover:underline"
           >
             {row.userName}
           </Link>

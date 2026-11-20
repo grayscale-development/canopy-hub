@@ -185,7 +185,10 @@ function HiddenDraftView({ title }: { title: string }) {
 
 function WikiSetupRequired({ canManageWiki }: { canManageWiki: boolean }) {
   return (
-    <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+    <div
+      data-milo-clearance
+      className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+    >
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-4 md:p-6">
         <div className="rounded-lg border bg-card p-6">
           <h1 className="text-2xl font-semibold">Wiki Setup Required</h1>
@@ -203,7 +206,7 @@ function WikiSetupRequired({ canManageWiki }: { canManageWiki: boolean }) {
           ) : null}
         </div>
       </div>
-    </main>
+    </div>
   )
 }
 
@@ -271,14 +274,17 @@ export default async function WikiPage({
       .find((item) => item.status === "archived")
     if (target && (target.status === "archived" || archivedParent)) {
       return (
-        <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
+        <div
+          data-milo-clearance
+          className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]"
+        >
           <section className="mx-auto w-full max-w-[1120px] px-6 py-4 md:px-8 md:py-6">
             <ArchivedWikiPageView
               node={target}
               archivedParent={archivedParent}
             />
           </section>
-        </main>
+        </div>
       )
     }
   }
@@ -483,13 +489,19 @@ export default async function WikiPage({
   return (
     <>
       {isNanoWiki ? (
-        <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-white p-6 dark:bg-[#1F1F1F]">
+        <div
+          data-milo-clearance
+          className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-white p-6 dark:bg-[#1F1F1F]"
+        >
           <p className="text-center text-2xl font-semibold text-muted-foreground">
             Coming soon
           </p>
-        </main>
+        </div>
       ) : (
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
+        <div
+          data-milo-clearance
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]"
+        >
           <div className="flex min-h-full w-full flex-col">
             {isTagsDirectory ? (
               <WikiTagsManage
@@ -611,7 +623,7 @@ export default async function WikiPage({
               </section>
             )}
           </div>
-        </main>
+        </div>
       )}
     </>
   )

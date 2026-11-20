@@ -1,6 +1,6 @@
 import path from "node:path"
 import { expect, test } from "@playwright/test"
-import { mockMiloChatApi, signInAsLocalDev } from "./helpers"
+import { mockMiloChatApi, signInAsLocalDev, PAGE_CONTENT } from "./helpers"
 
 for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
@@ -170,7 +170,7 @@ for (const viewport of [
       await expect
         .poll(() =>
           page
-            .locator("main")
+            .locator(PAGE_CONTENT)
             .last()
             .evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom))
         )

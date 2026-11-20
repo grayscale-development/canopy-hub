@@ -131,7 +131,7 @@ export default async function CorporateTurnTimesViewPage() {
             ) : null}
             <Link
               href="/file-viewer"
-              className="mt-2 inline-block text-xs text-primary underline decoration-primary/60 underline-offset-4 hover:text-primary/80"
+              className="mt-2 inline-block text-xs text-link underline decoration-primary/60 underline-offset-4 hover:no-underline"
             >
               View Files
             </Link>
@@ -152,7 +152,7 @@ export default async function CorporateTurnTimesViewPage() {
             ) : null}
             <Link
               href="/file-viewer"
-              className="mt-2 inline-block text-xs text-primary underline decoration-primary/60 underline-offset-4 hover:text-primary/80"
+              className="mt-2 inline-block text-xs text-link underline decoration-primary/60 underline-offset-4 hover:no-underline"
             >
               View Files
             </Link>
@@ -173,7 +173,7 @@ export default async function CorporateTurnTimesViewPage() {
             ) : null}
             <Link
               href="/file-viewer"
-              className="mt-2 inline-block text-xs text-primary underline decoration-primary/60 underline-offset-4 hover:text-primary/80"
+              className="mt-2 inline-block text-xs text-link underline decoration-primary/60 underline-offset-4 hover:no-underline"
             >
               View Files
             </Link>
@@ -220,7 +220,7 @@ export default async function CorporateTurnTimesViewPage() {
                       <td className="px-5 py-3 text-right font-mono whitespace-nowrap tabular-nums">
                         <Link
                           href={toFileViewerStatusHref(row.status)}
-                          className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                          className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         >
                           {WHOLE_NUMBER_FORMATTER.format(row.filesInProgress)}
                         </Link>

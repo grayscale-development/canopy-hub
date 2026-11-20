@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { mockMiloChatApi } from "./helpers"
+import { mockMiloChatApi, PAGE_CONTENT } from "./helpers"
 import {
   serviceWiki,
   setWikiEditorMode,
@@ -62,7 +62,7 @@ test("section and group listings sort, navigate, and fit on phones for editors a
     await signInAsSeededUser(page, "wiki-manager@canopy.test")
     await page.goto(sectionPath)
     await setWikiEditorMode(page, true)
-    const main = page.getByRole("main").last()
+    const main = page.locator(PAGE_CONTENT).last()
     const table = main.getByRole("table")
     await expect(
       table.getByRole("link", { name: "Structure Group" })

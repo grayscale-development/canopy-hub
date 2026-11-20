@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs"
 import path from "node:path"
 import { expect, test } from "@playwright/test"
 
-import { mockMiloChatApi, openWikiPath } from "./helpers"
+import { mockMiloChatApi, openWikiPath, PAGE_CONTENT } from "./helpers"
 import {
   createReviewedPage,
   enableEditorMode,
@@ -183,7 +183,7 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
     ).toContainText("Closing")
     await expect(
       page
-        .getByRole("main")
+        .locator(PAGE_CONTENT)
         .last()
         .getByText("Local numeric navigation fixture.")
     ).toBeVisible()
@@ -225,7 +225,7 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
         .getByRole("heading", { name: "Learning Hub" })
     ).toBeVisible()
     await page.goto("/wiki/tags")
-    await expect(page.getByRole("main").last()).toContainText("Tags")
+    await expect(page.locator(PAGE_CONTENT).last()).toContainText("Tags")
     await page.setViewportSize({ width: 390, height: 844 })
     await openWikiPath(page, "Canopy Wiki", "Hub", renamed)
     const pagesToggle = page.getByRole("button", { name: "Pages", exact: true })
@@ -240,7 +240,7 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
     ).toContainText("Hub")
     await expect(
       page
-        .getByRole("main")
+        .locator(PAGE_CONTENT)
         .last()
         .getByText("Local numeric navigation fixture.")
     ).toBeVisible()
@@ -249,7 +249,7 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
 
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto("/wiki/old-loan_guide/123/closing")
-    const missingPage = page.getByRole("main").last()
+    const missingPage = page.locator(PAGE_CONTENT).last()
     await expect(
       missingPage.getByRole("heading", {
         name: "This link is out of date or the page was removed",
@@ -295,19 +295,19 @@ test("numeric wiki navigation survives rename and move @wiki @smoke", async ({
     await signInAsSeededUser(page, "standard@canopy.test")
     await page.goto(movedPath)
     await expect(
-      page.getByRole("main").last().getByRole("heading", {
+      page.locator(PAGE_CONTENT).last().getByRole("heading", {
         name: "This link is out of date or the page was removed",
       })
     ).toBeVisible()
-    const deniedContent = await page.getByRole("main").last().innerText()
+    const deniedContent = await page.locator(PAGE_CONTENT).last().innerText()
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto("/wiki/1/999999999")
-    await expect(page.getByRole("main").last()).toHaveText(deniedContent, {
+    await expect(page.locator(PAGE_CONTENT).last()).toHaveText(deniedContent, {
       useInnerText: true,
     })
     await expect(
       page
-        .getByRole("main")
+        .locator(PAGE_CONTENT)
         .last()
         .getByRole("textbox", { name: "Search with Milo" })
     ).toHaveValue("")

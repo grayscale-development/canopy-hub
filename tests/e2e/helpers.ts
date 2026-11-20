@@ -1,5 +1,11 @@
 import { expect, type Page } from "@playwright/test"
 
+// The page content area. The app shell owns the single <main> landmark; pages
+// mark their content container with data-milo-clearance, otherwise <main> is
+// the content (the same rule as app/globals.css). Use with .last().
+export const PAGE_CONTENT =
+  "[data-milo-clearance], main:not(:has([data-milo-clearance]))"
+
 export async function signInAsLocalDev(page: Page) {
   await page.goto("/login")
   await page.getByRole("button", { name: "Continue as Dev" }).click()
@@ -10,7 +16,7 @@ export async function openWikiPath(page: Page, ...titles: string[]) {
   await page.goto("/wiki")
   for (const title of titles) {
     const link = page
-      .getByRole("main")
+      .locator(PAGE_CONTENT)
       .last()
       .getByRole("link", { name: title, exact: true })
     const href = await link.getAttribute("href")

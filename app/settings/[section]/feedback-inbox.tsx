@@ -200,7 +200,7 @@ export function FeedbackInbox({
                 {item.pagePath && (
                   <Link
                     href={item.pagePath}
-                    className="mt-2 inline-block max-w-full truncate text-sm text-primary underline underline-offset-2"
+                    className="mt-2 inline-block max-w-full truncate text-sm text-link underline underline-offset-2"
                   >
                     Sent from {item.pagePath}
                   </Link>
@@ -215,7 +215,7 @@ export function FeedbackInbox({
                           source.url?.startsWith("/wiki/")
                         )!.url!
                       }
-                      className="mt-2 inline-block text-sm text-primary underline underline-offset-2"
+                      className="mt-2 inline-block text-sm text-link underline underline-offset-2"
                     >
                       Cited page:{" "}
                       {
@@ -282,7 +282,7 @@ export function FeedbackInbox({
                     <h3 className="text-sm font-semibold">Page</h3>
                     <Link
                       href={current.pagePath}
-                      className="text-sm break-all text-primary underline underline-offset-2"
+                      className="text-sm break-all text-link underline underline-offset-2"
                     >
                       {current.pagePath}
                     </Link>
@@ -313,7 +313,7 @@ export function FeedbackInbox({
                               {source.url ? (
                                 <Link
                                   href={source.url}
-                                  className="text-primary underline underline-offset-2"
+                                  className="text-link underline underline-offset-2"
                                 >
                                   {source.title}
                                 </Link>
