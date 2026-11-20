@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
+import { cpSync, rmSync } from "node:fs"
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
@@ -148,13 +149,28 @@ async function seed(db: SupabaseClient) {
 }
 
 async function main() {
-  // Last migration on origin/main at the v2.2 branch point.
-  supabase("db", "reset", "--local", "--version", "202611090001", "--no-seed")
   const db = createClient(url, key!, { auth: { persistSession: false } })
+  // Production-shaped mode (CI "Release migration check"): the caller started
+  // the local stack with origin/main's migrations, i.e. exactly production's
+  // history, and passes this branch's migrations directory. The upgrade then
+  // runs the same command as the Deploy workflow.
+  const headMigrations = process.env.RELEASE_HEAD_MIGRATIONS_DIR
+  if (!headMigrations) {
+    // Last migration on origin/main at the v2.2 branch point.
+    supabase("db", "reset", "--local", "--version", "202611090001", "--no-seed")
+  }
   await seed(db)
   const before = await verifyWikiIntegrity(db)
   console.log("BEFORE", JSON.stringify(before))
-  supabase("migration", "up", "--local")
+  if (headMigrations) {
+    rmSync("supabase/migrations", { recursive: true, force: true })
+    cpSync(headMigrations, "supabase/migrations", { recursive: true })
+    supabase("db", "push", "--local", "--include-all", "--dry-run")
+    supabase("db", "push", "--local", "--include-all", "--yes")
+    supabase("migration", "list", "--local")
+  } else {
+    supabase("migration", "up", "--local")
+  }
   const after = await verifyWikiIntegrity(db)
   console.log("AFTER", JSON.stringify(after))
   assert.deepEqual(after, before, "Migration changed the integrity snapshot")

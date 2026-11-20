@@ -1,0 +1,116 @@
+name: Release migration check
+
+# Rebuilds production's schema locally from origin/main's migrations (which
+# match production's applied history), seeds synthetic wiki data, then runs
+# the Deploy workflow's `supabase db push --include-all` with this branch's
+# migrations. Proves the pending migrations apply cleanly in production's
+# order, keep wiki data intact, and give the same schema as a fresh build.
+# Local only: never links to or reads a hosted project.
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/release/**"
+      - "scripts/release-dry-run.ts"
+      - ".github/workflows/migration-upgrade.yml"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 22
+  DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+jobs:
+  upgrade:
+    name: Production-shaped migration upgrade
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.67.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Use origin/main's migrations (production's history)
+        run: |
+          cp -r supabase/migrations "$RUNNER_TEMP/head-migrations"
+          git fetch --no-tags origin main
+          rm -rf supabase/migrations
+          git checkout origin/main -- supabase/migrations
+          echo "main: $(ls supabase/migrations | wc -l) migrations; head: $(ls "$RUNNER_TEMP/head-migrations" | wc -l)"
+          echo "Pending on this branch:"
+          comm -13 <(ls supabase/migrations) <(ls "$RUNNER_TEMP/head-migrations")
+          echo "On main but missing from this branch (must be empty):"
+          missing=$(comm -23 <(ls supabase/migrations) <(ls "$RUNNER_TEMP/head-migrations"))
+          echo "$missing"
+          test -z "$missing"
+
+      - name: Start local Supabase at main's schema
+        run: |
+          supabase start
+          supabase status -o env > supabase.env
+          echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> "$GITHUB_ENV"
+          sed -E -n 's/^SERVICE_ROLE_KEY="?([^"]*)"?$/SUPABASE_SERVICE_ROLE_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
+
+      - name: Wait for local Supabase
+        run: node scripts/wait-local-supabase.mjs
+
+      - name: Fingerprint main's schema
+        run: |
+          psql "$DB_URL" -At -F '|' -f scripts/release/schema-fingerprint.sql > "$RUNNER_TEMP/main-schema.txt"
+          echo "Summary (compare with the same read-only query on production):"
+          psql "$DB_URL" -At -F '|' -f scripts/release/schema-fingerprint-summary.sql
+
+      - name: Plain push must refuse out-of-order migrations (why Deploy uses --include-all)
+        run: |
+          rm -rf supabase/migrations && cp -r "$RUNNER_TEMP/head-migrations" supabase/migrations
+          if supabase db push --local --dry-run; then echo "Plain push accepted (no out-of-order migrations)."; else echo "Plain push refused, as expected."; fi
+          rm -rf supabase/migrations && git checkout origin/main -- supabase/migrations
+
+      - name: Seed, upgrade with the Deploy command, compare wiki integrity
+        env:
+          RELEASE_HEAD_MIGRATIONS_DIR: ${{ runner.temp }}/head-migrations
+        run: pnpm exec tsx scripts/release-dry-run.ts
+
+      - name: Fingerprint upgraded schema
+        run: psql "$DB_URL" -At -F '|' -f scripts/release/schema-fingerprint.sql > "$RUNNER_TEMP/upgraded-schema.txt"
+
+      - name: Rebuild fresh from this branch and compare schemas
+        run: |
+          supabase db reset --local --no-seed
+          node scripts/wait-local-supabase.mjs
+          psql "$DB_URL" -At -F '|' -f scripts/release/schema-fingerprint.sql > "$RUNNER_TEMP/fresh-schema.txt"
+          if diff "$RUNNER_TEMP/upgraded-schema.txt" "$RUNNER_TEMP/fresh-schema.txt"; then
+            echo "Upgraded schema matches a fresh build."
+          else
+            echo "::error::Upgraded schema differs from a fresh build (lines above)."
+            exit 1
+          fi
+
+      - name: Upload fingerprints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-fingerprints
+          path: ${{ runner.temp }}/*-schema.txt
+          if-no-files-found: ignore
