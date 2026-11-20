@@ -25,6 +25,16 @@ export class MiloTiming {
   > = {}
   path: "workflow" | "direct" | "agent" | "fallback" = "workflow"
   check: "fast" | "assessment" | "none" = "none"
+  gateMode: "deterministic" | "model" | null = null
+  gateOutcome:
+    | "covered"
+    | "partial"
+    | "not_covered"
+    | "timeout"
+    | "error"
+    | "deterministic"
+    | null = null
+  gateMs: number | null = null
   abstained = false
   toolLoopSteps = 0
   outcome: "complete" | "error" | "stopped" = "complete"
@@ -61,12 +71,15 @@ export class MiloTiming {
     console.info("Milo timing", {
       path: this.path,
       check: this.check,
+      gateMode: this.gateMode,
+      gateOutcome: this.gateOutcome,
       abstained: this.abstained,
       outcome: this.outcome,
       models: { ...this.models },
       reasoning: { ...this.reasoning },
       ms: {
         ...this.durations,
+        gateMs: this.gateMs,
         firstTokenMs: this.firstTokenMs,
         total: Math.round(performance.now() - this.started),
       },

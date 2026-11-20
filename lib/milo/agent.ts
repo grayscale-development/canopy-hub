@@ -22,7 +22,11 @@ import {
   hasStrongRetrievalConfidence,
   sourceUrl,
 } from "@/lib/milo/evidence"
-import { HUB_IDENTITY, HUB_MAP } from "@/lib/milo/hub-map"
+import {
+  assistantIdentityAnswer,
+  HUB_IDENTITY,
+  HUB_MAP,
+} from "@/lib/milo/hub-map"
 import {
   abstention,
   assessMiloEvidence,
@@ -31,6 +35,8 @@ import {
   gateMiloEvidence,
   trustedContextEvidence,
   relevantTrustedContext,
+  recoverRelevantEvidence,
+  type MiloIntent,
 } from "@/lib/milo/grounding"
 import { INLINE_CITATION_INSTRUCTIONS } from "@/lib/milo/inline-citations"
 import {
@@ -534,7 +540,7 @@ async function buildInitialResearchBrief(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   pageContext?: MiloCurrentPage,
   signal?: AbortSignal,
-  intentPromise: Promise<"hub" | "page" | "other"> = Promise.resolve("other"),
+  intentPromise: Promise<MiloIntent> = Promise.resolve("other"),
   timing?: MiloTiming,
   onStatus?: (status: string) => void
 ): Promise<InitialResearchResult> {
@@ -577,6 +583,16 @@ async function buildInitialResearchBrief(
   for (const call of baseCalls) {
     const key = researchKey(call.toolName, call.arguments)
     if (possibleCalls.every((calls) => calls.has(key))) run(call)
+  }
+  // Speculate only on the intent-dependent knowledge searches, not every tool.
+  // Whichever classification wins can reuse these in-flight requests.
+  for (const intent of ["hub", "page"] as const) {
+    for (const call of buildInitialResearchCalls(
+      question,
+      groundedRetrievalQuery(question, intent, pageContext)
+    )) {
+      if (call.toolName === "knowledge_search") run(call)
+    }
   }
   const intent = await intentPromise
   const calls = buildInitialResearchCalls(
@@ -700,7 +716,7 @@ export async function answerMiloQuestionWithAgent({
   userContext: MiloUserContext | Promise<MiloUserContext>
   pageContext?: MiloCurrentPage
   history?: MiloHistoryTurn[]
-  intent?: "hub" | "page" | "other"
+  intent?: MiloIntent
   onToken?: (token: string) => void
   onStatus?: (status: string) => void
   signal?: AbortSignal
@@ -729,6 +745,27 @@ export async function answerMiloQuestionWithAgent({
     initialResearchPromise,
   ])
   await checkStop?.()
+  signal?.throwIfAborted()
+  if (resolvedIntent === "identity") {
+    const answer = assistantIdentityAnswer()
+    if (timing) {
+      timing.check = "fast"
+      timing.gateMode = "deterministic"
+      timing.gateOutcome = "deterministic"
+      timing.gateMs = 0
+    }
+    onToken?.(answer)
+    return {
+      answer,
+      model,
+      citations: [],
+      metadata: {
+        mode: "agentic_mcp",
+        toolCalls: initialResearch.toolCalls,
+        abstained: false,
+      },
+    }
+  }
   const prompt = buildMiloAgentPrompt(MILO_AGENT_INSTRUCTIONS, {
     question,
     researchBrief: initialResearch.brief,
@@ -850,10 +887,8 @@ export async function answerMiloQuestionWithAgent({
       if (decision.coverage === "not_covered") {
         await generation
         if (timing) timing.abstained = true
-        const { answer: abstainAnswer, pages } = abstention(decision.related)
-        const answer = decision.unavailable
-          ? "I couldn't check the wiki right now. Please try again."
-          : abstainAnswer
+        const { answer: abstainAnswer, pages } = abstention()
+        const answer = abstainAnswer
         onToken(answer)
         return {
           answer,
@@ -865,9 +900,7 @@ export async function answerMiloQuestionWithAgent({
             mode: "agentic_mcp",
             toolCalls,
             abstained: true,
-            abstainReason: decision.unavailable
-              ? "assessment_unavailable"
-              : "not_covered",
+            abstainReason: "not_covered",
           },
         }
       }
@@ -1050,7 +1083,7 @@ export async function answerMiloQuestionWithAgent({
     ) && quickCheck.allClaimsQuoted
   onStatus?.("Checking the answer…")
   if (timing) timing.check = strong ? "fast" : "assessment"
-  const assessment = strong
+  const rawAssessment = strong
     ? {
         covered: true,
         related: uniqueSources,
@@ -1068,15 +1101,18 @@ export async function answerMiloQuestionWithAgent({
         resolvedIntent,
         timing
       )
+  const recovered = rawAssessment.unavailable
+    ? recoverRelevantEvidence(question, history, uniqueSources)
+    : []
+  const assessment = recovered.length
+    ? { ...rawAssessment, covered: true, related: recovered }
+    : rawAssessment
   await checkStop?.()
   if (!assessment.covered) {
     if (timing) timing.abstained = true
-    const { answer: abstainAnswer, pages } = abstention(assessment.related)
-    const abstained = assessment.unavailable
-      ? "I couldn't check the wiki right now. Please try again."
-      : abstainAnswer
+    const { answer: abstainAnswer, pages } = abstention()
     return {
-      answer: abstained,
+      answer: abstainAnswer,
       model,
       citations: toCitations(
         pages.map((source) => ({ ...source, url: sourceUrl(source) }))

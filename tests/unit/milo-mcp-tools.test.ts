@@ -6,6 +6,22 @@ const sessions = vi.hoisted(() => {
     rows: [] as unknown[],
     sources: [] as unknown[],
     assets: [] as unknown[],
+    nodes: [
+      {
+        id: "root",
+        parent_id: null,
+        short_id: 1,
+        type: "folder",
+        status: "published",
+      },
+      {
+        id: "page",
+        parent_id: "root",
+        short_id: 22,
+        type: "page",
+        status: "draft",
+      },
+    ],
     signedUrl: null as string | null,
     user: { id: "viewer" } as { id: string } | null,
   }
@@ -17,8 +33,13 @@ const sessions = vi.hoisted(() => {
       eq: vi.fn(() => chain),
       neq: vi.fn(() => chain),
       limit: vi.fn(async () => ({ data: state.rows, error: null })),
-      in: vi.fn(async () => ({
-        data: table === "knowledge_sources" ? state.sources : state.assets,
+      in: vi.fn(async (_column: string, ids: string[]) => ({
+        data:
+          table === "knowledge_sources"
+            ? state.sources
+            : table === "wiki_nodes"
+              ? state.nodes.filter((node) => ids.includes(node.id))
+              : state.assets,
         error: null,
       })),
     }
@@ -48,13 +69,6 @@ const sessions = vi.hoisted(() => {
   }
   return { client, state }
 })
-vi.mock("@/lib/wiki", async (original) => ({
-  ...(await original<typeof import("@/lib/wiki")>()),
-  fetchWikiNodes: async () => [
-    { id: "root", parent_id: null, short_id: 1, type: "folder" },
-    { id: "page", parent_id: "root", short_id: 22, type: "page" },
-  ],
-}))
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(async () => sessions.client),
 }))
