@@ -128,7 +128,6 @@ async function completeWikiVideoImport({
   preview,
   supabase,
   userId,
-  consolidationTitle,
   instructions,
 }: {
   assetId: string
@@ -138,7 +137,6 @@ async function completeWikiVideoImport({
   preview: boolean
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userId: string
-  consolidationTitle?: string
   instructions?: string
 }) {
   if (!assetId || !nodeId) {
@@ -313,7 +311,6 @@ async function completeWikiVideoImport({
         sourcePageId: null,
         sourceRevisionId: null,
         reviewedFile: null,
-        ...(consolidationTitle ? { consolidationTitle } : {}),
         blocks: content.blocks,
       },
       {
@@ -559,13 +556,6 @@ export async function POST(request: Request) {
 
   const fileValue = formData.get("file")
   const pastedValue = formData.get("text")
-  const duplicateSourceTitle = formData.get("duplicate_source_title")
-  if (
-    duplicateSourceTitle !== null &&
-    (typeof duplicateSourceTitle !== "string" || !duplicateSourceTitle.trim())
-  ) {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 })
-  }
   const file = fileValue instanceof File && fileValue.size ? fileValue : null
   let pastedText = typeof pastedValue === "string" ? pastedValue : ""
   const parentIdValue = formData.get("parent_id")
@@ -795,11 +785,9 @@ export async function POST(request: Request) {
       targetPage,
       sourcePageId,
       sourceRevisionId: reviewedClaim.sourceRevisionId,
-      changeNote: reviewedClaim.consolidationTitle
-        ? `Consolidated duplicate with ${reviewedClaim.consolidationTitle}`
-        : sourcePageId
-          ? `Merged with AI from ${sourcePageTitle || "another page"}`
-          : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${file?.name || "pasted text"}`,
+      changeNote: sourcePageId
+        ? `Merged with AI from ${sourcePageTitle || "another page"}`
+        : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${file?.name || "pasted text"}`,
       blocks: reviewedBlocks,
     })
   }
@@ -827,10 +815,6 @@ export async function POST(request: Request) {
       preview: formData.get("preview") === "1",
       supabase,
       userId: user.id,
-      consolidationTitle:
-        typeof duplicateSourceTitle === "string"
-          ? duplicateSourceTitle
-          : undefined,
     })
   }
 
@@ -1146,7 +1130,6 @@ export async function POST(request: Request) {
   const hasInstructions = Boolean(
     targetPage &&
     !sourcePageId &&
-    !duplicateSourceTitle &&
     mode === "update" &&
     (file
       ? pastedText.trim()
@@ -1360,9 +1343,6 @@ export async function POST(request: Request) {
           sourcePageId,
           sourceRevisionId,
           reviewedFile: file ? await createReviewedFileClaim(file) : null,
-          ...(typeof duplicateSourceTitle === "string"
-            ? { consolidationTitle: duplicateSourceTitle }
-            : {}),
           blocks: content.blocks,
         },
         {

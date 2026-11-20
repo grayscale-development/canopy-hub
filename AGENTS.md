@@ -12,7 +12,7 @@
 
 - Production is 2.1.1 on `main`. Do not merge to `main` or change production schema, data, deployments, or environment without Zach's go on [issue 52](https://github.com/grayscale-development/canopy-hub/issues/52).
 - Keep the `package.json` version at 2.1.1 until the issue 52 release bump; login reads it. Follow `RELEASING.md` and issue 52 for the version bump, release notes, migration history repair, wiki link rewrite, and Milo index.
-- Morning alerts-scan enablement waits for Zach's go on issue 52; see `docs/wiki-duplicates.md`. Do not add a `vercel.json` cron or production scan environment settings in feature work.
+- The daily alerts cron ships in `vercel.json` but stays inert until production scan settings are configured after Zach's go on issue 52; see `docs/wiki-duplicates.md`. Do not add production scan settings in feature work.
 
 ## QA
 

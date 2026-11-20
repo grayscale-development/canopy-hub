@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-const state = vi.hoisted(() => ({ client: null as unknown, user: "" }))
-vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: async () => state.client,
-}))
-import { POST } from "@/app/api/wiki/duplicates/route"
 import { detectWikiDuplicates } from "@/lib/wiki-duplicates"
 import { indexWikiPage } from "@/lib/wiki-ai"
 import type {
@@ -21,7 +16,6 @@ const dbDescribe =
 dbDescribe("duplicate detection local RLS", { timeout: 60_000 }, () => {
   let admin: SupabaseClient
   let manager: SupabaseClient
-  let inspector: SupabaseClient
   let viewer: SupabaseClient
   const folderId = randomUUID()
   const sourceId = randomUUID()
@@ -59,7 +53,6 @@ dbDescribe("duplicate detection local RLS", { timeout: 60_000 }, () => {
       return client
     }
     manager = await signIn("wiki-manager@canopy.test")
-    inspector = await signIn("wiki-duplicates-inspector@canopy.test")
     viewer = await signIn("standard@canopy.test")
     const { error: folderError } = await admin.from("wiki_nodes").insert({
       id: folderId,
@@ -128,7 +121,7 @@ dbDescribe("duplicate detection local RLS", { timeout: 60_000 }, () => {
     await admin.from("wiki_nodes").delete().in("id", [sourceId, draftId])
     await admin.from("wiki_nodes").delete().eq("id", folderId)
   })
-  it("denies viewers at the route and excludes drafts even if the detector is called directly", async () => {
+  it("excludes inaccessible drafts and archived pages from detection", async () => {
     const managerId = (await manager.auth.getUser()).data.user!.id
     const viewerId = (await viewer.auth.getUser()).data.user!.id
     const managerResult = await detectWikiDuplicates(
@@ -143,23 +136,6 @@ dbDescribe("duplicate detection local RLS", { timeout: 60_000 }, () => {
         path: expect.stringMatching(/^\/wiki\/\d+\/\d+$/),
       })
     )
-    state.client = manager
-    const managerResponse = await POST(
-      new Request("http://localhost/api/wiki/duplicates", {
-        method: "POST",
-        body: JSON.stringify({ nodeId: sourceId }),
-      })
-    )
-    expect(managerResponse.status).toBe(403)
-    state.client = inspector
-    const inspectorResponse = await POST(
-      new Request("http://localhost/api/wiki/duplicates", {
-        method: "POST",
-        body: JSON.stringify({ nodeId: sourceId }),
-      })
-    )
-    expect(inspectorResponse.status).toBe(200)
-    expect(await inspectorResponse.text()).toContain(`Draft ${token}`)
     const viewerResult = await detectWikiDuplicates(
       viewer as SupabaseWikiClient,
       viewerId,
@@ -169,15 +145,6 @@ dbDescribe("duplicate detection local RLS", { timeout: 60_000 }, () => {
     expect(
       viewerResult?.passages[0].matches.some((hit) => hit.pageId === draftId)
     ).toBe(false)
-    state.client = viewer
-    const response = await POST(
-      new Request("http://localhost/api/wiki/duplicates", {
-        method: "POST",
-        body: JSON.stringify({ nodeId: sourceId }),
-      })
-    )
-    expect(response.status).toBe(403)
-    expect(await response.text()).not.toContain(`Draft ${token}`)
     const embedding = Array<number>(1536).fill(0)
     embedding[0] = 1
     const viewerVectors = await viewer.rpc("match_knowledge_chunks", {

@@ -5,12 +5,11 @@ import { expect, test } from "@playwright/test"
 import { mockMiloChatApi } from "./helpers"
 import {
   createReviewedPage,
-  enableEditorMode,
   serviceWiki,
   signInAsSeededUser,
 } from "./wiki-reviewed-helpers"
 
-test("manager alerts and duplicate inspector permissions", async ({ page }) => {
+test("manager alerts and viewer access", async ({ page }) => {
   test.setTimeout(120_000)
   const stamp = randomUUID()
   const first = await createReviewedPage({
@@ -94,10 +93,7 @@ test("manager alerts and duplicate inspector permissions", async ({ page }) => {
       page.getByRole("switch", { name: "Toggle wiki editor mode" })
     ).toBeChecked()
     await expect(page.getByText("First alert page")).toBeVisible()
-    await expect(
-      page.getByRole("button", { name: "Check for duplicates" })
-    ).toHaveCount(0)
-    await shot("04-manager-editor-no-checker-desktop.png")
+    await shot("04-manager-editor-desktop.png")
     await page.goto("/wiki")
     await alertsButton.click()
     await expect(
@@ -117,26 +113,13 @@ test("manager alerts and duplicate inspector permissions", async ({ page }) => {
       dismissed_by: expect.any(String),
       dismissed_at: expect.any(String),
     })
-    await signInAsSeededUser(page, "wiki-duplicates-inspector@canopy.test")
-    await page.goto(first.path)
-    await enableEditorMode(page)
-    await expect(
-      page.getByRole("button", { name: "Check for duplicates" })
-    ).toBeVisible()
-    await shot("05-inspector-checker-visible-desktop.png")
     await signInAsSeededUser(page, "standard@canopy.test")
     await page.goto(first.path)
     await expect(page.getByText("First alert page")).toBeVisible()
     await expect(page.getByRole("button", { name: /^Alerts/ })).toHaveCount(0)
-    await expect(
-      page.getByRole("button", { name: "Check for duplicates" })
-    ).toHaveCount(0)
     await shot("06-viewer-no-alerts-desktop.png")
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.getByRole("button", { name: /^Alerts/ })).toHaveCount(0)
-    await expect(
-      page.getByRole("button", { name: "Check for duplicates" })
-    ).toHaveCount(0)
   } finally {
     const { error } = await supabase
       .from("wiki_nodes")

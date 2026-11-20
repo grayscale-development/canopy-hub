@@ -167,9 +167,6 @@ describe("WikiEditor", () => {
       screen.queryByRole("button", { name: "Edit page tags" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Check for duplicates" })
-    ).not.toBeInTheDocument()
-    expect(
       screen.queryByRole("button", { name: "Draft" })
     ).not.toBeInTheDocument()
     await user.click(
@@ -184,6 +181,9 @@ describe("WikiEditor", () => {
       "data-editable",
       "true"
     )
+    expect(
+      screen.queryByRole("button", { name: "Check for duplicates" })
+    ).not.toBeInTheDocument()
   })
 
   it("scrolls to heading paths without writing ids while editing", async () => {
