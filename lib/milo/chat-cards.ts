@@ -42,6 +42,7 @@ export const miloCardSchema = z.discriminatedUnion("type", [
     summary: z.string().optional(),
     notAdded: z.array(z.string()).optional(),
     nonTextNotes: z.array(z.string()).optional(),
+    keptOriginal: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("applied-edit"),

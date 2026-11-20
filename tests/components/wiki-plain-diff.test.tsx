@@ -48,6 +48,28 @@ describe("WikiPlainDiff", () => {
     expect(screen.queryByText("then becomes ↓")).not.toBeInTheDocument()
   })
 
+  it("uses compact chat styling while retaining accessible change labels", () => {
+    render(
+      <WikiPlainDiff
+        beforeText="Send the file tomorrow."
+        afterText="Send the file today."
+        variant="compact"
+      />
+    )
+
+    const removed = screen.getByText("tomorrow.")
+    const added = screen.getByText("today.")
+    expect(removed).toHaveClass("text-muted-foreground", "line-through")
+    expect(added).toHaveClass("bg-green-100")
+    expect(added).not.toHaveClass("underline", "font-semibold")
+    expect(screen.getByText("Taken out:", { exact: false })).toHaveClass(
+      "sr-only"
+    )
+    expect(screen.getByText("Put in:", { exact: false })).toHaveClass("sr-only")
+    expect(added.closest("div")).toHaveClass("border", "border-border")
+    expect(added.closest("div")).not.toHaveClass("border-2", "text-lg")
+  })
+
   it("hides a long unchanged stretch behind one button", async () => {
     const user = userEvent.setup()
     const lines = Array.from(

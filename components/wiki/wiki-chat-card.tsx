@@ -193,7 +193,17 @@ export function WikiChatCard({
             afterBlocks={card.blocks}
             beforeTitle="Current page"
             afterTitle="Proposed page"
+            variant="compact"
           />
+          {card.keptOriginal && (
+            <div>
+              <p className="font-medium">Kept as it was</p>
+              <p>
+                Milo added only the new facts, so the page&apos;s existing
+                links, pictures and formatting are unchanged.
+              </p>
+            </div>
+          )}
           {card.nonTextNotes?.length ? (
             <div>
               <p className="font-medium">Needs a manual check</p>
@@ -271,15 +281,15 @@ export function WikiChatCard({
           >
             Undo
           </Button>
-          {card.undone ? (
+          {card.undone && !notice.startsWith("Previous version restored.") ? (
             <p className="text-muted-foreground">Previous version restored.</p>
-          ) : (
+          ) : !card.undone ? (
             (!card.undoAvailable || stale) && (
               <p className="text-muted-foreground">
                 This page changed again, so Undo is unavailable.
               </p>
             )
-          )}
+          ) : null}
         </>
       )}
       {card.type === "error" && (

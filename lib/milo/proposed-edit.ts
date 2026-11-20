@@ -118,11 +118,7 @@ export async function prepareMiloProposal({
   const text = extraction.facts.join("\n\n")
   const [
     { getImportAiOutput, mergeWikiPageContent },
-    {
-      createWikiImportDraft,
-      isFaithfulWikiImportOutput,
-      isFaithfulWikiUpdate,
-    },
+    { createWikiImportDraft, isFaithfulWikiImportOutput, isFaithfulWikiUpdate },
   ] = await Promise.all([
     import("@/lib/ai/wiki-import-pipeline"),
     import("@/lib/wiki-import"),
@@ -173,7 +169,7 @@ export async function prepareMiloProposal({
   })
   const notes = wikiNonTextChangeNotes(beforeBlocks, candidate.blocks)
   const unsafeNotes = notes.filter((note) =>
-    /^A (?:picture|table|link)|^An attached file/.test(note)
+    /^A (?:picture|table|link|attached file)|^An attached file/.test(note)
   )
   const unsafe = unsafeNotes.length > 0
   // Keep complex existing content intact if text conversion would alter it.
@@ -224,13 +220,11 @@ export async function prepareMiloProposal({
           : `I incorporated ${added.length} confirmed changes.`
         : "I couldn't place the confirmed facts in this page.",
     notAdded,
-    nonTextNotes:
-      unsafe && merged
-        ? unsafeNotes.map(
-            (note) =>
-              `I kept the original content because the generated edit would change it. ${note}`
-          )
-        : [],
+    keptOriginal: unsafe && merged,
+    nonTextNotes: wikiNonTextChangeNotes(beforeBlocks, content.blocks).filter(
+      (note) =>
+        /^A (?:picture|table|link|attached file)|^An attached file/.test(note)
+    ),
   }
   return { card, baseRevisionId: revisionId }
 }

@@ -134,7 +134,7 @@ export async function answerMiloSourceQuestion(
 
 export function formatMiloExtraction(extraction: MiloExtraction) {
   const facts = extraction.facts.length
-    ? `I found ${extraction.facts.length} ${extraction.facts.length === 1 ? "change" : "changes"}:\n${extraction.facts.map((fact) => `• ${fact}`).join("\n")}\n\nRight?`
+    ? `I found ${extraction.facts.length} ${extraction.facts.length === 1 ? "change" : "changes"}:\n${extraction.facts.map((fact) => `• ${fact}`).join("\n")}\n\nIs that right?`
     : "I couldn't find a clear change to add to the wiki."
   return [
     facts,

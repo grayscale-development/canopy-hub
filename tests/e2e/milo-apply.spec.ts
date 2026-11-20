@@ -224,9 +224,8 @@ for (const viewport of [
       wiki.getByRole("menuitem", { name: "Current version" })
     ).toBeVisible()
     await applied.getByRole("button", { name: "Undo" }).click()
-    await expect(
-      applied.getByText("Previous version restored.").first()
-    ).toBeVisible()
+    await expect(applied.getByText("Previous version restored.")).toHaveCount(1)
+    await expect(applied.getByText("Previous version restored.")).toBeVisible()
     await expect(applied.getByRole("button", { name: "Undo" })).toBeDisabled()
     if (process.env.CANOPY_SHOTS_DIR)
       await page.screenshot({
