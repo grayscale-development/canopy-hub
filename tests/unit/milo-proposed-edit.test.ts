@@ -112,7 +112,8 @@ it("uses the update provider and preserves the base and complex blocks", async (
     "Updated from email thread from Jordan Example, June 12, 2026"
   )
   expect(card.blocks).toContainEqual(blocks[1])
-  expect(card.nonTextNotes?.join(" ")).toContain("picture")
+  expect(card.keptOriginal).toBe(true)
+  expect(card.nonTextNotes).toEqual([])
   expect(card.after).toContain(fact)
   expect(model.prompts[0]).toContain("Keep the old phone number too")
   expect(writes).toEqual([])
@@ -152,6 +153,44 @@ it("rejects an unavailable base revision", async () => {
   ).rejects.toThrow("Base revision")
 })
 
+it("reports non-text changes in the proposal that would actually be applied", async () => {
+  includeImage = false
+  const linkedFact = "Read the [policy](https://example.com/policy)."
+  model.output = JSON.stringify({
+    title: "Escalation",
+    tags: [],
+    markdown: linkedFact,
+  })
+  // An empty page has no original content to keep, so the drafted link is
+  // applied and flagged for a manual check.
+  const { card } = await prepareMiloProposal({
+    supabase,
+    pageId: "page",
+    extraction: { ...extraction, facts: [linkedFact] },
+    baseRevisionId: null,
+  })
+  expect(card.keptOriginal).toBe(false)
+  expect(card.nonTextNotes?.join(" ")).toContain("link")
+})
+
+it("appends only the facts when the model's full-page draft is not a faithful update", async () => {
+  includeImage = false
+  model.output = JSON.stringify({
+    title: "Escalation",
+    tags: [],
+    markdown: `# Escalation\n\n${before} Call the branch manager first.\n\n${fact}`,
+  })
+  const { card } = await prepareMiloProposal({
+    supabase,
+    pageId: "page",
+    extraction,
+    baseRevisionId: "base",
+  })
+  expect(card.after.split(before).length - 1).toBe(1)
+  expect(card.after).toContain(fact)
+  expect(card.after).not.toContain("Call the branch manager first.")
+})
+
 it("proposes a source-grounded replacement on a text-only page", async () => {
   includeImage = false
   model.output = JSON.stringify({
@@ -167,6 +206,8 @@ it("proposes a source-grounded replacement on a text-only page", async () => {
   })
   expect(card.after).toContain(fact)
   expect(card.after).not.toContain("4 p.m.")
+  expect(card.keptOriginal).toBe(false)
+  expect(card.nonTextNotes).toEqual([])
   expect(buildWikiPlainDiff(card.before, card.after)).toMatchSnapshot()
 })
 
