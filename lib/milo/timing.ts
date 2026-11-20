@@ -35,6 +35,8 @@ export class MiloTiming {
     | "deterministic"
     | null = null
   gateMs: number | null = null
+  gateError: "incomplete" | "parse" | "schema" | "provider" | "timeout" | null =
+    null
   abstained = false
   toolLoopSteps = 0
   outcome: "complete" | "error" | "stopped" = "complete"
@@ -73,6 +75,7 @@ export class MiloTiming {
       check: this.check,
       gateMode: this.gateMode,
       gateOutcome: this.gateOutcome,
+      gateError: this.gateError,
       abstained: this.abstained,
       outcome: this.outcome,
       models: { ...this.models },
