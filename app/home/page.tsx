@@ -397,7 +397,10 @@ export default async function HomePage() {
           </Breadcrumb>
         </header>
 
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-4 md:p-6">
+        <div
+          data-milo-clearance
+          className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-4 md:p-6"
+        >
           <section className="relative rounded-lg bg-foreground text-white shadow-sm">
             <div className="absolute inset-0 overflow-hidden rounded-lg">
               <Image
@@ -568,7 +571,7 @@ export default async function HomePage() {
               )}
             </div>
           </section>
-        </main>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )
