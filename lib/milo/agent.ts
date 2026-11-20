@@ -942,6 +942,7 @@ export async function answerMiloQuestionWithAgent({
         (!assessment.unavailable && assessment.answerSupported === false)
           ? "\n\nSome details could not be verified in the wiki."
           : ""
+      if (note) onToken(note)
       return {
         answer: answer + note,
         model,

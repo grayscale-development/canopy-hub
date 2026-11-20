@@ -145,7 +145,14 @@ const hub = {
 const home = {
   title: "Home Dashboard",
   url: "/wiki/hub/home",
-  snippet: "The Home dashboard shows production summaries and quick links.",
+  snippet:
+    "Canopy Hub is Canopy Mortgage's internal employee site. The Home Dashboard shows production summaries and quick links.",
+}
+const closingDesk = {
+  title: "Closing Desk Checklist",
+  url: "/wiki/closing-desk-checklist",
+  snippet:
+    "Before sending a file to closing, check the closing disclosure, title and insurance, approved conditions, vesting, and the scheduled signing date.",
 }
 const feedback = {
   title: "Settings and Feedback",
@@ -413,6 +420,17 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
         "page_context"
       )
     ).resolves.toMatchObject({ coverage: "covered" })
+    await expect(
+      gateMiloEvidence(
+        "where am I",
+        [],
+        [],
+        undefined,
+        { title: "Workspace", url: "/workspace" },
+        [],
+        "page_context"
+      )
+    ).resolves.toMatchObject({ coverage: "covered" })
   })
 
   it("does not bypass the gate for a high-vector title lacking the requested fact", async () => {
@@ -457,7 +475,7 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
     const chunks = [
       "introduction",
       "background",
-      `${"x".repeat(1500)}actual procedure`,
+      `${"x".repeat(600)}actual procedure`,
     ].map((snippet, index) => ({
       title: "Process",
       url: "/wiki/1/2",
@@ -482,7 +500,7 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
     expect(JSON.parse(request.input).sources[15].title).toBe("Other page")
   })
 
-  it("uses minimal effort and a bounded payload for the nano gate", async () => {
+  it("uses low effort and includes the top chunks in the bounded nano gate payload", async () => {
     fixture.active = {
       question: "explain feedback",
       intent: "other",
@@ -496,7 +514,11 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
       await gateMiloEvidence(
         fixture.active.question,
         [],
-        [{ ...feedback, snippet: "x".repeat(3000), sourceType: "site" }],
+        Array.from({ length: 7 }, () => ({
+          ...feedback,
+          snippet: "x".repeat(3000),
+          sourceType: "site",
+        })),
         undefined,
         pageContext,
         [],
@@ -509,9 +531,16 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
         max_output_tokens: number
         input: string
       }
-      expect(request.reasoning.effort).toBe("minimal")
-      expect(request.max_output_tokens).toBe(192)
-      expect(JSON.parse(request.input).sources[0].snippet).toHaveLength(2048)
+      expect(request.reasoning.effort).toBe("low")
+      expect(request.max_output_tokens).toBe(1024)
+      const payload = JSON.parse(request.input)
+      expect(
+        payload.sources
+          .slice(0, 6)
+          .map((source: { snippet: string }) => source.snippet.length)
+      ).toEqual([900, 900, 900, 900, 900, 900])
+      expect(payload.sources[6].snippet).toHaveLength(300)
+      expect(payload.assistantIdentity).toContain("internal site")
       expect(timing.gateOutcome).toBe("covered")
     } finally {
       provider.getFormatModel.mockReturnValue("fixture-format")
@@ -525,6 +554,8 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
     "vacation days",
     "Friday dress code",
     "HQ parking",
+    "cafeteria menu",
+    "executive vacation plans",
   ])("keeps an unknown without related pages: %s", async (question) => {
     fixture.active = {
       question,
@@ -597,11 +628,15 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
         expect(result.metadata?.abstained).toBe(false)
         expect(result.answer).not.toContain("couldn't check")
         expect(result.answer).toContain("could not be verified")
+        expect(tokens.join("")).toContain("could not be verified")
         expect(timing.gateMode).toBe("model")
         expect(timing.gateOutcome).toBe(
           failure === "timeout" ? "timeout" : "error"
         )
         expect(timing.gateMs).toEqual(expect.any(Number))
+        expect(timing.gateError).toBe(
+          failure === "timeout" ? "timeout" : "parse"
+        )
       } finally {
         vi.useRealTimers()
       }
@@ -768,6 +803,201 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
         error: null,
       })),
     }
+  }
+
+  for (const mode of ["agent", "fallback"] as const) {
+    it.each([
+      {
+        question: "what do I need to check before sending a file to closing?",
+        intent: "other" as const,
+        source: closingDesk,
+        answer: closingDesk.snippet,
+        deterministic: false,
+      },
+      {
+        question: "who are you?",
+        intent: "identity" as const,
+        source: home,
+        answer: "I'm Milo",
+        deterministic: true,
+      },
+      {
+        question: "is this the company intranet?",
+        intent: "hub_context" as const,
+        source: home,
+        answer: "Canopy Hub is Canopy Mortgage's internal employee site.",
+        deterministic: true,
+      },
+    ])(`${mode}: answers $question`, async (item) => {
+      fixture.active = { ...item, covered: true, related: true }
+      const originalMcp = mcp.callMiloMcpTool.getMockImplementation()!
+      if (mode === "fallback")
+        mcp.callMiloMcpTool.mockRejectedValue(new Error("Agent unavailable"))
+      try {
+        const tokens: string[] = []
+        const timing = new MiloTiming()
+        const result = await answerKnowledgeQuestion({
+          question: item.question,
+          supabase: fixtureClient() as never,
+          userContext,
+          pageContext,
+          timing,
+          onToken: (token) => tokens.push(token),
+        })
+        expect(result.metadata?.abstained).toBe(false)
+        expect(result.answer).toContain(item.answer)
+        expect(tokens.join("")).toContain(item.answer)
+        expect(timing.path).toBe(mode)
+        expect(timing.gateMode).toBe(
+          item.deterministic ? "deterministic" : "model"
+        )
+        if (item.deterministic) {
+          const request =
+            provider.createAgentResponseWithOpenAI.mock.calls.find(
+              ([params]) => params.text?.format?.name === "milo_intent"
+            )![0] as unknown as { instructions: string; input: string }
+          expect(request.instructions).toContain("identity")
+          expect(request.instructions).toContain("confirmation questions")
+          expect(JSON.parse(request.input).assistantIdentity).toContain(
+            "internal site"
+          )
+        } else {
+          const gate = provider.createAgentResponseWithOpenAI.mock.calls.find(
+            ([params]) => params.text?.format?.name === "milo_coverage"
+          )![0] as unknown as { input: string }
+          expect(gate.input).toContain("closing disclosure")
+        }
+      } finally {
+        mcp.callMiloMcpTool.mockImplementation(originalMcp)
+      }
+    })
+
+    it.each(["incomplete", "parse", "schema", "provider"] as const)(
+      `${mode}: streams relevant evidence and the note after a gate %s error`,
+      async (failure) => {
+        fixture.active = {
+          question: "what do I need to check before sending a file to closing?",
+          intent: "other",
+          covered: true,
+          related: true,
+          source: closingDesk,
+          vectorSimilarity: 0.6,
+        }
+        const originalMcp = mcp.callMiloMcpTool.getMockImplementation()!
+        const originalDecision =
+          provider.createAgentResponseWithOpenAI.getMockImplementation()!
+        if (mode === "fallback")
+          mcp.callMiloMcpTool.mockRejectedValue(new Error("Agent unavailable"))
+        provider.createAgentResponseWithOpenAI.mockImplementation(
+          async (params, options) => {
+            if (params.text?.format?.name !== "milo_coverage")
+              return originalDecision(params, options)
+            if (failure === "provider")
+              throw new Error("private provider details")
+            if (failure === "incomplete")
+              return {
+                status: "incomplete",
+                output_text: "",
+                output: [],
+              } as never
+            return {
+              output_text:
+                failure === "parse"
+                  ? "invalid JSON"
+                  : JSON.stringify({
+                      coverage: "covered",
+                      relevantIds: ["999"],
+                    }),
+              output: [],
+            }
+          }
+        )
+        try {
+          const timing = new MiloTiming()
+          const tokens: string[] = []
+          const result = await answerKnowledgeQuestion({
+            question: fixture.active.question,
+            supabase: fixtureClient() as never,
+            userContext,
+            timing,
+            onToken: (token) => tokens.push(token),
+          })
+          expect(timing.path).toBe(mode)
+          expect(timing.gateOutcome).toBe("error")
+          expect(timing.gateError).toBe(failure)
+          expect(result.metadata?.abstained).toBe(false)
+          expect(tokens.join("")).toContain("closing disclosure")
+          expect(tokens.join("")).toContain("could not be verified")
+          expect(result.answer).toContain("could not be verified")
+          const log = vi.spyOn(console, "info").mockImplementation(() => {})
+          timing.log()
+          expect(log.mock.calls[0][1]).toMatchObject({ gateError: failure })
+          expect(JSON.stringify(log.mock.calls)).not.toContain(
+            "private provider details"
+          )
+          log.mockRestore()
+        } finally {
+          mcp.callMiloMcpTool.mockImplementation(originalMcp)
+          provider.createAgentResponseWithOpenAI.mockImplementation(
+            originalDecision
+          )
+        }
+      }
+    )
+
+    it(`${mode}: abstains without related pages when the gate errors and retrieval is empty`, async () => {
+      fixture.active = {
+        question: "what is the cafeteria menu?",
+        intent: "other",
+        covered: false,
+        related: false,
+        source: unrelated,
+      }
+      const originalMcp = mcp.callMiloMcpTool.getMockImplementation()!
+      const originalDecision =
+        provider.createAgentResponseWithOpenAI.getMockImplementation()!
+      if (mode === "fallback")
+        mcp.callMiloMcpTool.mockRejectedValue(new Error("Agent unavailable"))
+      else
+        mcp.callMiloMcpTool.mockImplementation(async (name) => ({
+          ok: true,
+          toolName: name,
+          content: {},
+          sources: [],
+        }))
+      provider.createAgentResponseWithOpenAI.mockImplementation(
+        async (params, options) => {
+          if (params.text?.format?.name === "milo_coverage")
+            return { output_text: "invalid JSON", output: [] }
+          return originalDecision(params, options)
+        }
+      )
+      try {
+        const client = fixtureClient()
+        client.rpc.mockResolvedValue({ data: [], error: null })
+        const tokens: string[] = []
+        const timing = new MiloTiming()
+        const result = await answerKnowledgeQuestion({
+          question: fixture.active.question,
+          supabase: client as never,
+          userContext,
+          timing,
+          onToken: (token) => tokens.push(token),
+        })
+        expect(timing.path).toBe(mode)
+        expect(timing.gateOutcome).toBe("error")
+        expect(timing.gateError).toBe("parse")
+        expect(result.metadata?.abstained).toBe(true)
+        expect(result.citations).toEqual([])
+        expect(tokens.join("")).toContain("couldn't find an answer")
+        expect(result.answer).not.toContain("related pages")
+      } finally {
+        mcp.callMiloMcpTool.mockImplementation(originalMcp)
+        provider.createAgentResponseWithOpenAI.mockImplementation(
+          originalDecision
+        )
+      }
+    })
   }
 
   for (const mode of ["agent", "fallback"] as const) {
@@ -1235,9 +1465,8 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
       onToken: (token) => tokens.push(token),
     })
     expect(tokens.length).toBeGreaterThan(1)
-    expect(result.answer).toBe(
-      tokens.join("") + "\n\nSome details could not be verified in the wiki."
-    )
+    expect(result.answer).toBe(tokens.join(""))
+    expect(result.answer).toContain("could not be verified")
   })
 
   it("only appends a note when the post-stream claim check fails", async () => {
@@ -1258,9 +1487,8 @@ describe("Milo grounding eval: scripted provider and retrieval fixtures", () => 
       pageContext,
       onToken: (token) => tokens.push(token),
     })
-    expect(result.answer).toBe(
-      tokens.join("") + "\n\nSome details could not be verified in the wiki."
-    )
+    expect(result.answer).toBe(tokens.join(""))
+    expect(result.answer).toContain("could not be verified")
   })
 
   it("does not cite a Hub map page that the gate did not select", async () => {
