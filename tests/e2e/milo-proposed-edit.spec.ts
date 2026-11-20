@@ -37,10 +37,10 @@ for (const viewport of [
       after,
       summary: "I updated the contact number.",
       notAdded: ["The table needs a manual update."],
-      nonTextNotes: [
-        "A picture was taken out. This comparison cannot show the picture, so check the page.",
-      ],
-      blocks: [],
+      keptOriginal: true,
+      nonTextNotes: [],
+      beforeBlocks: [{ type: "image", props: { url: "/policy.png" } }],
+      blocks: [{ type: "image", props: { url: "/policy.png" } }],
       plain_text: after,
     }
     let calls = 0
@@ -53,6 +53,11 @@ for (const viewport of [
               ...proposal,
               after: `${after}\nThe old number is 555-0100.`,
               summary: "I kept the old number too.",
+              keptOriginal: false,
+              blocks: [],
+              nonTextNotes: [
+                "A picture was taken out. This comparison cannot show the picture, so check the page.",
+              ],
             }
       return route.fulfill({
         contentType: "text/event-stream",
@@ -106,7 +111,9 @@ for (const viewport of [
       card.getByRole("button", { name: /Show \d+ lines that don't change/ })
     ).toBeVisible()
     await expect(card.getByText("Not added")).toBeVisible()
-    await expect(card.getByText("Needs a manual check")).toBeVisible()
+    await expect(card.getByText("Kept as it was")).toBeVisible()
+    await expect(card.getByText(/Milo added only the new facts/)).toBeVisible()
+    await expect(card.getByText("Needs a manual check")).toHaveCount(0)
     await card.scrollIntoViewIfNeeded()
     if (process.env.CANOPY_SHOTS_DIR)
       await page.screenshot({
@@ -128,6 +135,8 @@ for (const viewport of [
       .getByRole("region", { name: "Proposed edit: Loan policy" })
       .last()
     await expect(revised.getByText("I kept the old number too.")).toBeVisible()
+    await expect(revised.getByText("Needs a manual check")).toBeVisible()
+    await expect(revised.getByText("Kept as it was")).toHaveCount(0)
     await revised.scrollIntoViewIfNeeded()
     if (process.env.CANOPY_SHOTS_DIR)
       await page.screenshot({

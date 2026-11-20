@@ -981,7 +981,7 @@ describe("/api/wiki/chat route", () => {
     )
     const events = await readSseEvents(response)
     expect(events.map((event) => event.token ?? "").join("")).toContain(
-      "Right?"
+      "Is that right?"
     )
     expect(answerKnowledgeQuestion).not.toHaveBeenCalled()
     const params = vi.mocked(createAgentResponseWithOpenAI).mock.calls[0][0]
@@ -1080,7 +1080,7 @@ describe("/api/wiki/chat route", () => {
     const reply = await POST(request({ threadId, message: "Yes" }))
     expect(
       (await readSseEvents(reply)).map((event) => event.token ?? "").join("")
-    ).toContain("Right?")
+    ).toContain("Is that right?")
     expect(answerKnowledgeQuestion).not.toHaveBeenCalled()
   })
 
@@ -1160,7 +1160,7 @@ describe("/api/wiki/chat route", () => {
     const reply = await POST(request({ threadId, message: "Starting April 1" }))
     expect(
       (await readSseEvents(reply)).map((event) => event.token ?? "").join("")
-    ).toContain("Right?")
+    ).toContain("Is that right?")
     expect(
       vi.mocked(createAgentResponseWithOpenAI).mock.calls[1][0].input
     ).toContain("Starting April 1")

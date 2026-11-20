@@ -112,7 +112,8 @@ it("uses the update provider and preserves the base and complex blocks", async (
     "Updated from email thread from Jordan Example, June 12, 2026"
   )
   expect(card.blocks).toContainEqual(blocks[1])
-  expect(card.nonTextNotes?.join(" ")).toContain("picture")
+  expect(card.keptOriginal).toBe(true)
+  expect(card.nonTextNotes).toEqual([])
   expect(card.after).toContain(fact)
   expect(model.prompts[0]).toContain("Keep the old phone number too")
   expect(writes).toEqual([])
@@ -152,6 +153,24 @@ it("rejects an unavailable base revision", async () => {
   ).rejects.toThrow("Base revision")
 })
 
+it("reports non-text changes in the proposal that would actually be applied", async () => {
+  includeImage = false
+  const linkedFact = "Read the [policy](https://example.com/policy)."
+  model.output = JSON.stringify({
+    title: "Escalation",
+    tags: [],
+    markdown: linkedFact,
+  })
+  const { card } = await prepareMiloProposal({
+    supabase,
+    pageId: "page",
+    extraction: { ...extraction, facts: [linkedFact] },
+    baseRevisionId: "base",
+  })
+  expect(card.keptOriginal).toBe(false)
+  expect(card.nonTextNotes?.join(" ")).toContain("link")
+})
+
 it("proposes a source-grounded replacement on a text-only page", async () => {
   includeImage = false
   model.output = JSON.stringify({
@@ -167,6 +186,8 @@ it("proposes a source-grounded replacement on a text-only page", async () => {
   })
   expect(card.after).toContain(fact)
   expect(card.after).not.toContain("4 p.m.")
+  expect(card.keptOriginal).toBe(false)
+  expect(card.nonTextNotes).toEqual([])
   expect(buildWikiPlainDiff(card.before, card.after)).toMatchSnapshot()
 })
 
