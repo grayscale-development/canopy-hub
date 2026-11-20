@@ -102,9 +102,6 @@ export function WikiImportWizardDialog({
   triggerVariant = "default",
   triggerClassName,
   targetPageId,
-  initialText = "",
-  targetPageTitle,
-  duplicateSourceTitle,
 }: {
   nodes: WikiNodeRow[]
   parentId?: string | null
@@ -117,9 +114,6 @@ export function WikiImportWizardDialog({
   triggerVariant?: "default" | "outline" | "secondary" | "ghost"
   triggerClassName?: string
   targetPageId?: string
-  initialText?: string
-  targetPageTitle?: string
-  duplicateSourceTitle?: string
 }) {
   const router = useRouter()
   const isUpdatingPage = Boolean(targetPageId)
@@ -127,7 +121,7 @@ export function WikiImportWizardDialog({
   const actionTitle = triggerTitle ?? triggerLabel
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const [file, setFile] = React.useState<File | null>(null)
-  const [text, setText] = React.useState(initialText)
+  const [text, setText] = React.useState("")
   const [updateMode, setUpdateMode] = React.useState<WikiAiUpdateMode>("update")
   const [isDragging, setIsDragging] = React.useState(false)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -157,7 +151,7 @@ export function WikiImportWizardDialog({
 
   function reset() {
     setFile(null)
-    setText(initialText)
+    setText("")
     setUpdateMode("update")
     setError("")
     setDuplicate(null)
@@ -260,8 +254,6 @@ export function WikiImportWizardDialog({
       }
       if (text.trim()) formData.set("text", text)
       formData.set("target_page_id", targetPageId)
-      if (duplicateSourceTitle)
-        formData.set("duplicate_source_title", duplicateSourceTitle)
       formData.set("mode", updateMode)
       formData.set("preview", "1")
 
@@ -297,8 +289,6 @@ export function WikiImportWizardDialog({
         completeFormData.set("asset_id", assetId)
         if (text.trim()) completeFormData.set("text", text)
         completeFormData.set("target_page_id", targetPageId)
-        if (duplicateSourceTitle)
-          completeFormData.set("duplicate_source_title", duplicateSourceTitle)
         completeFormData.set("mode", updateMode)
         completeFormData.set("preview", "1")
         const completeResponse = await fetch("/api/wiki/import", {
@@ -559,11 +549,7 @@ export function WikiImportWizardDialog({
       >
         <DialogHeader>
           <DialogTitle>
-            {isUpdatingPage
-              ? targetPageTitle
-                ? `AI Update: ${targetPageTitle}`
-                : "AI Update"
-              : "AI Create"}
+            {isUpdatingPage ? "AI Update" : "AI Create"}
           </DialogTitle>
           {isUpdatingPage ? (
             <DialogDescription id="wiki-update-description">

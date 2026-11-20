@@ -28,10 +28,7 @@ import {
   getDefaultWikiRepository,
   getWikiRepositoryByShortId,
 } from "@/lib/wiki-repositories"
-import {
-  BETA_1_PERMISSION,
-  WIKI_DUPLICATES_INSPECT_PERMISSION,
-} from "@/lib/permission-codes"
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
   buildWikiBreadcrumbs,
   fetchWikiTagAssignments,
@@ -236,18 +233,11 @@ export default async function WikiPage({
     redirect("/home")
   }
 
-  const [canManageWiki, canInspectDuplicates] = await Promise.all([
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: WIKI_MANAGE_PERMISSION,
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: WIKI_DUPLICATES_INSPECT_PERMISSION,
-    }),
-  ])
+  const canManageWiki = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: WIKI_MANAGE_PERMISSION,
+  })
 
   const [{ path = [] }, query] = await Promise.all([params, searchParams])
   const { tag: highlightedTag = "", section: highlightedSection = "" } = query
@@ -545,13 +535,11 @@ export default async function WikiPage({
                       <WikiEditor
                         key={pageData.revision?.id ?? pageData.node.id}
                         node={pageData.node}
-                        nodes={nodes}
                         revision={pageData.revision ?? null}
                         availableTags={wikiTags}
                         pageTags={pageTags}
                         sectionId={getWikiSectionId(nodes, pageData.node.id)}
                         canManage={canManageWiki}
-                        canInspectDuplicates={canInspectDuplicates}
                         lastUpdatedAt={lastUpdatedAt}
                         lastUpdatedBy={lastUpdatedBy}
                         versionHistory={
