@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { expect, test, type Page } from "@playwright/test"
 
-import { mockMiloChatApi } from "./helpers"
+import { mockMiloChatApi, PAGE_CONTENT } from "./helpers"
 import {
   createReviewedPage,
   enableEditorMode,
@@ -59,7 +59,7 @@ test("pasting a list followed by a heading leaves the editor responsive", async 
       page.getByRole("button", { name: "Save Changes" })
     ).toBeEnabled()
 
-    const main = page.getByRole("main").last()
+    const main = page.locator(PAGE_CONTENT).last()
     await main.evaluate((element) => {
       element.scrollTop = 0
       window.location.hash = "paste-heading"
@@ -94,7 +94,7 @@ test("heading links scroll in view and editor modes", async ({ page }) => {
     await useLocalServices(page)
     await signInAsSeededUser(page, "standard@canopy.test")
     await page.goto(`${fixture.path}#parent-target`)
-    const main = page.getByRole("main").last()
+    const main = page.locator(PAGE_CONTENT).last()
     const target = page.locator(".wiki-blocknote-surface h2", {
       hasText: "Target",
     })

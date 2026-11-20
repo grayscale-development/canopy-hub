@@ -3,7 +3,7 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { mockMiloChatApi } from "./helpers"
+import { mockMiloChatApi, PAGE_CONTENT } from "./helpers"
 import { signInAsSeededUser } from "./wiki-reviewed-helpers"
 
 test("opens a current Wiki citation from an old indexed URL @smoke", async ({
@@ -66,5 +66,5 @@ test("opens a current Wiki citation from an old indexed URL @smoke", async ({
   }
   await citation.click()
   await expect(page).toHaveURL(new RegExp(`${result.url}$`))
-  await expect(page.getByRole("main").last()).toContainText("Funding Checklist")
+  await expect(page.locator(PAGE_CONTENT).last()).toContainText("Funding Checklist")
 })

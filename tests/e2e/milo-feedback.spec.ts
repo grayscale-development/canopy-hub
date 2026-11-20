@@ -4,7 +4,7 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { mockMiloChatApi } from "./helpers"
+import { mockMiloChatApi, PAGE_CONTENT } from "./helpers"
 import {
   createReviewedPage,
   serviceWiki,
@@ -42,7 +42,7 @@ test("rates a Milo answer on desktop and narrow screens", async ({ page }) => {
       .getByRole("textbox", { name: "Search with Milo" })
       .fill("Where is the wiki?")
     await page
-      .getByRole("main")
+      .locator(PAGE_CONTENT)
       .last()
       .getByRole("button", { name: "Search" })
       .click()
