@@ -28,7 +28,10 @@ export default function WikiNotFound() {
   const { available, openWithPrompt } = useWikiChatModal()
 
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
+    <div
+      data-milo-clearance
+      className="min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]"
+    >
       <section className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 py-6 md:px-8 md:py-10">
         <div className="space-y-3">
           <h1 className="text-3xl font-semibold">
@@ -71,6 +74,6 @@ export default function WikiNotFound() {
           </Button>
         </div>
       </section>
-    </main>
+    </div>
   )
 }

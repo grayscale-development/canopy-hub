@@ -39,7 +39,7 @@ export function DivisionEmployeesTable({ rows }: DivisionEmployeesTableProps) {
                 <td className="px-4 py-2.5">
                   <Link
                     href={`/employee/${encodeURIComponent(employee.userId)}`}
-                    className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                    className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                   >
                     {employee.name}
                   </Link>

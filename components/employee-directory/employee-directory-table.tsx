@@ -193,7 +193,7 @@ export function EmployeeDirectoryTable({ rows }: { rows: EmployeeDirectoryRow[] 
                     {row.divisionId?.trim() && row.division?.trim() ? (
                       <Link
                         href={`/division/${encodeURIComponent(row.divisionId)}`}
-                        className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                        className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >
@@ -207,7 +207,7 @@ export function EmployeeDirectoryTable({ rows }: { rows: EmployeeDirectoryRow[] 
                     {row.branchId?.trim() && row.branch?.trim() ? (
                       <Link
                         href={`/branch/${encodeURIComponent(row.branchId)}`}
-                        className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                        className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >
@@ -221,7 +221,7 @@ export function EmployeeDirectoryTable({ rows }: { rows: EmployeeDirectoryRow[] 
                     {row.branchId?.trim() ? (
                       <Link
                         href={`/branch/${encodeURIComponent(row.branchId)}`}
-                        className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                        className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >

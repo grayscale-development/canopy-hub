@@ -85,7 +85,10 @@ export default async function NewslettersPage() {
           </Breadcrumb>
         </header>
 
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-4 md:p-6">
+        <div
+          data-milo-clearance
+          className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-4 md:p-6"
+        >
           <section className="relative overflow-hidden rounded-lg bg-foreground p-6 text-white shadow-sm md:p-8">
             <Image
               src="/background-subdivision.jpg"
@@ -134,7 +137,7 @@ export default async function NewslettersPage() {
           </section>
 
           <NewslettersPageContent newsletters={newsletters} />
-        </main>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )

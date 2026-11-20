@@ -238,7 +238,7 @@ function MessageContent({
               <Link
                 href={href}
                 onClick={onNavigate}
-                className="text-sidebar-primary underline underline-offset-4 hover:no-underline dark:text-chart-2"
+                className="text-link underline underline-offset-4 hover:no-underline"
               >
                 {children}
               </Link>

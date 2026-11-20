@@ -2,7 +2,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export default function WikiLoading() {
   return (
-    <main
+    <div
+      data-milo-clearance
       role="status"
       aria-live="polite"
       aria-busy="true"
@@ -28,6 +29,6 @@ export default function WikiLoading() {
           <Skeleton className="h-5 w-8/12" />
         </div>
       </section>
-    </main>
+    </div>
   )
 }

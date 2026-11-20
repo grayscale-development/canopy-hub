@@ -341,7 +341,7 @@ function DepartmentSection({
               {department.managerPhone ? (
                 <a
                   href={toTelHref(department.managerPhone)}
-                  className="font-medium text-primary underline-offset-4 hover:underline"
+                  className="font-medium text-link underline-offset-4 hover:underline"
                 >
                   {department.managerPhone}
                 </a>
@@ -453,7 +453,10 @@ export default async function SupportPage({
           </Breadcrumb>
         </header>
 
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 p-4 md:p-6">
+        <div
+          data-milo-clearance
+          className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 p-4 md:p-6"
+        >
           <section className="relative overflow-hidden rounded-lg bg-foreground p-5 text-white shadow-sm md:p-6">
             <Image
               src="/department-directory.png"
@@ -694,7 +697,7 @@ export default async function SupportPage({
               ) : null}
             </>
           )}
-        </main>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )
