@@ -3,7 +3,10 @@ import { pathToFileURL } from "node:url"
 const serviceOnlyRlsTables = new Set([
   "public.ai_action_log",
   "public.allowed_domains",
+  "public.milo_edit_proposals",
   "public.source_configs",
+  "public.wiki_alert_manual_scan_lease",
+  "public.wiki_alert_scan_state",
   "raw.retention_cleanup_runs",
   "raw.retention_policies",
   "raw.row_ingest_log",

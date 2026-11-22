@@ -56,7 +56,7 @@ catalogs to hide the warning is inappropriate. See the [provider installation do
 
 The verifier allows **only** `extension_in_public` for `pg_net` and the following
 intentional service-only tables reported as `rls_enabled_no_policy`:
-`public.ai_action_log` (v2.2 append-only audit log, service-role only), `public.allowed_domains`, `public.source_configs`, `raw.retention_cleanup_runs`,
+`public.ai_action_log` (v2.2 append-only audit log, service-role only), `public.allowed_domains`, `public.milo_edit_proposals`, `public.source_configs`, `public.wiki_alert_manual_scan_lease`, `public.wiki_alert_scan_state` (the last three are v2.2 service-only tables), `raw.retention_cleanup_runs`,
 `raw.retention_policies`, `raw.row_ingest_log`, `raw.source_payloads`, and
 `raw.sync_runs`. Each has RLS enabled, no client policy, no client grant, and an
 explicit `service_role` grant; this is a deny-by-default boundary, not an unresolved
