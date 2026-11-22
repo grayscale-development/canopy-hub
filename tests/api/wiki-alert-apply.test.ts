@@ -1,0 +1,217 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const state = vi.hoisted(() => ({
+  allowed: true,
+  current: "rev-1",
+  status: "open",
+  recommendation: null as unknown,
+  blocks: [] as unknown[],
+  calls: [] as Record<string, unknown>[],
+  updates: [] as Record<string, unknown>[],
+  logs: [] as Record<string, unknown>[],
+  failUpdate: false,
+  failLog: false,
+  user: true,
+}))
+const recommendation = {
+  version: 1,
+  summary: "Replace duplicate",
+  targetPageId: "a",
+  baseRevisionId: "rev-1",
+  canonicalPageId: "b",
+  canonicalTitle: "Canonical",
+  canonicalPath: "/wiki/2",
+  blockId: "block-1",
+  changeNote: "Consolidated duplicate",
+}
+vi.mock("@/lib/permissions", () => ({
+  userHasPermissionCode: async () => state.allowed,
+}))
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+vi.mock("@/lib/wiki", async (original) => ({
+  ...(await original<typeof import("@/lib/wiki")>()),
+  fetchWikiNodes: async () => [
+    {
+      id: "a",
+      short_id: 1,
+      parent_id: null,
+      type: "page",
+      status: "published",
+      title: "Target",
+      current_revision_id: state.current,
+    },
+    {
+      id: "b",
+      short_id: 2,
+      parent_id: null,
+      type: "page",
+      status: "published",
+      title: "Canonical",
+      current_revision_id: "rev-2",
+    },
+  ],
+}))
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServerClient: async () => ({
+    auth: {
+      getUser: async () => ({
+        data: { user: state.user ? { id: "manager" } : null },
+      }),
+    },
+    from: (table: string) => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        update: (values: Record<string, unknown>) => {
+          state.updates.push(values)
+          return query
+        },
+        maybeSingle: async () => ({
+          data:
+            table === "wiki_page_revisions"
+              ? { blocks: state.blocks }
+              : state.updates.length
+                ? { id: "alert" }
+                : {
+                    id: "alert",
+                    status: state.status,
+                    page_id: "a",
+                    other_page_id: "b",
+                    recommendation: state.recommendation,
+                  },
+          error:
+            table === "wiki_alerts" && state.updates.length && state.failUpdate
+              ? new Error("failed")
+              : null,
+        }),
+      }
+      return query
+    },
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === "log_user_ai_action") {
+        state.logs.push(args)
+        return {
+          data: null,
+          error: state.failLog ? new Error("private detail") : null,
+        }
+      }
+      state.calls.push(args)
+      return { data: "new-revision", error: null }
+    },
+  }),
+}))
+import { POST } from "@/app/api/wiki/alerts/apply/route"
+const request = (confirmArchive = false) =>
+  new Request("http://localhost", {
+    method: "POST",
+    body: JSON.stringify({ id: "alert", confirmArchive }),
+  })
+beforeEach(() => {
+  state.allowed = true
+  state.current = "rev-1"
+  state.status = "open"
+  state.recommendation = { ...recommendation }
+  state.blocks = [
+    {
+      id: "block-1",
+      type: "paragraph",
+      content: [{ type: "text", text: "Duplicate", styles: {} }],
+      children: [],
+    },
+  ]
+  state.calls = []
+  state.updates = []
+  state.logs = []
+  state.failUpdate = false
+  state.failLog = false
+  state.user = true
+})
+describe("apply alert", () => {
+  it("creates a reviewed link revision without archiving the canonical page and marks the alert applied", async () => {
+    expect((await POST(request())).status).toBe(200)
+    expect(state.calls[0]).toMatchObject({
+      p_target_id: "a",
+      p_base_revision_id: "rev-1",
+      p_source_id: null,
+      p_change_note: "Consolidated duplicate",
+      p_plain_text: "See Canonical",
+    })
+    expect(state.updates[0]).toMatchObject({
+      status: "applied",
+      applied_by: "manager",
+    })
+    expect(state.logs).toEqual([
+      {
+        p_action_type: "alert_apply",
+        p_target_page_id: "a",
+        p_target_alert_id: "alert",
+      },
+    ])
+  })
+  it("requires confirmation before atomically archiving an identical page", async () => {
+    state.recommendation = {
+      ...recommendation,
+      version: 2,
+      kind: "identical",
+      excerpt: "Repeated text",
+      canonicalRevisionId: "rev-2",
+    }
+    expect((await POST(request())).status).toBe(400)
+    expect(state.calls).toEqual([])
+    expect((await POST(request(true))).status).toBe(200)
+    expect(state.calls).toEqual([{ p_alert_id: "alert" }])
+    expect(state.updates).toEqual([])
+    expect(state.logs).toHaveLength(1)
+  })
+  it("does not archive when the canonical revision changed", async () => {
+    state.recommendation = {
+      ...recommendation,
+      version: 2,
+      kind: "identical",
+      excerpt: "Repeated text",
+      canonicalRevisionId: "old",
+    }
+    expect((await POST(request(true))).status).toBe(409)
+    expect(state.calls).toEqual([])
+  })
+  it("rejects a stale page", async () => {
+    state.current = "newer"
+    const response = await POST(request())
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toMatch(/page changed/i)
+    expect(state.calls).toEqual([])
+    expect(state.logs).toEqual([])
+  })
+  it("rejects invalid or closed alerts and nonexistent blocks", async () => {
+    state.recommendation = null
+    expect((await POST(request())).status).toBe(400)
+    state.recommendation = { ...recommendation, blockId: "missing" }
+    expect((await POST(request())).status).toBe(400)
+    state.recommendation = recommendation
+    state.status = "dismissed"
+    expect((await POST(request())).status).toBe(400)
+    expect(state.calls).toEqual([])
+    expect(state.logs).toEqual([])
+  })
+  it("refuses non-managers", async () => {
+    state.allowed = false
+    expect((await POST(request())).status).toBe(403)
+    expect(state.calls).toEqual([])
+    expect(state.logs).toEqual([])
+  })
+  it("does not log an unauthenticated request or a failed alert update", async () => {
+    state.user = false
+    expect((await POST(request())).status).toBe(401)
+    state.user = true
+    state.failUpdate = true
+    expect((await POST(request())).status).toBe(500)
+    expect(state.logs).toEqual([])
+  })
+  it("returns success when logging fails without exposing the database error", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    state.failLog = true
+    expect((await POST(request())).status).toBe(200)
+    expect(error).toHaveBeenCalledWith("AI action log write failed")
+    error.mockRestore()
+  })
+})

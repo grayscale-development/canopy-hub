@@ -86,7 +86,7 @@ export function DepartmentMetricTable({
           {linked ? (
             <Link
               href={linked}
-              className="text-primary underline-offset-2 hover:underline"
+              className="text-link underline-offset-2 hover:underline"
             >
               {row.label}
             </Link>
@@ -166,9 +166,10 @@ export function DepartmentMetricTable({
               <tr>
                 <td
                   colSpan={columns.length + 1}
-                  className="px-3 py-8 text-center text-muted-foreground"
+                  className="px-3 py-8 text-left text-muted-foreground sm:text-center"
                 >
-                  No rows in this window.
+                  {/* Sticky so it stays on screen when the table scrolls sideways on phones. */}
+                  <span className="sticky left-3">No rows in this window.</span>
                 </td>
               </tr>
             ) : null}

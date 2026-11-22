@@ -123,6 +123,30 @@ describe("/api/milo/mcp route", () => {
       userSession
     )
   })
+  it("returns numeric Wiki links from knowledge search", async () => {
+    mcpTools.callMiloMcpTool.mockResolvedValueOnce({
+      ok: true,
+      toolName: "knowledge_search",
+      content: { relations: [] },
+      sources: [{ title: "Page", url: "/wiki/1/9/22", snippet: "Text" }],
+    } as never)
+    const { POST } = await import("@/app/api/milo/mcp/route")
+    const response = await POST(
+      new Request("http://test.local/api/milo/mcp", {
+        method: "POST",
+        headers: { authorization: "Bearer test-token" },
+        body: JSON.stringify({
+          id: 3,
+          method: "tools/call",
+          params: { name: "knowledge_search", arguments: { query: "page" } },
+        }),
+      })
+    )
+    const payload = await response.json()
+    expect(JSON.parse(payload.result.content[0].text).sources[0].url).toBe(
+      "/wiki/1/9/22"
+    )
+  })
   it("does not treat the shared MCP bearer as a user identity", async () => {
     userSession.auth.getUser.mockResolvedValue({
       data: { user: null },

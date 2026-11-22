@@ -1,29 +1,30 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   blockNoteToPlainText,
-  buildWikiBreadcrumbs,
-  buildWikiPath,
-  buildWikiTree,
+  blockNoteToKnowledgeText,
   chunkKnowledgeText,
   compareWikiNodes,
   estimateTokenCount,
-  findDefaultWikiPagePath,
-  findFirstPublishedWikiPagePath,
   formatBytes,
   getWikiAssetKind,
+  getWikiSectionId,
   isPublishedWikiBranch,
   isUnarchivedWikiBranch,
   wikiRestoreStatus,
   normalizeWikiTags,
-  resolveWikiPath,
+  normalizeWikiTagInputs,
+  syncWikiPageTags,
   sanitizeWikiFileName,
   slugifyWikiTitle,
   validateWikiUpload,
+  validateWikiTagsForParent,
   type WikiNodeRow,
+  type SupabaseWikiClient,
 } from "@/lib/wiki"
 
 const baseNode = {
+  short_id: 1,
   status: "published",
   sort_order: 0,
   current_revision_id: null,
@@ -45,6 +46,90 @@ function node(overrides: Partial<WikiNodeRow> & Pick<WikiNodeRow, "id">) {
 }
 
 describe("wiki helpers", () => {
+  it("validates scoped tag ancestry and cross-level names before page writes", () => {
+    const section = "10000000-0000-4000-8000-000000000001"
+    const other = "10000000-0000-4000-8000-000000000002"
+    const nodes = [
+      node({ id: "root", type: "folder" }),
+      node({ id: section, type: "folder", parent_id: "root" }),
+      node({ id: "group", type: "folder", parent_id: section }),
+      node({ id: other, type: "folder", parent_id: "root" }),
+    ]
+    const catalog = [
+      {
+        id: "global",
+        name: "Global Name",
+        scope: "global" as const,
+        section_id: null,
+      },
+      {
+        id: "section",
+        name: "Other Name",
+        scope: "section" as const,
+        section_id: other,
+      },
+    ]
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "New", scope: "section", section_id: section }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).not.toThrow()
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "New", scope: "section", section_id: other }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).toThrow("different section")
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "global name", scope: "section", section_id: section }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).toThrow("already exists")
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "other name", scope: "global", section_id: null }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).toThrow("already exists")
+    expect(() =>
+      validateWikiTagsForParent(
+        [{ name: "Other Name", scope: "section", section_id: section }],
+        nodes,
+        "group",
+        catalog
+      )
+    ).not.toThrow()
+    expect(() =>
+      validateWikiTagsForParent(["Global Name"], nodes, "group", catalog)
+    ).not.toThrow()
+  })
+  it("finds a section from nested page and parent paths, but not area roots or missing ancestors", () => {
+    const nodes = [
+      node({ id: "root", type: "folder" }),
+      node({ id: "section", type: "folder", parent_id: "root" }),
+      node({ id: "group", type: "folder", parent_id: "section" }),
+      node({ id: "page", parent_id: "group" }),
+      node({ id: "root-page", parent_id: "root" }),
+      node({ id: "orphan", type: "folder", parent_id: "missing" }),
+    ]
+    expect(getWikiSectionId(nodes, "page")).toBe("section")
+    expect(getWikiSectionId(nodes, "group")).toBe("section")
+    expect(getWikiSectionId(nodes, "section")).toBe("section")
+    expect(getWikiSectionId(nodes, "root")).toBeNull()
+    expect(getWikiSectionId(nodes, "root-page")).toBeNull()
+    expect(getWikiSectionId(nodes, "orphan")).toBeNull()
+    expect(getWikiSectionId(nodes, "missing")).toBeNull()
+  })
   it("slugifies human titles into safe wiki slugs", () => {
     expect(slugifyWikiTitle("  Borrower's Guide: Nano LOS!  ")).toBe(
       "borrowers-guide-nano-los"
@@ -61,6 +146,46 @@ describe("wiki helpers", () => {
     expect(
       normalizeWikiTags(["Loan Setup", "", "Loan Setup", " Fees "])
     ).toEqual(["Loan Setup", "Fees"])
+  })
+
+  it("normalizes scoped tags separately and keeps name-only inputs global", () => {
+    const section = "10000000-0000-4000-8000-000000000002"
+    expect(
+      normalizeWikiTagInputs([
+        "  Closing  ",
+        "closing",
+        { name: "  Closing ", scope: "section", section_id: section },
+        { name: "closing", scope: "section", section_id: section },
+      ])
+    ).toEqual([
+      { name: "Closing", scope: "global", section_id: null },
+      { name: "Closing", scope: "section", section_id: section },
+    ])
+    expect(() =>
+      normalizeWikiTagInputs([
+        { name: "Tag", scope: "section", section_id: "bad" },
+      ])
+    ).toThrow("Choose a valid tag and section.")
+  })
+
+  it("sends one atomic sync and translates scope and collision errors", async () => {
+    const rpc = vi
+      .fn()
+      .mockResolvedValueOnce({ error: null })
+      .mockResolvedValueOnce({ error: { message: "wiki_tag_out_of_scope" } })
+      .mockResolvedValueOnce({ error: { message: "wiki_tag_name_conflict" } })
+    const supabase = { rpc } as unknown as SupabaseWikiClient
+    await syncWikiPageTags({ supabase, nodeId: "page", tags: [" Tag "] })
+    expect(rpc).toHaveBeenCalledWith("sync_wiki_page_tags", {
+      p_node_id: "page",
+      p_tags: [{ name: "Tag", scope: "global", section_id: null }],
+    })
+    await expect(
+      syncWikiPageTags({ supabase, nodeId: "page", tags: [] })
+    ).rejects.toThrow("different section")
+    await expect(
+      syncWikiPageTags({ supabase, nodeId: "page", tags: [] })
+    ).rejects.toThrow("already exists")
   })
 
   it("sanitizes uploaded file names without preserving path separators", () => {
@@ -84,61 +209,6 @@ describe("wiki helpers", () => {
     expect(validateWikiUpload(new File(["hello"], "notes.txt"))).toBeNull()
     expect(validateWikiUpload(new File(["hello"], "notes.exe"))).toBe(
       "Only image, document, and video uploads are allowed."
-    )
-  })
-
-  it("builds sorted tree paths with folders before pages", () => {
-    const nodes = [
-      node({ id: "page", title: "Overview", slug: "overview" }),
-      node({
-        id: "root",
-        type: "folder",
-        title: "Canopy",
-        slug: "canopy",
-        sort_order: 0,
-      }),
-      node({
-        id: "section",
-        parent_id: "root",
-        type: "folder",
-        title: "Operations",
-        slug: "operations",
-      }),
-      node({
-        id: "child",
-        parent_id: "section",
-        title: "Publishing",
-        slug: "publishing",
-      }),
-    ]
-
-    const tree = buildWikiTree(nodes)
-
-    expect(tree.map((item) => item.id)).toEqual(["root", "page"])
-    expect(tree[0]?.path).toBe("canopy")
-    expect(tree[0]?.children[0]?.path).toBe("canopy/operations")
-    expect(tree[0]?.children[0]?.children[0]?.path).toBe(
-      "canopy/operations/publishing"
-    )
-  })
-
-  it("resolves paths and breadcrumbs case-insensitively", () => {
-    const nodes = [
-      node({ id: "root", type: "folder", slug: "canopy", title: "Canopy" }),
-      node({
-        id: "page",
-        parent_id: "root",
-        slug: "getting-started",
-        title: "Getting Started",
-      }),
-    ]
-
-    const resolved = resolveWikiPath(nodes, ["CANOPY", "Getting-Started"])
-
-    expect(resolved?.id).toBe("page")
-    expect(buildWikiBreadcrumbs(nodes, resolved as WikiNodeRow)).toHaveLength(2)
-    expect(buildWikiPath(nodes, resolved as WikiNodeRow)).toBe(
-      "canopy/getting-started"
     )
   })
 
@@ -177,36 +247,6 @@ describe("wiki helpers", () => {
         draftParent
       )
     ).toBe(false)
-  })
-
-  it("finds the first published page beneath a folder at any depth", () => {
-    const root = node({ id: "root", type: "folder", slug: "root" })
-    const section = node({
-      id: "section",
-      parent_id: root.id,
-      type: "folder",
-      slug: "section",
-      status: "draft",
-    })
-    const group = node({
-      id: "group",
-      parent_id: section.id,
-      type: "folder",
-      slug: "group",
-    })
-    const page = node({
-      id: "page",
-      parent_id: group.id,
-      slug: "page",
-      status: "published",
-    })
-
-    expect(
-      findFirstPublishedWikiPagePath([root, section, group, page], section)
-    ).toBe("root/section/group/page")
-    expect(
-      findFirstPublishedWikiPagePath([root, section, group], section)
-    ).toBeNull()
   })
 
   it("hides archived branches from managers without hiding drafts", () => {
@@ -267,112 +307,6 @@ describe("wiki helpers", () => {
     expect(isPublishedWikiBranch(nodes, archivedPage)).toBe(false)
     expect(isPublishedWikiBranch(nodes, archivedSection)).toBe(false)
     expect(isPublishedWikiBranch(nodes, root)).toBe(true)
-    expect(findFirstPublishedWikiPagePath(nodes, archivedSection)).toBeNull()
-    expect(findFirstPublishedWikiPagePath(nodes, root)).toBe(
-      "root/visible-section/visible-page"
-    )
-  })
-
-  it("finds the first direct page across wiki sections as the default page", () => {
-    const nodes = [
-      node({
-        id: "root",
-        type: "folder",
-        slug: "canopy-wiki",
-        title: "Canopy Wiki",
-      }),
-      node({
-        id: "first-section",
-        parent_id: "root",
-        type: "folder",
-        slug: "first-section",
-        title: "First Section",
-        sort_order: 0,
-      }),
-      node({
-        id: "group",
-        parent_id: "first-section",
-        type: "folder",
-        slug: "group",
-        title: "Group",
-        sort_order: 0,
-      }),
-      node({
-        id: "grouped-page",
-        parent_id: "group",
-        slug: "grouped-page",
-        title: "Grouped Page",
-        sort_order: 0,
-      }),
-      node({
-        id: "second-section",
-        parent_id: "root",
-        type: "folder",
-        slug: "second-section",
-        title: "Second Section",
-        sort_order: 1,
-      }),
-      node({
-        id: "direct-page",
-        parent_id: "second-section",
-        slug: "direct-page",
-        title: "Direct Page",
-        sort_order: 0,
-      }),
-    ]
-
-    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBe(
-      "canopy-wiki/second-section/direct-page"
-    )
-  })
-
-  it("falls back to the first grouped page when no section has a direct page", () => {
-    const nodes = [
-      node({
-        id: "root",
-        type: "folder",
-        slug: "canopy-wiki",
-        title: "Canopy Wiki",
-      }),
-      node({
-        id: "section",
-        parent_id: "root",
-        type: "folder",
-        slug: "section",
-        title: "Section",
-      }),
-      node({
-        id: "group",
-        parent_id: "section",
-        type: "folder",
-        slug: "group",
-        title: "Group",
-      }),
-      node({
-        id: "grouped-page",
-        parent_id: "group",
-        slug: "grouped-page",
-        title: "Grouped Page",
-      }),
-    ]
-
-    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBe(
-      "canopy-wiki/section/group/grouped-page"
-    )
-  })
-
-  it("does not return a default page for missing or empty repositories", () => {
-    const nodes = [
-      node({
-        id: "root",
-        type: "folder",
-        slug: "canopy-wiki",
-        title: "Canopy Wiki",
-      }),
-    ]
-
-    expect(findDefaultWikiPagePath(nodes, "canopy-wiki")).toBeNull()
-    expect(findDefaultWikiPagePath(nodes, "learning-hub")).toBeNull()
   })
 
   it("compares folders, sort order, and title", () => {
@@ -405,8 +339,44 @@ describe("wiki helpers", () => {
   it("chunks normalized knowledge text near sentence boundaries", () => {
     const chunks = chunkKnowledgeText("First sentence. Second sentence.", 20)
 
-    expect(chunks).toEqual(["First sentence.", "Second sentence."])
+    expect(chunks).toEqual([
+      { content: "First sentence.", headingPath: [] },
+      { content: "Second sentence.", headingPath: [] },
+    ])
     expect(chunkKnowledgeText("   ")).toEqual([])
+  })
+
+  it("preserves BlockNote headings and their paths across nested sections and long bodies", () => {
+    const text = blockNoteToKnowledgeText([
+      { type: "heading", props: { level: 1 }, content: [{ text: "Loans" }] },
+      { type: "paragraph", content: "Overview." },
+      { type: "heading", props: { level: 2 }, content: [{ text: "Funding" }] },
+      { type: "paragraph", content: "First sentence. Second sentence." },
+      { type: "heading", props: { level: 2 }, content: [{ text: "Closing" }] },
+      { type: "paragraph", content: "Final step." },
+    ])
+    expect(chunkKnowledgeText(text, 20)).toEqual([
+      { content: "Loans\n\nOverview.", headingPath: ["Loans"] },
+      {
+        content: "Loans > Funding\n\nFirst sentence.",
+        headingPath: ["Loans", "Funding"],
+      },
+      {
+        content: "Loans > Funding\n\nSecond sentence.",
+        headingPath: ["Loans", "Funding"],
+      },
+      {
+        content: "Loans > Closing\n\nFinal step.",
+        headingPath: ["Loans", "Closing"],
+      },
+    ])
+    expect(chunkKnowledgeText("# Parent\n\n## Empty section")).toEqual([
+      { content: "Parent", headingPath: ["Parent"] },
+      {
+        content: "Parent > Empty section",
+        headingPath: ["Parent", "Empty section"],
+      },
+    ])
   })
 
   it("formats approximate sizes and token counts", () => {

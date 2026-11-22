@@ -54,18 +54,36 @@ export function getTranscriptionModel() {
   return process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "gpt-4o-transcribe"
 }
 
-export async function createEmbeddingsWithOpenAI(texts: string[]) {
+export async function createEmbeddingsWithOpenAI(
+  texts: string[],
+  signal?: AbortSignal
+) {
   if (!texts.length) {
     return []
   }
 
-  const client = getOpenAIClient()
   const { model, dimensions } = getEmbeddingConfig()
-  const response = await client.embeddings.create({
-    model,
-    input: texts,
-    dimensions,
-  })
+  if (model === "fake-embedding") {
+    return texts.map((text) => {
+      const vector = Array<number>(dimensions).fill(0)
+      for (const word of text.toLowerCase().match(/[a-z0-9]+/g) ?? []) {
+        let hash = 0
+        for (const character of word)
+          hash = (hash * 31 + character.charCodeAt(0)) >>> 0
+        vector[hash % dimensions] += 1
+      }
+      return vector
+    })
+  }
+  const client = getOpenAIClient()
+  const response = await client.embeddings.create(
+    {
+      model,
+      input: texts,
+      dimensions,
+    },
+    signal ? { signal, maxRetries: 0, timeout: 3000 } : undefined
+  )
 
   return response.data.map((item) => item.embedding)
 }
@@ -73,12 +91,21 @@ export async function createEmbeddingsWithOpenAI(texts: string[]) {
 export async function createChatResponseWithOpenAI({
   model,
   input,
+  instructions,
+  prompt_cache_key,
 }: {
   model: string
   input: string
+  instructions?: string
+  prompt_cache_key?: string
 }) {
   const client = getOpenAIClient()
-  return client.responses.create({ model, input })
+  return client.responses.create({
+    model,
+    input,
+    instructions,
+    prompt_cache_key,
+  })
 }
 
 export async function createTranscriptionWithOpenAI(file: File) {
@@ -97,4 +124,65 @@ export async function createAgentResponseWithOpenAI(
 ) {
   const client = getOpenAIClient()
   return client.responses.create(params, options)
+}
+
+// Each Responses API step is streamed. Tool calls are handled by the caller.
+export async function streamMiloResponse(
+  params: ResponseCreateParamsNonStreaming,
+  onToken: (token: string) => void,
+  signal?: AbortSignal
+): Promise<unknown> {
+  if (params.model === "fake-chat") {
+    const tokens = [
+      "Please check ",
+      "the linked wiki page ",
+      "for the latest details.",
+    ]
+    let output = ""
+    for (const token of tokens) {
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new DOMException("Aborted", "AbortError"))
+          return
+        }
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", abort)
+          resolve()
+        }, 500)
+        function abort() {
+          clearTimeout(timer)
+          reject(new DOMException("Aborted", "AbortError"))
+        }
+        signal?.addEventListener("abort", abort, { once: true })
+      })
+      output += token
+      onToken(token)
+    }
+    return { output_text: output, output: [] }
+  }
+  const client = getOpenAIClient()
+  const stream = await client.responses.create(
+    { ...params, stream: true },
+    { signal, maxRetries: 0 }
+  )
+  let response: unknown
+  let hasCall = false
+  let outputText = ""
+  for await (const event of stream) {
+    if (
+      event.type === "response.output_item.added" &&
+      event.item.type === "function_call"
+    )
+      hasCall = true
+    if (event.type === "response.output_text.delta") {
+      outputText += event.delta
+      if (!hasCall) onToken(event.delta)
+    }
+    if (event.type === "response.completed") response = event.response
+    if (event.type === "response.failed" || event.type === "error")
+      throw new Error("Milo could not complete the answer.")
+  }
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+  if (!response) throw new Error("Milo's response ended unexpectedly.")
+  return { ...(response as object), output_text: outputText }
 }

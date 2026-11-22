@@ -1,3 +1,4 @@
+import { buildNumericWikiPath, resolveNumericWikiPath } from "@/lib/wiki-paths"
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import type { createSupabaseServerClient } from "@/lib/supabase/server"
 
@@ -38,6 +39,7 @@ export type WikiAssetKind = "image" | "document" | "video"
 
 export interface WikiNodeRow {
   id: string
+  short_id: number
   parent_id: string | null
   type: WikiNodeType
   slug: string
@@ -95,6 +97,107 @@ export function formatWikiRestoreChangeNote(createdAt: string) {
 export interface WikiTagRow {
   id: string
   name: string
+  scope: "global" | "section"
+  section_id: string | null
+}
+
+export interface WikiTagAssignment {
+  node_id: string
+  tag_id: string
+}
+
+export async function fetchWikiTagAssignments(supabase: SupabaseWikiClient) {
+  const assignments: WikiTagAssignment[] = []
+  const pageSize = 1000
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("wiki_page_tags")
+      .select("node_id,tag_id")
+      .order("node_id")
+      .order("tag_id")
+      .range(offset, offset + pageSize - 1)
+    if (error) throw new Error(error.message)
+    assignments.push(...(data ?? []))
+    if ((data ?? []).length < pageSize) return assignments
+  }
+}
+
+// Preserve old name-only links while allowing duplicate section names to resolve.
+export function wikiTagAnchor(
+  tag: Pick<WikiTagRow, "name" | "scope" | "section_id">
+) {
+  const anchor = tag.name
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return `tag-${anchor}${tag.scope === "section" && tag.section_id ? `-${tag.section_id}` : ""}`
+}
+
+export function wikiTagDirectoryUrl(
+  tag: Pick<WikiTagRow, "name" | "scope" | "section_id">
+) {
+  const section =
+    tag.scope === "section" && tag.section_id
+      ? `&section=${encodeURIComponent(tag.section_id)}`
+      : ""
+  return `/wiki/tags?tag=${encodeURIComponent(tag.name)}${section}#${wikiTagAnchor(tag)}`
+}
+
+export function getWikiLandingTags(
+  tags: WikiTagRow[],
+  sectionId: string | null,
+  pageIds: string[],
+  assignments: WikiTagAssignment[]
+) {
+  const pages = new Set(pageIds)
+  const used = new Set(
+    assignments
+      .filter((assignment) => pages.has(assignment.node_id))
+      .map((assignment) => assignment.tag_id)
+  )
+  return tags.filter(
+    (tag) =>
+      (tag.scope === "global" || tag.section_id === sectionId) &&
+      used.has(tag.id)
+  )
+}
+
+export type WikiTagInput =
+  | string
+  | { name: string; scope: "global"; section_id?: null }
+  | { name: string; scope: "section"; section_id: string }
+
+export type WikiScopedTag = Exclude<WikiTagInput, string>
+
+// Strings are the legacy picker contract: they resolve to a global tag.
+export function normalizeWikiTagInputs(tags: WikiTagInput[]) {
+  const seen = new Set<string>()
+  return tags.flatMap((tag) => {
+    const input =
+      typeof tag === "string"
+        ? { name: tag, scope: "global" as const, section_id: null }
+        : tag
+    if (
+      !input ||
+      typeof input.name !== "string" ||
+      !["global", "section"].includes(input.scope) ||
+      (input.scope === "section" &&
+        (typeof input.section_id !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            input.section_id
+          ))) ||
+      (input.scope === "global" && input.section_id != null)
+    ) {
+      throw new Error("Choose a valid tag and section.")
+    }
+    const name = input.name.trim().replace(/\s+/g, " ").slice(0, 60)
+    if (!name) return []
+    const section_id = input.section_id ?? null
+    const key = `${input.scope}:${section_id ?? ""}:${name.toLocaleLowerCase()}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [{ name, scope: input.scope, section_id }]
+  })
 }
 
 export interface WikiAssetRow {
@@ -223,34 +326,6 @@ export function validateWikiUpload(file: File) {
   return null
 }
 
-export function buildWikiTree(nodes: WikiNodeRow[]) {
-  const nodeMap = new Map<string, WikiTreeNode>()
-  const roots: WikiTreeNode[] = []
-
-  for (const node of nodes) {
-    nodeMap.set(node.id, { ...node, children: [], path: "" })
-  }
-
-  for (const node of nodeMap.values()) {
-    if (node.parent_id && nodeMap.has(node.parent_id)) {
-      nodeMap.get(node.parent_id)?.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  }
-
-  function sortAndPath(items: WikiTreeNode[], parentPath: string) {
-    items.sort(compareWikiNodes)
-    for (const item of items) {
-      item.path = parentPath ? `${parentPath}/${item.slug}` : item.slug
-      sortAndPath(item.children, item.path)
-    }
-  }
-
-  sortAndPath(roots, "")
-  return roots
-}
-
 export function compareWikiNodes(left: WikiNodeRow, right: WikiNodeRow) {
   if (left.type !== right.type) {
     return left.type === "folder" ? -1 : 1
@@ -263,28 +338,6 @@ export function compareWikiNodes(left: WikiNodeRow, right: WikiNodeRow) {
   return left.title.localeCompare(right.title, undefined, {
     sensitivity: "base",
   })
-}
-
-export function resolveWikiPath(nodes: WikiNodeRow[], segments: string[]) {
-  let parentId: string | null = null
-  let current: WikiNodeRow | null = null
-
-  for (const segment of segments) {
-    current =
-      nodes.find(
-        (node) =>
-          node.parent_id === parentId &&
-          node.slug.toLowerCase() === segment.toLowerCase()
-      ) ?? null
-
-    if (!current) {
-      return null
-    }
-
-    parentId = current.id
-  }
-
-  return current
 }
 
 export function buildWikiBreadcrumbs(nodes: WikiNodeRow[], node: WikiNodeRow) {
@@ -300,109 +353,78 @@ export function buildWikiBreadcrumbs(nodes: WikiNodeRow[], node: WikiNodeRow) {
   return breadcrumbs
 }
 
-export function buildWikiPath(nodes: WikiNodeRow[], node: WikiNodeRow) {
-  return buildWikiBreadcrumbs(nodes, node)
-    .map((item) => item.slug)
-    .join("/")
+// Sections are the folders immediately below an area root.
+export function getWikiSectionId(nodes: WikiNodeRow[], nodeId: string | null) {
+  const node = nodes.find((item) => item.id === nodeId)
+  if (!node) return null
+  const breadcrumbs = buildWikiBreadcrumbs(nodes, node)
+  const [root, section] = breadcrumbs
+  return root?.parent_id === null && section?.type === "folder"
+    ? section.id
+    : null
 }
 
-export function findDefaultWikiPagePath(
+// Check before writing page details; the database still enforces these rules atomically.
+export function validateWikiTagsForParent(
+  tags: WikiTagInput[],
   nodes: WikiNodeRow[],
-  repositorySlug: string
+  parentId: string | null,
+  catalog: WikiTagRow[]
 ) {
-  const repository = nodes.find(
-    (node) => node.parent_id === null && node.slug === repositorySlug
+  const parent = nodes.find((node) => node.id === parentId)
+  const ancestorIds = new Set(
+    parent ? buildWikiBreadcrumbs(nodes, parent).map((node) => node.id) : []
   )
-
-  if (!repository) {
-    return null
-  }
-
-  const sections = nodes
-    .filter(
-      (node) => node.parent_id === repository.id && node.type === "folder"
+  const known = catalog.map((tag) => ({
+    name: tag.name,
+    scope: tag.scope,
+    section_id: tag.section_id,
+  }))
+  for (const tag of normalizeWikiTagInputs(tags)) {
+    if (
+      tag.scope === "section" &&
+      (!tag.section_id || !ancestorIds.has(tag.section_id))
+    ) {
+      throw new Error(
+        "This tag belongs to a different section and cannot be added to this page."
+      )
+    }
+    const sameName = known.filter(
+      (item) => item.name.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
     )
-    .sort(compareWikiNodes)
-
-  for (const section of sections) {
-    const directPage = nodes
-      .filter((node) => node.parent_id === section.id && node.type === "page")
-      .sort(compareWikiNodes)[0]
-
-    if (directPage) {
-      return buildWikiPath(nodes, directPage)
+    const existing = sameName.some(
+      (item) => item.scope === tag.scope && item.section_id === tag.section_id
+    )
+    if (
+      !existing &&
+      sameName.some(
+        (item) =>
+          tag.scope === "global" ||
+          item.scope === "global" ||
+          item.section_id === tag.section_id
+      )
+    ) {
+      throw new Error(
+        "A tag with this name already exists. Choose another name."
+      )
     }
+    if (!existing) known.push(tag)
   }
-
-  for (const section of sections) {
-    const nestedFolders = nodes
-      .filter((node) => node.parent_id === section.id && node.type === "folder")
-      .sort(compareWikiNodes)
-
-    for (const folder of nestedFolders) {
-      const nestedPage = nodes
-        .filter((node) => node.parent_id === folder.id && node.type === "page")
-        .sort(compareWikiNodes)[0]
-
-      if (nestedPage) {
-        return buildWikiPath(nodes, nestedPage)
-      }
-    }
-  }
-
-  return null
 }
 
-export function findFirstPublishedWikiPagePath(
-  nodes: WikiNodeRow[],
-  folder: WikiNodeRow
-): string | null {
-  const childrenByParentId = new Map<string, WikiNodeRow[]>()
-
-  for (const node of nodes) {
-    if (!node.parent_id) {
-      continue
-    }
-
-    const children = childrenByParentId.get(node.parent_id) ?? []
-    children.push(node)
-    childrenByParentId.set(node.parent_id, children)
-  }
-
-  function findInFolder(
-    currentFolder: WikiNodeRow,
-    visited: Set<string>
-  ): string | null {
-    if (visited.has(currentFolder.id) || currentFolder.status === "archived") {
-      return null
-    }
-    visited.add(currentFolder.id)
-
-    const children = (childrenByParentId.get(currentFolder.id) ?? []).sort(
-      compareWikiNodes
-    )
-    const directPage = children.find(
-      (child) => child.type === "page" && child.status === "published"
-    )
-    if (directPage) {
-      return buildWikiPath(nodes, directPage)
-    }
-
-    for (const child of children) {
-      if (child.type !== "folder") {
-        continue
-      }
-
-      const path = findInFolder(child, visited)
-      if (path) {
-        return path
-      }
-    }
-
-    return null
-  }
-
-  return findInFolder(folder, new Set())
+export async function fetchWikiPageTags(
+  supabase: SupabaseWikiClient,
+  nodeId: string
+) {
+  const { data, error } = await supabase
+    .from("wiki_page_tags")
+    .select("wiki_tags(id,name,scope,section_id)")
+    .eq("node_id", nodeId)
+  if (error) throw new Error(error.message)
+  return (data ?? []).flatMap((row) => {
+    const tag = row.wiki_tags
+    return tag ? [tag as unknown as WikiTagRow] : []
+  })
 }
 
 export function isPublishedWikiBranch(nodes: WikiNodeRow[], node: WikiNodeRow) {
@@ -423,7 +445,7 @@ export async function fetchWikiNodes(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,short_id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .or("type.eq.folder,status.neq.archived")
     .order("sort_order", { ascending: true })
@@ -444,7 +466,7 @@ export async function fetchArchivedWikiNodes(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_nodes")
     .select(
-      "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
+      "id,short_id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
     )
     .eq("status", "archived")
     .order("title", { ascending: true })
@@ -473,7 +495,7 @@ export function wikiRestoreStatus(
 export async function fetchWikiTags(supabase: SupabaseWikiClient) {
   const { data, error } = await supabase
     .from("wiki_tags")
-    .select("id,name")
+    .select("id,name,scope,section_id")
     .order("name", { ascending: true })
 
   if (error) {
@@ -490,41 +512,26 @@ export async function syncWikiPageTags({
 }: {
   supabase: SupabaseWikiClient
   nodeId: string
-  tags: string[]
+  tags: WikiTagInput[]
 }) {
-  const { error: removeError } = await supabase
-    .from("wiki_page_tags")
-    .delete()
-    .eq("node_id", nodeId)
-
-  if (removeError) {
-    throw new Error(removeError.message)
-  }
-
-  if (!tags.length) {
-    return
-  }
-
-  const tagIds: string[] = []
-  for (const name of tags) {
-    const { data: tag, error: tagError } = await supabase
-      .from("wiki_tags")
-      .upsert({ name }, { onConflict: "name" })
-      .select("id")
-      .single()
-
-    if (tagError) {
-      throw new Error(tagError.message)
+  const normalized = normalizeWikiTagInputs(tags)
+  if (normalized.length > 12)
+    throw new Error("A page can have at most 12 tags.")
+  const { error } = await supabase.rpc("sync_wiki_page_tags", {
+    p_node_id: nodeId,
+    p_tags: normalized,
+  })
+  if (error) {
+    const messages: Record<string, string> = {
+      wiki_tag_name_conflict:
+        "A tag with this name already exists. Choose another name.",
+      wiki_tag_out_of_scope:
+        "This tag belongs to a different section and cannot be added to this page.",
+      wiki_tag_invalid_section: "Choose a valid Wiki section for this tag.",
+      wiki_tag_invalid: "Choose a valid tag and section.",
+      wiki_tag_limit: "A page can have at most 12 tags.",
     }
-    tagIds.push(tag.id)
-  }
-
-  const { error: insertError } = await supabase
-    .from("wiki_page_tags")
-    .insert(tagIds.map((tagId) => ({ node_id: nodeId, tag_id: tagId })))
-
-  if (insertError) {
-    throw new Error(insertError.message)
+    throw new Error(messages[error.message] ?? error.message)
   }
 }
 
@@ -574,7 +581,8 @@ export async function fetchWikiPageData(
   segments: string[]
 ): Promise<WikiPageData | null> {
   const nodes = await fetchWikiNodes(supabase)
-  const node = resolveWikiPath(nodes, segments)
+  const resolved = resolveNumericWikiPath(nodes, segments)
+  const node = resolved?.node
 
   if (!node) {
     return null
@@ -593,7 +601,7 @@ export async function fetchWikiPageData(
     children: nodes
       .filter((item) => item.parent_id === node.id)
       .sort(compareWikiNodes),
-    path: buildWikiPath(nodes, node),
+    path: buildNumericWikiPath(nodes, node),
   }
 }
 
@@ -664,35 +672,76 @@ export function blockNoteToPlainText(blocks: unknown) {
     .trim()
 }
 
+// Plain text intentionally omits formatting; indexing also needs heading levels.
+export function blockNoteToKnowledgeText(blocks: unknown): string {
+  if (!Array.isArray(blocks)) return ""
+  return blocks
+    .flatMap((block): string[] => {
+      if (!block || typeof block !== "object") return []
+      const record = block as Record<string, unknown>
+      const text =
+        record.type === "table"
+          ? tableContentToText(record.content)
+          : inlineContentToText(record.content)
+      const props = record.props as { level?: unknown } | undefined
+      const level = typeof props?.level === "number" ? props.level : 1
+      const heading =
+        record.type === "heading" && text
+          ? `${"#".repeat(Math.max(1, Math.min(6, level)))} ${text}`
+          : text
+      return [heading, blockNoteToKnowledgeText(record.children)].filter(
+        Boolean
+      )
+    })
+    .join("\n\n")
+}
+
 export function chunkKnowledgeText(value: string, maxChars = 1800) {
-  const text = value.replace(/\s+/g, " ").trim()
-  if (!text) {
-    return []
-  }
-
-  const chunks: string[] = []
-  let cursor = 0
-
-  while (cursor < text.length) {
-    const targetEnd = Math.min(cursor + maxChars, text.length)
-    let end = targetEnd
-
-    if (targetEnd < text.length) {
-      const sentenceEnd = text.lastIndexOf(". ", targetEnd)
-      const paragraphEnd = text.lastIndexOf("\n", targetEnd)
-      const candidate = Math.max(sentenceEnd, paragraphEnd)
-      if (candidate > cursor + maxChars * 0.6) {
-        end = candidate + 1
-      }
+  const chunks: { content: string; headingPath: string[] }[] = []
+  const headings: string[] = []
+  let body: string[] = []
+  let sectionPending = false
+  const flush = () => {
+    const text = body.join("\n").replace(/\s+/g, " ").trim()
+    const path = headings.filter(Boolean)
+    if (!text) {
+      if (sectionPending && path.length)
+        chunks.push({ content: path.join(" > "), headingPath: [...path] })
+      body = []
+      sectionPending = false
+      return
     }
-
-    const chunk = text.slice(cursor, end).trim()
-    if (chunk) {
-      chunks.push(chunk)
+    let cursor = 0
+    while (cursor < text.length) {
+      const target = Math.min(cursor + Math.max(1, maxChars), text.length)
+      const sentence = text.lastIndexOf(". ", target)
+      const end =
+        target < text.length && sentence > cursor + maxChars * 0.6
+          ? sentence + 1
+          : target
+      const part = text.slice(cursor, end).trim()
+      if (part)
+        chunks.push({
+          content: [path.join(" > "), part].filter(Boolean).join("\n\n"),
+          headingPath: [...path],
+        })
+      cursor = end
     }
-    cursor = end
+    body = []
+    sectionPending = false
   }
-
+  for (const line of value.split(/\r?\n/)) {
+    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line.trim())
+    if (heading) {
+      flush()
+      headings.length = heading[1].length - 1
+      headings[heading[1].length - 1] = heading[2].trim()
+      sectionPending = true
+    } else {
+      body.push(line)
+    }
+  }
+  flush()
   return chunks
 }
 

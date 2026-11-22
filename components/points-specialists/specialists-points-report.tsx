@@ -70,7 +70,7 @@ export function SpecialistsPointsReport({
         <td className="px-3 py-2.5 break-words">
           <Link
             href={`/employee/${encodeURIComponent(row.userId)}`}
-            className="text-primary underline-offset-2 hover:underline"
+            className="text-link underline-offset-2 hover:underline"
           >
             {row.userName}
           </Link>
@@ -131,7 +131,7 @@ export function SpecialistsPointsReport({
           </p>
           <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
             <AutoScrollArea
-              className="points-specialists-scroll-viewport min-h-0 flex-1"
+              className="points-specialists-scroll-viewport max-h-80 min-h-0 flex-1 xl:max-h-none"
               pixelsPerSecond={36}
             >
               <table className="w-full table-fixed text-sm">
@@ -167,7 +167,7 @@ export function SpecialistsPointsReport({
           <h2 className="text-xl font-semibold">Top 20 Users</h2>
           <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
             <AutoScrollArea
-              className="points-specialists-scroll-viewport min-h-0 flex-1"
+              className="points-specialists-scroll-viewport max-h-80 min-h-0 flex-1 xl:max-h-none"
               pixelsPerSecond={36}
             >
               <table className="w-full table-fixed text-sm">
@@ -206,7 +206,7 @@ export function SpecialistsPointsReport({
             <h2 className="text-xl font-semibold">By PA Org</h2>
             <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
               <AutoScrollArea
-                className="points-specialists-scroll-viewport min-h-0 flex-1"
+                className="points-specialists-scroll-viewport max-h-80 min-h-0 flex-1 xl:max-h-none"
                 pixelsPerSecond={36}
               >
                 <table className="w-full table-fixed text-sm">

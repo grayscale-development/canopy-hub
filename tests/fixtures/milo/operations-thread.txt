@@ -1,0 +1,13 @@
+From: Jordan Example <jordan@example.test>
+Date: June 12, 2026
+Subject: Escalation hours
+
+The escalation desk now closes at 5 p.m. Mountain time.
+
+Regards,
+Jordan
+
+On June 10, Taylor wrote:
+> Does it still close at 4 p.m.?
+
+Confidentiality notice: This message is intended for the recipient.

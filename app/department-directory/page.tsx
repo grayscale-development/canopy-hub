@@ -11,7 +11,6 @@ import {
 import { CopyEmailButton } from "@/app/department-directory/copy-email-button"
 import { SupportSearchInput } from "@/app/department-directory/support-search-input"
 import { AppSidebar } from "@/components/app-sidebar"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import {
   Breadcrumb,
@@ -342,7 +341,7 @@ function DepartmentSection({
               {department.managerPhone ? (
                 <a
                   href={toTelHref(department.managerPhone)}
-                  className="font-medium text-primary underline-offset-4 hover:underline"
+                  className="font-medium text-link underline-offset-4 hover:underline"
                 >
                   {department.managerPhone}
                 </a>
@@ -452,17 +451,19 @@ export default async function SupportPage({
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
         </header>
 
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 p-4 md:p-6">
+        <div
+          data-milo-clearance
+          className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 p-4 md:p-6"
+        >
           <section className="relative overflow-hidden rounded-lg bg-foreground p-5 text-white shadow-sm md:p-6">
             <Image
               src="/department-directory.png"
               alt=""
               fill
               sizes="(min-width: 1280px) 1280px, 100vw"
-              className="object-cover"
+              className="hidden object-cover sm:block"
               priority
             />
             <div className="absolute inset-0 bg-black/65 dark:bg-black/75" />
@@ -660,6 +661,15 @@ export default async function SupportPage({
                 </section>
               ) : null}
 
+              {!query &&
+              !filteredGeneralHelpSection &&
+              filteredRushSections.length === 0 &&
+              filteredDepartments.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                  No departments yet.
+                </div>
+              ) : null}
+
               {!hasSearchResults ? (
                 <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
                   No support matches found for “{queryText}”.
@@ -687,7 +697,7 @@ export default async function SupportPage({
               ) : null}
             </>
           )}
-        </main>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )

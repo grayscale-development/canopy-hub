@@ -8,13 +8,20 @@ const state = vi.hoisted(() => ({
   canManage: true,
   editMode: true,
   redirect: vi.fn(),
+  notFound: vi.fn(() => {
+    throw new Error("NOT_FOUND")
+  }),
   pageData: null as unknown,
   revisions: [] as Array<Record<string, unknown>>,
   select: vi.fn(),
   limit: vi.fn(),
 }))
 
-vi.mock("next/navigation", () => ({ redirect: state.redirect }))
+vi.mock("next/navigation", () => ({
+  redirect: state.redirect,
+  notFound: state.notFound,
+  usePathname: () => "/wiki/1",
+}))
 vi.mock("@/components/wiki/wiki-edit-mode", () => ({
   WikiEditModeGate: ({ children }: { children: React.ReactNode }) =>
     state.editMode ? children : null,
@@ -79,8 +86,8 @@ vi.mock("@/components/wiki/wiki-revisions", () => ({
     </div>
   ),
 }))
-vi.mock("@/components/wiki/wiki-tags-directory", () => ({
-  WikiTagsDirectory: () => <div>Tags</div>,
+vi.mock("@/components/wiki/wiki-tags-manage", () => ({
+  WikiTagsManage: () => <div>Tags</div>,
 }))
 vi.mock("@/lib/permissions", () => ({
   userHasPermissionCode: vi.fn(
@@ -102,6 +109,7 @@ vi.mock("@/lib/supabase/server", () => ({
       select: (...args: unknown[]) => {
         state.select(...args)
         return {
+          order: () => ({ range: async () => ({ data: [], error: null }) }),
           eq: () => ({
             order: () => ({
               limit: async (value: number) => {
@@ -117,21 +125,25 @@ vi.mock("@/lib/supabase/server", () => ({
 }))
 vi.mock("@/lib/wiki", () => ({
   WIKI_MANAGE_PERMISSION: "wiki.manage",
-  buildWikiPath: vi.fn(() => "canopy-wiki/welcome"),
+  buildWikiBreadcrumbs: vi.fn(() => []),
+  fetchWikiTagAssignments: vi.fn(async () => []),
   compareWikiNodes: () => 0,
   fetchWikiNodes: vi.fn(async () => []),
   fetchArchivedWikiNodes: vi.fn(async () => []),
-  resolveWikiPath: vi.fn(() => null),
-  buildWikiBreadcrumbs: vi.fn(() => []),
   fetchWikiPageData: vi.fn(async () => state.pageData),
+  fetchWikiPageTags: vi.fn(async () => []),
   fetchWikiTags: vi.fn(async () => []),
-  findFirstPublishedWikiPagePath: vi.fn(),
+  getWikiSectionId: vi.fn(() => null),
   isMissingWikiSchemaError: vi.fn(() => false),
   isPublishedWikiBranch: vi.fn(() => false),
 }))
+vi.mock("@/lib/wiki-paths", () => ({
+  buildNumericWikiPath: vi.fn(() => "1"),
+  resolveNumericWikiPath: vi.fn(() => null),
+}))
 vi.mock("@/lib/wiki-repositories", () => ({
   getDefaultWikiRepository: vi.fn(() => ({ slug: "canopy-wiki" })),
-  getWikiRepositoryBySlug: vi.fn(() => null),
+  getWikiRepositoryByShortId: vi.fn(() => null),
 }))
 
 afterEach(() => {
@@ -144,6 +156,47 @@ afterEach(() => {
 })
 
 describe("Wiki landing page", () => {
+  it("corrects stale numeric chains and preserves query parameters", async () => {
+    state.pageData = {
+      node: { id: "p", type: "folder" },
+      breadcrumbs: [],
+      children: [],
+      path: "1/9/5",
+    }
+    state.redirect.mockImplementationOnce(() => {
+      throw new Error("REDIRECT")
+    })
+    const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
+    await expect(
+      WikiPage({
+        params: Promise.resolve({ path: ["1", "4", "5"] }),
+        searchParams: Promise.resolve({ tag: "Loans" }),
+      })
+    ).rejects.toThrow("REDIRECT")
+    expect(state.redirect).toHaveBeenCalledWith("/wiki/1/9/5?tag=Loans")
+  })
+
+  it("returns not found for unknown or old slug paths", async () => {
+    const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
+    await expect(
+      WikiPage({
+        params: Promise.resolve({ path: ["old-slug"] }),
+        searchParams: Promise.resolve({}),
+      })
+    ).rejects.toThrow("NOT_FOUND")
+  })
+
+  it("reserves tags before numeric lookup", async () => {
+    const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
+    render(
+      await WikiPage({
+        params: Promise.resolve({ path: ["tags"] }),
+        searchParams: Promise.resolve({}),
+      })
+    )
+    expect(screen.getByText("Tags")).toBeVisible()
+    expect(state.notFound).not.toHaveBeenCalled()
+  })
   it("keeps an empty Wiki landing in place and gives managers an Add Section action", async () => {
     const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
 
@@ -187,12 +240,13 @@ describe("Wiki landing page", () => {
       },
       breadcrumbs: [],
       children: [],
+      path: "1/4",
       revision: null,
     }
     const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
     render(
       await WikiPage({
-        params: Promise.resolve({ path: ["canopy-wiki", "operations"] }),
+        params: Promise.resolve({ path: ["1", "4"] }),
         searchParams: Promise.resolve({}),
       })
     )
@@ -225,7 +279,7 @@ describe("Wiki landing page", () => {
       assets: [],
       breadcrumbs: [],
       children: [],
-      path: "canopy-wiki/welcome",
+      path: "1/5",
     }
     state.revisions = [
       {
@@ -239,7 +293,7 @@ describe("Wiki landing page", () => {
     const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
     render(
       await WikiPage({
-        params: Promise.resolve({ path: ["canopy-wiki", "welcome"] }),
+        params: Promise.resolve({ path: ["1", "5"] }),
         searchParams: Promise.resolve({ revision: "rev-old" }),
       })
     )
@@ -285,7 +339,7 @@ describe("Wiki landing page", () => {
       assets: [],
       breadcrumbs: [],
       children: [],
-      path: "canopy-wiki/welcome",
+      path: "1/5",
     }
     state.revisions = [
       {
@@ -303,7 +357,7 @@ describe("Wiki landing page", () => {
     const { default: WikiPage } = await import("@/app/wiki/[[...path]]/page")
     render(
       await WikiPage({
-        params: Promise.resolve({ path: ["canopy-wiki", "welcome"] }),
+        params: Promise.resolve({ path: ["1", "5"] }),
         searchParams: Promise.resolve({ revision: "rev-old" }),
       })
     )

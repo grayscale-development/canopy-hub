@@ -1,5 +1,3 @@
-import { Suspense } from "react"
-
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarProvider } from "@/components/ui/sidebar"
 
@@ -10,16 +8,8 @@ export default function SettingsLayout({
 }>) {
   return (
     <SidebarProvider>
-      <Suspense
-        fallback={
-          <div
-            aria-hidden="true"
-            className="hidden w-(--sidebar-width) shrink-0 border-r bg-sidebar md:block"
-          />
-        }
-      >
-        <AppSidebar activePath="/settings" />
-      </Suspense>
+      {/* Hydrate the sidebar with the provider before switching to mobile. */}
+      <AppSidebar activePath="/settings" />
       {children}
     </SidebarProvider>
   )

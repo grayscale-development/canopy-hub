@@ -1,5 +1,6 @@
 "use client"
 
+import { wikiHeadingAnchor } from "@/lib/wiki-heading-anchor"
 import { WikiLastUpdated } from "@/components/wiki/wiki-revisions"
 import { WikiEditableTitle } from "@/components/wiki/wiki-management-controls"
 import * as React from "react"
@@ -37,8 +38,14 @@ import {
 } from "@/components/wiki/wiki-edit-mode"
 import { WikiStatusSelect } from "@/components/wiki/wiki-status-select"
 import { WikiTagPill } from "@/components/wiki/wiki-tag-pill"
-import { WikiTagPicker } from "@/components/wiki/wiki-tag-picker"
-import { type WikiNodeRow, type WikiRevisionRow } from "@/lib/wiki"
+import { WikiTagPicker, toScopedTag } from "@/components/wiki/wiki-tag-picker"
+import {
+  wikiTagDirectoryUrl,
+  type WikiNodeRow,
+  type WikiRevisionRow,
+  type WikiScopedTag,
+  type WikiTagRow,
+} from "@/lib/wiki"
 import {
   postWikiAssetAction,
   prepareDirectWikiUpload,
@@ -57,12 +64,21 @@ function normalizeInitialBlocks(value: unknown) {
     : EMPTY_CONTENT
 }
 
-function getTagDirectoryHref(tag: string) {
-  const anchor = tag
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-  return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
+export function wikiBlocksPlainText(value: unknown): string {
+  if (typeof value === "string") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map(wikiBlocksPlainText).join("")
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>
+    if (typeof record.text === "string") {
+      return record.text
+    }
+    return `${wikiBlocksPlainText(record.content)}${wikiBlocksPlainText(record.children)}`
+  }
+  return ""
 }
 
 export function WikiEditor({
@@ -76,6 +92,8 @@ export function WikiEditor({
   createAction,
   versionHistory,
   availableTags = [],
+  pageTags = [],
+  sectionId = null,
 }: {
   node: WikiNodeRow
   revision: WikiRevisionRow | null
@@ -86,7 +104,9 @@ export function WikiEditor({
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
   versionHistory?: React.ReactNode
-  availableTags?: string[]
+  availableTags?: WikiTagRow[]
+  pageTags?: WikiTagRow[]
+  sectionId?: string | null
 }) {
   const [mounted, setMounted] = React.useState(false)
 
@@ -110,6 +130,8 @@ export function WikiEditor({
       createAction={createAction}
       versionHistory={versionHistory}
       availableTags={availableTags}
+      pageTags={pageTags}
+      sectionId={sectionId}
     />
   )
 }
@@ -125,6 +147,8 @@ function WikiEditorMounted({
   createAction,
   versionHistory,
   availableTags,
+  pageTags,
+  sectionId,
 }: {
   node: WikiNodeRow
   revision: WikiRevisionRow | null
@@ -135,7 +159,9 @@ function WikiEditorMounted({
   headerActions?: React.ReactNode
   createAction?: React.ReactNode
   versionHistory?: React.ReactNode
-  availableTags: string[]
+  availableTags: WikiTagRow[]
+  pageTags: WikiTagRow[]
+  sectionId: string | null
 }) {
   const router = useRouter()
   const { resolvedTheme } = useTheme()
@@ -149,8 +175,10 @@ function WikiEditorMounted({
     normalizeInitialBlocks(revision?.blocks)
   )
   const [tagDialogOpen, setTagDialogOpen] = React.useState(false)
-  const [selectedTags, setSelectedTags] = React.useState<string[]>([])
+  const [selectedTags, setSelectedTags] = React.useState<WikiScopedTag[]>([])
   const tagInputRef = React.useRef<HTMLInputElement>(null)
+  const [surface, setSurface] = React.useState<HTMLDivElement | null>(null)
+  const scrolledHash = React.useRef<string | null>(null)
   const showEditorControls = canEditPage && showStatusControl
 
   async function uploadWikiFile(file: File) {
@@ -188,6 +216,51 @@ function WikiEditorMounted({
       : undefined,
     resolveFileUrl: async (url) => url,
   })
+
+  React.useEffect(() => {
+    if (!surface) return
+    const update = () => {
+      const path: string[] = []
+      const hash = window.location.hash
+        ? decodeURIComponent(window.location.hash.slice(1))
+        : null
+      let target: HTMLElement | null = null
+      for (const heading of surface.querySelectorAll<HTMLElement>(
+        "h1, h2, h3, h4, h5, h6"
+      )) {
+        const level = Number(heading.tagName.slice(1))
+        path.length = level - 1
+        path[level - 1] = heading.textContent?.trim() ?? ""
+        const anchor = wikiHeadingAnchor(path.filter(Boolean))
+        // ProseMirror replaces headings when foreign attributes are written
+        // while editing, which would cause an endless mutation loop.
+        if (!canEditPage && !editor.isEditable) {
+          heading.id = anchor
+        }
+        if (!target && hash === anchor) target = heading
+      }
+      if (target && hash && scrolledHash.current !== hash) {
+        target.scrollIntoView()
+        scrolledHash.current = hash
+      }
+    }
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(surface, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    })
+    const hashChange = () => {
+      scrolledHash.current = null
+      update()
+    }
+    window.addEventListener("hashchange", hashChange)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("hashchange", hashChange)
+    }
+  }, [surface, canEditPage, editor])
 
   React.useEffect(() => {
     if (!isDirty) return
@@ -236,6 +309,7 @@ function WikiEditorMounted({
   }
 
   function saveTags(formData: FormData) {
+    setState(null)
     formData.set("node_id", node.id)
     startTransition(async () => {
       const result = await updateWikiNodeTagsAction(formData)
@@ -249,9 +323,10 @@ function WikiEditorMounted({
   }
 
   const openTagDialog = React.useCallback(() => {
-    setSelectedTags(node.tags ?? [])
+    setState(null)
+    setSelectedTags(pageTags.map(toScopedTag))
     setTagDialogOpen(true)
-  }, [node.tags])
+  }, [pageTags])
 
   const getSlashMenuItems = React.useCallback(
     async (query: string) =>
@@ -282,14 +357,22 @@ function WikiEditorMounted({
           >
             {node.title}
           </WikiEditableTitle>
-          {canEditPage ? createAction : null}
-          {showEditorControls ? (
-            <WikiStatusSelect nodeId={node.id} status={node.status} />
+          {showEditorControls ||
+          (canEditPage && (createAction || headerActions)) ? (
+            <div className="flex shrink-0 items-center gap-2">
+              {showEditorControls ? (
+                <WikiStatusSelect nodeId={node.id} status={node.status} />
+              ) : null}
+              {canEditPage ? createAction : null}
+              {canEditPage ? headerActions : null}
+            </div>
           ) : null}
-          {canEditPage ? headerActions : null}
         </div>
       </WikiViewModeTitleSpacing>
-      <div className="wiki-blocknote-surface min-w-0 p-0">
+      <div
+        ref={setSurface}
+        className="wiki-blocknote-surface relative min-w-0 p-0"
+      >
         <BlockNoteView
           editor={editor}
           theme={resolvedTheme === "dark" ? "dark" : "light"}
@@ -298,7 +381,21 @@ function WikiEditorMounted({
             const next = JSON.stringify(editor.document)
             setBlocks(editor.document)
             if (changeBaseline.current === null) {
-              changeBaseline.current = next
+              const initialText = wikiBlocksPlainText(
+                normalizeInitialBlocks(revision?.blocks)
+              )
+              const nextText = wikiBlocksPlainText(editor.document)
+              if (nextText === initialText) {
+                // First event is editor initialization / ID normalization.
+                changeBaseline.current = next
+                return
+              }
+              // First event already has user content (e.g. paste on a new
+              // page when BlockNote did not emit a mount change).
+              changeBaseline.current = JSON.stringify(
+                normalizeInitialBlocks(revision?.blocks)
+              )
+              setIsDirty(true)
               return
             }
             setIsDirty(next !== changeBaseline.current)
@@ -331,10 +428,20 @@ function WikiEditorMounted({
             ? node.tags.map((tag) => (
                 <Link
                   key={tag}
-                  href={getTagDirectoryHref(tag)}
+                  href={wikiTagDirectoryUrl(
+                    pageTags.find((item) => item.name === tag) ?? {
+                      name: tag,
+                      scope: "global",
+                      section_id: null,
+                    }
+                  )}
                   className="cursor-pointer"
                 >
-                  <WikiTagPill>{tag}</WikiTagPill>
+                  <WikiTagPill
+                    scope={pageTags.find((item) => item.name === tag)?.scope}
+                  >
+                    {tag}
+                  </WikiTagPill>
                 </Link>
               ))
             : null}
@@ -346,7 +453,10 @@ function WikiEditorMounted({
         )}
       </div>
       {canEditPage && isDirty ? (
-        <div className="fixed right-6 bottom-6 z-40 flex items-center gap-3 rounded-lg bg-background p-2 shadow-xl">
+        <div
+          data-milo-avoid="bottom-right"
+          className="fixed right-6 bottom-6 z-40 flex items-center gap-3 rounded-lg bg-background p-2 shadow-xl"
+        >
           <span className="text-sm text-muted-foreground">Unsaved changes</span>
           <Button
             type="button"
@@ -365,6 +475,7 @@ function WikiEditorMounted({
       {canEditPage ? (
         <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
           <DialogContent
+            className="max-h-[90dvh] overflow-y-auto"
             onOpenAutoFocus={(event) => {
               event.preventDefault()
               tagInputRef.current?.focus()
@@ -378,13 +489,20 @@ function WikiEditorMounted({
             </DialogHeader>
             <form action={saveTags} className="grid gap-4">
               <WikiTagPicker
-                availableTags={availableTags}
+                availableTags={availableTags.map(toScopedTag)}
                 selectedTags={selectedTags}
                 onSelectedTagsChange={setSelectedTags}
+                sectionId={sectionId}
+                canManage={canManage}
                 open={tagDialogOpen}
                 inputRef={tagInputRef}
                 inputId="wiki-page-tags"
               />
+              {state && !state.ok ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {state.message}
+                </p>
+              ) : null}
               <DialogFooter>
                 <Button type="submit" disabled={pending}>
                   {pending ? "Saving..." : "Save tags"}

@@ -121,4 +121,48 @@ describe("Supabase Auth security deployment", () => {
       enforceSecurity({ projectRef, token: "test", request })
     ).rejects.toThrow(/invalid response/)
   })
+  it("permits the v2.2 audit log table and its user-callable logger only", async () => {
+    const lint = (name: string, level: string, metadata: object) => ({
+      name,
+      level,
+      metadata,
+    })
+    const accepted = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ password_hibp_enabled: true }))
+      .mockResolvedValueOnce(
+        ok({
+          lints: [
+            lint("rls_enabled_no_policy", "INFO", {
+              schema: "public",
+              name: "ai_action_log",
+              type: "table",
+            }),
+            lint("authenticated_security_definer_function_executable", "WARN", {
+              schema: "public",
+              name: "log_user_ai_action",
+            }),
+          ],
+        })
+      )
+    await expect(
+      enforceSecurity({ projectRef, token: "test", request: accepted })
+    ).resolves.toMatchObject({ acceptedProviderWarnings: 2 })
+    const other = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ password_hibp_enabled: true }))
+      .mockResolvedValueOnce(
+        ok({
+          lints: [
+            lint("authenticated_security_definer_function_executable", "WARN", {
+              schema: "public",
+              name: "some_other_function",
+            }),
+          ],
+        })
+      )
+    await expect(
+      enforceSecurity({ projectRef, token: "test", request: other })
+    ).rejects.toThrow(/acceptance is incomplete/)
+  })
 })

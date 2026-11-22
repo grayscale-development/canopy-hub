@@ -3,6 +3,7 @@ import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 import { GoogleSignInButton } from "@/app/login/google-sign-in-button"
+import { StagingPasswordSignIn } from "@/app/login/staging-password-sign-in"
 import { LocalDevSignInButton } from "@/app/login/local-dev-sign-in-button"
 import {
   Card,
@@ -12,6 +13,7 @@ import {
   CardDescription,
 } from "@/components/ui/card"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { isStagingPasswordLoginEnabled } from "@/lib/staging-auth"
 import packageJson from "@/package.json"
 
 export const metadata = {
@@ -39,6 +41,7 @@ export default async function LoginPage() {
   const showLocalDevLogin =
     isLocalhostHost(host) &&
     /^http:\/\/(localhost|127\.0\.0\.1):54321$/.test(supabaseUrl)
+  const showStagingPasswordLogin = isStagingPasswordLoginEnabled()
 
   return (
     <main
@@ -64,13 +67,20 @@ export default async function LoginPage() {
             <CardDescription className="max-w-[35ch] text-sm leading-relaxed text-white/80">
               {showLocalDevLogin
                 ? "Continue with a local development session"
-                : "Sign in with your Google account to continue"}
+                : showStagingPasswordLogin
+                  ? "Sign in with a staging test account, or Google if it is configured"
+                  : "Sign in with your Google account to continue"}
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent className="space-y-5 px-7 pb-7 sm:px-8 sm:pb-8">
           {showLocalDevLogin ? (
             <LocalDevSignInButton className="w-full py-5" />
+          ) : showStagingPasswordLogin ? (
+            <div className="space-y-5">
+              <StagingPasswordSignIn className="w-full py-5" />
+              <GoogleSignInButton className="w-full py-5" />
+            </div>
           ) : (
             <GoogleSignInButton className="w-full py-5" />
           )}

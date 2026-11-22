@@ -9,6 +9,7 @@ import {
   isPublishedWikiBranch,
   isUnarchivedWikiBranch,
   type WikiNodeRow,
+  type WikiTagRow,
 } from "@/lib/wiki"
 import { cn } from "@/lib/utils"
 
@@ -16,6 +17,7 @@ const WIKI_EDIT_MODE_STORAGE_KEY = "wiki-edit-mode"
 
 interface WikiEditModeContextValue {
   canManageWiki: boolean
+  availableTags: WikiTagRow[]
   isEditorMode: boolean
   canEditWiki: boolean
   setEditorMode: (value: boolean) => void
@@ -45,9 +47,11 @@ function writePersistedWikiEditMode(value: boolean) {
 
 export function WikiEditModeProvider({
   canManageWiki,
+  availableTags = [],
   children,
 }: {
   canManageWiki: boolean
+  availableTags?: WikiTagRow[]
   children: React.ReactNode
 }) {
   const [isEditorMode, setIsEditorMode] = React.useState(false)
@@ -76,11 +80,12 @@ export function WikiEditModeProvider({
   const value = React.useMemo<WikiEditModeContextValue>(
     () => ({
       canManageWiki,
+      availableTags,
       isEditorMode,
       canEditWiki: canManageWiki && isEditorMode,
       setEditorMode,
     }),
-    [canManageWiki, isEditorMode, setEditorMode]
+    [canManageWiki, availableTags, isEditorMode, setEditorMode]
   )
 
   return (
@@ -96,6 +101,7 @@ export function useWikiEditMode() {
   return (
     context ?? {
       canManageWiki: true,
+      availableTags: [],
       isEditorMode: true,
       canEditWiki: true,
       setEditorMode: () => undefined,

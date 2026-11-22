@@ -1,4 +1,4 @@
-export const CANOPY_WIKI_URL = "/wiki/canopy-wiki"
+export const CANOPY_WIKI_URL = "/wiki/1"
 export const LEGACY_TRAINING_WIKI_URL =
   "https://sites.google.com/canopymortgage.com/trainingwiki/home?authuser=0"
 

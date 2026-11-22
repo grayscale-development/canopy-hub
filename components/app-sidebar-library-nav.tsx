@@ -10,17 +10,17 @@ import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 const libraryNav = [
   {
     title: "Canopy Wiki",
-    url: "/wiki/canopy-wiki",
+    url: "/wiki/1",
     icon: BookOpenIcon,
   },
   {
     title: "Learning Hub",
-    url: "/wiki/learning-hub",
+    url: "/wiki/2",
     icon: GraduationCapIcon,
   },
   {
     title: "Nano Wiki",
-    url: "/wiki/nano-wiki",
+    url: "/wiki/3",
     icon: CpuIcon,
   },
 ]

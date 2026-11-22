@@ -65,7 +65,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Vitest with coverage
-        run: pnpm test:coverage
+        run: |
+          mkdir -p failure-reports
+          pnpm test:coverage --reporter=default --reporter=json --outputFile.json=failure-reports/vitest.json
 
       - name: Upload coverage summary
         if: always()
@@ -73,6 +75,19 @@ jobs:
         with:
           name: coverage
           path: coverage/
+          retention-days: 7
+
+      - name: Write failure summary
+        if: failure()
+        run: node scripts/ci-failure-summary.mjs "2. Unit, component, and API tests" vitest failure-reports/vitest.json
+
+      - name: Upload failure summary
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-summary-vitest
+          path: failure-summary.txt
+          if-no-files-found: ignore
           retention-days: 7
 
   functions:
@@ -92,7 +107,23 @@ jobs:
           deno-version: v2.x
 
       - name: Run Deno tests
-        run: deno test --no-check --allow-env supabase/functions
+        run: |
+          set -o pipefail
+          mkdir -p failure-reports
+          deno test --no-check --allow-env --reporter=tap supabase/functions | tee failure-reports/deno.tap
+
+      - name: Write failure summary
+        if: failure()
+        run: node scripts/ci-failure-summary.mjs "3. Supabase Edge Function tests" tap failure-reports/deno.tap
+
+      - name: Upload failure summary
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-summary-functions
+          path: failure-summary.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
   build:
     name: 4. Build
@@ -161,11 +192,42 @@ jobs:
           sed -E -n 's/^ANON_KEY="?([^"]*)"?$/NEXT_PUBLIC_SUPABASE_ANON_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
           sed -E -n 's/^SERVICE_ROLE_KEY="?([^"]*)"?$/SUPABASE_SERVICE_ROLE_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
 
+      - name: Wait for local Supabase after start
+        run: node scripts/wait-local-supabase.mjs
+
       - name: Reset and seed local Supabase
-        run: pnpm test:db:reset && pnpm test:db:seed
+        run: pnpm test:db:reset && node scripts/wait-local-supabase.mjs && pnpm test:db:seed
+
+      - name: Run Milo retrieval evaluation (nightly)
+        if: github.event_name == 'schedule'
+        run: pnpm test:milo-evals
+
+      - name: Upload Milo evaluation report
+        if: always() && github.event_name == 'schedule'
+        uses: actions/upload-artifact@v4
+        with:
+          name: milo-eval-report
+          path: milo-eval-report/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Run database and RLS tests
-        run: CANOPY_DB_TESTS=1 pnpm exec vitest run tests/db
+        run: |
+          mkdir -p failure-reports
+          CANOPY_DB_TESTS=1 pnpm exec vitest run tests/db --reporter=default --reporter=json --outputFile.json=failure-reports/db.json
+
+      - name: Write failure summary
+        if: failure()
+        run: node scripts/ci-failure-summary.mjs "5. Local Supabase DB and RLS tests" vitest failure-reports/db.json
+
+      - name: Upload failure summary
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-summary-db
+          path: failure-summary.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
   e2e-smoke:
     name: 6. Playwright smoke tests
@@ -208,13 +270,19 @@ jobs:
           sed -E -n 's/^ANON_KEY="?([^"]*)"?$/NEXT_PUBLIC_SUPABASE_ANON_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
           sed -E -n 's/^SERVICE_ROLE_KEY="?([^"]*)"?$/SUPABASE_SERVICE_ROLE_KEY=\1/p' supabase.env >> "$GITHUB_ENV"
 
+      - name: Wait for local Supabase after start
+        run: node scripts/wait-local-supabase.mjs
+
       - name: Reset and seed local Supabase
-        run: pnpm test:db:reset && pnpm test:db:seed
+        run: pnpm test:db:reset && node scripts/wait-local-supabase.mjs && pnpm test:db:seed
 
       - name: Run Playwright smoke and reviewed wiki tests
         env:
           WIKI_IMPORT_TEST_PROVIDER: deterministic
-        run: pnpm test:e2e --grep "@smoke|@wiki-reviewed"
+          PLAYWRIGHT_JSON_OUTPUT_NAME: failure-reports/playwright.json
+        run: |
+          mkdir -p failure-reports
+          pnpm test:e2e --grep "@smoke|@wiki-reviewed" --reporter=github,html,json
 
       - name: Upload reviewed wiki screenshots
         if: always()
@@ -231,4 +299,17 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
+          retention-days: 7
+
+      - name: Write failure summary
+        if: failure()
+        run: node scripts/ci-failure-summary.mjs "6. Playwright smoke tests" playwright failure-reports/playwright.json
+
+      - name: Upload failure summary
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-summary-e2e
+          path: failure-summary.txt
+          if-no-files-found: ignore
           retention-days: 7

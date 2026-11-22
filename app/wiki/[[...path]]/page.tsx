@@ -1,4 +1,5 @@
-import { redirect } from "next/navigation"
+import { buildNumericWikiPath, resolveNumericWikiPath } from "@/lib/wiki-paths"
+import { notFound, redirect } from "next/navigation"
 
 import {
   WikiEditModeGate,
@@ -7,6 +8,7 @@ import {
 } from "@/components/wiki/wiki-edit-mode"
 import { ArchivedWikiPageView } from "@/components/wiki/wiki-archive"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
+import { MiloPageContext } from "@/components/wiki/wiki-chat-modal"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import { WikiAddMenu } from "@/components/wiki/wiki-add-menu"
 import {
@@ -16,29 +18,33 @@ import {
 import { WikiImportWizardDialog } from "@/components/wiki/wiki-import-wizard"
 import { WikiRevisionSelector } from "@/components/wiki/wiki-revisions"
 import {
-  WikiTagsDirectory,
-  type WikiTagDirectoryEntry,
-} from "@/components/wiki/wiki-tags-directory"
+  WikiTagsManage,
+  type ManageTag,
+  type ManageTagSection,
+} from "@/components/wiki/wiki-tags-manage"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   getDefaultWikiRepository,
-  getWikiRepositoryBySlug,
+  getWikiRepositoryByShortId,
 } from "@/lib/wiki-repositories"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import {
-  buildWikiPath,
+  buildWikiBreadcrumbs,
+  fetchWikiTagAssignments,
   compareWikiNodes,
   fetchWikiNodes,
   fetchArchivedWikiNodes,
-  buildWikiBreadcrumbs,
-  resolveWikiPath,
   fetchWikiPageData,
   fetchWikiTags,
+  fetchWikiPageTags,
+  getWikiSectionId,
   isPublishedWikiBranch,
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeRow,
+  type WikiTagAssignment,
+  type WikiTagRow,
   type WikiRevisionMetadata,
 } from "@/lib/wiki"
 
@@ -78,6 +84,10 @@ function DirectoryView({
   parentId,
   showCreateControl = false,
   headingLevel = 2,
+  assignments = [],
+  initialTag = "",
+  updatedBy = {},
+  referenceTime,
 }: {
   title?: string
   items: WikiNodeRow[]
@@ -86,6 +96,10 @@ function DirectoryView({
   parentId: string | null
   showCreateControl?: boolean
   headingLevel?: 1 | 2
+  assignments?: WikiTagAssignment[]
+  initialTag?: string
+  updatedBy?: Record<string, string>
+  referenceTime?: string
 }) {
   const folder = nodes.find((node) => node.id === parentId)
   const parent = nodes.find((node) => node.id === folder?.parent_id)
@@ -141,6 +155,10 @@ function DirectoryView({
         items={items}
         nodes={nodes}
         parentId={parentId}
+        assignments={assignments}
+        initialTag={initialTag}
+        updatedBy={updatedBy}
+        referenceTime={referenceTime}
       />
     </div>
   )
@@ -148,7 +166,7 @@ function DirectoryView({
 
 function HiddenDraftView({ title }: { title: string }) {
   return (
-    <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+    <section className="mx-auto flex min-h-full w-full max-w-[1120px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
       <WikiViewModeTitleSpacing className="flex flex-col items-start gap-10">
         <h1 className="text-4xl leading-tight font-bold text-[#3F3F3F] dark:text-[#CFCFCF]">
           {title}
@@ -162,22 +180,12 @@ function HiddenDraftView({ title }: { title: string }) {
   )
 }
 
-function getSelectedRepositorySlug({
-  path,
-  pageData,
-}: {
-  path: string[]
-  pageData: Awaited<ReturnType<typeof fetchWikiPageData>> | null
-}) {
-  const rootSlug = pageData?.breadcrumbs[0]?.slug ?? path[0]
-  return (
-    getWikiRepositoryBySlug(rootSlug)?.slug ?? getDefaultWikiRepository().slug
-  )
-}
-
 function WikiSetupRequired({ canManageWiki }: { canManageWiki: boolean }) {
   return (
-    <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+    <div
+      data-milo-clearance
+      className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+    >
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-4 md:p-6">
         <div className="rounded-lg border bg-card p-6">
           <h1 className="text-2xl font-semibold">Wiki Setup Required</h1>
@@ -195,7 +203,7 @@ function WikiSetupRequired({ canManageWiki }: { canManageWiki: boolean }) {
           ) : null}
         </div>
       </div>
-    </main>
+    </div>
   )
 }
 
@@ -204,7 +212,7 @@ export default async function WikiPage({
   searchParams,
 }: {
   params: Promise<{ path?: string[] }>
-  searchParams: Promise<{ revision?: string; tag?: string }>
+  searchParams: Promise<{ revision?: string; tag?: string; section?: string }>
 }) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -231,10 +239,8 @@ export default async function WikiPage({
     code: WIKI_MANAGE_PERMISSION,
   })
 
-  const [{ path = [] }, { tag: highlightedTag = "" }] = await Promise.all([
-    params,
-    searchParams,
-  ])
+  const [{ path = [] }, query] = await Promise.all([params, searchParams])
+  const { tag: highlightedTag = "", section: highlightedSection = "" } = query
   let nodes: WikiNodeRow[]
   try {
     nodes = await fetchWikiNodes(supabase)
@@ -244,31 +250,73 @@ export default async function WikiPage({
     }
     throw error
   }
-  if (canManageWiki && path.length) {
+  const isTagsDirectory = path.length === 1 && path[0] === "tags"
+  if (canManageWiki && path.length && !isTagsDirectory) {
     const archived = await fetchArchivedWikiNodes(supabase)
     const allNodes = [
       ...nodes.filter((item) => item.status !== "archived"),
       ...archived,
     ]
-    const target = resolveWikiPath(allNodes, path)
+    const target = resolveNumericWikiPath(allNodes, path)?.node
     const breadcrumbs = target ? buildWikiBreadcrumbs(allNodes, target) : []
     const archivedParent = breadcrumbs
       .slice(0, -1)
       .find((item) => item.status === "archived")
     if (target && (target.status === "archived" || archivedParent)) {
       return (
-        <main className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]">
-          <section className="mx-auto w-full max-w-[864px] px-6 py-4 md:px-8 md:py-6">
-            <ArchivedWikiPageView node={target} archivedParent={archivedParent} />
+        <div
+          data-milo-clearance
+          className="flex min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#1F1F1F]"
+        >
+          <section className="mx-auto w-full max-w-[1120px] px-6 py-4 md:px-8 md:py-6">
+            <ArchivedWikiPageView
+              node={target}
+              archivedParent={archivedParent}
+            />
           </section>
-        </main>
+        </div>
       )
     }
   }
-  const [pageData, wikiTags] = await Promise.all([
-    path.length ? fetchWikiPageData(supabase, path) : null,
-    fetchWikiTags(supabase),
+  const [pageData, ordinaryTags] = await Promise.all([
+    path.length && !isTagsDirectory ? fetchWikiPageData(supabase, path) : null,
+    isTagsDirectory ? [] : fetchWikiTags(supabase),
   ])
+  // Cleanup must include every tag and every page, including drafts and archives.
+  // Keep this data on the manager-only path; readers receive published pages only.
+  let allNodes = nodes
+  const wikiTags: WikiTagRow[] = ordinaryTags
+  if (isTagsDirectory && canManageWiki) {
+    allNodes = []
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from("wiki_nodes")
+        .select(
+          "id,short_id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+        )
+        .order("id")
+        .range(offset, offset + 999)
+      if (error) throw new Error(error.message)
+      allNodes.push(...((data ?? []) as WikiNodeRow[]))
+      if ((data ?? []).length < 1000) break
+    }
+  }
+  if (isTagsDirectory) {
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from("wiki_tags")
+        .select("id,name,scope,section_id")
+        .order("id")
+        .range(offset, offset + 999)
+      if (error) throw new Error(error.message)
+      wikiTags.push(...((data ?? []) as WikiTagRow[]))
+      if ((data ?? []).length < 1000) break
+    }
+  }
+  const pageTags =
+    pageData?.node.type === "page"
+      ? await fetchWikiPageTags(supabase, pageData.node.id)
+      : []
   const revisionResult =
     canManageWiki && pageData?.node.type === "page"
       ? await supabase
@@ -282,12 +330,14 @@ export default async function WikiPage({
     WikiRevisionMetadata,
     "author"
   >[]
-  const missingRepositoryPage =
-    !pageData && path.length === 1 ? getWikiRepositoryBySlug(path[0]) : null
-  const isTagsDirectory = path.length === 1 && path[0] === "tags"
-
-  if (path.length && !pageData && !missingRepositoryPage && !isTagsDirectory) {
-    redirect("/wiki")
+  if (path.length && !isTagsDirectory && !pageData) notFound()
+  if (pageData && pageData.path !== path.join("/")) {
+    const search = new URLSearchParams()
+    for (const [key, value] of Object.entries(query)) {
+      if (value) search.set(key, value)
+    }
+    const suffix = search.toString()
+    redirect(`/wiki/${pageData.path}${suffix ? `?${suffix}` : ""}`)
   }
 
   let directoryUsers: Array<{
@@ -295,7 +345,13 @@ export default async function WikiPage({
     email: string | null
     full_name: string | null
   }> = []
-  if (pageData?.node.updated_by || revisionRows.length) {
+  if (
+    pageData?.node.updated_by ||
+    pageData?.children.some((node) => node.updated_by) ||
+    revisionRows.length ||
+    (!path.length &&
+      nodes.some((node) => node.parent_id === null && node.updated_by))
+  ) {
     try {
       const { data, error } = await supabase.rpc(
         "list_permission_directory_users"
@@ -311,6 +367,12 @@ export default async function WikiPage({
     return person?.full_name || person?.email?.split("@")[0] || "Unknown"
   }
   const lastUpdatedBy = displayName(pageData?.node.updated_by ?? null)
+  const updatedBy = Object.fromEntries(
+    nodes
+      .filter((node) => node.updated_by)
+      .map((node) => [node.id, displayName(node.updated_by)])
+  )
+  const referenceTime = new Date().toISOString()
   const lastUpdatedAt = pageData?.node.updated_at ?? null
   const revisions: WikiRevisionMetadata[] = revisionRows.map((revision) => ({
     ...revision,
@@ -320,50 +382,125 @@ export default async function WikiPage({
   const rootChildren = nodes
     .filter((node) => node.parent_id === null)
     .sort(compareWikiNodes)
-  const selectedRepositorySlug = getSelectedRepositorySlug({ path, pageData })
+  const root = pageData?.breadcrumbs[0]
+  const selectedRepositorySlug =
+    (root && getWikiRepositoryByShortId(root.short_id)?.slug) ??
+    getDefaultWikiRepository().slug
   const isNanoWiki = selectedRepositorySlug === "nano-wiki"
-  const publishedNodes = nodes.filter(
-    (node) => node.type === "page" && isPublishedWikiBranch(nodes, node)
-  )
-  const tagDirectoryEntries: WikiTagDirectoryEntry[] = wikiTags.map((tag) => ({
-    name: tag.name,
-    pages: publishedNodes
+  const eligiblePageIds = new Set(
+    nodes
       .filter(
         (node) =>
           node.type === "page" &&
-          node.tags?.some(
-            (pageTag) =>
-              pageTag.toLocaleLowerCase() === tag.name.toLocaleLowerCase()
-          )
+          (isTagsDirectory ||
+            (pageData?.node.type === "folder" &&
+              buildWikiBreadcrumbs(nodes, node).some(
+                (ancestor) => ancestor.id === pageData.node.id
+              )))
       )
-      .map((page) => ({
-        id: page.id,
-        title: page.title,
-        path: buildWikiPath(nodes, page),
-      })),
-  }))
+      .map((node) => node.id)
+  )
+  const allAssignments =
+    isTagsDirectory || pageData?.node.type === "folder"
+      ? await fetchWikiTagAssignments(supabase)
+      : []
+  const assignments = allAssignments.filter((assignment) =>
+    eligiblePageIds.has(assignment.node_id)
+  )
+  const pageIdsByTag = new Map<string, Set<string>>()
+  for (const assignment of isTagsDirectory ? allAssignments : assignments) {
+    const pageIds = pageIdsByTag.get(assignment.tag_id) ?? new Set<string>()
+    pageIds.add(assignment.node_id)
+    pageIdsByTag.set(assignment.tag_id, pageIds)
+  }
+  const publishedNodes = isTagsDirectory
+    ? allNodes.filter(
+        (node) => node.type === "page" && isPublishedWikiBranch(allNodes, node)
+      )
+    : []
+  const sections: ManageTagSection[] = isTagsDirectory
+    ? allNodes
+        .filter(
+          (node) =>
+            node.type === "folder" &&
+            node.parent_id &&
+            allNodes.some(
+              (root) => root.id === node.parent_id && root.parent_id === null
+            ) &&
+            (canManageWiki || isPublishedWikiBranch(nodes, node))
+        )
+        .map((section) => {
+          const area = allNodes.find((node) => node.id === section.parent_id)
+          return {
+            id: section.id,
+            name: section.title,
+            area: area?.title ?? "Wiki",
+          }
+        })
+    : []
+  const visibleSectionIds = new Set(sections.map((section) => section.id))
+  const tagDirectoryEntries: ManageTag[] = wikiTags
+    .filter(
+      (tag) =>
+        canManageWiki ||
+        tag.scope === "global" ||
+        (tag.section_id && visibleSectionIds.has(tag.section_id))
+    )
+    .map((tag) => ({
+      ...tag,
+      pages: canManageWiki
+        ? allAssignments
+            .filter((assignment) => assignment.tag_id === tag.id)
+            .map(({ node_id }) => ({
+              id: node_id,
+              sectionId: getWikiSectionId(allNodes, node_id),
+            }))
+        : [],
+      sectionTitle: canManageWiki
+        ? allNodes.find((node) => node.id === tag.section_id)?.title
+        : undefined,
+      publishedPages: publishedNodes
+        .filter((node) => pageIdsByTag.get(tag.id)?.has(node.id))
+        .map((page) => ({
+          id: page.id,
+          title: page.title,
+          href: `/wiki/${buildNumericWikiPath(allNodes, page)}`,
+          area: buildWikiBreadcrumbs(allNodes, page)[0]?.title ?? "Wiki",
+        })),
+    }))
+    .sort(
+      (a, b) =>
+        a.name.localeCompare(b.name) ||
+        (a.section_id ?? "").localeCompare(b.section_id ?? "")
+    )
   const displayedNode = pageData?.node ?? null
   const displayedChildren = pageData?.children ?? []
-
-  if (!isNanoWiki && missingRepositoryPage) {
-    redirect("/wiki")
-  }
 
   return (
     <>
       {isNanoWiki ? (
-        <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-white p-6 dark:bg-[#1F1F1F]">
+        <div
+          data-milo-clearance
+          className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-white p-6 dark:bg-[#1F1F1F]"
+        >
           <p className="text-center text-2xl font-semibold text-muted-foreground">
             Coming soon
           </p>
-        </main>
+        </div>
       ) : (
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]">
+        <div
+          data-milo-clearance
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white dark:bg-[#1F1F1F]"
+        >
           <div className="flex min-h-full w-full flex-col">
             {isTagsDirectory ? (
-              <WikiTagsDirectory
+              <WikiTagsManage
+                key={`${highlightedTag}:${highlightedSection}`}
                 entries={tagDirectoryEntries}
-                initialSearch={highlightedTag}
+                sections={sections}
+                canManage={canManageWiki}
+                initialTag={highlightedTag}
+                initialSection={highlightedSection}
               />
             ) : displayedNode ? (
               <WikiVisibleNodeGate
@@ -371,7 +508,13 @@ export default async function WikiPage({
                 nodes={nodes}
                 fallback={<HiddenDraftView title={displayedNode.title} />}
               >
-                <section className="mx-auto flex min-h-full w-full max-w-[864px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
+                {displayedNode.type === "page" ? (
+                  <MiloPageContext
+                    pageId={displayedNode.id}
+                    title={displayedNode.title}
+                  />
+                ) : null}
+                <section className="mx-auto flex min-h-full w-full max-w-[1120px] flex-1 flex-col gap-6 bg-white px-6 py-4 md:px-8 md:py-6 dark:bg-[#1F1F1F]">
                   {pageData?.node.type === "folder" ? (
                     <>
                       <DirectoryView
@@ -381,6 +524,10 @@ export default async function WikiPage({
                         nodes={nodes}
                         canManageWiki={canManageWiki}
                         parentId={displayedNode.id}
+                        assignments={assignments}
+                        initialTag={highlightedTag}
+                        updatedBy={updatedBy}
+                        referenceTime={referenceTime}
                       />
                     </>
                   ) : pageData ? (
@@ -389,7 +536,9 @@ export default async function WikiPage({
                         key={pageData.revision?.id ?? pageData.node.id}
                         node={pageData.node}
                         revision={pageData.revision ?? null}
-                        availableTags={wikiTags.map((tag) => tag.name)}
+                        availableTags={wikiTags}
+                        pageTags={pageTags}
+                        sectionId={getWikiSectionId(nodes, pageData.node.id)}
                         canManage={canManageWiki}
                         lastUpdatedAt={lastUpdatedAt}
                         lastUpdatedBy={lastUpdatedBy}
@@ -430,7 +579,8 @@ export default async function WikiPage({
                                 nodes={nodes}
                                 node={pageData.node}
                                 hasChildren={displayedChildren.length > 0}
-                                availableTags={wikiTags.map((tag) => tag.name)}
+                                availableTags={wikiTags}
+                                pageTags={pageTags}
                               />
                             </WikiEditModeGate>
                           ) : null
@@ -441,7 +591,7 @@ export default async function WikiPage({
                 </section>
               </WikiVisibleNodeGate>
             ) : (
-              <section className="mx-auto flex w-full max-w-[864px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
+              <section className="mx-auto flex w-full max-w-[1120px] flex-col gap-8 px-6 py-6 md:px-8 md:py-10">
                 <div>
                   <h1 className="text-4xl font-semibold dark:text-[#CFCFCF]">
                     Welcome to the Wiki
@@ -453,13 +603,15 @@ export default async function WikiPage({
                   items={rootChildren}
                   nodes={nodes}
                   canManageWiki={canManageWiki}
+                  updatedBy={updatedBy}
+                  referenceTime={referenceTime}
                   parentId={null}
                   showCreateControl
                 />
               </section>
             )}
           </div>
-        </main>
+        </div>
       )}
     </>
   )

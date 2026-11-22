@@ -9,6 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { sidebarHighlightRanges } from "@/lib/wiki-sidebar-filter"
 import { cn } from "@/lib/utils"
 
 const SIDEBAR_TOOLTIP_DELAY_MS = 700
@@ -40,7 +41,8 @@ function writePersistedExpansion(storageKey: string, isOpen: boolean) {
 export function usePersistedSidebarExpansion(
   storageKey: string,
   defaultOpen: boolean,
-  autoOpen: boolean
+  autoOpen: boolean,
+  forceOpen = false
 ) {
   const hasUserSetPreference = React.useRef(false)
   const [isOpen, setIsOpen] = React.useState(defaultOpen)
@@ -69,7 +71,7 @@ export function usePersistedSidebarExpansion(
     [storageKey]
   )
 
-  return [isOpen, setPersistedOpen] as const
+  return [forceOpen || isOpen, setPersistedOpen] as const
 }
 
 function toggleExpansionWithoutScrollJump(
@@ -93,9 +95,27 @@ function toggleExpansionWithoutScrollJump(
   })
 }
 
-export function TruncatedTitle({ title }: { title: string }) {
+export function TruncatedTitle({
+  title,
+  query = "",
+}: {
+  title: string
+  query?: string
+}) {
   const textRef = React.useRef<HTMLSpanElement>(null)
   const [open, setOpen] = React.useState(false)
+  const ranges = sidebarHighlightRanges(title, query)
+  const highlighted = ranges.flatMap((range, index) => {
+    return [
+      title.slice(index ? ranges[index - 1].end : 0, range.start),
+      <mark
+        key={range.start}
+        className="rounded-sm bg-yellow-200 text-yellow-950 dark:bg-yellow-700 dark:text-yellow-50"
+      >
+        {title.slice(range.start, range.end)}
+      </mark>,
+    ]
+  })
 
   return (
     <Tooltip
@@ -111,7 +131,8 @@ export function TruncatedTitle({ title }: { title: string }) {
     >
       <TooltipTrigger asChild>
         <span ref={textRef} className="truncate">
-          {title}
+          {highlighted}
+          {title.slice(ranges.at(-1)?.end ?? 0)}
         </span>
       </TooltipTrigger>
       <TooltipContent side="right" align="start" sideOffset={8}>
@@ -126,11 +147,13 @@ export function SidebarExpansionToggle({
   contentId,
   isOpen,
   setOpen,
+  disabled = false,
 }: {
   label: string
   contentId: string
   isOpen: boolean
   setOpen: React.Dispatch<React.SetStateAction<boolean>>
+  disabled?: boolean
 }) {
   return (
     <button
@@ -138,7 +161,8 @@ export function SidebarExpansionToggle({
       aria-label={`Toggle ${label}`}
       aria-expanded={isOpen}
       aria-controls={contentId}
-      className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      disabled={disabled}
+      className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
       onClick={(event) =>
         toggleExpansionWithoutScrollJump(event, () =>
           setOpen((current) => !current)
@@ -152,6 +176,18 @@ export function SidebarExpansionToggle({
   )
 }
 
+export function SidebarAccessorySlot({
+  children,
+}: {
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="flex w-8 shrink-0 items-center justify-center">
+      {children}
+    </div>
+  )
+}
+
 export function SidebarAccordionHeader({
   label,
   title,
@@ -161,6 +197,10 @@ export function SidebarAccordionHeader({
   tone,
   href,
   isActive = false,
+  query,
+  filterMatch = false,
+  disabled = false,
+  secondaryAction,
   children,
 }: {
   label: string
@@ -171,9 +211,13 @@ export function SidebarAccordionHeader({
   tone: "section" | "group"
   href?: string
   isActive?: boolean
+  query?: string
+  filterMatch?: boolean
+  disabled?: boolean
+  secondaryAction?: React.ReactNode
   children?: React.ReactNode
 }) {
-  const titleNode = <TruncatedTitle title={title} />
+  const titleNode = <TruncatedTitle title={title} query={query} />
   const labelClassName = cn(
     "flex min-h-8 min-w-0 flex-1 items-center rounded-md py-1 pr-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
     tone === "section" && "text-inherit"
@@ -194,11 +238,13 @@ export function SidebarAccordionHeader({
         contentId={contentId}
         isOpen={isOpen}
         setOpen={setOpen}
+        disabled={disabled}
       />
       {href ? (
         <Link
           href={href}
           aria-current={isActive ? "page" : undefined}
+          data-wiki-filter-match={filterMatch ? "" : undefined}
           className={labelClassName}
         >
           {titleNode}
@@ -208,7 +254,11 @@ export function SidebarAccordionHeader({
           type="button"
           aria-expanded={isOpen}
           aria-controls={contentId}
-          className={cn(labelClassName, "cursor-pointer")}
+          disabled={disabled}
+          className={cn(
+            labelClassName,
+            "cursor-pointer disabled:cursor-default"
+          )}
           onClick={(event) =>
             toggleExpansionWithoutScrollJump(event, () =>
               setOpen((current) => !current)
@@ -218,7 +268,8 @@ export function SidebarAccordionHeader({
           {titleNode}
         </button>
       )}
-      {children}
+      {secondaryAction}
+      <SidebarAccessorySlot>{children}</SidebarAccessorySlot>
     </div>
   )
 }

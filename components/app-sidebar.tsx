@@ -1,18 +1,9 @@
 import * as React from "react"
 import Image from "next/image"
-import Link from "next/link"
-import {
-  Building2Icon,
-  ChartNoAxesCombinedIcon,
-  HomeIcon,
-  LifeBuoyIcon,
-  ListTreeIcon,
-  MessageSquarePlusIcon,
-  UsersRoundIcon,
-} from "lucide-react"
 import { redirect } from "next/navigation"
 
 import { AppSidebarLibraryNav } from "@/components/app-sidebar-library-nav"
+import { AppSidebarFeedback, AppSidebarNav } from "@/components/app-sidebar-nav"
 import { NavUser } from "@/components/nav-user"
 import { SettingsNavButton } from "@/components/settings-nav-button"
 import {
@@ -24,52 +15,16 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
 import {
   BETA_1_PERMISSION,
+  FEEDBACK_MANAGE_PERMISSION,
   SETTINGS_ACCESS_PERMISSION,
 } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-
-const dashboardNav = [
-  {
-    title: "Home",
-    url: "/home",
-    icon: HomeIcon,
-  },
-  {
-    title: "Reports",
-    url: "/reports",
-    icon: ChartNoAxesCombinedIcon,
-  },
-  {
-    title: "Pipeline",
-    url: "/pipeline",
-    icon: ListTreeIcon,
-  },
-]
-
-const directoryNav = [
-  {
-    title: "Department Directory",
-    url: "/department-directory",
-    icon: LifeBuoyIcon,
-  },
-  {
-    title: "People",
-    url: "/people",
-    icon: UsersRoundIcon,
-  },
-  {
-    title: "Branches",
-    url: "/branches",
-    icon: Building2Icon,
-  },
-]
 
 export async function AppSidebar({
   activePath,
@@ -112,18 +67,24 @@ export async function AppSidebar({
       null,
   }
 
-  const [canViewSettings, canAccessBeta1] = await Promise.all([
-    userHasPermissionCode({
-      supabase,
-      userId: authUser.id,
-      code: SETTINGS_ACCESS_PERMISSION,
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: authUser.id,
-      code: BETA_1_PERMISSION,
-    }),
-  ])
+  const [canViewSettings, canAccessBeta1, canManageFeedback] =
+    await Promise.all([
+      userHasPermissionCode({
+        supabase,
+        userId: authUser.id,
+        code: SETTINGS_ACCESS_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: authUser.id,
+        code: BETA_1_PERMISSION,
+      }),
+      userHasPermissionCode({
+        supabase,
+        userId: authUser.id,
+        code: FEEDBACK_MANAGE_PERMISSION,
+      }),
+    ])
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -150,7 +111,7 @@ export async function AppSidebar({
           <Image
             src="/canopy-logo-cube-100.png"
             alt="Canopy Hub"
-            width={28}
+            width={26}
             height={28}
             className="h-7 w-auto object-contain"
             priority
@@ -158,53 +119,7 @@ export async function AppSidebar({
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Start</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {dashboardNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={activePath === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span className="group-data-[collapsible=icon]:hidden">
-                        {item.title}
-                      </span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>People</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {directoryNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={activePath === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span className="group-data-[collapsible=icon]:hidden">
-                        {item.title}
-                      </span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <AppSidebarNav activePath={activePath} />
 
         <SidebarGroup>
           <SidebarGroupLabel>Library</SidebarGroupLabel>
@@ -219,26 +134,13 @@ export async function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SettingsNavButton
-              canViewSettings={canViewSettings}
+              canViewSettings={canViewSettings || canManageFeedback}
               isActive={activePath === "/settings"}
             />
           </SidebarMenuItem>
         </SidebarMenu>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="Submit Feedback">
-              <Link
-                href="https://canopyhub.featurebase.app/"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <MessageSquarePlusIcon />
-                <span className="group-data-[collapsible=icon]:hidden">
-                  Submit Feedback
-                </span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          <AppSidebarFeedback />
         </SidebarMenu>
         <NavUser user={user} />
       </SidebarFooter>

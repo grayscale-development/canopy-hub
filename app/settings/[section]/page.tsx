@@ -3,8 +3,10 @@ import { redirect } from "next/navigation"
 
 import { AdvancedSyncCard } from "@/app/settings/[section]/advanced-sync-card"
 import { MiloFlagsCard } from "@/app/settings/[section]/milo-flags-card"
+import { FeedbackInboxCard } from "@/app/settings/[section]/feedback-inbox-card"
 import { PermissionsTable } from "@/app/settings/[section]/permissions-table"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
+import { SettingsMobileNav } from "@/app/settings/[section]/settings-mobile-nav"
+import { WikiAlertsCard } from "@/app/settings/[section]/wiki-alerts-card"
 import { PermissionRequestGate } from "@/components/permissions/permission-request-gate"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +23,7 @@ import {
   AI_SETTINGS_ACCESS_PERMISSION,
   BETA_1_PERMISSION,
   DATA_SYNC_RUN_PERMISSION,
+  FEEDBACK_MANAGE_PERMISSION,
   PERMISSIONS_ACCESS_PERMISSION,
   SETTINGS_ACCESS_PERMISSION,
 } from "@/lib/permission-codes"
@@ -35,173 +38,164 @@ import {
   type PermissionUser,
 } from "@/lib/permissions-data"
 import { userHasPermissionCode } from "@/lib/permissions"
-import { cn } from "@/lib/utils"
+import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { cn } from "@/lib/utils"
+import { WIKI_MANAGE_PERMISSION } from "@/lib/wiki"
+import { wikiAlertsJobGate } from "@/lib/wiki-alerts-job-gate"
 
-const SETTINGS_PAGES = [
+const pages = [
   {
     key: "permissions",
     label: "Permissions",
+    description: "Manage permissions and who has access to them.",
     permissionCode: PERMISSIONS_ACCESS_PERMISSION,
     permissionName: "Access Permissions",
   },
   {
-    key: "ai",
-    label: "AI",
+    key: "requests",
+    label: "Access requests",
+    description: "Review access requests and completed decisions.",
+    permissionCode: PERMISSIONS_ACCESS_PERMISSION,
+    permissionName: "Access Permissions",
+  },
+  {
+    key: "milo",
+    label: "Milo knowledge",
+    description: "Manage Milo's knowledge index and see gaps in its answers.",
     permissionCode: AI_SETTINGS_ACCESS_PERMISSION,
     permissionName: "Access AI Settings",
   },
   {
-    key: "advanced",
-    label: "Advanced",
+    key: "alerts",
+    label: "Wiki alerts",
+    description:
+      "Find identical and repeated wiki content, with a recommended fix for each.",
+    permissionCode: ADVANCED_SETTINGS_ACCESS_PERMISSION,
+    permissionName: "Access Advanced Settings",
+  },
+  {
+    key: "feedback",
+    label: "Feedback",
+    description: "Review feedback from people using the Hub and Milo.",
+    permissionCode: FEEDBACK_MANAGE_PERMISSION,
+    permissionName: "Manage Feedback",
+  },
+  {
+    key: "data-sync",
+    label: "Data syncs",
+    description: "Monitor and run data syncs.",
     permissionCode: ADVANCED_SETTINGS_ACCESS_PERMISSION,
     permissionName: "Access Advanced Settings",
   },
 ] as const
 
-type SettingsPageKey = (typeof SETTINGS_PAGES)[number]["key"]
-
-function isSettingsPage(value: string): value is SettingsPageKey {
-  return SETTINGS_PAGES.some((page) => page.key === value)
-}
+type PageKey = (typeof pages)[number]["key"]
 
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ section: string }>
 }) {
-  const resolvedParams = await params
-  const section = SETTINGS_PAGES.find(
-    (page) => page.key === resolvedParams.section
-  )
-
-  return {
-    title: section ? `Settings - ${section.label}` : "Settings",
-  }
+  const { section } = await params
+  const page = pages.find((item) => item.key === section)
+  return { title: page ? `Settings - ${page.label}` : "Settings" }
 }
 
 export default async function SettingsSubPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ section: string }>
-  searchParams: Promise<{ tab?: string | string[] }>
 }) {
-  const resolvedParams = await params
-  const resolvedSearchParams = await searchParams
-  const section = resolvedParams.section.toLowerCase()
-  const rawAiTab = Array.isArray(resolvedSearchParams.tab)
-    ? resolvedSearchParams.tab[0]
-    : resolvedSearchParams.tab
-  const activeAiTab = rawAiTab === "index" ? "index" : "flags"
-
-  if (!isSettingsPage(section)) {
-    redirect("/settings/permissions")
-  }
+  const section = (await params).section.toLowerCase()
+  if (section === "ai") redirect("/settings/feedback")
+  if (section === "advanced") redirect("/settings/data-sync")
+  const page = pages.find((item) => item.key === section)
+  if (!page) redirect("/settings")
 
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect("/login")
-  }
-
-  const canViewSettings = await userHasPermissionCode({
-    supabase,
-    userId: user.id,
-    code: SETTINGS_ACCESS_PERMISSION,
-  })
-
-  if (!canViewSettings) {
-    redirect("/home")
-  }
-
+  if (!user) redirect("/login")
+  const has = (code: string) =>
+    userHasPermissionCode({ supabase, userId: user.id, code })
   const [
-    canAccessPermissions,
-    canAccessAiSettings,
-    canAccessBeta1,
-    canAccessAdvancedSettings,
+    settings,
+    permissionsAccess,
+    aiAccess,
+    beta,
+    advanced,
     canRunDataSyncs,
+    canManageWiki,
+    canManageFeedback,
   ] = await Promise.all([
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: PERMISSIONS_ACCESS_PERMISSION,
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: AI_SETTINGS_ACCESS_PERMISSION,
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: BETA_1_PERMISSION,
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: ADVANCED_SETTINGS_ACCESS_PERMISSION,
-    }),
-    userHasPermissionCode({
-      supabase,
-      userId: user.id,
-      code: DATA_SYNC_RUN_PERMISSION,
-    }),
+    has(SETTINGS_ACCESS_PERMISSION),
+    has(PERMISSIONS_ACCESS_PERMISSION),
+    has(AI_SETTINGS_ACCESS_PERMISSION),
+    has(BETA_1_PERMISSION),
+    has(ADVANCED_SETTINGS_ACCESS_PERMISSION),
+    has(DATA_SYNC_RUN_PERMISSION),
+    has(WIKI_MANAGE_PERMISSION),
+    has(FEEDBACK_MANAGE_PERMISSION),
   ])
-
-  const pageAccess = new Map<SettingsPageKey, boolean>()
-  SETTINGS_PAGES.forEach((page) => {
-    if (page.permissionCode === PERMISSIONS_ACCESS_PERMISSION) {
-      pageAccess.set(page.key, canAccessPermissions)
-      return
-    }
-
-    if (page.permissionCode === AI_SETTINGS_ACCESS_PERMISSION) {
-      pageAccess.set(page.key, canAccessAiSettings && canAccessBeta1)
-      return
-    }
-
-    if (page.permissionCode === ADVANCED_SETTINGS_ACCESS_PERMISSION) {
-      pageAccess.set(page.key, canAccessAdvancedSettings)
-    }
-  })
-  const canOpenSection = Boolean(pageAccess.get(section))
-
-  const activePage = SETTINGS_PAGES.find((page) => page.key === section)
+  if (!settings && !(page.key === "feedback" && canManageFeedback))
+    redirect("/home")
+  const access: Record<PageKey, boolean> = {
+    permissions: permissionsAccess,
+    requests: permissionsAccess,
+    milo: aiAccess && beta,
+    feedback: canManageFeedback,
+    alerts: advanced,
+    "data-sync": advanced,
+  }
+  const canOpen = access[page.key]
+  const missingPermission =
+    page.key === "milo" && !beta
+      ? { code: BETA_1_PERMISSION, name: "Beta 1" }
+      : { code: page.permissionCode, name: page.permissionName }
   let permissions: Permission[] = []
   let permissionUsers: PermissionUser[] = []
-  let permissionDirectoryUsers: PermissionDirectoryUser[] = []
-  let permissionRequests: PermissionRequest[] = []
-  let permissionsLoadError: string | null = null
-  let permissionRequestsLoadError: string | null = null
-
-  if (section === "permissions" && canOpenSection) {
+  let directoryUsers: PermissionDirectoryUser[] = []
+  let requests: PermissionRequest[] = []
+  let permissionsError: string | null = null
+  let requestsError: string | null = null
+  if (canOpen && page.key === "permissions") {
     try {
-      ;[permissions, permissionUsers, permissionDirectoryUsers] =
-        await Promise.all([
-          fetchPermissions(),
-          fetchPermissionUsers(),
-          fetchPermissionDirectoryUsers(),
-        ])
-    } catch (error) {
-      console.error("Failed to load permissions settings data", error)
-      permissionsLoadError = "Data load failed."
+      ;[permissions, permissionUsers, directoryUsers] = await Promise.all([
+        fetchPermissions(),
+        fetchPermissionUsers(),
+        fetchPermissionDirectoryUsers(),
+      ])
+    } catch {
+      permissionsError = "Data load failed."
     }
-
+  }
+  if (canOpen && page.key === "requests") {
     try {
-      permissionRequests = await fetchPermissionRequests()
-    } catch (error) {
-      console.error("Failed to load permission requests", error)
-      permissionRequestsLoadError =
+      requests = await fetchPermissionRequests()
+    } catch {
+      requestsError =
         "Permission requests are not available. Apply the latest database migration."
     }
   }
-
+  let lastSuccess: string | null = null
+  let lastSuccessError = false
+  if (canOpen && page.key === "alerts") {
+    try {
+      const { data, error } = await createSupabaseAdminClient()
+        .from("wiki_alert_scan_state")
+        .select("last_success_at")
+        .eq("singleton", true)
+        .maybeSingle()
+      if (error) lastSuccessError = true
+      else lastSuccess = data?.last_success_at ?? null
+    } catch {
+      lastSuccessError = true
+    }
+  }
   return (
-    <SidebarInset>
+    <SidebarInset className="min-w-0 overflow-x-hidden">
       <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator
@@ -215,119 +209,94 @@ export default async function SettingsSubPage({
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>{activePage?.label}</BreadcrumbPage>
+              <BreadcrumbPage>{page.label}</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <HeaderFeedbackButton className="ml-auto" />
       </header>
-
-      <div className="flex flex-1 flex-col gap-4 p-4">
-        <div className="px-1 py-2">
-          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+      <div className="grid min-w-0 content-start gap-5 p-4 md:grid-cols-[12rem_minmax(0,960px)] md:gap-x-8 md:p-6">
+        <div className="min-w-0 md:col-start-2">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {page.label}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {page.description}
+          </p>
         </div>
-
-        <div className="flex flex-1 flex-col gap-4 md:flex-row">
-          <aside className="h-fit w-full rounded-xl border bg-card p-2 text-card-foreground md:max-w-56">
-            <nav className="grid gap-1">
-              {SETTINGS_PAGES.map((page) => {
-                const isActive = page.key === section
-                const canOpenPage = Boolean(pageAccess.get(page.key))
-                const missingPermission =
-                  page.key === "ai" && !canAccessBeta1
-                    ? {
-                        code: BETA_1_PERMISSION,
-                        name: "Beta 1",
-                      }
-                    : {
-                        code: page.permissionCode,
-                        name: page.permissionName,
-                      }
-
-                return canOpenPage ? (
-                  <Link
-                    key={page.key}
-                    href={`/settings/${page.key}`}
-                    className={cn(
-                      "rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-                      isActive
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    {page.label}
-                  </Link>
-                ) : (
-                  <PermissionRequestGate
-                    key={page.key}
-                    hasPermission={canOpenPage}
-                    permissionCode={missingPermission.code}
-                    permissionName={missingPermission.name}
-                    className="w-full"
-                  >
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-auto w-full justify-start rounded-md px-3 py-2 text-sm font-medium text-muted-foreground"
-                    >
-                      {page.label}
-                    </Button>
-                  </PermissionRequestGate>
-                )
-              })}
-            </nav>
-          </aside>
-
-          <section className="min-h-[420px] min-w-0 flex-1">
-            {!canOpenSection && activePage ? (
-              <div className="rounded-xl border bg-card p-6 text-card-foreground">
-                <h2 className="text-lg font-semibold">{activePage.label}</h2>
-                <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-                  In order to view this Settings section, the{" "}
-                  {activePage.key === "ai" && !canAccessBeta1
-                    ? "Beta 1"
-                    : activePage.permissionName}{" "}
-                  permission is required.
-                </p>
-                <div className="mt-4">
-                  <PermissionRequestGate
-                    hasPermission={false}
-                    permissionCode={
-                      activePage.key === "ai" && !canAccessBeta1
-                        ? BETA_1_PERMISSION
-                        : activePage.permissionCode
-                    }
-                    permissionName={
-                      activePage.key === "ai" && !canAccessBeta1
-                        ? "Beta 1"
-                        : activePage.permissionName
-                    }
-                  >
-                    <Button type="button">Open {activePage.label}</Button>
-                  </PermissionRequestGate>
-                </div>
+        <nav
+          aria-label="Settings sections"
+          className="min-w-0 md:col-start-1 md:row-span-2 md:row-start-1"
+        >
+          <SettingsMobileNav
+            items={pages.filter((item) => access[item.key])}
+            active={page.key}
+          />
+          <div className="hidden gap-1 md:grid">
+            {pages
+              .filter((item) => access[item.key])
+              .map((item) => (
+                <Link
+                  key={item.key}
+                  href={`/settings/${item.key}`}
+                  aria-current={item.key === page.key ? "page" : undefined}
+                  className={cn(
+                    "rounded-md px-3 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                    item.key === page.key
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  {item.label}
+                </Link>
+              ))}
+          </div>
+        </nav>
+        <section className="w-full min-w-0 md:col-start-2">
+          {!canOpen ? (
+            <div className="rounded-xl border bg-card p-6">
+              <p className="text-sm text-muted-foreground">
+                In order to view this Settings section, the{" "}
+                {missingPermission.name} permission is required.
+              </p>
+              <div className="mt-4">
+                <PermissionRequestGate
+                  hasPermission={false}
+                  permissionCode={missingPermission.code}
+                  permissionName={missingPermission.name}
+                >
+                  <Button type="button">Open {page.label}</Button>
+                </PermissionRequestGate>
               </div>
-            ) : section === "permissions" ? (
-              permissionsLoadError ? (
-                <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
-                  {permissionsLoadError}
-                </div>
-              ) : (
-                <PermissionsTable
-                  permissions={permissions}
-                  permissionUsers={permissionUsers}
-                  permissionDirectoryUsers={permissionDirectoryUsers}
-                  permissionRequests={permissionRequests}
-                  permissionRequestsLoadError={permissionRequestsLoadError}
-                />
-              )
-            ) : section === "advanced" ? (
-              <AdvancedSyncCard canRunDataSyncs={canRunDataSyncs} />
+            </div>
+          ) : page.key === "permissions" || page.key === "requests" ? (
+            permissionsError ? (
+              <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
+                {permissionsError}
+              </div>
             ) : (
-              <MiloFlagsCard activeTab={activeAiTab} />
-            )}
-          </section>
-        </div>
+              <PermissionsTable
+                view={page.key}
+                permissions={permissions}
+                permissionUsers={permissionUsers}
+                permissionDirectoryUsers={directoryUsers}
+                permissionRequests={requests}
+                permissionRequestsLoadError={requestsError}
+              />
+            )
+          ) : page.key === "data-sync" ? (
+            <AdvancedSyncCard canRunDataSyncs={canRunDataSyncs} />
+          ) : page.key === "alerts" ? (
+            <WikiAlertsCard
+              lastSuccess={lastSuccess}
+              lastSuccessError={lastSuccessError}
+              enabled={wikiAlertsJobGate().allowed}
+            />
+          ) : page.key === "feedback" ? (
+            <FeedbackInboxCard />
+          ) : (
+            <MiloFlagsCard section={page.key} canManageWiki={canManageWiki} />
+          )}
+        </section>
       </div>
     </SidebarInset>
   )

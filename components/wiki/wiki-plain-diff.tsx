@@ -14,16 +14,34 @@ const takenOutClass =
 const putInClass =
   "rounded bg-green-100 px-1 font-semibold text-green-900 underline decoration-green-900 decoration-2 underline-offset-4 dark:bg-green-950 dark:text-green-100 dark:decoration-green-100"
 
-function MarkedText({ pieces }: { pieces: WikiDiffPiece[] }) {
+type DiffVariant = "default" | "compact"
+
+function MarkedText({
+  pieces,
+  variant,
+}: {
+  pieces: WikiDiffPiece[]
+  variant: DiffVariant
+}) {
   return (
     <>
       {pieces.map((piece, index) => {
         const spacer = index > 0 ? " " : null
+        const keepWordTogether =
+          !/\s/.test(piece.text) && piece.text.length <= 20
+            ? " whitespace-nowrap"
+            : ""
         if (piece.kind === "removed") {
           return (
             <React.Fragment key={`removed-${index}`}>
               {spacer}
-              <mark className={takenOutClass}>
+              <mark
+                className={
+                  (variant === "compact"
+                    ? "rounded bg-transparent text-muted-foreground line-through"
+                    : takenOutClass) + keepWordTogether
+                }
+              >
                 <span className="sr-only">Taken out: </span>
                 {piece.text}
               </mark>
@@ -34,7 +52,13 @@ function MarkedText({ pieces }: { pieces: WikiDiffPiece[] }) {
           return (
             <React.Fragment key={`added-${index}`}>
               {spacer}
-              <mark className={putInClass}>
+              <mark
+                className={
+                  (variant === "compact"
+                    ? "rounded bg-green-100 text-foreground dark:bg-green-950"
+                    : putInClass) + keepWordTogether
+                }
+              >
                 <span className="sr-only">Put in: </span>
                 {piece.text}
               </mark>
@@ -60,22 +84,36 @@ function PageBox({
   segments,
   openFolds,
   onToggleFold,
+  variant,
 }: {
   beforeTitle: string
   afterTitle: string
   segments: WikiDiffSegment[]
   openFolds: Record<string, boolean>
   onToggleFold: (id: string) => void
+  variant: DiffVariant
 }) {
   return (
     <section
       className="grid gap-2"
       aria-label={`Changes from ${beforeTitle} to ${afterTitle}`}
     >
-      <h3 className="text-lg font-semibold text-neutral-950 dark:text-neutral-50">
+      <h3
+        className={
+          variant === "compact"
+            ? "font-medium"
+            : "text-lg font-semibold text-neutral-950 dark:text-neutral-50"
+        }
+      >
         {afterTitle}
       </h3>
-      <div className="rounded-lg border-2 border-neutral-950 bg-white p-4 text-lg leading-8 break-words text-neutral-950 dark:border-neutral-50 dark:bg-neutral-950 dark:text-neutral-50">
+      <div
+        className={
+          variant === "compact"
+            ? "rounded-md border border-border p-3 break-words"
+            : "rounded-lg border-2 border-neutral-950 bg-white p-4 text-lg leading-8 break-words text-neutral-950 dark:border-neutral-50 dark:bg-neutral-950 dark:text-neutral-50"
+        }
+      >
         {segments.map((segment, index) => {
           if (segment.type === "fold") {
             const open = Boolean(openFolds[segment.id])
@@ -104,7 +142,7 @@ function PageBox({
           }
           return (
             <p key={`line-${index}`} className="my-1">
-              <MarkedText pieces={segment.pieces} />
+              <MarkedText pieces={segment.pieces} variant={variant} />
             </p>
           )
         })}
@@ -120,6 +158,8 @@ export function WikiPlainDiff({
   afterBlocks,
   beforeTitle = "Before",
   afterTitle = "After",
+  comparison = false,
+  variant = "default",
 }: {
   beforeText: string
   afterText: string
@@ -127,6 +167,8 @@ export function WikiPlainDiff({
   afterBlocks?: unknown
   beforeTitle?: string
   afterTitle?: string
+  comparison?: boolean
+  variant?: DiffVariant
 }) {
   const diff = React.useMemo(
     () =>
@@ -147,10 +189,22 @@ export function WikiPlainDiff({
     <div className="grid gap-3">
       <p
         aria-live="polite"
-        className="text-lg leading-7 font-semibold text-neutral-950 dark:text-neutral-50"
+        className={
+          variant === "compact"
+            ? "font-normal"
+            : "text-lg leading-7 font-semibold text-neutral-950 dark:text-neutral-50"
+        }
       >
-        <span>{diff.headline}</span>
-        {/^\d+ changes?$/.test(diff.headline) ? " to review" : null}
+        <span>
+          {comparison
+            ? diff.changeCount
+              ? `${diff.changeCount} ${diff.changeCount === 1 ? "difference" : "differences"}`
+              : "These passages match."
+            : diff.headline}
+        </span>
+        {!comparison && /^\d+ changes?$/.test(diff.headline)
+          ? " to review"
+          : null}
       </p>
       {diff.showMarkup ? (
         <PageBox
@@ -159,6 +213,7 @@ export function WikiPlainDiff({
           segments={diff.segments}
           openFolds={openFolds}
           onToggleFold={toggleFold}
+          variant={variant}
         />
       ) : null}
       {diff.revealTakenOut ? (
@@ -181,6 +236,7 @@ export function WikiPlainDiff({
               segments={diff.segments}
               openFolds={openFolds}
               onToggleFold={toggleFold}
+              variant={variant}
             />
           ) : null}
         </div>

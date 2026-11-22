@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { WikiFolderContents } from "@/components/wiki/wiki-folder-contents"
 import { WikiEditModeProvider } from "@/components/wiki/wiki-edit-mode"
 import type { WikiNodeRow } from "@/lib/wiki"
@@ -21,6 +21,17 @@ const node = (
 ) =>
   ({
     id,
+    short_id:
+      [
+        "root",
+        "section",
+        "group",
+        "Tagged",
+        "Untagged",
+        "Draft page",
+        "empty",
+        "Draft group",
+      ].indexOf(id) + 1,
     parent_id,
     type,
     slug: id,
@@ -34,6 +45,10 @@ const node = (
     created_at: "2026-01-01",
     updated_at: "2026-01-01",
   }) as WikiNodeRow
+const tags = [
+  { id: "loans", name: "Loans", scope: "global" as const, section_id: null },
+]
+const assignments = [{ node_id: "Tagged", tag_id: "loans" }]
 const nodes = [
   node("root", null, "folder"),
   node("section", "root", "folder"),
@@ -44,48 +59,89 @@ const nodes = [
   node("empty", "section", "folder"),
   node("Draft group", "section", "folder", [], "draft"),
 ]
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = () => false
+  Element.prototype.releasePointerCapture = () => undefined
+  Element.prototype.scrollIntoView = () => undefined
+})
 afterEach(() => {
+  window.history.replaceState(null, "", "/")
   cleanup()
   window.localStorage.clear()
 })
 
 describe("Wiki folder contents", () => {
-  it("toggles tag chips and clears a filter", async () => {
+  it("filters by tag, syncs the URL and clears with All tags", async () => {
     const user = userEvent.setup()
     render(
-      <WikiFolderContents
-        nodes={nodes}
-        items={nodes.filter((n) => n.parent_id === "group")}
-        parentId="group"
-      />
+      <WikiEditModeProvider canManageWiki availableTags={tags}>
+        <WikiFolderContents
+          nodes={nodes}
+          items={nodes.filter((n) => n.parent_id === "group")}
+          parentId="group"
+          assignments={assignments}
+        />
+      </WikiEditModeProvider>
     )
-    const chip = screen.getByRole("button", { name: "Loans" })
-    expect(chip).toHaveAttribute("aria-pressed", "false")
-    await user.click(chip)
-    expect(chip).toHaveAttribute("aria-pressed", "true")
-    expect(screen.getByRole("link", { name: /Tagged/ })).toBeVisible()
+    const filter = screen.getByRole("combobox", { name: "Filter by tag" })
+    expect(filter).toHaveTextContent("All tags")
+    await user.click(filter)
+    await user.click(await screen.findByRole("option", { name: "Loans" }))
+    expect(window.location.search).toBe("?tag=Loans")
+    expect(screen.getByRole("link", { name: /Tagged/ })).toHaveAttribute(
+      "href",
+      "/wiki/1/2/3/4"
+    )
     expect(screen.queryByRole("link", { name: /Untagged/ })).toBeNull()
-    await user.click(chip)
+    await user.click(filter)
+    await user.click(await screen.findByRole("option", { name: "All tags" }))
+    expect(window.location.search).toBe("")
     expect(screen.getByRole("link", { name: /Untagged/ })).toBeVisible()
-    await user.click(chip)
-    await user.click(screen.getByRole("button", { name: "Clear filter" }))
-    expect(screen.getByRole("link", { name: /Untagged/ })).toBeVisible()
+  })
+
+  it("restores the initial URL filter", () => {
+    render(
+      <WikiEditModeProvider canManageWiki availableTags={tags}>
+        <WikiFolderContents
+          nodes={nodes}
+          items={nodes.filter((n) => n.parent_id === "group")}
+          parentId="group"
+          assignments={assignments}
+          initialTag="loans"
+        />
+      </WikiEditModeProvider>
+    )
+    expect(
+      screen.getByRole("combobox", { name: "Filter by tag" })
+    ).toHaveTextContent("Loans")
+    expect(screen.queryByRole("link", { name: /Untagged/ })).toBeNull()
   })
 
   it("shows a clear action when filtered results disappear", async () => {
     const user = userEvent.setup()
     const items = nodes.filter((n) => n.parent_id === "group")
     const view = render(
-      <WikiFolderContents nodes={nodes} items={items} parentId="group" />
+      <WikiEditModeProvider canManageWiki availableTags={tags}>
+        <WikiFolderContents
+          nodes={nodes}
+          items={items}
+          parentId="group"
+          assignments={assignments}
+        />
+      </WikiEditModeProvider>
     )
-    await user.click(screen.getByRole("button", { name: "Loans" }))
+    await user.click(screen.getByRole("combobox", { name: "Filter by tag" }))
+    await user.click(await screen.findByRole("option", { name: "Loans" }))
     const remaining = nodes.filter((n) => n.id !== "Tagged")
     view.rerender(
-      <WikiFolderContents
-        nodes={remaining}
-        items={items.filter((n) => n.id !== "Tagged")}
-        parentId="group"
-      />
+      <WikiEditModeProvider canManageWiki availableTags={tags}>
+        <WikiFolderContents
+          nodes={remaining}
+          items={items.filter((n) => n.id !== "Tagged")}
+          parentId="group"
+          assignments={assignments}
+        />
+      </WikiEditModeProvider>
     )
     expect(screen.getByText("No pages are tagged Loans here.")).toBeVisible()
     await user.click(
@@ -115,16 +171,25 @@ describe("Wiki folder contents", () => {
       links.findIndex((link) => link.textContent?.includes("Tagged"))
     )
     expect(
-      within(screen.getByRole("link", { name: "group" })).getByText("3 pages")
+      within(
+        screen.getByRole("link", { name: "group" }).closest("tr")!
+      ).getByText("3 pages")
     ).toBeVisible()
     expect(
-      within(screen.getByRole("link", { name: "empty" })).getByText("Empty")
+      within(
+        screen.getByRole("link", { name: "empty" }).closest("tr")!
+      ).getByText("0 pages")
     ).toBeVisible()
     expect(
-      within(screen.getByRole("link", { name: /Draft group/ })).getByText(
-        "Draft"
-      )
-    ).toBeVisible()
+      within(
+        screen.getByRole("link", { name: /Draft group/ }).closest("tr")!
+      ).getByText("Draft")
+    ).toHaveClass("bg-muted", "text-muted-foreground")
+    expect(
+      within(
+        screen.getByRole("link", { name: "group" }).closest("tr")!
+      ).getByText("Published")
+    ).toHaveClass("bg-success-background", "text-success")
   })
 
   it("marks draft pages and uses a singular count", () => {
@@ -139,7 +204,9 @@ describe("Wiki folder contents", () => {
       />
     )
     expect(
-      within(screen.getByRole("link", { name: "group" })).getByText("1 page")
+      within(
+        screen.getByRole("link", { name: "group" }).closest("tr")!
+      ).getByText("1 page")
     ).toBeVisible()
     view.rerender(
       <WikiFolderContents
@@ -149,9 +216,9 @@ describe("Wiki folder contents", () => {
       />
     )
     expect(
-      within(screen.getByRole("link", { name: "Draft page" })).getByText(
-        "Draft"
-      )
+      within(
+        screen.getByRole("link", { name: "Draft page" }).closest("tr")!
+      ).getByText("Draft")
     ).toBeVisible()
   })
 
@@ -166,21 +233,42 @@ describe("Wiki folder contents", () => {
       </WikiEditModeProvider>
     )
     expect(
-      within(screen.getByRole("link", { name: "group" })).getByText("2 pages")
+      within(
+        screen.getByRole("link", { name: "group" }).closest("tr")!
+      ).getByText("2 pages")
     ).toBeVisible()
     expect(screen.queryByText("Draft")).toBeNull()
     expect(screen.queryByRole("button", { name: "Secret" })).toBeNull()
   })
 
-  it("does not show chips at the root or where there are no tags", () => {
+  it("hides the filter at the root or where there are no tags", () => {
     const view = render(
       <WikiFolderContents nodes={nodes} items={[nodes[0]]} parentId={null} />
     )
-    expect(screen.queryByText("Filter by tag")).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Filter by tag" })).toBeNull()
     view.rerender(
       <WikiFolderContents nodes={nodes} items={[nodes[4]]} parentId="group" />
     )
-    expect(screen.queryByText("Filter by tag")).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Filter by tag" })).toBeNull()
+  })
+
+  it("offers tag management to editors even in an empty section, with no noise for viewers", () => {
+    const view = render(
+      <WikiFolderContents nodes={nodes} items={[]} parentId="empty" />
+    )
+    expect(screen.getByRole("link", { name: "Manage tags" })).toHaveAttribute(
+      "href",
+      "/wiki/tags"
+    )
+    expect(screen.queryByText(/No section tags yet/)).toBeNull()
+    view.rerender(
+      <WikiEditModeProvider canManageWiki={false}>
+        <WikiFolderContents nodes={nodes} items={[]} parentId="empty" />
+      </WikiEditModeProvider>
+    )
+    expect(screen.queryByRole("link", { name: "Manage tags" })).toBeNull()
+    expect(screen.queryByRole("combobox", { name: "Filter by tag" })).toBeNull()
+    expect(screen.queryByText(/No section tags yet/)).toBeNull()
   })
 
   it("shows a calm empty state and offers adding only in editor mode", () => {
@@ -189,10 +277,56 @@ describe("Wiki folder contents", () => {
         <WikiFolderContents nodes={nodes} items={[]} parentId="empty" />
       </WikiEditModeProvider>
     )
-    expect(screen.getByText("Nothing here yet.")).toBeVisible()
+    expect(screen.getByText("No pages here yet.")).toBeVisible()
     expect(screen.queryByRole("button", { name: "Add a page" })).toBeNull()
     view.unmount()
     render(<WikiFolderContents nodes={nodes} items={[]} parentId="empty" />)
     expect(screen.getByRole("button", { name: "Add a page" })).toBeVisible()
+  })
+
+  it("sorts by name and update time and shows bounded tags and author metadata", async () => {
+    const user = userEvent.setup()
+    const first = {
+      ...nodes[3],
+      tags: ["Loans", "Two", "Three"],
+      updated_at: "2026-01-02T00:00:00Z",
+    }
+    const second = { ...nodes[4], updated_at: "2026-01-03T00:00:00Z" }
+    render(
+      <WikiFolderContents
+        nodes={[...nodes.slice(0, 3), first, second]}
+        items={[second, first]}
+        parentId="group"
+        referenceTime="2026-01-04T00:00:00Z"
+        updatedBy={{ Tagged: "Alex" }}
+      />
+    )
+    const row = screen.getByRole("link", { name: "Tagged" }).closest("tr")!
+    expect(within(row).getByText("+1")).toBeVisible()
+    expect(within(row).queryByText("Three")).toBeNull()
+    expect(within(row).getByText("Alex")).toBeVisible()
+    expect(within(row).getByText("2d ago")).toHaveAttribute(
+      "aria-label",
+      "2d ago, January 2, 2026"
+    )
+    expect(screen.getByRole("link", { name: "Tagged" })).toHaveAttribute(
+      "title",
+      "Updated January 2, 2026"
+    )
+    const rowNames = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((item) =>
+          within(item).getByRole("link").getAttribute("aria-label")
+        )
+    await user.click(screen.getByRole("button", { name: "Name" }))
+    expect(rowNames()).toEqual(["Tagged", "Untagged"])
+    await user.click(screen.getByRole("button", { name: "Updated" }))
+    await user.click(screen.getByRole("button", { name: "Updated" }))
+    expect(rowNames()).toEqual(["Untagged", "Tagged"])
+    expect(
+      screen.getByRole("columnheader", { name: "Updated" })
+    ).toHaveAttribute("aria-sort", "descending")
   })
 })

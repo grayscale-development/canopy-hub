@@ -5,6 +5,7 @@ import {
   setWikiEditorMode,
   serviceWiki,
   signInAsSeededUser,
+  wikiPathForNode,
 } from "./wiki-reviewed-helpers"
 
 test.setTimeout(120_000)
@@ -43,7 +44,7 @@ test("managers can find and restore archived wiki items while viewers cannot see
         status,
         sort_order: -100,
       })
-      .select("id,slug")
+      .select("id,slug,short_id")
       .single()
     if (error || !data) throw error ?? new Error("Unable to create fixture")
     ids.unshift(data.id)
@@ -135,21 +136,29 @@ test("managers can find and restore archived wiki items while viewers cannot see
       "folder",
       "archived"
     )
-    const sectionPath = `/wiki/canopy-wiki/${section.slug}`
-    const oldPath = `${sectionPath}/${old.slug}`
-    const livePath = `${sectionPath}/${live.slug}`
+    const sectionPath = await wikiPathForNode(section.id)
+    const oldPath = await wikiPathForNode(old.id)
+    const livePath = await wikiPathForNode(live.id)
     await page.setViewportSize({ width: 1440, height: 900 })
     await mockMiloChatApi(page)
     await signInAsSeededUser(page, "wiki-manager@canopy.test")
     await page.goto(sectionPath)
     await setWikiEditorMode(page, false)
     const sidebar = page.locator("[data-wiki-sidebar-scroll]")
-    await expect(sidebar.getByRole("link", { name: "Team Handbook" })).toBeVisible()
-    await expect(page.getByText(/Archive \(/)).toHaveCount(0)
-    await expect(page.getByText(/Archived \(/)).toHaveCount(0)
+    await expect(
+      sidebar.getByRole("link", { name: "Team Handbook" })
+    ).toBeVisible()
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archive", exact: true })
+    ).toHaveCount(0)
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archived" })
+    ).toHaveCount(0)
     await shot("13-manager-editor-off-no-archive")
     await enableEditorMode(page)
-    await expect(page.getByText(/Archived \(/).first()).toBeVisible()
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archived" }).first()
+    ).toBeVisible()
     await shot("14-manager-editor-on-archive")
     const sectionArea = page
       .locator("section")
@@ -182,9 +191,23 @@ test("managers can find and restore archived wiki items while viewers cannot see
     await archivedToggle.click()
     await expect(archivedToggle).toHaveAttribute("aria-expanded", "true")
     await expect(archivedToggle.locator("svg")).toHaveClass(/rotate-90/)
-    await expect(
-      archived.getByRole("link", { name: "Legacy Onboarding Guide" })
-    ).toBeVisible()
+    const oldLink = archived.getByRole("link", {
+      name: "Legacy Onboarding Guide",
+    })
+    expect(oldPath.endsWith(`/${old.short_id}`)).toBe(true)
+    await expect(oldLink).toHaveAttribute("href", oldPath)
+    await expect(oldLink).toBeVisible()
+    const liveLink = sectionArea.getByRole("link", {
+      name: "Onboarding Checklist",
+    })
+    await expect(liveLink).toBeVisible()
+    const oldTitle = await oldLink.locator("span").last().boundingBox()
+    const liveTitle = await liveLink
+      .locator("span")
+      .filter({ hasText: "Onboarding Checklist" })
+      .last()
+      .boundingBox()
+    expect(oldTitle?.x).toBe(liveTitle?.x)
     await expect(sidebar.getByRole("button", { name: /^Restore/ })).toHaveCount(
       0
     )
@@ -204,6 +227,15 @@ test("managers can find and restore archived wiki items while viewers cannot see
     await expect(
       global.getByRole("link", { name: "Loan Training Library" })
     ).toBeVisible()
+    await expect(
+      global.getByRole("link", { name: "Legacy Onboarding Guide" })
+    ).toHaveAttribute("href", oldPath)
+    const globalTitle = await global
+      .getByRole("link", { name: "Legacy Onboarding Guide" })
+      .locator("span")
+      .last()
+      .boundingBox()
+    expect(globalTitle?.x).toBe(liveTitle?.x)
     await global.locator("li").last().scrollIntoViewIfNeeded()
     await shot("03-global-archive")
     if (shotDir) {
@@ -228,9 +260,8 @@ test("managers can find and restore archived wiki items while viewers cannot see
       .scrollIntoViewIfNeeded()
     await shot("07-section-archived-mobile")
     await page.setViewportSize({ width: 1440, height: 900 })
-    await archived
-      .getByRole("link", { name: "Legacy Onboarding Guide" })
-      .click()
+    await oldLink.click()
+    await expect(page).toHaveURL(oldPath)
     await expect(
       page.getByRole("heading", { name: "Legacy Onboarding Guide" })
     ).toBeVisible()
@@ -238,7 +269,12 @@ test("managers can find and restore archived wiki items while viewers cannot see
       page.getByText("This item is archived and is not visible in the Wiki.")
     ).toBeVisible()
     await shot("08-archived-page-header")
-    await page.goto(`/wiki/canopy-wiki/${archived1.slug}/${archivedChild.slug}`)
+    if (shotDir) {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await shot("15-archived-page-mobile")
+      await page.setViewportSize({ width: 1440, height: 900 })
+    }
+    await page.goto(await wikiPathForNode(archivedChild.id))
     await expect(
       page.getByRole("heading", { name: "Old Training Course" })
     ).toBeVisible()
@@ -267,8 +303,12 @@ test("managers can find and restore archived wiki items while viewers cannot see
         .locator("[data-wiki-sidebar-scroll]")
         .getByRole("link", { name: "Team Handbook" })
     ).toBeVisible()
-    await expect(page.getByText(/Archive \(/)).toHaveCount(0)
-    await expect(page.getByText(/Archived \(/)).toHaveCount(0)
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archive", exact: true })
+    ).toHaveCount(0)
+    await expect(
+      sidebar.getByRole("button", { name: "Toggle Archived" })
+    ).toHaveCount(0)
     await expect(page.getByText("Retired Templates")).toHaveCount(0)
     await expect(page.getByText("Legacy Onboarding Guide")).toHaveCount(0)
     await shot("05-non-manager-no-archive")
@@ -302,7 +342,7 @@ test("managers can find and restore archived wiki items while viewers cannot see
       .eq("id", old.id)
       .single()
     expect(restoredPage?.status).toBe("published")
-    await page.goto(`/wiki/canopy-wiki/${archived1.slug}`)
+    await page.goto(await wikiPathForNode(archived1.id))
     await page.waitForLoadState("networkidle")
     await expect(
       page.getByText("This item is archived and is not visible in the Wiki.")

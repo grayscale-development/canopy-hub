@@ -1,0 +1,160 @@
+import "server-only"
+
+import { createEmbeddingsWithOpenAI } from "@/lib/ai/provider"
+import { resolveWikiKnowledgeRows } from "@/lib/wiki-knowledge-urls"
+import type { SupabaseWikiClient } from "@/lib/wiki"
+import type { KnowledgeSourceType } from "@/lib/wiki-ai"
+import abbreviations from "@/lib/milo/abbreviations.json"
+import { measureMilo, type MiloTiming } from "@/lib/milo/timing"
+
+export interface RetrievedChunk {
+  chunk_id: string
+  source_id: string
+  source_type: KnowledgeSourceType
+  source_title: string
+  source_url: string | null
+  content: string
+  metadata: Record<string, unknown>
+  similarity: number
+  vectorSimilarity?: number
+}
+
+export function rewriteKnowledgeQuery(question: string) {
+  const terms = Object.keys(abbreviations).map((key) =>
+    key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  )
+  const expanded = question.replace(
+    new RegExp(`\\b(?:${terms.join("|")})\\b`, "gi"),
+    (term) =>
+      Object.entries(abbreviations).find(
+        ([key]) => key.toLowerCase() === term.toLowerCase()
+      )?.[1] ?? term
+  )
+  return expanded === question ? question : `${question} ${expanded}`
+}
+
+export function citationSnippet(
+  content: string,
+  metadata?: Record<string, unknown> | null
+) {
+  const date = typeof metadata?.updatedAt === "string" ? metadata.updatedAt : ""
+  const prefix = !Number.isNaN(Date.parse(date))
+    ? `Last updated: ${date.slice(0, 10)}. `
+    : ""
+  return `${prefix}${content}`.slice(0, 360)
+}
+
+const pendingSearches = new WeakMap<
+  SupabaseWikiClient,
+  Map<string, Promise<RetrievedChunk[]>>
+>()
+
+export function searchKnowledge(
+  supabase: SupabaseWikiClient,
+  question: string,
+  matchCount = 12,
+  sourceTypes: string[] | null = null,
+  timing?: MiloTiming
+) {
+  const key = JSON.stringify([question, matchCount, sourceTypes])
+  let pending = pendingSearches.get(supabase)
+  if (!pending) {
+    pending = new Map()
+    pendingSearches.set(supabase, pending)
+  }
+  const existing = pending.get(key)
+  if (existing) return existing
+  const request = searchKnowledgeOnce(
+    supabase,
+    question,
+    matchCount,
+    sourceTypes,
+    timing
+  )
+  pending.set(key, request)
+  const searches = pending
+  void request.then(
+    () => searches.delete(key),
+    () => searches.delete(key)
+  )
+  return request
+}
+
+async function searchKnowledgeOnce(
+  supabase: SupabaseWikiClient,
+  question: string,
+  matchCount = 12,
+  sourceTypes: string[] | null = null,
+  timing?: MiloTiming
+) {
+  const query = rewriteKnowledgeQuery(question)
+  const keywordPromise = supabase.rpc("match_knowledge_chunks_keyword", {
+    search_query: query,
+    match_count: matchCount,
+    source_types: sourceTypes,
+  })
+  const vectorsPromise = (async () => {
+    try {
+      timing?.model(
+        "embedding",
+        process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small"
+      )
+      const [embedding] = await measureMilo(timing, "embedding", () =>
+        createEmbeddingsWithOpenAI([query])
+      )
+      if (embedding?.length) {
+        const result = await supabase.rpc("match_knowledge_chunks", {
+          query_embedding: embedding,
+          match_count: matchCount,
+          source_types: sourceTypes,
+        })
+        if (!result.error) return (result.data ?? []) as RetrievedChunk[]
+      }
+    } catch {
+      // Keyword search remains available without an embedding provider.
+    }
+    return [] as RetrievedChunk[]
+  })()
+  const [keyword, vectors] = await Promise.all([keywordPromise, vectorsPromise])
+  if (keyword.error) throw new Error(keyword.error.message)
+
+  const fused = new Map<string, { row: RetrievedChunk; score: number }>()
+  for (const list of [(keyword.data ?? []) as RetrievedChunk[], vectors]) {
+    let rank = 0
+    let previousSimilarity: number | undefined
+    list.forEach((row, index) => {
+      // Exclude the retired Bridge page even before the next full reindex.
+      if (row.source_type === "site" && row.source_url === "/bridge") return
+      if (index === 0 || row.similarity !== previousSimilarity) rank = index + 1
+      previousSimilarity = row.similarity
+      const existing = fused.get(row.chunk_id)
+      if (existing) existing.score += 1 / (60 + rank)
+      else fused.set(row.chunk_id, { row, score: 1 / (60 + rank) })
+    })
+  }
+  const vectorScores = new Map(
+    vectors.map((row) => [row.chunk_id, row.similarity])
+  )
+  const rows = await resolveWikiKnowledgeRows(
+    supabase,
+    [...fused.values()].map(({ row }) => row)
+  )
+  return rows
+    .map((row) => ({
+      ...row,
+      vectorSimilarity: vectorScores.get(row.chunk_id),
+    }))
+    .sort((a, b) => {
+      const relevance =
+        fused.get(b.chunk_id)!.score - fused.get(a.chunk_id)!.score
+      if (Math.abs(relevance) > 1e-12) return relevance
+      const authority =
+        Number(b.metadata?.isPublished === true) -
+        Number(a.metadata?.isPublished === true)
+      if (authority) return authority
+      return String(b.metadata?.updatedAt ?? "").localeCompare(
+        String(a.metadata?.updatedAt ?? "")
+      )
+    })
+    .slice(0, matchCount)
+}

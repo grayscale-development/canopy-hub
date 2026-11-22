@@ -3,6 +3,10 @@ import { type NextRequest, NextResponse } from "next/server"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { wikiTagDirectoryUrl, type WikiTagRow } from "@/lib/wiki"
+import { resolveWikiKnowledgeRows } from "@/lib/wiki-knowledge-urls"
+import { matchSemanticWikiTags } from "@/lib/wiki-tag-embeddings"
+import { rankWikiTags } from "@/lib/wiki-tag-similarity"
 
 export const runtime = "nodejs"
 
@@ -26,11 +30,6 @@ interface KnowledgeSearchRow {
   content: string
   metadata: Record<string, unknown> | null
   similarity: number
-}
-
-interface WikiTagRow {
-  id: string
-  name: string
 }
 
 function compactSnippet(value: string) {
@@ -111,7 +110,10 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const knowledgeResults = [...bySource.values()].slice(0, 8).map((row) => ({
+  const selectedRows = await resolveWikiKnowledgeRows(supabase, [
+    ...bySource.values(),
+  ])
+  const knowledgeResults = selectedRows.slice(0, 8).map((row) => ({
     id: row.source_id,
     title: row.source_title || "Untitled",
     url: row.source_url || "/home",
@@ -120,26 +122,63 @@ export async function GET(request: NextRequest) {
     snippet: compactSnippet(row.content),
   }))
 
-  const { data: tagData } = canAccessBeta1
-    ? await supabase
+  const candidates: WikiTagRow[] = []
+  let semantic: WikiTagRow[] = []
+  if (canAccessBeta1) {
+    const semanticPromise = matchSemanticWikiTags(supabase, query)
+    const pageSize = 1000
+    for (let offset = 0; ; offset += pageSize) {
+      const { data: page, error: tagError } = await supabase
         .from("wiki_tags")
-        .select("id,name")
-        .ilike("name", `%${query}%`)
-        .order("name")
-        .limit(5)
-    : { data: [] }
-
-  const tagResults = ((tagData ?? []) as WikiTagRow[]).map((tag) => ({
-    id: `wiki-tag-${tag.id}`,
-    title: tag.name,
-    url: `/wiki/tags?tag=${encodeURIComponent(tag.name)}#tag-${tag.name
-      .toLocaleLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")}`,
-    type: "wiki_tag",
-    typeLabel: "Tag",
-    snippet: "Browse Wiki pages with this tag.",
-  }))
+        .select("id,name,scope,section_id")
+        .order("id")
+        .range(offset, offset + pageSize - 1)
+      if (tagError) break
+      candidates.push(...((page ?? []) as WikiTagRow[]))
+      if (!page || page.length < pageSize) break
+    }
+    semantic = await semanticPromise
+  }
+  const sectionIds = [
+    ...new Set(
+      candidates.flatMap((tag) => (tag.section_id ? [tag.section_id] : []))
+    ),
+  ]
+  const { data: sections, error: sectionError } = sectionIds.length
+    ? await supabase
+        .from("milo_wiki_nodes")
+        .select("id,title")
+        .in("id", sectionIds)
+    : { data: [], error: null }
+  if (sectionError)
+    return NextResponse.json({ error: sectionError.message }, { status: 500 })
+  const sectionNames = new Map(
+    (sections ?? []).map((section) => [section.id, section.title])
+  )
+  const visible = candidates.filter(
+    (tag) =>
+      tag.scope === "global" ||
+      (tag.section_id && sectionNames.has(tag.section_id))
+  )
+  const semanticCandidates = semantic.flatMap((tag) => {
+    const candidate = visible.find((item) => item.id === tag.id)
+    return candidate ? [candidate] : []
+  })
+  const tagResults = rankWikiTags(query, visible, semanticCandidates)
+    .slice(0, 5)
+    .map(({ tag, reason }) => ({
+      id: `wiki-tag-${tag.id}`,
+      title: tag.name,
+      url: wikiTagDirectoryUrl(tag),
+      type: "wiki_tag",
+      typeLabel: "Tag",
+      snippet: [
+        tag.scope === "global" ? "Global" : sectionNames.get(tag.section_id!),
+        reason,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    }))
 
   return NextResponse.json({
     results: [...tagResults, ...knowledgeResults].slice(0, 8),

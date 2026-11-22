@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -15,6 +14,8 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+
+const BRIDGE_LOGIN_URL = "https://canopymortgage.bridgeapp.com/login"
 
 export const metadata = {
   title: "Bridge",
@@ -47,11 +48,24 @@ export default async function BridgePage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
         </header>
         <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
           <div className="px-1 py-2">
             <h1 className="text-3xl font-semibold tracking-tight">Bridge</h1>
+          </div>
+          <div className="rounded-lg border p-6 text-sm text-muted-foreground">
+            <p>
+              Bridge is Canopy&apos;s learning and development hub for courses,
+              skills, performance, and reporting. It opens on its own site.
+            </p>
+            <a
+              href={BRIDGE_LOGIN_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Open Bridge
+            </a>
           </div>
         </div>
       </SidebarInset>

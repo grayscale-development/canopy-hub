@@ -2,14 +2,16 @@ import fs from "node:fs"
 import { randomUUID } from "node:crypto"
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
-import { beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { callMiloMcpTool } from "@/lib/milo/mcp/tools"
-import { indexWikiAsset, indexWikiPage } from "@/lib/wiki-ai"
+import { indexWikiAsset, indexWikiPage, retrieveKnowledge } from "@/lib/wiki-ai"
+import { createEmbeddingsWithOpenAI } from "@/lib/ai/provider"
+import { findPageCandidates, isEditablePage } from "@/lib/milo/find-page"
 
 vi.mock("@/lib/ai/provider", () => ({
   createEmbeddingsWithOpenAI: vi.fn(async (texts: string[]) =>
-    texts.map(() => null)
+    texts.map(() => [1, ...Array<number>(1535).fill(0)])
   ),
 }))
 
@@ -22,6 +24,7 @@ dbDescribe("Milo user permission enforcement", () => {
   let viewer: SupabaseClient
   let settings: SupabaseClient
   let outsider: SupabaseClient
+  let outsiderUserId: string | undefined
   const parentId = randomUUID()
   const pageId = randomUUID()
   const assetId = randomUUID()
@@ -59,12 +62,14 @@ dbDescribe("Milo user permission enforcement", () => {
     viewer = await signIn("standard@canopy.test")
     settings = await signIn("settings@canopy.test")
     const email = `${token}@canopy.test`
-    const { error: userError } = await admin.auth.admin.createUser({
-      email,
-      password: process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password",
-      email_confirm: true,
-    })
+    const { data: createdUser, error: userError } =
+      await admin.auth.admin.createUser({
+        email,
+        password: process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password",
+        email_confirm: true,
+      })
     expect(userError).toBeNull()
+    outsiderUserId = createdUser.user?.id
     outsider = await signIn(email)
     const { error: nodeError } = await admin.from("wiki_nodes").insert([
       {
@@ -132,6 +137,272 @@ dbDescribe("Milo user permission enforcement", () => {
     })
   })
 
+  afterAll(async () => {
+    await admin.storage.from("Wiki").remove([path])
+    await admin
+      .from("knowledge_sources")
+      .delete()
+      .in("source_id", [pageId, assetId, token])
+    await admin.from("wiki_assets").delete().eq("id", assetId)
+    await admin.from("wiki_nodes").delete().eq("id", pageId)
+    await admin.from("wiki_nodes").delete().eq("id", parentId)
+    if (outsiderUserId) await admin.auth.admin.deleteUser(outsiderUserId)
+  })
+
+  const ownSources = (sources: Array<{ title: string }> | undefined) =>
+    (sources ?? []).filter((source) => source.title.includes(token))
+
+  it("never retrieves manager-only drafts for viewer questions through either retrieval path", async () => {
+    const source = await admin
+      .from("knowledge_sources")
+      .select("id")
+      .eq("source_type", "wiki_page")
+      .eq("source_id", pageId)
+      .single()
+    expect(source.error).toBeNull()
+    const sourceId = source.data!.id
+    const embedding = [...Array<number>(1535).fill(0), 1]
+    expect(
+      (
+        await admin
+          .from("knowledge_chunks")
+          .update({ embedding })
+          .eq("source_id", sourceId)
+      ).error
+    ).toBeNull()
+    vi.mocked(createEmbeddingsWithOpenAI).mockImplementation(async (texts) =>
+      texts.map(() => embedding)
+    )
+    for (const question of [
+      `Where is ${token} Draft SOP?`,
+      `What are ${token} confidential draft steps?`,
+      `Show me ${token} manager draft`,
+    ]) {
+      const keywordArgs = {
+        search_query: question,
+        match_count: 50,
+        source_types: ["wiki_page"],
+      }
+      const vectorArgs = {
+        query_embedding: embedding,
+        match_count: 50,
+        source_types: ["wiki_page"],
+      }
+      for (const [rpc, args] of [
+        ["match_knowledge_chunks_keyword", keywordArgs],
+        ["match_knowledge_chunks", vectorArgs],
+      ] as const) {
+        const permitted = await manager.rpc(rpc, args)
+        const denied = await viewer.rpc(rpc, args)
+        expect(permitted.error).toBeNull()
+        expect(denied.error).toBeNull()
+        expect(
+          permitted.data.some(
+            (row: { source_id: string }) => row.source_id === sourceId
+          )
+        ).toBe(true)
+        expect(
+          denied.data.some(
+            (row: { source_id: string }) => row.source_id === sourceId
+          )
+        ).toBe(false)
+      }
+      const combined = await retrieveKnowledge(viewer, question, 50)
+      expect(combined.some((row) => row.source_id === sourceId)).toBe(false)
+      const search = await callMiloMcpTool(
+        "knowledge_search",
+        { query: question },
+        viewer
+      )
+      expect(search.ok).toBe(true)
+      expect(
+        search.sources?.some((item) => item.knowledgeSourceId === sourceId)
+      ).toBe(false)
+    }
+  })
+
+  it("rechecks the candidate tree using the caller and current page status", async () => {
+    expect(await isEditablePage(manager, pageId)).toBe(true)
+    expect(await isEditablePage(viewer, pageId)).toBe(false)
+    const candidates = await findPageCandidates(manager, [token])
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: pageId,
+          title: `${token} Draft SOP`,
+          url: expect.stringMatching(/^\/wiki\/\d+\/\d+$/),
+        }),
+      ])
+    )
+    expect(
+      (await findPageCandidates(viewer, [token])).some(
+        (candidate) => candidate.id === pageId
+      )
+    ).toBe(false)
+    const result = await manager.rpc("match_knowledge_chunks_keyword", {
+      search_query: token,
+      match_count: 50,
+      source_types: ["wiki_page"],
+    })
+    expect(result.error).toBeNull()
+    expect(
+      result.data.some(
+        (row: { source_title: string }) =>
+          row.source_title === `${token} Draft SOP`
+      )
+    ).toBe(true)
+    expect(
+      (
+        await admin
+          .from("wiki_nodes")
+          .update({ status: "archived" })
+          .eq("id", pageId)
+      ).error
+    ).toBeNull()
+    try {
+      expect(await isEditablePage(manager, pageId)).toBe(false)
+      const archived = await manager.rpc("match_knowledge_chunks_keyword", {
+        search_query: token,
+        match_count: 50,
+        source_types: ["wiki_page"],
+      })
+      expect(archived.error).toBeNull()
+      expect(
+        archived.data.some(
+          (row: { source_title: string }) =>
+            row.source_title === `${token} Draft SOP`
+        )
+      ).toBe(false)
+    } finally {
+      expect(
+        (
+          await admin
+            .from("wiki_nodes")
+            .update({ status: "draft" })
+            .eq("id", pageId)
+        ).error
+      ).toBeNull()
+    }
+  })
+
+  it("derives capabilities and visible manager contacts from the current session", async () => {
+    const email = `${token}-manager@canopy.test`
+    const name = `${token} Manager`
+    const { data: created, error: createError } =
+      await admin.auth.admin.createUser({
+        email,
+        password: process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password",
+        email_confirm: true,
+        user_metadata: { full_name: name },
+      })
+    expect(createError).toBeNull()
+    const userId = created.user!.id
+    try {
+      const { data: permissions, error } = await admin
+        .from("permissions")
+        .select("id,code")
+        .in("code", ["beta.1", "wiki.manage"])
+      expect(error).toBeNull()
+      expect(permissions).toHaveLength(2)
+      expect(
+        (
+          await admin.from("user_permissions").insert(
+            permissions!.map((permission) => ({
+              user_id: userId,
+              permission_id: permission.id,
+            }))
+          )
+        ).error
+      ).toBeNull()
+      const client = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { auth: { persistSession: false } }
+      )
+      expect(
+        (
+          await client.auth.signInWithPassword({
+            email,
+            password:
+              process.env.CANOPY_TEST_PASSWORD ?? "canopy-test-password",
+          })
+        ).error
+      ).toBeNull()
+
+      const managerResult = await callMiloMcpTool("my_capabilities", {}, client)
+      expect(managerResult).toMatchObject({
+        ok: true,
+        content: {
+          capabilities: { "beta.1": true, "wiki.manage": true },
+          wikiManagers: null,
+        },
+      })
+      const viewerResult = await callMiloMcpTool(
+        "my_capabilities",
+        { userId, capabilities: { "wiki.manage": true } },
+        viewer
+      )
+      expect(viewerResult).toMatchObject({
+        ok: true,
+        content: {
+          capabilities: { "beta.1": true, "wiki.manage": false },
+          wikiManagers: null,
+        },
+      })
+      const outsiderResult = await callMiloMcpTool(
+        "my_capabilities",
+        {},
+        outsider
+      )
+      expect(outsiderResult).toMatchObject({
+        ok: true,
+        content: {
+          capabilities: { "beta.1": false, "wiki.manage": false },
+          wikiManagers: null,
+        },
+      })
+      const directoryResult = await callMiloMcpTool(
+        "my_capabilities",
+        {},
+        settings
+      )
+      expect(directoryResult).toMatchObject({
+        ok: true,
+        content: {
+          capabilities: {
+            "permissions.access": true,
+            "advanced-settings.access": true,
+            "ai.settings.access": true,
+          },
+          wikiManagers: expect.arrayContaining([name]),
+        },
+      })
+
+      const wikiPermission = permissions!.find(
+        (permission) => permission.code === "wiki.manage"
+      )!
+      expect(
+        (
+          await admin
+            .from("user_permissions")
+            .delete()
+            .eq("user_id", userId)
+            .eq("permission_id", wikiPermission.id)
+        ).error
+      ).toBeNull()
+      expect(
+        await callMiloMcpTool("my_capabilities", {}, client)
+      ).toMatchObject({ content: { capabilities: { "wiki.manage": false } } })
+      expect(
+        await callMiloMcpTool("my_capabilities", {}, settings)
+      ).toMatchObject({
+        content: { wikiManagers: expect.not.arrayContaining([name]) },
+      })
+    } finally {
+      await admin.auth.admin.deleteUser(userId)
+    }
+  })
+
   it("returns draft chunks and citations only to managers", async () => {
     const permitted = await callMiloMcpTool(
       "knowledge_search",
@@ -139,11 +410,18 @@ dbDescribe("Milo user permission enforcement", () => {
       manager
     )
     expect(permitted.ok).toBe(true)
+    const { data: nodes, error: pathError } = await manager
+      .from("wiki_nodes")
+      .select("id,short_id")
+      .in("id", [parentId, pageId])
+    expect(pathError).toBeNull()
+    const shortId = (id: string) =>
+      nodes?.find((node) => node.id === id)?.short_id
     expect(permitted.sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           title: `${token} Draft SOP`,
-          url: `/wiki/${token}/draft`,
+          url: `/wiki/${shortId(parentId)}/${shortId(pageId)}`,
           snippet: expect.stringContaining("confidential draft steps"),
         }),
         expect.objectContaining({
@@ -159,8 +437,7 @@ dbDescribe("Milo user permission enforcement", () => {
         client
       )
       expect(denied.ok).toBe(true)
-      expect(denied.content).toMatchObject({ rows: [] })
-      expect(denied.sources).toEqual([])
+      expect(ownSources(denied.sources)).toEqual([])
     }
     const { data, error } = await viewer
       .from("knowledge_chunks")
@@ -168,6 +445,60 @@ dbDescribe("Milo user permission enforcement", () => {
       .ilike("content", `%${token}%`)
     expect(error).toBeNull()
     expect(data).toEqual([])
+  })
+
+  it("resolves moved page and asset citations without reindexing", async () => {
+    const newParentId = randomUUID()
+    const { error: insertError } = await admin.from("wiki_nodes").insert({
+      id: newParentId,
+      type: "folder",
+      slug: `moved-${token}`,
+      title: "Moved fixture",
+      status: "published",
+    })
+    expect(insertError).toBeNull()
+    try {
+      const { error: moveError } = await admin
+        .from("wiki_nodes")
+        .update({ parent_id: newParentId })
+        .eq("id", pageId)
+      expect(moveError).toBeNull()
+      const { data: nodes, error: pathError } = await manager
+        .from("wiki_nodes")
+        .select("id,short_id")
+        .in("id", [newParentId, pageId])
+      expect(pathError).toBeNull()
+      const shortId = (id: string) =>
+        nodes?.find((node) => node.id === id)?.short_id
+      const result = await callMiloMcpTool(
+        "knowledge_search",
+        { query: token },
+        manager
+      )
+      expect(result.ok).toBe(true)
+      for (const title of [`${token} Draft SOP`, `${token} Draft asset`]) {
+        expect(result.sources).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              title,
+              url: `/wiki/${shortId(newParentId)}/${shortId(pageId)}`,
+            }),
+          ])
+        )
+      }
+      const denied = await callMiloMcpTool(
+        "knowledge_search",
+        { query: token },
+        viewer
+      )
+      expect(ownSources(denied.sources)).toEqual([])
+    } finally {
+      await admin
+        .from("wiki_nodes")
+        .update({ parent_id: parentId })
+        .eq("id", pageId)
+      await admin.from("wiki_nodes").delete().eq("id", newParentId)
+    }
   })
 
   it("derives viewer folder visibility from published descendants and protects folder status", async () => {
@@ -401,7 +732,7 @@ dbDescribe("Milo user permission enforcement", () => {
       { query: token },
       settings
     )
-    expect(permitted.sources).toEqual([
+    expect(ownSources(permitted.sources)).toEqual([
       expect.objectContaining({
         title: `${token} Admin settings`,
         snippet: expect.stringContaining("permission management instructions"),
@@ -431,12 +762,16 @@ dbDescribe("Milo user permission enforcement", () => {
       ).error
     ).toBeNull()
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
+          .sources
+      )
     ).toHaveLength(2)
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, outsider))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, outsider))
+          .sources
+      )
     ).toEqual([])
     expect(
       (
@@ -447,8 +782,10 @@ dbDescribe("Milo user permission enforcement", () => {
       ).error
     ).toBeNull()
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
+          .sources
+      )
     ).toHaveLength(2)
     expect(
       (
@@ -459,8 +796,10 @@ dbDescribe("Milo user permission enforcement", () => {
       ).error
     ).toBeNull()
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, viewer))
+          .sources
+      )
     ).toEqual([])
     expect(
       (
@@ -472,8 +811,10 @@ dbDescribe("Milo user permission enforcement", () => {
       ).ok
     ).toBe(false)
     expect(
-      (await callMiloMcpTool("knowledge_search", { query: token }, manager))
-        .sources
+      ownSources(
+        (await callMiloMcpTool("knowledge_search", { query: token }, manager))
+          .sources
+      )
     ).toEqual([])
   })
   it("allows current public source classes but retains site route gates", async () => {

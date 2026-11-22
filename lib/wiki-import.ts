@@ -1,9 +1,7 @@
 import "server-only"
 
 import crypto from "node:crypto"
-// jsdom is a server dependency without bundled declarations.
-// @ts-expect-error jsdom does not publish TypeScript declarations.
-import { JSDOM } from "jsdom"
+import { createRequire } from "node:module"
 
 import type { WikiPdfLine } from "@/lib/wiki-extract"
 
@@ -304,16 +302,19 @@ export function buildWikiImportPrompt({
   fileName,
   structureHints = "",
   existingText = "",
+  instructions = "",
 }: {
   text: string
   fileName: string
   structureHints?: string
   existingText?: string
+  instructions?: string
 }) {
   const updateInstructions = existingText
     ? `
 This is an update to an existing page. Return one complete, merged page:
-- Keep the existing page material unless the incoming source explicitly supersedes it.
+- Follow the user's requested changes, including replacements and removals. Do not add the instructions themselves to the page.
+- Keep the existing page material unless the incoming source or user instructions explicitly supersede it.
 - Apply incoming additions and corrections in the relevant existing section when clear; otherwise add them under an appropriate section.
 - Do not drop existing instructions, warnings, numbers, or other material simply because it was not repeated in the incoming source.
 
@@ -356,11 +357,19 @@ ${structureHints ? `Detected PDF layout hints (follow these only to format the s
 
 ${updateInstructions}
 
-Source text:
-${text}`
+${
+  instructions
+    ? `User instructions (apply these; do not reproduce them as page content):
+${instructions}
+`
+    : ""
 }
 
-function comparableTokens(value: string) {
+Source text:
+${existingText && instructions === text ? "(Use the user's instructions above.)" : text}`
+}
+
+function comparableTokens(value: string): string[] {
   // Fidelity is about retaining content, not preserving display casing. This
   // lets all-caps headings be title-cased without triggering the fallback.
   return value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
@@ -390,6 +399,252 @@ export function isFaithfulWikiImportOutput(
   }
 
   return true
+}
+
+/** Find a uniquely named heading and its blocks for an explicit section removal. */
+export function requestedWikiSectionRemoval(
+  blocks: unknown,
+  instructions: string
+) {
+  if (!Array.isArray(blocks)) return ""
+  const match = instructions.match(
+    /\b(?:remove|delete)\s+(?:the\s+)?section\s+(?:about|on|titled|called)\s+["'“”]?([^.!?\n]+?)["'“”]?(?:[.!?]|$)/i
+  )
+  if (!match) return ""
+  const target = match[1]
+    .trim()
+    .replace(/^["'“”]|["'“”]$/g, "")
+    .toLowerCase()
+  const headings = blocks
+    .map((block, index) => ({ block, index }))
+    .filter(
+      ({ block }) =>
+        block &&
+        typeof block === "object" &&
+        block.type === "heading" &&
+        blockNoteToPlainText([block]).toLowerCase() === target
+    )
+  if (headings.length !== 1) return ""
+  const { block, index } = headings[0]
+  const level = typeof block.props?.level === "number" ? block.props.level : 1
+  let end = index + 1
+  while (end < blocks.length) {
+    const next = blocks[end]
+    if (next?.type === "heading" && (next.props?.level ?? 1) <= level) break
+    end++
+  }
+  return blockNoteToPlainText(blocks.slice(index, end))
+}
+
+export function preserveWikiUpdateBlocks(
+  existingBlocks: unknown,
+  updatedBlocks: Array<Record<string, unknown>>,
+  authorizedRemoval = ""
+) {
+  if (!Array.isArray(existingBlocks)) return updatedBlocks
+  const unused = [...existingBlocks]
+  const removedBlocks: unknown[] = []
+  if (authorizedRemoval) {
+    const heading = authorizedRemoval.split("\n")[0]
+    const start = existingBlocks.findIndex(
+      (block) =>
+        block?.type === "heading" && blockNoteToPlainText([block]) === heading
+    )
+    if (start >= 0) {
+      const level = existingBlocks[start].props?.level ?? 1
+      let end = start + 1
+      while (
+        end < existingBlocks.length &&
+        !(
+          existingBlocks[end]?.type === "heading" &&
+          (existingBlocks[end].props?.level ?? 1) <= level
+        )
+      )
+        end++
+      removedBlocks.push(...existingBlocks.slice(start, end))
+    }
+  }
+  const result = updatedBlocks.map((block) => {
+    const text = blockNoteToPlainText([block])
+    const index = unused.findIndex(
+      (old) =>
+        text && blockNoteToPlainText([old]) === text && old?.type === block.type
+    )
+    if (index < 0) return block
+    return unused.splice(index, 1)[0] as Record<string, unknown>
+  })
+  const mediaTypes = ["image", "video", "audio", "file", "embed"]
+  for (const block of unused) {
+    const text = blockNoteToPlainText([block])
+    if (removedBlocks.includes(block)) continue
+    if (mediaTypes.includes(block?.type) && !text) {
+      const originalIndex = existingBlocks.indexOf(block)
+      let insertion = -1
+      for (let i = originalIndex - 1; i >= 0; i--) {
+        const previous = result.indexOf(existingBlocks[i])
+        if (previous >= 0) {
+          insertion = previous + 1
+          break
+        }
+      }
+      if (insertion < 0) {
+        for (let i = originalIndex + 1; i < existingBlocks.length; i++) {
+          const next = result.indexOf(existingBlocks[i])
+          if (next >= 0) {
+            insertion = next
+            break
+          }
+        }
+      }
+      result.splice(insertion < 0 ? result.length : insertion, 0, block)
+      continue
+    }
+    const simple = [
+      "paragraph",
+      "heading",
+      "bulletListItem",
+      "numberedListItem",
+      "checkListItem",
+    ]
+    if (
+      !simple.includes(block?.type) ||
+      JSON.stringify(block).includes('"type":"link"') ||
+      /"styles":\{(?!\})/.test(JSON.stringify(block)) ||
+      (Array.isArray(block?.children) && block.children.length)
+    )
+      return null
+  }
+  return result
+}
+
+/** Accept a replaced line only when the confirmed source supplies a closely
+ * matching replacement. Everything else still has to survive the update. */
+export function isFaithfulWikiUpdate(
+  existing: string,
+  markdown: string,
+  source: string,
+  title = "",
+  authorizedRemoval = ""
+) {
+  // Every output word must be grounded in the page or the user's input.
+  // Count occurrences so repeating a real word cannot invent a new fact.
+  if (!isFaithfulWikiImportOutput(markdown, `${existing}\n${source}`))
+    return false
+
+  let required = existing
+  if (authorizedRemoval && required.includes(authorizedRemoval)) {
+    const heading = authorizedRemoval.split("\n")[0].trim().toLowerCase()
+    if (
+      markdown.split("\n").some(
+        (line) =>
+          line
+            .replace(/^\s*#+\s*/, "")
+            .trim()
+            .toLowerCase() === heading
+      )
+    )
+      return false
+    required = required.replace(authorizedRemoval, "")
+  }
+  const change = source.match(
+    /\b(?:change|replace)\s+(?:.+?\s+from\s+)?["'“”]?(.+?)["'“”]?\s+(?:to|with)\s+["'“”]?(.+?)["'“”]?(?:[.!?]|$)/i
+  )
+  if (change) {
+    const before = change[1].trim().replace(/^["'“”]|["'“”]$/g, "")
+    const after = change[2].trim().replace(/^["'“”]|["'“”]$/g, "")
+    const oldText = required.toLowerCase()
+    const newText = markdown.toLowerCase()
+    const occurrences = (value: string, phrase: string) =>
+      value.split(phrase).length - 1
+    if (
+      !before ||
+      !after ||
+      !oldText.includes(before.toLowerCase()) ||
+      !isFaithfulWikiImportOutput(after, markdown)
+    )
+      return false
+    if (
+      occurrences(newText, before.toLowerCase()) <
+      occurrences(oldText, before.toLowerCase())
+    ) {
+      const index = oldText.indexOf(before.toLowerCase())
+      required =
+        required.slice(0, index) + required.slice(index + before.length)
+    } else {
+      // The instruction may name the subject rather than the old value.
+      const oldLines = required
+        .split(/\n+/)
+        .filter((line) => line.toLowerCase().includes(before.toLowerCase()))
+      const newLines = markdown
+        .split(/\n+/)
+        .filter(
+          (line) =>
+            line.toLowerCase().includes(before.toLowerCase()) &&
+            isFaithfulWikiImportOutput(after, line)
+        )
+      if (oldLines.length !== 1 || newLines.length !== 1) return false
+      const oldLine = oldLines[0]
+      const available = comparableTokens(newLines[0])
+      const removed: Array<{ index: number; length: number }> = []
+      let common = 0
+      for (const token of oldLine.matchAll(/[\p{L}\p{N}]+/gu)) {
+        const index = available.indexOf(token[0].toLowerCase())
+        if (index < 0)
+          removed.push({ index: token.index, length: token[0].length })
+        else {
+          common++
+          available.splice(index, 1)
+        }
+      }
+      if (common < 3 || !removed.length || removed.length > 2) return false
+      let retainedLine = oldLine
+      for (const token of removed.reverse())
+        retainedLine =
+          retainedLine.slice(0, token.index) +
+          retainedLine.slice(token.index + token.length)
+      required = required.replace(oldLine, retainedLine)
+    }
+  }
+  if (isFaithfulWikiImportOutput(required, markdown, title)) return true
+  const incoming = source
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const retained: string[] = []
+  for (const line of required
+    .split(/\n+/)
+    .map((value) => value.trim())
+    .filter(Boolean)) {
+    if (isFaithfulWikiImportOutput(line, markdown, title)) {
+      retained.push(line)
+      continue
+    }
+    const oldWords = comparableTokens(line)
+    const replaced = incoming.some((fact) => {
+      const newWords = comparableTokens(fact)
+      const remaining = [...newWords]
+      let common = 0
+      for (const word of oldWords) {
+        const index = remaining.indexOf(word)
+        if (index >= 0) {
+          common++
+          remaining.splice(index, 1)
+        }
+      }
+      const removed = oldWords.length - common
+      return (
+        common >= 3 &&
+        removed > 0 &&
+        removed <= 2 &&
+        remaining.length >= removed &&
+        remaining.length <= removed + 1 &&
+        common / Math.max(oldWords.length, newWords.length) >= 0.6 &&
+        isFaithfulWikiImportOutput(fact, markdown, title)
+      )
+    })
+    if (!replaced) return false
+  }
+  return isFaithfulWikiImportOutput(retained.join("\n"), markdown, title)
 }
 
 type WikiImportInlineContent = string | Array<Record<string, unknown>>
@@ -677,6 +932,13 @@ function docxTableBlock(table: Element): WikiImportBlock {
   }
 }
 
+function createWikiImportDocument(html: string): Document {
+  const { JSDOM } = createRequire(import.meta.url)("jsdom") as {
+    JSDOM: new (html: string) => { window: { document: Document } }
+  }
+  return new JSDOM(`<body>${html}</body>`).window.document
+}
+
 /** Convert Mammoth's deterministic DOCX HTML into the app's BlockNote JSON. */
 export function docxHtmlToWikiImportBlocks({
   html,
@@ -687,7 +949,7 @@ export function docxHtmlToWikiImportBlocks({
   imageUrls?: Map<string, string>
   title?: string
 }) {
-  const document = new JSDOM(`<body>${html}</body>`).window.document
+  const document = createWikiImportDocument(html)
   const blocks: WikiImportBlock[] = []
   let sawTitle = false
 
@@ -795,7 +1057,7 @@ export function createWikiDocxImportDraft({
   fileName: string
   imageUrls: Map<string, string>
 }): WikiImportDraft {
-  const document = new JSDOM(`<body>${html}</body>`).window.document
+  const document = createWikiImportDocument(html)
   const titleElement = [...document.body.children].find((element) => {
     const tag = element.tagName.toLowerCase()
     const value = normalizeImportLine(element.textContent ?? "")
@@ -1456,10 +1718,12 @@ export function createWikiImportDraft({
   aiOutput,
   pdfPages,
   imageUrls = [],
+  validatedUpdate = false,
 }: {
   text: string
   fileName: string
   aiOutput?: WikiImportAiOutput | null
+  validatedUpdate?: boolean
   pdfPages?: WikiPdfLine[][]
   imageUrls?: string[]
 }): WikiImportDraft {
@@ -1493,8 +1757,13 @@ export function createWikiImportDraft({
       : "")
   const usedAi = Boolean(
     suggestedMarkdown &&
-    isFaithfulWikiImportOutput(plainText, suggestedMarkdown, suggestedTitle) &&
-    hasRequiredImportStructure(plainText, suggestedMarkdown)
+    (validatedUpdate ||
+      (isFaithfulWikiImportOutput(
+        plainText,
+        suggestedMarkdown,
+        suggestedTitle
+      ) &&
+        hasRequiredImportStructure(plainText, suggestedMarkdown)))
   )
   // Positioned PDF extraction is already a faithful structural conversion;
   // retain it rather than letting a model flatten known headings or columns.

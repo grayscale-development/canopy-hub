@@ -50,12 +50,14 @@ function sortLabel(direction: SortDirection) {
 }
 
 export function PermissionsTable({
+  view,
   permissions,
   permissionUsers,
   permissionDirectoryUsers,
   permissionRequests,
   permissionRequestsLoadError = null,
 }: {
+  view?: "permissions" | "requests"
   permissions: Permission[]
   permissionUsers: PermissionUser[]
   permissionDirectoryUsers: PermissionDirectoryUser[]
@@ -64,9 +66,10 @@ export function PermissionsTable({
 }) {
   const pageSize = 50
   const router = useRouter()
-  const [activeTab, setActiveTab] = React.useState<"permissions" | "requests">(
+  const [dialogTab, setDialogTab] = React.useState<"permissions" | "requests">(
     "permissions"
   )
+  const activeTab = view ?? dialogTab
   const [query, setQuery] = React.useState("")
   const [areaFilter, setAreaFilter] = React.useState("all")
   const [sortKey, setSortKey] = React.useState<SortKey>("name")
@@ -453,35 +456,37 @@ export function PermissionsTable({
 
   return (
     <>
-      <div className="mb-3 inline-flex rounded-lg border bg-card p-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab("permissions")}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-            activeTab === "permissions"
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Permissions
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("requests")}
-          className={cn(
-            "relative rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-            activeTab === "requests"
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Requests
-          {pendingPermissionRequests.length ? (
-            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
-          ) : null}
-        </button>
-      </div>
+      {!view && (
+        <div className="mb-3 inline-flex rounded-lg border bg-card p-1">
+          <button
+            type="button"
+            onClick={() => setDialogTab("permissions")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              activeTab === "permissions"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Permissions
+          </button>
+          <button
+            type="button"
+            onClick={() => setDialogTab("requests")}
+            className={cn(
+              "relative rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              activeTab === "requests"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Requests
+            {pendingPermissionRequests.length ? (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
+            ) : null}
+          </button>
+        </div>
+      )}
 
       {activeTab === "permissions" ? (
         <div className="min-w-0 rounded-xl border bg-card p-4 text-card-foreground">
@@ -517,7 +522,7 @@ export function PermissionsTable({
             </div>
           </div>
 
-          <div className="mt-4 overflow-hidden rounded-lg border">
+          <div className="mt-4 min-w-0 overflow-hidden rounded-lg border">
             <div className="max-w-full overflow-x-auto">
               <table className="w-full min-w-[560px] border-collapse">
                 <thead className="bg-muted/40">
@@ -619,12 +624,6 @@ export function PermissionsTable({
       ) : (
         <div className="min-w-0 rounded-xl border bg-card p-4 text-card-foreground">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold">Permission Requests</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Review pending access requests and completed decisions.
-              </p>
-            </div>
             <div className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
               {pendingPermissionRequests.length} pending
             </div>
@@ -639,7 +638,7 @@ export function PermissionsTable({
               {permissionRequestsLoadError}
             </p>
           ) : null}
-          <div className="mt-4 overflow-hidden rounded-lg border">
+          <div className="mt-4 min-w-0 overflow-hidden rounded-lg border">
             <div className="max-w-full overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse">
                 <thead className="bg-muted/40">

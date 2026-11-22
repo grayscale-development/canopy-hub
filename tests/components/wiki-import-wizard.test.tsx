@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -122,21 +128,23 @@ describe("WikiImportWizardDialog", () => {
 
     expect(screen.getByRole("heading", { name: "AI Update" })).toBeVisible()
     expect(screen.queryByLabelText("Add to")).not.toBeInTheDocument()
-    const addChoice = screen.getByRole("radio", { name: "Add to this page" })
-    const replaceChoice = screen.getByRole("radio", {
-      name: "Replace this page",
-    })
-    expect(addChoice).toBeChecked()
-    expect(replaceChoice).not.toBeChecked()
     expect(
-      screen.getByText("Choose a file or paste text to continue.")
-    ).toBeVisible()
+      screen.queryByText("Choose a file or paste text to continue.")
+    ).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Attach file" })
+    ).toHaveAccessibleDescription(/PDF/)
+    await user.click(screen.getByText("More options"))
+    const replaceChoice = screen.getByRole("checkbox", {
+      name: "Replace the whole page",
+    })
+    expect(replaceChoice).not.toBeChecked()
     expect(
       screen.getByRole("button", { name: "Review changes" })
     ).toBeDisabled()
 
     await user.type(
-      screen.getByRole("textbox", { name: "Paste text" }),
+      screen.getByRole("textbox", { name: "What should change?" }),
       "Apply this guidance"
     )
     await user.click(replaceChoice)
@@ -192,6 +200,7 @@ describe("WikiImportWizardDialog", () => {
         nodes={[
           {
             id: "reports",
+            short_id: 1,
             parent_id: null,
             type: "folder",
             slug: "reports",
@@ -273,9 +282,16 @@ describe("WikiImportWizardDialog", () => {
     )
     expect(screen.getByText(/notes.txt/)).toHaveTextContent("5 bytes")
     expect(
-      screen.getByText("Remove the file to paste text instead.")
+      screen.getByRole("textbox", { name: "What should change?" })
     ).toBeVisible()
+    await user.type(
+      screen.getByRole("textbox", { name: "What should change?" }),
+      "Use this file to update the page"
+    )
     await user.click(screen.getByRole("button", { name: "Review changes" }))
+    const previewBody = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    expect(previewBody.get("text")).toBe("Use this file to update the page")
+    expect(previewBody.get("file")).toBeInstanceOf(File)
     await screen.findByRole("heading", { name: "Page after update" })
     await user.click(
       screen.getByRole("button", { name: "Save as new version" })
@@ -290,6 +306,29 @@ describe("WikiImportWizardDialog", () => {
     expect(applyBody.get("signed_preview")).toBe("signed-file")
     expect(applyBody.get("preview_signature")).toBe("sig-file")
     expect(applyBody.get("file")).toBeInstanceOf(File)
+  })
+
+  it("accepts a dropped update file and removes it again", async () => {
+    const user = userEvent.setup()
+    render(
+      <WikiImportWizardDialog
+        nodes={[]}
+        targetPageId="page"
+        triggerLabel="AI Update"
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "AI Update" }))
+    const dialog = screen.getByRole("dialog")
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" })
+    fireEvent.drop(dialog, {
+      dataTransfer: { files: { length: 1, item: () => file } },
+    })
+    expect(screen.getByText(/notes.txt/)).toBeVisible()
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: "Remove notes.txt" }))
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toBeDisabled()
   })
 
   it("leaves the page untouched when the review is cancelled", async () => {
@@ -319,7 +358,7 @@ describe("WikiImportWizardDialog", () => {
     )
     await user.click(screen.getByRole("button", { name: "AI Update" }))
     await user.type(
-      screen.getByRole("textbox", { name: "Paste text" }),
+      screen.getByRole("textbox", { name: "What should change?" }),
       "Reviewed guidance."
     )
     await user.click(screen.getByRole("button", { name: "Review changes" }))
@@ -338,8 +377,8 @@ describe("WikiImportWizardDialog", () => {
     ) as HTMLInputElement
     const file = new File(["notes"], "notes.txt", { type: "text/plain" })
     await user.upload(input, file)
-    expect(screen.getByRole("textbox", { name: "Paste text" })).toBeDisabled()
-    await user.click(screen.getByRole("button", { name: "Remove" }))
+    expect(screen.getByRole("textbox", { name: "Paste text" })).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: "Remove notes.txt" }))
     expect(screen.getByRole("textbox", { name: "Paste text" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "Create draft" })).toBeDisabled()
     await user.upload(input, file)
@@ -362,7 +401,7 @@ describe("WikiImportWizardDialog", () => {
     )
     await user.click(screen.getByRole("button", { name: "AI Update" }))
     await user.type(
-      screen.getByRole("textbox", { name: "Paste text" }),
+      screen.getByRole("textbox", { name: "What should change?" }),
       "Notes"
     )
     await user.click(screen.getByRole("button", { name: "Review changes" }))
@@ -389,14 +428,16 @@ describe("WikiImportWizardDialog", () => {
     )
     await user.click(screen.getByRole("button", { name: "AI Update" }))
     await user.type(
-      screen.getByRole("textbox", { name: "Paste text" }),
+      screen.getByRole("textbox", { name: "What should change?" }),
       "Notes"
     )
     await user.click(screen.getByRole("button", { name: "Review changes" }))
     expect(
       screen.getByRole("button", { name: "Reading the page…" })
     ).toBeDisabled()
-    expect(screen.getByRole("textbox", { name: "Paste text" })).toBeDisabled()
+    expect(
+      screen.getByRole("textbox", { name: "What should change?" })
+    ).toBeDisabled()
     await user.keyboard("{Escape}")
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     resolveRequest(
@@ -479,9 +520,12 @@ describe("WikiImportWizardDialog", () => {
     )
     await user.click(screen.getByRole("button", { name: "AI Update" }))
     expect(
-      screen.getByRole("button", { name: /Drop a file here/ })
+      screen.getByRole("textbox", { name: "What should change?" })
     ).toHaveFocus()
-    await user.type(screen.getByRole("textbox", { name: "Paste text" }), "New")
+    await user.type(
+      screen.getByRole("textbox", { name: "What should change?" }),
+      "New"
+    )
     await user.click(screen.getByRole("button", { name: "Review changes" }))
     await user.click(
       await screen.findByRole("button", { name: "Save as new version" })

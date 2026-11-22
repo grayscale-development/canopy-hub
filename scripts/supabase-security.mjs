@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url"
 
 const serviceOnlyRlsTables = new Set([
+  "public.ai_action_log",
   "public.allowed_domains",
   "public.source_configs",
   "raw.retention_cleanup_runs",
@@ -10,7 +11,19 @@ const serviceOnlyRlsTables = new Set([
   "raw.sync_runs",
 ])
 
+// Signed-in users may call these SECURITY DEFINER functions by design: each
+// checks auth.uid() and permissions itself and writes only an audit row.
+const userCallableDefinerFunctions = new Set(["public.log_user_ai_action"])
+
 function isAcceptedFinding(finding) {
+  if (
+    finding.name === "authenticated_security_definer_function_executable" &&
+    finding.level === "WARN" &&
+    userCallableDefinerFunctions.has(
+      `${finding.metadata?.schema}.${finding.metadata?.name}`
+    )
+  )
+    return true
   if (
     finding.name === "extension_in_public" &&
     finding.level === "WARN" &&

@@ -43,6 +43,30 @@ async function signIn(email: string) {
   return supabase
 }
 
+async function createMiloManager(admin: SupabaseClient) {
+  const email = `milo-${crypto.randomUUID()}@canopy.test`
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password: TEST_PASSWORD,
+    email_confirm: true,
+  })
+  if (error || !data.user) throw error ?? new Error("Unable to create manager")
+  const permissions = await admin
+    .from("permissions")
+    .select("id")
+    .in("code", ["beta.1", "wiki.manage"])
+  if (permissions.error || permissions.data.length !== 2)
+    throw permissions.error ?? new Error("Missing permissions")
+  const granted = await admin.from("user_permissions").insert(
+    permissions.data.map((permission) => ({
+      user_id: data.user.id,
+      permission_id: permission.id,
+    }))
+  )
+  if (granted.error) throw granted.error
+  return signIn(email)
+}
+
 async function createPage(
   supabase: SupabaseClient,
   parentId: string,
@@ -268,5 +292,371 @@ dbDescribe("apply_wiki_reviewed_revision", { timeout: 20_000 }, () => {
       .select("id", { count: "exact", head: true })
       .eq("node_id", target.id)
     expect(count).toBe(3)
+  })
+
+  it("binds Milo approval to the owner and retained proposal, and undoes as a new revision", async () => {
+    const outsider = await signIn("standard@canopy.test")
+    const admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    )
+    const manager = await createMiloManager(admin)
+    const otherManager = await createMiloManager(admin)
+    const {
+      data: { user },
+    } = await manager.auth.getUser()
+    const { data: parent } = await manager
+      .from("wiki_nodes")
+      .select("id")
+      .eq("slug", "closing")
+      .single()
+    const target = await createPage(
+      manager,
+      parent!.id,
+      `milo-apply-${crypto.randomUUID()}`,
+      "Original policy."
+    )
+    expect(
+      (
+        await manager
+          .from("wiki_nodes")
+          .update({ status: "draft" })
+          .eq("id", target.id)
+      ).error
+    ).toBeNull()
+    const { data: thread } = await manager
+      .from("ai_chat_threads")
+      .insert({ user_id: user!.id, title: "Milo fixture" })
+      .select("id")
+      .single()
+    const card = {
+      type: "proposed-edit",
+      id: "proposed-edit",
+      pageId: target.id,
+      pageTitle: "Policy",
+      baseRevisionId: target.revisionId,
+      before: "Original policy.",
+      after: "Updated policy.",
+      blocks: [{ type: "paragraph", content: "Updated policy." }],
+      plain_text: "Updated policy.",
+      changeNote: "Updated from email",
+      summary: "Updated policy.",
+    }
+    const { data: message } = await manager
+      .from("ai_chat_messages")
+      .insert({
+        thread_id: thread!.id,
+        user_id: user!.id,
+        role: "assistant",
+        content: "Review",
+        metadata: { cards: [card] },
+      })
+      .select("id")
+      .single()
+    const inserted = await admin.from("milo_edit_proposals").insert({
+      thread_id: thread!.id,
+      message_id: message!.id,
+      user_id: user!.id,
+      node_id: target.id,
+      base_revision_id: target.revisionId,
+      card,
+      edit_state: {},
+    })
+    expect(inserted.error).toBeNull()
+    const args = {
+      p_thread_id: thread!.id,
+      p_message_id: message!.id,
+      p_card_id: card.id,
+      p_action: "approve",
+      p_page_url: "/wiki/1/2",
+    }
+    expect(
+      (await outsider.rpc("apply_milo_edit", args)).error?.message
+    ).toMatch(/forbidden/)
+    expect(
+      (await otherManager.rpc("apply_milo_edit", args)).error?.message
+    ).toMatch(/proposal_not_found/)
+    for (const forged of [
+      { ...card, pageId: crypto.randomUUID() },
+      { ...card, blocks: [{ type: "paragraph", content: "Forged" }] },
+    ]) {
+      await manager
+        .from("ai_chat_messages")
+        .update({ metadata: { cards: [forged] } })
+        .eq("id", message!.id)
+      expect(
+        (await manager.rpc("apply_milo_edit", args)).error?.message
+      ).toMatch(/proposal_changed/)
+    }
+    await manager
+      .from("ai_chat_messages")
+      .update({ metadata: { cards: [card] } })
+      .eq("id", message!.id)
+    expect(
+      (
+        await manager
+          .from("wiki_nodes")
+          .update({ status: "archived" })
+          .eq("id", target.id)
+      ).error
+    ).toBeNull()
+    expect((await manager.rpc("apply_milo_edit", args)).error?.message).toMatch(
+      /page_unavailable/
+    )
+    expect(
+      (
+        await manager
+          .from("wiki_nodes")
+          .update({ status: "draft" })
+          .eq("id", target.id)
+      ).error
+    ).toBeNull()
+    const applied = await manager.rpc("apply_milo_edit", args)
+    expect(applied.error).toBeNull()
+    expect(applied.data).toMatchObject({
+      type: "applied-edit",
+      undoAvailable: true,
+    })
+    const { data: appliedNode } = await manager
+      .from("wiki_nodes")
+      .select("current_revision_id,status")
+      .eq("id", target.id)
+      .single()
+    expect(appliedNode!.status).toBe("draft")
+    const { data: newRevision } = await manager
+      .from("wiki_page_revisions")
+      .select("created_by,plain_text,change_note")
+      .eq("id", appliedNode!.current_revision_id)
+      .single()
+    expect(newRevision).toMatchObject({
+      created_by: user!.id,
+      plain_text: "Updated policy.",
+      change_note: "Updated from email",
+    })
+    const undone = await manager.rpc("apply_milo_edit", {
+      ...args,
+      p_action: "undo",
+    })
+    expect(undone.error).toBeNull()
+    expect(undone.data).toMatchObject({ undone: true, undoAvailable: false })
+    const { data: node } = await manager
+      .from("wiki_nodes")
+      .select("current_revision_id")
+      .eq("id", target.id)
+      .single()
+    expect(node!.current_revision_id).not.toBe(target.revisionId)
+    const { data: restored } = await manager
+      .from("wiki_page_revisions")
+      .select("plain_text,created_by,change_note")
+      .eq("id", node!.current_revision_id)
+      .single()
+    expect(restored).toMatchObject({
+      plain_text: "Original policy.",
+      created_by: user!.id,
+      change_note: expect.stringMatching(/^Restored from/),
+    })
+    expect(
+      (await manager.rpc("apply_milo_edit", { ...args, p_action: "undo" }))
+        .error?.message
+    ).toMatch(/undo_unavailable/)
+    const { data: audit } = await manager
+      .from("milo_edit_audit")
+      .select(
+        "thread_id,message_id,user_id,node_id,base_revision_id,new_revision_id,action"
+      )
+      .eq("message_id", message!.id)
+      .order("created_at")
+    expect(audit).toEqual([
+      {
+        thread_id: thread!.id,
+        message_id: message!.id,
+        user_id: user!.id,
+        node_id: target.id,
+        base_revision_id: target.revisionId,
+        new_revision_id: appliedNode!.current_revision_id,
+        action: "approve",
+      },
+      {
+        thread_id: thread!.id,
+        message_id: message!.id,
+        user_id: user!.id,
+        node_id: target.id,
+        base_revision_id: appliedNode!.current_revision_id,
+        new_revision_id: node!.current_revision_id,
+        action: "undo",
+      },
+    ])
+    const forgedAudit = await admin
+      .from("milo_edit_audit")
+      .insert({
+        thread_id: thread!.id,
+        message_id: message!.id,
+        user_id: user!.id,
+        node_id: target.id,
+        base_revision_id: target.revisionId,
+        new_revision_id: node!.current_revision_id,
+        action: "approve",
+      })
+    expect(forgedAudit.error).not.toBeNull()
+    expect(
+      (
+        await outsider
+          .from("milo_edit_audit")
+          .select("id")
+          .eq("message_id", message!.id)
+      ).data
+    ).toEqual([])
+    expect(
+      (await manager.from("milo_edit_proposals").select("message_id")).error
+    ).not.toBeNull()
+  })
+
+  it("rejects stale Milo approvals and undo without partial revisions or audit entries", async () => {
+    const admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    )
+    const manager = await createMiloManager(admin)
+    const {
+      data: { user },
+    } = await manager.auth.getUser()
+    const { data: parent } = await manager
+      .from("wiki_nodes")
+      .select("id")
+      .eq("slug", "closing")
+      .single()
+    const target = await createPage(
+      manager,
+      parent!.id,
+      `milo-stale-${crypto.randomUUID()}`,
+      "Start"
+    )
+    const { data: thread } = await manager
+      .from("ai_chat_threads")
+      .insert({ user_id: user!.id, title: "Stale fixture" })
+      .select("id")
+      .single()
+    const card = {
+      type: "proposed-edit",
+      id: "edit",
+      pageId: target.id,
+      pageTitle: "Policy",
+      baseRevisionId: target.revisionId,
+      before: "Start",
+      after: "Proposed",
+      blocks: [{ type: "paragraph", content: "Proposed" }],
+      plain_text: "Proposed",
+      changeNote: "Milo",
+    }
+    const { data: message } = await manager
+      .from("ai_chat_messages")
+      .insert({
+        thread_id: thread!.id,
+        user_id: user!.id,
+        role: "assistant",
+        content: "Review",
+        metadata: { cards: [card] },
+      })
+      .select("id")
+      .single()
+    expect(
+      (
+        await admin.from("milo_edit_proposals").insert({
+          thread_id: thread!.id,
+          message_id: message!.id,
+          user_id: user!.id,
+          node_id: target.id,
+          base_revision_id: target.revisionId,
+          card,
+          edit_state: {},
+        })
+      ).error
+    ).toBeNull()
+    const args = {
+      p_thread_id: thread!.id,
+      p_message_id: message!.id,
+      p_card_id: card.id,
+      p_action: "approve",
+      p_page_url: "/wiki/1/2",
+    }
+    const manual = await manager.rpc("apply_wiki_reviewed_revision", {
+      p_target_id: target.id,
+      p_base_revision_id: target.revisionId,
+      p_blocks: [{ type: "paragraph", content: "Later" }],
+      p_plain_text: "Later",
+      p_change_note: "Manual",
+      p_source_id: null,
+      p_source_base_revision_id: null,
+    })
+    expect(manual.error).toBeNull()
+    expect((await manager.rpc("apply_milo_edit", args)).error?.message).toMatch(
+      /stale_revision/
+    )
+    expect(
+      (
+        await manager
+          .from("wiki_page_revisions")
+          .select("id", { count: "exact", head: true })
+          .eq("node_id", target.id)
+      ).count
+    ).toBe(3)
+    expect(
+      (
+        await manager
+          .from("milo_edit_audit")
+          .select("id")
+          .eq("message_id", message!.id)
+      ).data
+    ).toEqual([])
+    const fresh = { ...card, baseRevisionId: manual.data }
+    await admin
+      .from("milo_edit_proposals")
+      .update({ base_revision_id: manual.data, card: fresh })
+      .eq("message_id", message!.id)
+    await manager
+      .from("ai_chat_messages")
+      .update({ metadata: { cards: [fresh] } })
+      .eq("id", message!.id)
+    expect((await manager.rpc("apply_milo_edit", args)).error).toBeNull()
+    const { data: appliedNode } = await manager
+      .from("wiki_nodes")
+      .select("current_revision_id")
+      .eq("id", target.id)
+      .single()
+    expect(
+      (
+        await manager.rpc("apply_wiki_reviewed_revision", {
+          p_target_id: target.id,
+          p_base_revision_id: appliedNode!.current_revision_id,
+          p_blocks: [],
+          p_plain_text: "Another edit",
+          p_change_note: "Later",
+          p_source_id: null,
+          p_source_base_revision_id: null,
+        })
+      ).error
+    ).toBeNull()
+    expect(
+      (await manager.rpc("apply_milo_edit", { ...args, p_action: "undo" }))
+        .error?.message
+    ).toMatch(/stale_revision/)
+    expect(
+      (
+        await manager
+          .from("milo_edit_audit")
+          .select("id")
+          .eq("message_id", message!.id)
+      ).data
+    ).toHaveLength(1)
+    expect(
+      (
+        await manager
+          .from("wiki_page_revisions")
+          .select("id", { count: "exact", head: true })
+          .eq("node_id", target.id)
+      ).count
+    ).toBe(5)
   })
 })

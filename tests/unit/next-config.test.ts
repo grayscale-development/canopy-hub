@@ -6,4 +6,12 @@ describe("Next configuration", () => {
 
     expect(nextConfig.experimental?.serverActions?.bodySizeLimit).toBe("260mb")
   })
+
+  it("keeps jsdom external so the server runtime can load its ESM dependencies", async () => {
+    const { default: nextConfig } = await import("../../next.config.mjs")
+
+    expect(nextConfig.serverExternalPackages).toEqual(
+      expect.arrayContaining(["pdf-parse", "jsdom"])
+    )
+  })
 })

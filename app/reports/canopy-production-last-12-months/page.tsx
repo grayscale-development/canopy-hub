@@ -85,7 +85,7 @@ export default async function CanopyProductionLast12MonthsViewPage() {
             labels={productionSeries.labels}
             monthlyFundedCounts={productionSeries.monthlyFundedCounts}
             monthlyFundedVolumes={productionSeries.monthlyFundedVolumes}
-            className="!aspect-auto h-full w-full"
+            className="!aspect-auto h-[min(50vh,400px)] w-full md:h-full"
           />
         </section>
       </div>

@@ -1,0 +1,260 @@
+import { wikiHeadingAnchor } from "@/lib/wiki-heading-anchor"
+import { inlineCitations } from "@/lib/milo/inline-citations"
+
+const STOP = new Set(
+  "a an and are as at be by can could do does for from how i in is it me of on or please should that the their this to was what when where which who will with would you your find tell about page wiki company".split(
+    " "
+  )
+)
+// Only a bare heading line counts, e.g. "In short:" or "**Overall takeaway**".
+const RECAP_HEADING =
+  /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:in short|in summary|summary|overall(?: takeaway)?|key takeaways?|takeaways?|bottom line|tl;?dr)\s*:?\s*(?:\*\*)?\s*:?\s*$/i
+const RETRIEVAL_FILLER = new Set([
+  "everything",
+  "summarize",
+  "summarise",
+  "summary",
+  "detail",
+  "details",
+  "step",
+  "steps",
+])
+const terms = (text: string) => [
+  ...new Set(
+    (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
+      (word) => word.length > 2 && !STOP.has(word)
+    )
+  ),
+]
+
+export type Evidence = {
+  title: string
+  url: string | null
+  snippet: string
+  sourceType?: string
+  knowledgeSourceId?: string | null
+  knowledgeChunkId?: string | null
+  headingPath?: string[]
+  updatedAt?: string
+  updatedBy?: string
+  vectorSimilarity?: number
+}
+
+// Require half of the question's meaningful terms in one source, or across the
+// retrieved sources together so a multi-topic question can draw on several pages.
+export const RETRIEVAL_OVERLAP_THRESHOLD = 0.5
+function retrievalStem(word: string) {
+  if (word.length > 5 && word.endsWith("ies")) return `${word.slice(0, -3)}y`
+  if (word.length > 5 && word.endsWith("ing"))
+    return word.slice(0, -3).replace(/(.)\1$/, "$1")
+  if (word.length > 4 && word.endsWith("ed")) return word.slice(0, -2)
+  if (word.length > 4 && word.endsWith("s") && !word.endsWith("ss"))
+    return word.slice(0, -1)
+  return word
+}
+
+export function hasRetrievalConfidence(question: string, sources: Evidence[]) {
+  const query = terms(question)
+    .filter((word) => !RETRIEVAL_FILLER.has(word))
+    .map(retrievalStem)
+  if (!query.length && /\bwiki\b/i.test(question))
+    return sources.some((source) =>
+      /\bwiki\b/i.test(`${source.title} ${source.snippet}`)
+    )
+  if (!query.length) return false
+  const covered = new Set<string>()
+  for (const source of sources) {
+    const text = new Set(
+      terms(`${source.title} ${source.snippet}`).map(retrievalStem)
+    )
+    const hits = query.filter((word) => text.has(word))
+    if (hits.length / query.length >= RETRIEVAL_OVERLAP_THRESHOLD) return true
+    for (const word of hits) covered.add(word)
+  }
+  return covered.size / query.length >= RETRIEVAL_OVERLAP_THRESHOLD
+}
+
+// A fast path needs all meaningful query terms in the same high-similarity source.
+export function hasStrongRetrievalConfidence(
+  question: string,
+  source: Evidence
+) {
+  const query = terms(question)
+    .filter((word) => !RETRIEVAL_FILLER.has(word))
+    .map(retrievalStem)
+  const text = new Set(
+    terms(`${source.title} ${source.snippet}`).map(retrievalStem)
+  )
+  return query.length > 0 && query.every((word) => text.has(word))
+}
+
+function quoteFor(paragraph: string, source: Evidence) {
+  const body =
+    source.headingPath?.length &&
+    source.snippet.startsWith(source.headingPath.join(" > ") + "\n\n")
+      ? source.snippet.slice(source.headingPath.join(" > ").length + 2)
+      : source.snippet
+  const lines = body
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const answerTerms = terms(paragraph.replace(/\[\d+\]/g, ""))
+  let best = ""
+  let score = 0
+  for (const line of lines) {
+    const lineTerms = new Set(terms(line))
+    const overlap = answerTerms.filter((word) => lineTerms.has(word)).length
+    const numbers =
+      paragraph.replace(/\[\d+\]/g, "").match(/\b\d+(?:\.\d+)?\b/g) ?? []
+    const negation = /\b(?:not|never|no|cannot|mustn.t|don.t)\b/i.test(
+      paragraph
+    )
+    if (
+      numbers.some((number) => !line.includes(number)) ||
+      negation !== /\b(?:not|never|no|cannot|mustn.t|don.t)\b/i.test(line)
+    )
+      continue
+    if (overlap > score) {
+      best = line
+      score = overlap
+    }
+  }
+  return answerTerms.length && score / answerTerms.length >= 0.6 ? best : ""
+}
+
+export function sourceUrl(source: Evidence) {
+  const anchor =
+    source.sourceType === "wiki_page" && source.headingPath?.length
+      ? wikiHeadingAnchor(source.headingPath)
+      : ""
+  return source.url && anchor
+    ? `${source.url.split("#")[0]}#${anchor}`
+    : source.url
+}
+
+function referenceNames(source: Evidence) {
+  const tag = /^Tag: (.+) \((.+)\)$/.exec(source.title)
+  return tag ? [source.title, tag[1], tag[2]] : [source.title]
+}
+
+function mentionsReference(sentence: string, source: Evidence) {
+  if (!source.url) return false
+  const path = source.url.split("#")[0]
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  if (new RegExp(`${escape(path)}(?![\\p{L}\\p{N}/])`, "iu").test(sentence))
+    return true
+  const isNavigation =
+    /(?:^\s*[-*]\s+|\b(?:see|open|visit|read|find|match|page|link|tag|section)\b|\*\*|\[)/i.test(
+      sentence
+    )
+  const tag = /^Tag: (.+) \((.+)\)$/.exec(source.title)
+  return referenceNames(source).some((name) => {
+    if (!(isNavigation || (tag && name === tag[1]))) return false
+    if (name.length < 3 && !(tag && name === tag[1])) return false
+    return new RegExp(
+      `(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`,
+      "iu"
+    ).test(sentence)
+  })
+}
+
+export function checkAnswer(
+  answer: string,
+  sources: Evidence[],
+  referenceSources: Evidence[] = sources,
+  semanticVerified?: boolean
+) {
+  const citations: Evidence[] = []
+  let unsupported = false
+  let unquoted = false
+  const quotedSources: Evidence[] = []
+  // A closing recap ("In short:", "Overall takeaway") restates checked claims.
+  let inRecap = false
+  function addCitation(source: Evidence, snippet: string) {
+    const url = sourceUrl(source)
+    let index = citations.findIndex(
+      (item) =>
+        (source.knowledgeSourceId &&
+          item.knowledgeSourceId === source.knowledgeSourceId) ||
+        (url && item.url?.split("#")[0] === url.split("#")[0])
+    )
+    if (index < 0) {
+      index = citations.length
+      citations.push({ ...source, url, snippet })
+    }
+    return index + 1
+  }
+  const checked = answer
+    .replace(
+      /(?:^|\n\n?|(?<=[.!?])\s+)(?:(?:If you(?:'d like| want),?\s+I can)|Let me know if you(?:'d like| want)|I can also)\b[^\n]*/gi,
+      ""
+    )
+    .split(/((?<=[.!?]) +(?=[A-Z])|\n)/)
+    .map((sentence, part) => {
+      if (part % 2) return sentence
+      const claim = sentence.replace(/ *\[\d+\]/g, "")
+      const match = sources
+        .map((source) => ({ source, quote: quoteFor(claim, source) }))
+        .find(({ quote }) => quote)
+      const references = referenceSources
+        .filter((source) => mentionsReference(claim, source))
+        .sort(
+          (a, b) =>
+            Number(Boolean(b.knowledgeSourceId)) -
+            Number(Boolean(a.knowledgeSourceId))
+        )
+      const referencedUrls = new Set<string | null>()
+      if (match) {
+        quotedSources.push(match.source)
+        const index = addCitation(match.source, match.quote)
+        referencedUrls.add(sourceUrl(match.source))
+        for (const reference of references) {
+          const url = sourceUrl(reference)
+          if (!referencedUrls.has(url))
+            addCitation(reference, reference.snippet)
+          referencedUrls.add(url)
+        }
+        return `${claim.trimEnd()} [${index}]`
+      }
+      for (const reference of references) {
+        const url = sourceUrl(reference)
+        if (!referencedUrls.has(url)) addCitation(reference, reference.snippet)
+        referencedUrls.add(url)
+      }
+      const heading =
+        /^\s{0,3}#{1,6}\s/.test(claim) ||
+        /^\s*\*\*[^*]+\*\*\s*:?\s*$/.test(claim) ||
+        /^\s*(?:here (?:are|is) (?:the|some) (?:details|results|pages|tags|steps|information)|the following (?:pages|tags|steps|results)|the results)\s*:?\s*$/i.test(
+          claim
+        ) ||
+        /\?\s*$/.test(claim)
+      if (RECAP_HEADING.test(claim)) inRecap = true
+      if (!heading && !inRecap && terms(claim).length) {
+        unquoted = true
+        if (!references.length) unsupported = true
+      }
+      return claim
+    })
+    .join("")
+  return {
+    answer: inlineCitations(
+      semanticVerified === false ||
+        (semanticVerified === undefined && unsupported)
+        ? `${checked}\n\nSome details could not be verified in the wiki.`
+        : checked,
+      citations
+    ).replace(
+      /\[([^\]\n]+)\]\(([^\s)]+)\)/g,
+      (link, label: string, url: string) =>
+        citations.some(
+          (citation) =>
+            citation.url === url || citation.url?.split("#")[0] === url
+        )
+          ? link
+          : label
+    ),
+    citations,
+    quotedSources,
+    allClaimsQuoted: !unquoted,
+  }
+}

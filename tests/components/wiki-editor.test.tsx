@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useEffect, useRef } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -10,11 +10,17 @@ import {
   WikiEditModeToggle,
 } from "@/components/wiki/wiki-edit-mode"
 import { toast } from "sonner"
-import { saveWikiPageAction } from "@/app/wiki/actions"
+import {
+  saveWikiPageAction,
+  updateWikiNodeStatusAction,
+} from "@/app/wiki/actions"
 import { WikiEditor } from "@/components/wiki/wiki-editor"
 import type { WikiNodeRow } from "@/lib/wiki"
 
 const blockNoteState = vi.hoisted(() => ({
+  onChange: () => () => undefined,
+  emitMountChange: true,
+  nextDocument: [{ type: "paragraph", content: "Updated wiki content." }],
   document: [
     {
       type: "paragraph",
@@ -39,8 +45,11 @@ vi.mock("@blocknote/shadcn", () => ({
   }) => {
     const initialOnChange = useRef(onChange)
     useEffect(() => {
-      // The real editor emits an initialization change when it mounts.
-      initialOnChange.current?.()
+      // The real editor may emit an initialization change when it mounts.
+      // New empty pages do not always get that event before the first paste.
+      if (blockNoteState.emitMountChange) {
+        initialOnChange.current?.()
+      }
     }, [])
 
     return (
@@ -49,9 +58,7 @@ vi.mock("@blocknote/shadcn", () => ({
         data-testid="blocknote-view"
         data-editable={String(editable)}
         onClick={() => {
-          blockNoteState.document = [
-            { type: "paragraph", content: "Updated wiki content." },
-          ]
+          blockNoteState.document = blockNoteState.nextDocument
           onChange?.()
         }}
       />
@@ -84,6 +91,7 @@ vi.mock("@/app/wiki/actions", () => ({
 }))
 
 const node: WikiNodeRow = {
+  short_id: 1,
   id: "node-1",
   parent_id: null,
   type: "page",
@@ -117,6 +125,10 @@ describe("WikiEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
+    blockNoteState.emitMountChange = true
+    blockNoteState.nextDocument = [
+      { type: "paragraph", content: "Updated wiki content." },
+    ]
     blockNoteState.document = [
       {
         type: "paragraph",
@@ -169,6 +181,49 @@ describe("WikiEditor", () => {
       "data-editable",
       "true"
     )
+    expect(
+      screen.queryByRole("button", { name: "Check for duplicates" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("scrolls to heading paths without writing ids while editing", async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditModeToggle />
+        <WikiEditor node={node} revision={revision} canManage />
+      </WikiEditModeProvider>
+    )
+    const surface = container.querySelector(".wiki-blocknote-surface")!
+    const parent = document.createElement("h1")
+    parent.textContent = "Parent"
+    const child = document.createElement("h2")
+    child.textContent = "Child"
+    await act(async () => surface.append(parent, child))
+    await waitFor(() => expect(child.id).toBe("parent-child"))
+
+    await user.click(
+      screen.getByRole("switch", { name: "Toggle wiki editor mode" })
+    )
+    const replacement = document.createElement("h2")
+    replacement.textContent = "New Child"
+    replacement.scrollIntoView = vi.fn()
+    await act(async () => child.replaceWith(replacement))
+    expect(replacement.hasAttribute("id")).toBe(false)
+
+    try {
+      window.history.replaceState(null, "", "#parent-new-child")
+      await act(async () => window.dispatchEvent(new Event("hashchange")))
+      expect(replacement.scrollIntoView).toHaveBeenCalledOnce()
+      expect(replacement.hasAttribute("id")).toBe(false)
+
+      await user.click(
+        screen.getByRole("switch", { name: "Toggle wiki editor mode" })
+      )
+      await waitFor(() => expect(replacement.id).toBe("parent-new-child"))
+    } finally {
+      window.history.replaceState(null, "", window.location.pathname)
+    }
   })
 
   it("ignores saved edit mode when the user lacks wiki edit permission", () => {
@@ -195,7 +250,7 @@ describe("WikiEditor", () => {
     )
   })
 
-  it("places the AI Update control immediately before the page status", () => {
+  it("places the AI Update control immediately after the page status", () => {
     window.localStorage.setItem("wiki-edit-mode", "edit")
     render(
       <WikiEditModeProvider canManageWiki>
@@ -212,9 +267,42 @@ describe("WikiEditor", () => {
     const aiUpdate = screen.getByRole("button", { name: "AI Update" })
     const status = screen.getByRole("button", { name: "Draft" })
     expect(
-      aiUpdate.compareDocumentPosition(status) &
+      status.compareDocumentPosition(aiUpdate) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+  })
+
+  it("confirms a status change and leaves it unchanged on cancel", async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor
+          node={node}
+          revision={revision}
+          canManage
+          showStatusControl
+        />
+      </WikiEditModeProvider>
+    )
+    await user.click(screen.getByRole("button", { name: "Draft" }))
+    await user.click(screen.getByRole("menuitem", { name: "Published" }))
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(updateWikiNodeStatusAction).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Draft" }))
+    await user.click(screen.getByRole("menuitem", { name: "Published" }))
+    await user.click(screen.getByRole("button", { name: "Confirm" }))
+    await waitFor(() =>
+      expect(updateWikiNodeStatusAction).toHaveBeenCalledTimes(1)
+    )
+    const data = vi.mocked(updateWikiNodeStatusAction).mock.calls[0][0]
+    expect(data.get("status")).toBe("published")
+    const published = screen.getByRole("button", { name: "Published" })
+    expect(published).toHaveClass("text-success")
+    await user.click(published)
+    expect(
+      screen.getByRole("menuitem", { name: "Published" }).querySelector("span")
+    ).toHaveClass("text-success")
   })
 
   it("searches, selects, and creates page tags", async () => {
@@ -224,7 +312,12 @@ describe("WikiEditor", () => {
         node={node}
         revision={revision}
         canManage
-        availableTags={["Assets", "Credit", "Income"]}
+        availableTags={["Assets", "Credit", "Income"].map((name) => ({
+          id: name,
+          name,
+          scope: "global",
+          section_id: null,
+        }))}
       />
     )
 
@@ -234,25 +327,28 @@ describe("WikiEditor", () => {
       name: "Search or create a tag",
     })
     expect(searchInput).toHaveFocus()
-    expect(screen.getByRole("button", { name: "Assets" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Assets, Global" })).toBeVisible()
 
     await user.type(searchInput, "cred")
-    expect(screen.getByRole("button", { name: "Credit" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Credit, Global" })).toBeVisible()
     expect(
-      screen.queryByRole("button", { name: "Assets" })
+      screen.queryByRole("button", { name: "Assets, Global" })
     ).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: "Credit" }))
-    expect(screen.getByRole("button", { name: "Credit" })).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    )
-    expect(screen.getByRole("button", { name: "Credit ×" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Credit, Global" }))
+    expect(
+      screen.getByRole("button", { name: "Credit, Global" })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(
+      screen.getByRole("button", { name: "Remove Credit, global tag" })
+    ).toBeVisible()
 
     await user.clear(searchInput)
     await user.type(searchInput, "Policies")
-    await user.click(screen.getByRole("button", { name: "Create “Policies”" }))
-    expect(screen.getByRole("button", { name: "Policies ×" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: /Create “Policies”/ }))
+    expect(
+      screen.getByRole("button", { name: "Remove Policies, global tag" })
+    ).toBeVisible()
   })
 
   it("keeps the draft editable and shows a recoverable error when saving fails", async () => {
@@ -305,8 +401,10 @@ describe("WikiEditor", () => {
     window.dispatchEvent(dirtyEvent)
     expect(dirtyEvent.defaultPrevented).toBe(true)
     await user.click(screen.getByRole("button", { name: "Save Changes" }))
-    await screen.findByTestId("blocknote-view")
-    expect(toast.success).toHaveBeenCalledWith("Saved")
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Saved")
+      expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument()
+    })
     const cleanEvent = new Event("beforeunload", { cancelable: true })
     window.dispatchEvent(cleanEvent)
     expect(cleanEvent.defaultPrevented).toBe(false)
@@ -329,10 +427,11 @@ describe("WikiEditor", () => {
     )
     await user.click(screen.getByTestId("blocknote-view"))
     await user.click(screen.getByRole("button", { name: "Save Changes" }))
-    blockNoteState.document = [
+    blockNoteState.nextDocument = [
       { type: "paragraph", content: "More changes during save" },
     ]
-    resolveSave({ ok: true, message: "Saved." })
+    await user.click(screen.getByTestId("blocknote-view"))
+    await act(async () => resolveSave({ ok: true, message: "Saved." }))
     expect(
       await screen.findByRole("button", { name: "Save Changes" })
     ).toBeEnabled()
@@ -374,9 +473,51 @@ describe("WikiEditor", () => {
     expect(saveWikiPageAction).toHaveBeenCalledTimes(1)
     expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled()
 
-    resolveSave({ ok: true, message: "Saved." })
+    await act(async () => resolveSave({ ok: true, message: "Saved." }))
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument()
+  })
+
+  it("shows Save Changes when a new page receives pasted text as the first change", async () => {
+    const user = userEvent.setup()
+    blockNoteState.emitMountChange = false
+    blockNoteState.document = [{ type: "paragraph", content: "" }]
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor node={node} revision={null} canManage />
+      </WikiEditModeProvider>
+    )
+
     expect(
-      await screen.findByRole("button", { name: "Edit page tags" })
-    ).toBeVisible()
+      screen.queryByRole("button", { name: "Save Changes" })
+    ).not.toBeInTheDocument()
+
+    blockNoteState.nextDocument = [
+      { type: "paragraph", content: "Pasted funding checklist text." },
+    ]
+    await user.click(screen.getByTestId("blocknote-view"))
+
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeVisible()
+    expect(screen.getByText("Unsaved changes")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Save Changes" }))
+    expect(vi.mocked(saveWikiPageAction).mock.calls[0][0].get("blocks")).toBe(
+      JSON.stringify(blockNoteState.nextDocument)
+    )
+  })
+
+  it("does not show Save Changes after only the editor's initialization change", async () => {
+    window.localStorage.setItem("wiki-edit-mode", "edit")
+    blockNoteState.document = [{ type: "paragraph", content: "" }]
+
+    render(
+      <WikiEditModeProvider canManageWiki>
+        <WikiEditor node={node} revision={null} canManage />
+      </WikiEditModeProvider>
+    )
+
+    expect(
+      screen.queryByRole("button", { name: "Save Changes" })
+    ).not.toBeInTheDocument()
   })
 })

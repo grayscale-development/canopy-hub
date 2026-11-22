@@ -1,0 +1,9 @@
+{
+  "tolerance": 0.05,
+  "metrics": {
+    "hitAt1": 1,
+    "hitAt3": 1,
+    "citationCorrectness": 1,
+    "abstentionRate": 1
+  }
+}

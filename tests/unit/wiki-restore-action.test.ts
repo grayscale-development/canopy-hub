@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   canManage: true,
   node: {
     id: "page-1",
+    short_id: 17,
     type: "page",
     current_revision_id: "old-revision",
     parent_id: null,

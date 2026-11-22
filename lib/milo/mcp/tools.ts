@@ -1,6 +1,14 @@
 import "server-only"
 
+import { wikiTagDirectoryUrl } from "@/lib/wiki"
+import {
+  isWikiKnowledgeSource,
+  resolveWikiKnowledgeUrls,
+} from "@/lib/wiki-knowledge-urls"
 import { userHasPermissionCode } from "@/lib/permissions"
+import { getMiloUserContext } from "@/lib/milo/user-context"
+import { searchKnowledge } from "@/lib/milo/knowledge-search"
+import { measureMilo, type MiloTiming } from "@/lib/milo/timing"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 type MiloClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -8,6 +16,7 @@ type MiloClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 type JsonObject = Record<string, unknown>
 
 export type MiloMcpToolName =
+  | "my_capabilities"
   | "knowledge_search"
   | "wiki_tag_search"
   | "db_schema"
@@ -23,6 +32,12 @@ export interface MiloSourceCard {
   url: string | null
   snippet: string
   sourceType?: string
+  knowledgeSourceId?: string | null
+  knowledgeChunkId?: string | null
+  headingPath?: string[]
+  updatedAt?: string
+  updatedBy?: string
+  vectorSimilarity?: number
 }
 
 export interface MiloMcpToolResult {
@@ -402,6 +417,16 @@ const RELATION_BY_KEY = new Map(
 
 export const MILO_MCP_TOOLS = [
   {
+    name: "my_capabilities",
+    description:
+      "Check the current user's permissions and visible Wiki manager contacts.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
     name: "knowledge_search",
     description:
       "Search Milo's indexed knowledge sources and chunks for wiki, documents, reports, people, branches, support, and site metadata.",
@@ -757,6 +782,9 @@ function rowsToSources(
         : null,
       snippet: JSON.stringify(item).slice(0, 360),
       sourceType: getRelationSourceType(relation, item),
+      ...(relation.table === "knowledge_sources"
+        ? { knowledgeSourceId: getString(item.id) || null }
+        : {}),
     }
   })
 }
@@ -769,43 +797,52 @@ function ok(
   return { ok: true, toolName, content: safeJson(content), sources }
 }
 
-async function knowledgeSearch(args: JsonObject, supabase: MiloClient) {
+async function knowledgeSearch(
+  args: JsonObject,
+  supabase: MiloClient,
+  timing?: MiloTiming
+) {
   const query = getString(args.query)
   if (!query) {
     throw new Error("query is required")
   }
 
   const limit = getLimit(args.limit, 8, 20)
-  const { data, error } = await supabase.rpc("match_knowledge_chunks_keyword", {
-    search_query: query,
-    match_count: limit,
-    source_types: getSourceTypes(args.sourceTypes),
-  })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
+  const rows = await measureMilo(timing, "retrieval", () =>
+    searchKnowledge(
+      supabase,
+      query,
+      limit,
+      getSourceTypes(args.sourceTypes),
+      timing
+    )
+  )
   return ok(
     "knowledge_search",
     { query, rows },
     rows.map((row) => ({
       title: getString(row.source_title) || "Knowledge source",
       url: getString(row.source_url) || null,
-      snippet: getString(row.content).slice(0, 360),
+      snippet: row.content,
+      headingPath: Array.isArray(row.metadata?.headingPath)
+        ? row.metadata.headingPath.filter(
+            (part): part is string => typeof part === "string"
+          )
+        : [],
+      updatedAt:
+        typeof row.metadata?.updatedAt === "string"
+          ? row.metadata.updatedAt
+          : undefined,
+      updatedBy:
+        typeof row.metadata?.updatedBy === "string"
+          ? row.metadata.updatedBy
+          : undefined,
       sourceType: getString(row.source_type) || "knowledge",
+      knowledgeSourceId: getString(row.source_id) || null,
+      knowledgeChunkId: getString(row.chunk_id) || null,
+      vectorSimilarity: row.vectorSimilarity,
     }))
   )
-}
-
-function wikiTagDirectoryUrl(tag: string) {
-  const anchor = tag
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-
-  return `/wiki/tags?tag=${encodeURIComponent(tag)}#tag-${anchor}`
 }
 
 function getTagSearchTerms(query: string) {
@@ -840,7 +877,7 @@ async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
 
   const { data: allTags, error: tagsError } = await supabase
     .from("wiki_tags")
-    .select("id,name")
+    .select("id,name,scope,section_id")
     .order("name")
 
   if (tagsError) {
@@ -849,7 +886,27 @@ async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
 
   const normalizedQuery = query.toLocaleLowerCase().trim()
   const searchTerms = getTagSearchTerms(query)
+  const sectionIds = [
+    ...new Set(
+      (allTags ?? []).flatMap((tag) => (tag.section_id ? [tag.section_id] : []))
+    ),
+  ]
+  const { data: sections, error: sectionError } = sectionIds.length
+    ? await supabase
+        .from("milo_wiki_nodes")
+        .select("id,title")
+        .in("id", sectionIds)
+    : { data: [], error: null }
+  if (sectionError) throw new Error(sectionError.message)
+  const sectionNames = new Map(
+    (sections ?? []).map((section) => [section.id, section.title])
+  )
   const tags = (allTags ?? [])
+    .filter(
+      (tag) =>
+        tag.scope === "global" ||
+        (tag.section_id && sectionNames.has(tag.section_id))
+    )
     .filter((tag) => {
       const name = tag.name.toLocaleLowerCase()
       return (
@@ -891,7 +948,9 @@ async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
 
   const matches = (tags ?? []).map((tag) => ({
     tag: tag.name,
-    url: wikiTagDirectoryUrl(tag.name),
+    scope: tag.scope,
+    section: tag.section_id ? (sectionNames.get(tag.section_id) ?? null) : null,
+    url: wikiTagDirectoryUrl(tag),
     pages: pagesByTagId.get(tag.id) ?? [],
   }))
 
@@ -899,7 +958,7 @@ async function wikiTagSearch(args: JsonObject, supabase: MiloClient) {
     "wiki_tag_search",
     { query, matches },
     matches.map((match) => ({
-      title: `Tag: ${match.tag}`,
+      title: `Tag: ${match.tag} (${match.section ?? "Global"})`,
       url: match.url,
       snippet: match.pages.length
         ? `Accessible pages: ${match.pages.join(", ")}`
@@ -922,10 +981,38 @@ async function dbSchema() {
   })
 }
 
+async function resolveKnowledgeSourceRecords(
+  supabase: MiloClient,
+  rows: unknown[]
+) {
+  const records = rows.map(getObject)
+  const wiki = records.filter((row) =>
+    isWikiKnowledgeSource(getString(row.source_type))
+  )
+  const urls = await resolveWikiKnowledgeUrls(
+    supabase,
+    wiki.map((row) => getString(row.id)).filter(Boolean)
+  )
+  return records.flatMap((row) => {
+    if (!isWikiKnowledgeSource(getString(row.source_type))) return [row]
+    const url = urls.get(getString(row.id))
+    if (!url) return []
+    const metadata = getObject(row.metadata)
+    if ("path" in metadata) metadata.path = url.slice(6)
+    if ("pagePath" in metadata) metadata.pagePath = url.slice(6)
+    return [{ ...row, url, ...(row.metadata ? { metadata } : {}) }]
+  })
+}
+
 async function dbSelect(args: JsonObject, supabase: MiloClient) {
   const relation = getRelation(args.relation)
   await assertRelationAccess(relation, supabase)
-  const columns = sanitizeColumns(relation, args.columns)
+  const columns = [...sanitizeColumns(relation, args.columns)]
+  if (relation.table === "knowledge_sources") {
+    for (const column of ["id", "source_type"]) {
+      if (!columns.includes(column)) columns.push(column)
+    }
+  }
   const limit = getLimit(args.limit)
   let query = getRelationClient(relation, supabase)
     .from(getRelationTable(relation))
@@ -945,7 +1032,10 @@ async function dbSelect(args: JsonObject, supabase: MiloClient) {
     throw new Error(error.message)
   }
 
-  const rows = data ?? []
+  const rows =
+    relation.table === "knowledge_sources"
+      ? await resolveKnowledgeSourceRecords(supabase, data ?? [])
+      : (data ?? [])
   return ok(
     "db_select",
     { relation: `${relation.schema}.${relation.table}`, rows },
@@ -998,7 +1088,10 @@ async function dbSearch(args: JsonObject, supabase: MiloClient) {
       continue
     }
 
-    const rows = data ?? []
+    const rows =
+      relation.table === "knowledge_sources"
+        ? await resolveKnowledgeSourceRecords(supabase, data ?? [])
+        : (data ?? [])
     if (rows.length) {
       results.push({
         relation: `${relation.schema}.${relation.table}`,
@@ -1202,7 +1295,8 @@ async function storageReadText(args: JsonObject, supabase: MiloClient) {
 export async function callMiloMcpTool(
   toolName: string,
   args: unknown,
-  userClient?: MiloClient
+  userClient?: MiloClient,
+  timing?: MiloTiming
 ): Promise<MiloMcpToolResult> {
   const normalizedToolName = getString(toolName) as MiloMcpToolName
   const objectArgs = getObject(args)
@@ -1217,8 +1311,20 @@ export async function callMiloMcpTool(
       if (error || !user) throw new Error("Authenticated user is required")
     }
     switch (normalizedToolName) {
+      case "my_capabilities": {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser()
+        if (error || !user) throw new Error("Authenticated user is required")
+        return {
+          ok: true,
+          toolName: normalizedToolName,
+          content: await getMiloUserContext(supabase, user),
+        }
+      }
       case "knowledge_search":
-        return await knowledgeSearch(objectArgs, supabase)
+        return await knowledgeSearch(objectArgs, supabase, timing)
       case "wiki_tag_search":
         return await wikiTagSearch(objectArgs, supabase)
       case "db_schema":

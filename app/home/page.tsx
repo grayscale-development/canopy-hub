@@ -20,7 +20,6 @@ import {
 } from "react-icons/fa"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -396,10 +395,12 @@ export default async function HomePage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
         </header>
 
-        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-4 md:p-6">
+        <div
+          data-milo-clearance
+          className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 p-4 md:p-6"
+        >
           <section className="relative rounded-lg bg-foreground text-white shadow-sm">
             <div className="absolute inset-0 overflow-hidden rounded-lg">
               <Image
@@ -421,9 +422,7 @@ export default async function HomePage() {
                   Everything your team reaches for most is organized here, with
                   clear paths into files, reports, people, and support.
                 </p>
-                <div className="mt-6 w-full max-w-xl">
-                  <WikiHeaderSearch className="max-w-xl" />
-                </div>
+                <WikiHeaderSearch className="max-w-xl" />
               </div>
               <div className="flex flex-col justify-center border-t border-white/20 pt-6 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
                 <div className="flex items-center justify-between gap-3">
@@ -572,7 +571,7 @@ export default async function HomePage() {
               )}
             </div>
           </section>
-        </main>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   )

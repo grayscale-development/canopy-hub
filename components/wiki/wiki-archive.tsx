@@ -13,11 +13,8 @@ import {
   SidebarAccordionHeader,
   usePersistedSidebarExpansion,
 } from "@/components/wiki/wiki-sidebar-expansion"
-import {
-  buildWikiBreadcrumbs,
-  buildWikiPath,
-  type WikiNodeRow,
-} from "@/lib/wiki"
+import { buildWikiBreadcrumbs, type WikiNodeRow } from "@/lib/wiki"
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 
 export function RestoreWikiButton({
   node,
@@ -81,7 +78,6 @@ export function ArchivedWikiHeader({
   )
 }
 
-
 export function ArchivedWikiPageView({
   node,
   archivedParent,
@@ -104,13 +100,14 @@ export function ArchivedWikiPageView({
   return <ArchivedWikiHeader node={node} archivedParent={archivedParent} />
 }
 
-
 function ArchiveItems({
   items,
   nodes,
+  filtering,
 }: {
   items: WikiNodeRow[]
   nodes: WikiNodeRow[]
+  filtering: boolean
 }) {
   return (
     <ul className="space-y-1">
@@ -118,7 +115,8 @@ function ArchiveItems({
         <li key={item.id}>
           <Link
             className="flex min-h-8 w-full items-center rounded-md pr-2 text-sm leading-5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            href={`/wiki/${buildWikiPath(nodes, item)}`}
+            href={`/wiki/${buildNumericWikiPath(nodes, item)}`}
+            data-wiki-filter-match={filtering ? "" : undefined}
             title={item.title}
           >
             <span aria-hidden="true" className="size-8 shrink-0" />
@@ -130,19 +128,31 @@ function ArchiveItems({
   )
 }
 
+function ArchiveCount({ count }: { count: number }) {
+  if (!count) return null
+  return (
+    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+      {count}
+    </span>
+  )
+}
+
 export function SectionArchive({
   section,
   nodes,
   archived,
+  filtering = false,
 }: {
   section: WikiNodeRow
   nodes: WikiNodeRow[]
   archived: WikiNodeRow[]
+  filtering?: boolean
 }) {
   const [isOpen, setOpen] = usePersistedSidebarExpansion(
     `wiki-sidebar:archive:${section.id}`,
     false,
-    false
+    false,
+    filtering
   )
   const contentId = `wiki-sidebar-archive-${section.id}`
   const items = archived.filter((item) =>
@@ -155,14 +165,17 @@ export function SectionArchive({
     <div>
       <SidebarAccordionHeader
         label="Archived"
-        title={`Archived (${items.length})`}
+        title="Archived"
         contentId={contentId}
         isOpen={isOpen}
         setOpen={setOpen}
         tone="group"
-      />
-      <div id={contentId} hidden={!isOpen} className="mt-1 ml-4">
-        <ArchiveItems items={items} nodes={nodes} />
+        disabled={filtering}
+      >
+        <ArchiveCount count={items.length} />
+      </SidebarAccordionHeader>
+      <div id={contentId} hidden={!isOpen} className="mt-1">
+        <ArchiveItems items={items} nodes={nodes} filtering={filtering} />
       </div>
     </div>
   )
@@ -171,43 +184,56 @@ export function SectionArchive({
 export function GlobalWikiArchive({
   nodes,
   archived,
+  filtering = false,
 }: {
   nodes: WikiNodeRow[]
   archived: WikiNodeRow[]
+  filtering?: boolean
 }) {
   const [search, setSearch] = React.useState("")
   const [isOpen, setOpen] = usePersistedSidebarExpansion(
     "wiki-sidebar:global-archive",
     false,
-    false
+    false,
+    filtering
   )
   const contentId = "wiki-sidebar-global-archive"
-  const items = archived.filter((item) =>
-    buildWikiBreadcrumbs(nodes, item).some((node) =>
-      node.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
-    )
-  )
+  const items = filtering
+    ? archived
+    : archived.filter((item) =>
+        buildWikiBreadcrumbs(nodes, item).some((node) =>
+          node.title
+            .toLocaleLowerCase()
+            .includes(search.trim().toLocaleLowerCase())
+        )
+      )
+  if (filtering && !archived.length) return null
   return (
     <section className="space-y-1">
       <SidebarAccordionHeader
         label="Archive"
-        title={`Archive (${archived.length})`}
+        title="Archive"
         contentId={contentId}
         isOpen={isOpen}
         setOpen={setOpen}
         tone="section"
-      />
+        disabled={filtering}
+      >
+        <ArchiveCount count={archived.length} />
+      </SidebarAccordionHeader>
       <div id={contentId} hidden={!isOpen} className="space-y-1">
-        <div className="px-2 py-1">
-          <Input
-            aria-label="Search archive"
-            placeholder="Search archive"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </div>
+        {!filtering ? (
+          <div className="px-2 py-1">
+            <Input
+              aria-label="Search archive"
+              placeholder="Search archive"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+        ) : null}
         {items.length ? (
-          <ArchiveItems items={items} nodes={nodes} />
+          <ArchiveItems items={items} nodes={nodes} filtering={filtering} />
         ) : (
           <p className="px-2 py-1 text-sm text-muted-foreground">
             {search ? "No archived items match." : "No archived items."}

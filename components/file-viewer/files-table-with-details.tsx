@@ -330,7 +330,7 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
                     {row.branchId && row.branch ? (
                       <Link
                         href={`/branch/${encodeURIComponent(row.branchId)}`}
-                        className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                        className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >
@@ -344,7 +344,7 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
                     {row.loanOfficerId && row.loanOfficer ? (
                       <Link
                         href={`/employee/${encodeURIComponent(row.loanOfficerId)}`}
-                        className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                        className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >
@@ -358,7 +358,7 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
                     {row.processorId && row.processor ? (
                       <Link
                         href={`/employee/${encodeURIComponent(row.processorId)}`}
-                        className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                        className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >
@@ -372,7 +372,7 @@ export function FilesTableWithDetails({ rows }: { rows: FileViewerRow[] }) {
                     {row.underwriterId && row.underwriter ? (
                       <Link
                         href={`/employee/${encodeURIComponent(row.underwriterId)}`}
-                        className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                        className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => event.stopPropagation()}
                       >

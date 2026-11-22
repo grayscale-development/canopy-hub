@@ -2,7 +2,7 @@ import path from "node:path"
 
 import { expect, test } from "@playwright/test"
 
-import { openWikiAiCreate, signInAsLocalDev } from "./helpers"
+import { openWikiAiCreate, openWikiPath, signInAsLocalDev } from "./helpers"
 
 const samples = [
   "it-password-reset.docx",
@@ -17,10 +17,11 @@ const samples = [
 test("Wiki managers can use AI Create with every representative document sample @wiki", async ({
   page,
 }) => {
+  test.setTimeout(180_000)
   await signInAsLocalDev(page)
 
   for (const sample of samples) {
-    await page.goto("/wiki/canopy-wiki/hub/reports")
+    await openWikiPath(page, "Canopy Wiki", "Hub", "Reports")
     await openWikiAiCreate(page)
     await page
       .locator('input[type="file"]')

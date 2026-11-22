@@ -64,6 +64,8 @@ export default async function CorporateTurnTimesViewPage() {
     )
   }
 
+  const hasData = summary.tableRows.length > 0
+
   const sections = [
     ...CORPORATE_TURN_SECTION_ORDER.map((sectionType) => ({
       sectionType,
@@ -97,29 +99,39 @@ export default async function CorporateTurnTimesViewPage() {
           </p>
         </section>
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <article className="rounded-xl border bg-card p-4 text-card-foreground">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Workdays for LO/LOA Statuses
             </p>
             <p className="mt-2 font-mono text-2xl tabular-nums">
-              {ONE_DECIMAL_FORMATTER.format(
-                summary.kpis.workdaysForLoLoaStatuses
-              )}
+              {hasData
+                ? ONE_DECIMAL_FORMATTER.format(
+                    summary.kpis.workdaysForLoLoaStatuses
+                  )
+                : "—"}
             </p>
+            {!hasData ? (
+              <p className="mt-2 text-xs text-muted-foreground">No data yet</p>
+            ) : null}
           </article>
           <article className="rounded-xl border bg-card p-4 text-card-foreground">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Processing Rushes (7 Days)
             </p>
             <p className="mt-2 font-mono text-2xl tabular-nums">
-              {WHOLE_NUMBER_FORMATTER.format(
-                summary.kpis.processingRushesLast7Days
-              )}
+              {hasData
+                ? WHOLE_NUMBER_FORMATTER.format(
+                    summary.kpis.processingRushesLast7Days
+                  )
+                : "—"}
             </p>
+            {!hasData ? (
+              <p className="mt-2 text-xs text-muted-foreground">No data yet</p>
+            ) : null}
             <Link
               href="/file-viewer"
-              className="mt-2 inline-block text-xs text-primary underline decoration-primary/60 underline-offset-4 hover:text-primary/80"
+              className="mt-2 inline-block text-xs text-link underline decoration-primary/60 underline-offset-4 hover:no-underline"
             >
               View Files
             </Link>
@@ -129,13 +141,18 @@ export default async function CorporateTurnTimesViewPage() {
               Underwriting Rushes (7 Days)
             </p>
             <p className="mt-2 font-mono text-2xl tabular-nums">
-              {WHOLE_NUMBER_FORMATTER.format(
-                summary.kpis.underwritingRushesLast7Days
-              )}
+              {hasData
+                ? WHOLE_NUMBER_FORMATTER.format(
+                    summary.kpis.underwritingRushesLast7Days
+                  )
+                : "—"}
             </p>
+            {!hasData ? (
+              <p className="mt-2 text-xs text-muted-foreground">No data yet</p>
+            ) : null}
             <Link
               href="/file-viewer"
-              className="mt-2 inline-block text-xs text-primary underline decoration-primary/60 underline-offset-4 hover:text-primary/80"
+              className="mt-2 inline-block text-xs text-link underline decoration-primary/60 underline-offset-4 hover:no-underline"
             >
               View Files
             </Link>
@@ -145,13 +162,18 @@ export default async function CorporateTurnTimesViewPage() {
               Closing/Funding Rushes (7 Days)
             </p>
             <p className="mt-2 font-mono text-2xl tabular-nums">
-              {WHOLE_NUMBER_FORMATTER.format(
-                summary.kpis.closingFundingRushesLast7Days
-              )}
+              {hasData
+                ? WHOLE_NUMBER_FORMATTER.format(
+                    summary.kpis.closingFundingRushesLast7Days
+                  )
+                : "—"}
             </p>
+            {!hasData ? (
+              <p className="mt-2 text-xs text-muted-foreground">No data yet</p>
+            ) : null}
             <Link
               href="/file-viewer"
-              className="mt-2 inline-block text-xs text-primary underline decoration-primary/60 underline-offset-4 hover:text-primary/80"
+              className="mt-2 inline-block text-xs text-link underline decoration-primary/60 underline-offset-4 hover:no-underline"
             >
               View Files
             </Link>
@@ -198,7 +220,7 @@ export default async function CorporateTurnTimesViewPage() {
                       <td className="px-5 py-3 text-right font-mono whitespace-nowrap tabular-nums">
                         <Link
                           href={toFileViewerStatusHref(row.status)}
-                          className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+                          className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
                         >
                           {WHOLE_NUMBER_FORMATTER.format(row.filesInProgress)}
                         </Link>

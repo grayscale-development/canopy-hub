@@ -1,9 +1,32 @@
 import { expect, type Page } from "@playwright/test"
 
+// The page content area. The app shell owns the single <main> landmark; pages
+// mark their content container with data-milo-clearance, otherwise <main> is
+// the content (the same rule as app/globals.css). Use with .last().
+export const PAGE_CONTENT =
+  "[data-milo-clearance], main:not(:has([data-milo-clearance]))"
+
 export async function signInAsLocalDev(page: Page) {
   await page.goto("/login")
   await page.getByRole("button", { name: "Continue as Dev" }).click()
   await expect(page).toHaveURL(/\/home$/)
+}
+
+export async function openWikiPath(page: Page, ...titles: string[]) {
+  await page.goto("/wiki")
+  for (const title of titles) {
+    const link = page
+      .locator(PAGE_CONTENT)
+      .last()
+      .getByRole("link", { name: title, exact: true })
+    const href = await link.getAttribute("href")
+    expect(href).toMatch(/^\/wiki\/\d+(?:\/\d+)*$/)
+    const target = new URL(href!, page.url()).toString()
+    await expect(async () => {
+      if (page.url() !== target) await link.click()
+      await expect(page).toHaveURL(target, { timeout: 3000 })
+    }).toPass({ timeout: 20_000 })
+  }
 }
 
 export async function openWikiAiCreate(page: Page) {
@@ -39,8 +62,8 @@ export async function mockMiloChatApi(page: Page) {
       body: [
         'data: {"type":"meta","threadId":"e2e-thread"}',
         'data: {"type":"token","token":"Open "}',
-        'data: {"type":"token","token":"/wiki/canopy-wiki"}',
-        'data: {"type":"done","threadId":"e2e-thread","userMessageId":"user-message","assistantMessageId":"assistant-message","citations":[{"title":"Wiki","url":"/wiki/canopy-wiki","snippet":"Seeded Wiki source."}]}',
+        'data: {"type":"token","token":"/wiki/1"}',
+        'data: {"type":"done","threadId":"e2e-thread","userMessageId":"user-message","assistantMessageId":"assistant-message","citations":[{"title":"Wiki","url":"/wiki/1","snippet":"Seeded Wiki source."}]}',
         "",
       ].join("\n\n"),
     })

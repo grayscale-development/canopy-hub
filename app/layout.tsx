@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { headers } from "next/headers"
 import { Geist_Mono, Inter } from "next/font/google"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -6,20 +7,16 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WikiChatModalProvider } from "@/components/wiki/wiki-chat-modal"
+import { BETA_1_PERMISSION } from "@/lib/permission-codes"
+import { userHasPermissionCode } from "@/lib/permissions"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { cn } from "@/lib/utils"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
-
-const fontMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-})
+const fontMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const metadata: Metadata = {
-  title: {
-    default: "Canopy Hub",
-    template: "Canopy Hub | %s",
-  },
+  title: { default: "Canopy Hub", template: "Canopy Hub | %s" },
   icons: {
     icon: "/canopy-logo-cube-100.png",
     shortcut: "/canopy-logo-cube-100.png",
@@ -27,11 +24,38 @@ export const metadata: Metadata = {
   },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  // Report Shuffle embeds report pages in an iframe; the outer page already
+  // has Milo, so embedded pages get no second launcher.
+  const embedded = (await headers()).get("sec-fetch-dest") === "iframe"
+  const canUseMilo =
+    user && !embedded
+      ? await userHasPermissionCode({
+          supabase,
+          userId: user.id,
+          code: BETA_1_PERMISSION,
+        }).catch(() => false)
+      : false
+  const identity = user?.identities?.find(
+    (item) => item.provider === "google"
+  )?.identity_data
+  const displayName =
+    user?.user_metadata?.full_name ??
+    user?.user_metadata?.name ??
+    identity?.full_name ??
+    identity?.name ??
+    user?.email?.split("@")[0]
+  const firstName =
+    typeof displayName === "string"
+      ? displayName.trim().split(/\s+/)[0] || undefined
+      : undefined
+
   return (
     <html
       lang="en"
@@ -45,9 +69,16 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <WikiChatModalProvider>
-            <TooltipProvider>{children}</TooltipProvider>
-          </WikiChatModalProvider>
+          <TooltipProvider>
+            <WikiChatModalProvider
+              signedIn={!!user}
+              userId={user?.id ?? null}
+              firstName={firstName}
+              canUseMilo={canUseMilo}
+            >
+              {children}
+            </WikiChatModalProvider>
+          </TooltipProvider>
           <Toaster position="top-center" offset={24} />
         </ThemeProvider>
       </body>

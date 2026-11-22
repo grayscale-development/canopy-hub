@@ -62,7 +62,7 @@ export function DivisionBranchesDataTable({
         cell: ({ row }) => (
           <Link
             href={`/branch/${encodeURIComponent(row.original.branchId)}`}
-            className="font-medium text-primary underline decoration-primary/60 underline-offset-4 transition-colors hover:text-primary/80"
+            className="font-medium text-link underline decoration-primary/60 underline-offset-4 transition-colors hover:no-underline"
           >
             {row.original.branchName}
           </Link>

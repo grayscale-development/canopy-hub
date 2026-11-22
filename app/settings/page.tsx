@@ -4,6 +4,7 @@ import {
   ADVANCED_SETTINGS_ACCESS_PERMISSION,
   AI_SETTINGS_ACCESS_PERMISSION,
   BETA_1_PERMISSION,
+  FEEDBACK_MANAGE_PERMISSION,
   PERMISSIONS_ACCESS_PERMISSION,
   SETTINGS_ACCESS_PERMISSION,
 } from "@/lib/permission-codes"
@@ -30,6 +31,12 @@ export default async function SettingsPage() {
     code: SETTINGS_ACCESS_PERMISSION,
   })
 
+  const canManageFeedback = await userHasPermissionCode({
+    supabase,
+    userId: user.id,
+    code: FEEDBACK_MANAGE_PERMISSION,
+  })
+  if (!canViewSettings && canManageFeedback) redirect("/settings/feedback")
   if (!canViewSettings) {
     redirect("/home")
   }
@@ -67,12 +74,14 @@ export default async function SettingsPage() {
   }
 
   if (canAccessAiSettings && canAccessBeta1) {
-    redirect("/settings/ai")
+    redirect("/settings/milo")
   }
 
   if (canAccessAdvancedSettings) {
-    redirect("/settings/advanced")
+    redirect("/settings/alerts")
   }
+
+  if (canManageFeedback) redirect("/settings/feedback")
 
   redirect("/settings/permissions")
 }

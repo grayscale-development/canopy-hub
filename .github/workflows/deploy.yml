@@ -92,7 +92,10 @@ jobs:
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Run database migrations
-        run: supabase db push --linked --yes
+        # --include-all: v2.2 adds migrations dated before production's last
+        # applied version (the 2.1.1 hotfix 202611100001). Without it the CLI
+        # refuses to insert them. See docs/release-2.2-runbook.md.
+        run: supabase db push --linked --include-all --yes
 
       - name: Deploy Supabase Edge Functions
         run: |

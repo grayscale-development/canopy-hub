@@ -1,8 +1,7 @@
 import Link from "next/link"
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { HeaderFeedbackButton } from "@/components/layouts/header-feedback-button"
 import { DivisionEmployeesTable } from "@/components/division/division-employees-table"
 import { FilesTableWithDetails } from "@/components/file-viewer/files-table-with-details"
 import { CanopyProductionChart } from "@/components/home/canopy-production-chart"
@@ -69,6 +68,9 @@ export default async function BranchPage({
   const tab = rawTab && isBranchTabKey(rawTab) ? rawTab : "home"
   const branchId = decodeURIComponent(resolvedParams.branchId)
   const branch = await fetchBranchProfileById(branchId)
+  if (!branch) {
+    notFound()
+  }
   const branchName = branch?.name ?? `Branch ${branchId}`
   const divisionLabel = branch?.divisionId
     ? branch.divisionName?.trim()
@@ -118,7 +120,6 @@ export default async function BranchPage({
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <HeaderFeedbackButton className="ml-auto" />
         </header>
 
         <div className="flex flex-1 flex-col gap-4 p-4">

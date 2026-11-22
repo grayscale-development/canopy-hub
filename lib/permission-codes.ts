@@ -2,6 +2,7 @@ export const SETTINGS_ACCESS_PERMISSION = "settings.access"
 export const PERMISSIONS_ACCESS_PERMISSION = "permissions.access"
 export const ADVANCED_SETTINGS_ACCESS_PERMISSION = "advanced-settings.access"
 export const AI_SETTINGS_ACCESS_PERMISSION = "ai.settings.access"
+export const FEEDBACK_MANAGE_PERMISSION = "feedback.manage"
 export const DATA_SYNC_RUN_PERMISSION = "data-sync.run"
 export const BETA_1_PERMISSION = "beta.1"
 export const DEPARTMENT_DASHBOARD_EVENTS_VIEW_PERMISSION =

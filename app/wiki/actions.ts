@@ -1,5 +1,6 @@
 "use server"
 
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
@@ -13,21 +14,25 @@ import {
   indexWikiPage,
 } from "@/lib/wiki-ai"
 import { getWikiRepositoryBySlug } from "@/lib/wiki-repositories"
+import { backfillWikiTagEmbeddings } from "@/lib/wiki-tag-embeddings"
 import {
   blockNoteToPlainText,
-  buildWikiPath,
   fetchWikiAssetsForNode,
   fetchCurrentRevision,
   fetchWikiNodes,
+  fetchWikiTags,
   fetchArchivedWikiNodes,
   buildWikiBreadcrumbs,
   wikiRestoreStatus,
   formatWikiRestoreChangeNote,
   isPublishedWikiBranch,
   normalizeWikiTags,
+  normalizeWikiTagInputs,
   syncWikiPageTags,
+  validateWikiTagsForParent,
   slugifyWikiTitle,
   WIKI_MANAGE_PERMISSION,
+  type WikiTagInput,
   type WikiNodeStatus,
   type WikiNodeType,
 } from "@/lib/wiki"
@@ -41,6 +46,25 @@ export interface WikiActionResult {
 function getString(formData: FormData, key: string) {
   const value = formData.get(key)
   return typeof value === "string" ? value.trim() : ""
+}
+
+// Keep name-only submissions working for older callers.
+function getSubmittedTags(formData: FormData): WikiTagInput[] {
+  let tags: WikiTagInput[]
+  if (!formData.has("tags_scoped")) {
+    tags = normalizeWikiTags(getString(formData, "tags"))
+  } else {
+    try {
+      const parsed: unknown = JSON.parse(getString(formData, "tags_scoped"))
+      if (!Array.isArray(parsed)) throw new Error()
+      tags = parsed as WikiTagInput[]
+    } catch {
+      throw new Error("Choose a valid tag and section.")
+    }
+  }
+  if (normalizeWikiTagInputs(tags).length > 12)
+    throw new Error("A page can have at most 12 tags.")
+  return tags
 }
 
 async function getWikiManagerClient() {
@@ -134,12 +158,12 @@ async function syncWikiPageKnowledgeSource({
   const nodes = await fetchWikiNodes(supabase)
   const node = nodes.find((item) => item.id === nodeId)
   if (!node || node.type !== "page") {
-    return { nodes, path: node ? buildWikiPath(nodes, node) : "" }
+    return { nodes, path: node ? buildNumericWikiPath(nodes, node) : "" }
   }
 
   const isVisibleToViewers = isPublishedWikiBranch(nodes, node)
   const revision = await fetchCurrentRevision(supabase, node)
-  const path = buildWikiPath(nodes, node)
+  const path = buildNumericWikiPath(nodes, node)
   const indexClient = createSupabaseAdminClient()
 
   if (node.status === "draft" && node.import_content_hash) {
@@ -202,8 +226,7 @@ export async function createWikiNodeAction(
       type === "page"
         ? parseNodeStatus(getString(formData, "status"), type)
         : "published"
-    const tags =
-      type === "page" ? normalizeWikiTags(getString(formData, "tags")) : []
+    const tags = type === "page" ? getSubmittedTags(formData) : []
 
     if (!title) {
       return { ok: false, message: "Title is required." }
@@ -249,6 +272,14 @@ export async function createWikiNodeAction(
       }
     }
 
+    if (type === "page" && tags.length) {
+      const [nodes, catalog] = await Promise.all([
+        fetchWikiNodes(supabase),
+        fetchWikiTags(supabase),
+      ])
+      validateWikiTagsForParent(tags, nodes, parentId, catalog)
+    }
+
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,
@@ -263,12 +294,11 @@ export async function createWikiNodeAction(
         title,
         slug,
         status,
-        tags,
         created_by: user.id,
         updated_by: user.id,
       })
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,short_id,parent_id,type,slug,title,status,sort_order,tags,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .single()
 
@@ -308,11 +338,15 @@ export async function createWikiNodeAction(
       }
 
       await syncWikiPageTags({ supabase, nodeId: node.id, tags })
+      await backfillWikiTagEmbeddings(
+        supabase,
+        tags.map((tag) => (typeof tag === "string" ? tag : tag.name))
+      )
     }
 
     const nodes = await fetchWikiNodes(supabase)
     const createdNode = nodes.find((item) => item.id === node.id) ?? node
-    const path = buildWikiPath(nodes, createdNode)
+    const path = buildNumericWikiPath(nodes, createdNode)
     revalidatePath("/wiki")
     revalidatePath(`/wiki/${path}`)
 
@@ -353,9 +387,25 @@ export async function updateWikiNodeAction(
       return { ok: false, message: "Wiki item not found." }
     }
 
+    const oldNodes = await fetchWikiNodes(supabase)
+    const oldParent = oldNodes.find(
+      (item) => item.id === existingNode.parent_id
+    )
+    const oldParentPath = oldParent
+      ? buildNumericWikiPath(oldNodes, oldParent)
+      : ""
+    const tags = existingNode.type === "page" ? getSubmittedTags(formData) : []
+
     const parentId = formData.has("parent_id")
       ? submittedParentId
       : existingNode.parent_id
+    if (existingNode.type === "page" && tags.length) {
+      const [nodes, catalog] = await Promise.all([
+        fetchWikiNodes(supabase),
+        fetchWikiTags(supabase),
+      ])
+      validateWikiTagsForParent(tags, nodes, parentId, catalog)
+    }
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,
@@ -369,11 +419,6 @@ export async function updateWikiNodeAction(
         title,
         slug,
         parent_id: parentId,
-        ...(existingNode.type === "page"
-          ? {
-              tags: normalizeWikiTags(getString(formData, "tags")),
-            }
-          : {}),
         updated_by: user.id,
       })
       .eq("id", id)
@@ -386,14 +431,21 @@ export async function updateWikiNodeAction(
       await syncWikiPageTags({
         supabase,
         nodeId: id,
-        tags: normalizeWikiTags(getString(formData, "tags")),
+        tags,
       })
+      await backfillWikiTagEmbeddings(
+        supabase,
+        tags.map((tag) => (typeof tag === "string" ? tag : tag.name))
+      )
     }
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId: id })
     revalidatePath("/wiki")
     if (path) {
       revalidatePath(`/wiki/${path}`)
+    }
+    if (oldParentPath && parentId !== existingNode.parent_id) {
+      revalidatePath(`/wiki/${oldParentPath}`)
     }
 
     return {
@@ -448,6 +500,10 @@ export async function moveWikiNodeAction(
       }
     }
 
+    const oldParent = nodes.find((item) => item.id === node.parent_id)
+    const oldParentPath = oldParent
+      ? buildNumericWikiPath(nodes, oldParent)
+      : ""
     const slug = await generateUniqueWikiSlug({
       supabase,
       parentId,
@@ -463,6 +519,7 @@ export async function moveWikiNodeAction(
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId: id })
     revalidatePath("/wiki")
     if (path) revalidatePath(`/wiki/${path}`)
+    if (oldParentPath) revalidatePath(`/wiki/${oldParentPath}`)
     return {
       ok: true,
       message: "Moved.",
@@ -481,7 +538,7 @@ export async function updateWikiNodeTagsAction(
   formData: FormData
 ): Promise<WikiActionResult> {
   try {
-    const { supabase, user } = await getWikiManagerClient()
+    const { supabase } = await getWikiManagerClient()
     const nodeId = getString(formData, "node_id")
 
     if (!nodeId) {
@@ -502,23 +559,16 @@ export async function updateWikiNodeTagsAction(
       return { ok: false, message: "Wiki page not found." }
     }
 
-    const { error } = await supabase
-      .from("wiki_nodes")
-      .update({
-        tags: normalizeWikiTags(getString(formData, "tags")),
-        updated_by: user.id,
-      })
-      .eq("id", nodeId)
-
-    if (error) {
-      return { ok: false, message: error.message }
-    }
-
+    const tags = getSubmittedTags(formData)
     await syncWikiPageTags({
       supabase,
       nodeId,
-      tags: normalizeWikiTags(getString(formData, "tags")),
+      tags,
     })
+    await backfillWikiTagEmbeddings(
+      supabase,
+      tags.map((tag) => (typeof tag === "string" ? tag : tag.name))
+    )
 
     const { path } = await syncWikiPageKnowledgeSource({ supabase, nodeId })
     revalidatePath("/wiki")
@@ -655,7 +705,7 @@ export async function restoreArchivedWikiNodeAction(
     const path =
       node.type === "page"
         ? (await syncWikiPageKnowledgeSource({ supabase, nodeId: id })).path
-        : buildWikiPath(allNodes, node)
+        : buildNumericWikiPath(allNodes, node)
     revalidatePath("/wiki")
     if (path) revalidatePath(`/wiki/${path}`)
     return { ok: true, message: "Restored." }

@@ -1,18 +1,15 @@
+import { buildNumericWikiPath } from "@/lib/wiki-paths"
+import { applyPreparedWikiPreview } from "@/lib/wiki-reviewed-revision"
 import crypto from "node:crypto"
 
 import { revalidatePath } from "next/cache"
 import { NextResponse } from "next/server"
 
-import {
-  createAgentResponseWithOpenAI,
-  getWikiImportModel,
-} from "@/lib/ai/provider"
 import { BETA_1_PERMISSION } from "@/lib/permission-codes"
 import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
-  buildWikiPath,
   blockNoteToPlainText,
   fetchWikiNodes,
   getWikiAssetKind,
@@ -33,26 +30,7 @@ import {
   type WikiExtractedDocx,
   type WikiExtractedPdf,
 } from "@/lib/wiki-extract"
-import {
-  buildWikiImportPrompt,
-  buildWikiPdfStructureHints,
-  createUniqueWikiImportSlug,
-  createWikiImportContentHash,
-  createWikiDocxImportDraft,
-  createWikiImportDraft,
-  createWikiVideoImportDraft,
-  isSupportedWikiImportFile,
-  isFaithfulWikiImportOutput,
-  isWikiImportVideoFile,
-  normalizeWikiImportText,
-  titleFromWikiImportFileName,
-  WIKI_IMPORT_MAX_TEXT_LENGTH,
-  type WikiImportAiOutput,
-} from "@/lib/wiki-import"
-import {
-  deterministicWikiImportAllowed,
-  deterministicWikiImportOutput,
-} from "@/lib/ai/wiki-import-test-provider"
+import type { WikiImportAiOutput } from "@/lib/wiki-import"
 import { archiveKnowledgeSource } from "@/lib/wiki-ai"
 import {
   readSignedWikiPreview,
@@ -121,119 +99,6 @@ function signedPreviewResponse(
   }
 }
 
-function mergeWikiPageContent({
-  existingRevision,
-  draft,
-  mode,
-}: {
-  existingRevision: WikiRevisionRow | null
-  draft: { blocks: Array<Record<string, unknown>>; plainText: string }
-  mode: WikiAiUpdateMode
-}) {
-  if (mode === "replace" || !existingRevision) {
-    return { blocks: draft.blocks, plainText: draft.plainText }
-  }
-
-  const existingBlocks = Array.isArray(existingRevision.blocks)
-    ? existingRevision.blocks
-    : []
-  return {
-    blocks: [...existingBlocks, ...draft.blocks],
-    plainText: [existingRevision.plain_text, draft.plainText]
-      .filter(Boolean)
-      .join("\n\n"),
-  }
-}
-
-function getResponseText(response: unknown) {
-  return response &&
-    typeof response === "object" &&
-    "output_text" in response &&
-    typeof response.output_text === "string"
-    ? response.output_text
-    : ""
-}
-
-function parseAiOutput(response: unknown): WikiImportAiOutput | null {
-  const text = getResponseText(response)
-    .trim()
-    .replace(/^```(?:json)?\s*|\s*```$/gi, "")
-  if (!text) {
-    return null
-  }
-
-  try {
-    return JSON.parse(text) as WikiImportAiOutput
-  } catch {
-    return null
-  }
-}
-
-function importSchema() {
-  return {
-    type: "json_schema" as const,
-    name: "wiki_import_response",
-    strict: true,
-    schema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["title", "tags", "markdown"],
-      properties: {
-        title: { type: "string", maxLength: 80 },
-        tags: { type: "array", items: { type: "string" }, maxItems: 5 },
-        markdown: { type: "string" },
-      },
-    },
-  }
-}
-
-async function getImportAiOutput(
-  text: string,
-  fileName: string,
-  structureHints = "",
-  existingText = ""
-) {
-  if (deterministicWikiImportAllowed()) {
-    console.info(
-      "Wiki import is using the deterministic local test provider. No live model was called."
-    )
-    return deterministicWikiImportOutput(text, fileName)
-  }
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 30_000)
-  try {
-    const response = await createAgentResponseWithOpenAI(
-      {
-        model: getWikiImportModel(),
-        input: buildWikiImportPrompt({
-          text,
-          fileName,
-          structureHints,
-          existingText,
-        }),
-        max_output_tokens: 6_000,
-        reasoning: { effort: "low" },
-        store: false,
-        text: { format: importSchema(), verbosity: "low" },
-      },
-      { signal: controller.signal }
-    )
-    const output = parseAiOutput(response)
-    // This fixture is deliberately used to diagnose PDF-layout fidelity. Keep
-    // this narrow, temporary debug trace so normal imports never log document
-    // text. It records the response before validation/fallback changes it.
-    if (fileName === "wiki-import-cid-text.pdf") {
-      console.debug("Wiki import raw model markdown", {
-        fileName,
-        markdown: output?.markdown,
-      })
-    }
-    return output
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
 async function cleanUpImport({
   nodeId,
   storagePaths,
@@ -263,6 +128,7 @@ async function completeWikiVideoImport({
   preview,
   supabase,
   userId,
+  instructions,
 }: {
   assetId: string
   nodeId: string
@@ -271,6 +137,7 @@ async function completeWikiVideoImport({
   preview: boolean
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
   userId: string
+  instructions?: string
 }) {
   if (!assetId || !nodeId) {
     return NextResponse.json(
@@ -295,6 +162,22 @@ async function completeWikiVideoImport({
       { status: 404 }
     )
   }
+
+  const [
+    {
+      normalizeWikiImportText,
+      createWikiVideoImportDraft,
+      createWikiImportDraft,
+      isFaithfulWikiUpdate,
+      isFaithfulWikiImportOutput,
+      requestedWikiSectionRemoval,
+      preserveWikiUpdateBlocks,
+    },
+    { mergeWikiPageContent, getImportAiOutput },
+  ] = await Promise.all([
+    import("@/lib/wiki-import"),
+    import("@/lib/ai/wiki-import-pipeline"),
+  ])
 
   const { data: node, error: nodeError } = await supabase
     .from("wiki_nodes")
@@ -340,11 +223,84 @@ async function completeWikiVideoImport({
             .maybeSingle()
         ).data as WikiRevisionRow | null)
       : null
-  const content = mergeWikiPageContent({
+  let content = mergeWikiPageContent({
     existingRevision: currentRevision,
     draft,
     mode,
   })
+  if (instructions?.trim()) {
+    if (instructions.length > 2 * 1024 * 1024)
+      return NextResponse.json(
+        { error: "The instructions are too large." },
+        { status: 400 }
+      )
+    const existingText =
+      mode === "update" ? (currentRevision?.plain_text ?? "") : ""
+    let output: WikiImportAiOutput | null = null
+    try {
+      output = await getImportAiOutput(
+        transcript,
+        asset.file_name,
+        "",
+        existingText,
+        "",
+        instructions
+      )
+    } catch {
+      // Do not silently discard the user's instructions.
+    }
+    const markdown =
+      typeof output?.markdown === "string"
+        ? output.markdown.replace(/^\s*#\s+[^\n]+\n+/, "")
+        : ""
+    const faithful =
+      markdown &&
+      (existingText
+        ? isFaithfulWikiUpdate(
+            existingText,
+            markdown,
+            `${transcript}\n${instructions}`,
+            "",
+            requestedWikiSectionRemoval(currentRevision?.blocks, instructions)
+          )
+        : isFaithfulWikiImportOutput(
+            markdown,
+            `${transcript}\n${instructions}`
+          ))
+    if (!faithful)
+      return NextResponse.json(
+        {
+          error:
+            "We could not match that to this page. Name the exact sentence or section to change, then try again.",
+        },
+        { status: 422 }
+      )
+    const revised = createWikiImportDraft({
+      text: transcript,
+      fileName: asset.file_name,
+      aiOutput: output,
+      validatedUpdate: true,
+    })
+    const preserved =
+      currentRevision && mode === "update"
+        ? preserveWikiUpdateBlocks(
+            currentRevision.blocks,
+            revised.blocks,
+            requestedWikiSectionRemoval(currentRevision.blocks, instructions)
+          )
+        : revised.blocks
+    if (!preserved)
+      return NextResponse.json(
+        {
+          error:
+            "This change would remove formatting, links, or embedded content. Edit the page directly instead.",
+        },
+        { status: 422 }
+      )
+    const videoBlock = draft.blocks.find((block) => block.type === "video")
+    const blocks = videoBlock ? [videoBlock, ...preserved] : preserved
+    content = { blocks, plainText: blockNoteToPlainText(blocks) }
+  }
   if (preview) {
     return signedPreviewResponse(
       {
@@ -399,7 +355,7 @@ async function completeWikiVideoImport({
 
   const nodes = await fetchWikiNodes(supabase)
   const completedNode = nodes.find((item) => item.id === nodeId)
-  const path = completedNode ? buildWikiPath(nodes, completedNode) : ""
+  const path = completedNode ? buildNumericWikiPath(nodes, completedNode) : ""
   revalidatePath("/wiki")
   if (path) {
     revalidatePath(`/wiki/${path}`)
@@ -566,68 +522,6 @@ async function attachReviewedFile({
   return next
 }
 
-async function applyPreparedWikiPreview({
-  supabase,
-  targetPage,
-  sourcePageId,
-  sourceRevisionId,
-  sourceTitle,
-  mode,
-  blocks,
-  fileName,
-}: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
-  targetPage: WikiNodeRow
-  sourcePageId: string | null
-  sourceRevisionId: string | null
-  sourceTitle: string
-  mode: WikiAiUpdateMode
-  blocks: unknown[]
-  fileName?: string | null
-}) {
-  const plainText = blockNoteToPlainText(blocks)
-  const changeNote = sourcePageId
-    ? `Merged with AI from ${sourceTitle || "another page"}`
-    : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${fileName || "pasted text"}`
-  const { data: revisionId, error: saveError } = await supabase.rpc(
-    "apply_wiki_reviewed_revision",
-    {
-      p_target_id: targetPage.id,
-      p_base_revision_id: targetPage.current_revision_id,
-      p_blocks: blocks,
-      p_plain_text: plainText,
-      p_change_note: changeNote,
-      p_source_id: sourcePageId,
-      p_source_base_revision_id: sourceRevisionId,
-    }
-  )
-  if (saveError || typeof revisionId !== "string" || !revisionId) {
-    const message = saveError?.message ?? "Unable to save the reviewed page."
-    if (message.includes("stale_revision")) {
-      return NextResponse.json(
-        {
-          error:
-            "This page changed after you looked at it. Look again before saving.",
-        },
-        { status: 409 }
-      )
-    }
-    if (message.includes("forbidden")) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
-    return NextResponse.json({ error: message }, { status: 400 })
-  }
-
-  const nodes = await fetchWikiNodes(supabase)
-  const node = nodes.find((item) => item.id === targetPage.id)
-  const path = node ? buildWikiPath(nodes, node) : ""
-  revalidatePath("/wiki")
-  if (path) {
-    revalidatePath(`/wiki/${path}`)
-  }
-  return NextResponse.json({ ok: true, path: `/wiki/${path}` })
-}
-
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
   const {
@@ -711,7 +605,7 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from("wiki_nodes")
       .select(
-        "id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
+        "id,short_id,parent_id,type,slug,title,status,sort_order,tags,import_content_hash,current_revision_id,created_by,updated_by,created_at,updated_at"
       )
       .eq("id", targetPageId)
       .eq("type", "page")
@@ -891,10 +785,10 @@ export async function POST(request: Request) {
       targetPage,
       sourcePageId,
       sourceRevisionId: reviewedClaim.sourceRevisionId,
-      sourceTitle: sourcePageTitle,
-      mode,
+      changeNote: sourcePageId
+        ? `Merged with AI from ${sourcePageTitle || "another page"}`
+        : `${mode === "replace" ? "Replaced" : "Updated"} with AI from ${file?.name || "pasted text"}`,
       blocks: reviewedBlocks,
-      fileName: file?.name ?? null,
     })
   }
 
@@ -917,11 +811,35 @@ export async function POST(request: Request) {
       nodeId,
       mode,
       isPageUpdate: Boolean(targetPageId),
+      instructions: pastedText,
       preview: formData.get("preview") === "1",
       supabase,
       userId: user.id,
     })
   }
+
+  const [
+    {
+      buildWikiPdfStructureHints,
+      createUniqueWikiImportSlug,
+      createWikiImportContentHash,
+      createWikiDocxImportDraft,
+      createWikiImportDraft,
+      isSupportedWikiImportFile,
+      isFaithfulWikiUpdate,
+      isFaithfulWikiImportOutput,
+      requestedWikiSectionRemoval,
+      preserveWikiUpdateBlocks,
+      isWikiImportVideoFile,
+      normalizeWikiImportText,
+      titleFromWikiImportFileName,
+      WIKI_IMPORT_MAX_TEXT_LENGTH,
+    },
+    { getImportAiOutput, mergeWikiPageContent },
+  ] = await Promise.all([
+    import("@/lib/wiki-import"),
+    import("@/lib/ai/wiki-import-pipeline"),
+  ])
 
   const isVideoImportStart = videoImport === "start"
   const videoFileName =
@@ -954,12 +872,6 @@ export async function POST(request: Request) {
     }
   }
 
-  if (file && pastedText.trim()) {
-    return NextResponse.json(
-      { error: "Choose a file or paste text, not both." },
-      { status: 400 }
-    )
-  }
   if (!isVideoImportStart && !file && !pastedText.trim()) {
     return NextResponse.json(
       {
@@ -1029,7 +941,10 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    if (normalizedText.length > WIKI_IMPORT_MAX_TEXT_LENGTH) {
+    if (
+      normalizedText.length > WIKI_IMPORT_MAX_TEXT_LENGTH ||
+      pastedText.length > WIKI_IMPORT_MAX_TEXT_LENGTH
+    ) {
       return NextResponse.json(
         {
           error:
@@ -1060,7 +975,7 @@ export async function POST(request: Request) {
   if (isVideoImportStart) {
     if (targetPage) {
       const nodes = await fetchWikiNodes(supabase)
-      const path = buildWikiPath(nodes, targetPage)
+      const path = buildNumericWikiPath(nodes, targetPage)
       return NextResponse.json({
         ok: true,
         nodeId: targetPage.id,
@@ -1072,7 +987,7 @@ export async function POST(request: Request) {
     )
     const duplicateQuery = supabase
       .from("wiki_nodes")
-      .select("id,parent_id,slug,title,status")
+      .select("id,short_id,parent_id,slug,title,status")
       .eq("import_content_hash", contentHash)
       .neq("status", "archived")
     const { data: duplicates, error: duplicateError } = await (parentId
@@ -1092,7 +1007,7 @@ export async function POST(request: Request) {
           duplicate: true,
           existing: {
             title: existing.title,
-            path: `/wiki/${buildWikiPath(nodes, existing)}`,
+            path: `/wiki/${buildNumericWikiPath(nodes, existing)}`,
           },
         },
         { status: 409 }
@@ -1128,7 +1043,7 @@ export async function POST(request: Request) {
 
     const nodes = await fetchWikiNodes(supabase)
     const node = nodes.find((item) => item.id === nodeId)
-    const path = node ? buildWikiPath(nodes, node) : ""
+    const path = node ? buildNumericWikiPath(nodes, node) : ""
     return NextResponse.json({ ok: true, nodeId, path: `/wiki/${path}` })
   }
 
@@ -1136,7 +1051,7 @@ export async function POST(request: Request) {
   if (!targetPage) {
     const duplicateQuery = supabase
       .from("wiki_nodes")
-      .select("id,parent_id,slug,title,status")
+      .select("id,short_id,parent_id,slug,title,status")
       .eq("import_content_hash", contentHash)
       .neq("status", "archived")
     const { data: duplicates, error: duplicateError } = await (parentId
@@ -1156,7 +1071,7 @@ export async function POST(request: Request) {
           duplicate: true,
           existing: {
             title: existing.title,
-            path: `/wiki/${buildWikiPath(nodes, existing)}`,
+            path: `/wiki/${buildNumericWikiPath(nodes, existing)}`,
           },
         },
         { status: 409 }
@@ -1165,7 +1080,11 @@ export async function POST(request: Request) {
   }
 
   let aiOutput: WikiImportAiOutput | null = null
-  if (!docxDocument) {
+  if (
+    !docxDocument ||
+    (targetPage && mode === "update") ||
+    (file && pastedText.trim())
+  ) {
     try {
       aiOutput = await getImportAiOutput(
         normalizedText,
@@ -1173,7 +1092,9 @@ export async function POST(request: Request) {
         pdfDocument ? buildWikiPdfStructureHints(pdfDocument.pages) : "",
         targetPage && mode === "update"
           ? (targetRevision?.plain_text ?? "")
-          : ""
+          : "",
+        "",
+        targetPage && mode === "update" ? pastedText : file ? pastedText : ""
       )
     } catch (error) {
       console.debug(
@@ -1202,38 +1123,124 @@ export async function POST(request: Request) {
       storagePath: `${nodeId}/${id}/${fileName}`,
     }
   })
-  const draft = docxDocument
-    ? createWikiDocxImportDraft({
-        html: docxDocument.html,
-        text: normalizedText,
-        fileName,
-        imageUrls: new Map(
-          importedImageAssets.map((image) => [
-            image.source,
-            `/api/wiki/assets/${image.id}`,
-          ])
-        ),
-      })
-    : createWikiImportDraft({
-        text: normalizedText,
-        fileName,
-        aiOutput,
-        pdfPages: pdfDocument?.pages,
-        imageUrls: importedImageAssets.map(
-          (image) => `/api/wiki/assets/${image.id}`
-        ),
-      })
-  const aiMergedCurrentPage = Boolean(
+  const updateMarkdown =
+    typeof aiOutput?.markdown === "string"
+      ? aiOutput.markdown.replace(/^\s*#\s+[^\n]+\n+/, "")
+      : ""
+  const hasInstructions = Boolean(
+    targetPage &&
+    !sourcePageId &&
+    mode === "update" &&
+    (file
+      ? pastedText.trim()
+      : /\b(?:change|replace|remove|delete|update|correct|add|include|move|rewrite|rename)\b/i.test(
+          pastedText
+        ))
+  )
+  const validatedUpdate = Boolean(
     targetPage &&
     mode === "update" &&
     targetRevision &&
-    draft.usedAi &&
-    isFaithfulWikiImportOutput(
+    updateMarkdown &&
+    isFaithfulWikiUpdate(
       targetRevision.plain_text,
-      draft.markdown,
-      draft.title
+      updateMarkdown,
+      [normalizedText, file ? pastedText : ""].filter(Boolean).join("\n"),
+      "",
+      requestedWikiSectionRemoval(targetRevision.blocks, pastedText)
+    ) &&
+    (hasInstructions ||
+      isFaithfulWikiImportOutput(normalizedText, updateMarkdown)) &&
+    !(
+      hasInstructions &&
+      !file &&
+      updateMarkdown.toLowerCase().includes(pastedText.trim().toLowerCase())
+    ) &&
+    !(
+      hasInstructions &&
+      !file &&
+      normalizeWikiImportText(updateMarkdown) ===
+        normalizeWikiImportText(targetRevision.plain_text)
     )
   )
+  const fileInstructions = Boolean(
+    file && pastedText.trim() && (!targetPage || mode === "replace")
+  )
+  const outputWords = new Set<string>(
+    updateMarkdown.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+  )
+  const validatedFileInstructions = Boolean(
+    fileInstructions &&
+    updateMarkdown &&
+    isFaithfulWikiImportOutput(
+      updateMarkdown,
+      `${normalizedText}\n${pastedText}`
+    ) &&
+    !updateMarkdown.toLowerCase().includes(pastedText.trim().toLowerCase()) &&
+    (normalizedText.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).some((word) =>
+      outputWords.has(word)
+    )
+  )
+  if (fileInstructions && !validatedFileInstructions)
+    return NextResponse.json(
+      {
+        error:
+          "We could not match that to this page. Name the exact sentence or section to change, then try again.",
+      },
+      { status: 422 }
+    )
+  if (hasInstructions && !validatedUpdate) {
+    return NextResponse.json(
+      {
+        error:
+          "We could not match that to this page. Name the exact sentence or section to change, then try again.",
+      },
+      { status: 422 }
+    )
+  }
+  let draft =
+    docxDocument && !validatedUpdate && !validatedFileInstructions
+      ? createWikiDocxImportDraft({
+          html: docxDocument.html,
+          text: normalizedText,
+          fileName,
+          imageUrls: new Map(
+            importedImageAssets.map((image) => [
+              image.source,
+              `/api/wiki/assets/${image.id}`,
+            ])
+          ),
+        })
+      : createWikiImportDraft({
+          text: normalizedText,
+          fileName,
+          aiOutput,
+          validatedUpdate: validatedUpdate || validatedFileInstructions,
+          pdfPages:
+            validatedUpdate || validatedFileInstructions
+              ? undefined
+              : pdfDocument?.pages,
+          imageUrls: importedImageAssets.map(
+            (image) => `/api/wiki/assets/${image.id}`
+          ),
+        })
+  const aiMergedCurrentPage = validatedUpdate && draft.usedAi
+  if (aiMergedCurrentPage && targetRevision) {
+    const preserved = preserveWikiUpdateBlocks(
+      targetRevision.blocks,
+      draft.blocks,
+      requestedWikiSectionRemoval(targetRevision.blocks, pastedText)
+    )
+    if (!preserved)
+      return NextResponse.json(
+        {
+          error:
+            "This change would remove formatting, links, or embedded content. Edit the page directly instead.",
+        },
+        { status: 422 }
+      )
+    draft = { ...draft, blocks: preserved }
+  }
   const revisionDraft = aiMergedCurrentPage
     ? { ...draft, plainText: blockNoteToPlainText(draft.blocks) }
     : draft
@@ -1294,7 +1301,6 @@ export async function POST(request: Request) {
         title: draft.title,
         slug,
         status: "draft",
-        tags: draft.tags,
         import_content_hash: contentHash,
         created_by: user.id,
         updated_by: user.id,
@@ -1428,7 +1434,7 @@ export async function POST(request: Request) {
 
     const nodes = await fetchWikiNodes(supabase)
     const node = nodes.find((item) => item.id === nodeId)
-    const path = node ? buildWikiPath(nodes, node) : ""
+    const path = node ? buildNumericWikiPath(nodes, node) : ""
     revalidatePath("/wiki")
     if (path) {
       revalidatePath(`/wiki/${path}`)

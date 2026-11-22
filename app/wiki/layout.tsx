@@ -10,12 +10,24 @@ import { userHasPermissionCode } from "@/lib/permissions"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   fetchWikiNodes,
+  fetchWikiTags,
   fetchArchivedWikiNodes,
   isMissingWikiSchemaError,
   WIKI_MANAGE_PERMISSION,
   type WikiNodeRow,
+  type WikiTagRow,
 } from "@/lib/wiki"
+import type { Viewport } from "next"
 import { redirect } from "next/navigation"
+import { cookies } from "next/headers"
+
+// BlockNote (the wiki editor) asks for this on mobile; scoped to the wiki so the
+// keyboard behavior of other pages is unchanged.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
+}
 
 export default async function WikiLayout({
   children,
@@ -49,10 +61,12 @@ export default async function WikiLayout({
   }
 
   let nodes: WikiNodeRow[] = []
+  let tags: WikiTagRow[] = []
   let archivedNodes: WikiNodeRow[] = []
   let isSetupRequired = false
   try {
     nodes = await fetchWikiNodes(supabase)
+    tags = await fetchWikiTags(supabase)
     if (canManageWiki) archivedNodes = await fetchArchivedWikiNodes(supabase)
   } catch (error) {
     if (!isMissingWikiSchemaError(error)) {
@@ -62,11 +76,17 @@ export default async function WikiLayout({
   }
 
   return (
-    <SidebarProvider>
-      <WikiEditModeProvider canManageWiki={canManageWiki}>
+    <SidebarProvider
+      defaultOpen={(await cookies()).get("sidebar_state")?.value !== "false"}
+    >
+      <WikiEditModeProvider canManageWiki={canManageWiki} availableTags={tags}>
         <AppSidebar activePath="/wiki" />
         <SidebarInset className="h-svh min-w-0 overflow-hidden bg-muted/20">
-          <WikiHeader nodes={nodes} />
+          <WikiHeader
+            nodes={nodes}
+            archivedNodes={archivedNodes}
+            canManageWiki={canManageWiki}
+          />
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
             {!isSetupRequired ? (
               <WikiRepositoryNavigation

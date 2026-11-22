@@ -1,0 +1,62 @@
+[
+  {
+    "label": "duplicate",
+    "a": "Before publishing a procedure, verify that every required approval has been recorded in the review log.",
+    "b": "Before publishing a procedure verify that every required approval has been recorded in the review log"
+  },
+  {
+    "label": "duplicate",
+    "a": "Send the completed checklist to the operations team after the final review is finished.",
+    "b": "Send the completed checklist to the operations team after the final review is complete."
+  },
+  {
+    "label": "duplicate",
+    "a": "The coordinator reviews the request and records the decision in the shared tracking system.",
+    "b": "The coordinator reviews the request and records the decision in the shared tracking system."
+  },
+  {
+    "label": "paraphrase",
+    "a": "Store the signed agreement in the customer folder before notifying the service team.",
+    "b": "After the agreement is signed, save it to the customer folder and inform the service team."
+  },
+  {
+    "label": "paraphrase",
+    "a": "The supervisor must approve exceptions before a team member can complete the request.",
+    "b": "A request with an exception requires supervisor approval before staff may finish it."
+  },
+  {
+    "label": "paraphrase",
+    "a": "If a document is missing, contact the requester and pause the review until it arrives.",
+    "b": "Stop reviewing and ask the requester to supply any document that has not been received."
+  },
+  {
+    "label": "non-duplicate",
+    "a": "Review the customer address before mailing the welcome packet to the account holder.",
+    "b": "Review the employee schedule before assigning coverage for the afternoon shift."
+  },
+  {
+    "label": "non-duplicate",
+    "a": "The coordinator records completed training in the staff development tracker each Friday.",
+    "b": "The coordinator records incoming payments in the account ledger each morning."
+  },
+  {
+    "label": "non-duplicate",
+    "a": "Archive the outdated instructions when a revised procedure becomes available to the team.",
+    "b": "Publish the approved instructions after the compliance team completes its final review."
+  },
+  {
+    "label": "boilerplate",
+    "a": "Contact the support team if you have questions about the steps described on this page.",
+    "b": "Contact the support team if you have questions about the steps described on this page."
+  },
+  {
+    "label": "boilerplate",
+    "a": "For additional information, refer to the internal knowledge base or contact your supervisor.",
+    "b": "For additional information refer to the internal knowledge base or contact your supervisor."
+  },
+  {
+    "label": "non-duplicate",
+    "a": "Confirm the account holder has received the document before closing the service ticket.",
+    "b": "Prepare the document for the account holder after opening the service ticket."
+  }
+]
