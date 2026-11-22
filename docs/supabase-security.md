@@ -56,7 +56,7 @@ catalogs to hide the warning is inappropriate. See the [provider installation do
 
 The verifier allows **only** `extension_in_public` for `pg_net` and the following
 intentional service-only tables reported as `rls_enabled_no_policy`:
-`public.allowed_domains`, `public.source_configs`, `raw.retention_cleanup_runs`,
+`public.ai_action_log` (v2.2 append-only audit log, service-role only), `public.allowed_domains`, `public.source_configs`, `raw.retention_cleanup_runs`,
 `raw.retention_policies`, `raw.row_ingest_log`, `raw.source_payloads`, and
 `raw.sync_runs`. Each has RLS enabled, no client policy, no client grant, and an
 explicit `service_role` grant; this is a deny-by-default boundary, not an unresolved
@@ -75,3 +75,9 @@ to recover an application issue. Fix missing explicit grants on the affected end
 The migration runs in one transaction; a migration failure rolls back schema/grant
 changes. The Auth setting is a separate external effect and must be read back before
 retrying a failed deployment. No user permission rows are changed by this migration.
+
+v2.2 also accepts `authenticated_security_definer_function_executable` for
+`public.log_user_ai_action` only. Signed-in users call it on purpose: it uses
+`auth.uid()` as the actor, checks `wiki.manage` for alert actions, and can only
+append a fixed-summary row to `public.ai_action_log`. Any other SECURITY DEFINER
+function that `authenticated` can execute still fails acceptance.
