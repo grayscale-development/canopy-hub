@@ -165,4 +165,26 @@ describe("Supabase Auth security deployment", () => {
       enforceSecurity({ projectRef, token: "test", request: other })
     ).rejects.toThrow(/acceptance is incomplete/)
   })
+  it("permits the v2.2 service-only tables found on the production release", async () => {
+    const tables = [
+      "milo_edit_proposals",
+      "wiki_alert_manual_scan_lease",
+      "wiki_alert_scan_state",
+    ]
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ password_hibp_enabled: true }))
+      .mockResolvedValueOnce(
+        ok({
+          lints: tables.map((name) => ({
+            name: "rls_enabled_no_policy",
+            level: "INFO",
+            metadata: { schema: "public", name, type: "table" },
+          })),
+        })
+      )
+    await expect(
+      enforceSecurity({ projectRef, token: "test", request })
+    ).resolves.toMatchObject({ acceptedProviderWarnings: 3 })
+  })
 })
