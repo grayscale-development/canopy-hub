@@ -72,39 +72,33 @@ dbDescribe("feedback inbox access", () => {
     ).not.toBeNull()
     expect(
       (
-        await viewer
-          .from("feedback_items")
-          .insert({
-            created_by: viewerId,
-            type: "bug",
-            message: "x".repeat(5001),
-          })
+        await viewer.from("feedback_items").insert({
+          created_by: viewerId,
+          type: "bug",
+          message: "x".repeat(5001),
+        })
       ).error
     ).not.toBeNull()
     expect(
       (
-        await viewer
-          .from("feedback_items")
-          .insert({
-            created_by: viewerId,
-            type: "bug",
-            message,
-            page_path: "//example.com",
-          })
+        await viewer.from("feedback_items").insert({
+          created_by: viewerId,
+          type: "bug",
+          message,
+          page_path: "//example.com",
+        })
       ).error
     ).not.toBeNull()
     expect(
       (
-        await viewer
-          .from("feedback_items")
-          .insert({
-            created_by: viewerId,
-            type: "bug",
-            message,
-            status: "resolved",
-            resolved_by: viewerId,
-            resolved_at: new Date().toISOString(),
-          })
+        await viewer.from("feedback_items").insert({
+          created_by: viewerId,
+          type: "bug",
+          message,
+          status: "resolved",
+          resolved_by: viewerId,
+          resolved_at: new Date().toISOString(),
+        })
       ).error
     ).not.toBeNull()
     expect(
@@ -113,7 +107,7 @@ dbDescribe("feedback inbox access", () => {
     ).toEqual([])
     const found = await manager
       .from("feedback_items")
-      .select("id,status,page_path")
+      .select("id,status,page_path,github_issue_url")
       .eq("message", message)
       .single()
     expect(found.error).toBeNull()
@@ -140,11 +134,119 @@ dbDescribe("feedback inbox access", () => {
       .single()
     expect(resolved.error).toBeNull()
     expect(resolved.data?.status).toBe("resolved")
+    const issueUrl =
+      "https://github.com/grayscale-development/canopy-hub/issues/254"
+    expect(
+      (
+        await manager
+          .from("feedback_items")
+          .update({
+            status: "in_progress",
+            github_issue_url: issueUrl,
+            resolved_by: null,
+            resolved_at: null,
+          })
+          .eq("id", found.data!.id)
+      ).error
+    ).toBeNull()
+    expect(
+      (
+        await manager
+          .from("feedback_items")
+          .update({ github_issue_url: "https://example.com/issues/1" })
+          .eq("id", found.data!.id)
+      ).error
+    ).not.toBeNull()
+    expect(
+      (
+        await manager
+          .from("feedback_items")
+          .update({
+            status: "in_progress",
+            github_issue_url: null,
+          })
+          .eq("id", found.data!.id)
+      ).error
+    ).not.toBeNull()
+    expect(
+      (
+        await manager
+          .from("feedback_items")
+          .update({
+            status: "resolved",
+            resolved_by: managerId,
+            resolved_at: new Date().toISOString(),
+          })
+          .eq("id", found.data!.id)
+      ).error
+    ).toBeNull()
+    expect(
+      (
+        await manager
+          .from("feedback_items")
+          .update({
+            status: "verified",
+            verified_by: managerId,
+            verified_at: new Date().toISOString(),
+          })
+          .eq("id", found.data!.id)
+      ).error
+    ).toBeNull()
+    expect(
+      (
+        await manager
+          .from("feedback_items")
+          .update({
+            status: "open",
+            resolved_by: null,
+            resolved_at: null,
+            verified_by: null,
+            verified_at: null,
+          })
+          .eq("id", found.data!.id)
+          .select("status,github_issue_url")
+          .single()
+      ).data
+    ).toMatchObject({ status: "open", github_issue_url: issueUrl })
     expect((await viewer.rpc("feedback_submitters")).error).not.toBeNull()
     const people = await manager.rpc("feedback_submitters")
     expect(people.error).toBeNull()
     expect(people.data).toEqual(
       expect.arrayContaining([expect.objectContaining({ user_id: viewerId })])
     )
+  })
+
+  it("lets a manager mark an automatically resolved item done", async () => {
+    const { data, error } = await admin
+      .from("feedback_items")
+      .insert({
+        created_by: viewerId,
+        type: "bug",
+        message,
+        status: "resolved",
+        resolved_by: viewerId,
+        resolved_at: new Date().toISOString(),
+        github_issue_url:
+          "https://github.com/grayscale-development/canopy-hub/issues/254",
+      })
+      .select("id")
+      .single()
+    expect(error).toBeNull()
+    const verified = await manager
+      .from("feedback_items")
+      .update({
+        status: "verified",
+        verified_by: managerId,
+        verified_at: new Date().toISOString(),
+      })
+      .eq("id", data!.id)
+      .select("status,resolved_by,verified_by")
+      .single()
+    expect(verified.error).toBeNull()
+    expect(verified.data).toMatchObject({
+      status: "verified",
+      resolved_by: viewerId,
+      verified_by: managerId,
+    })
   })
 })
