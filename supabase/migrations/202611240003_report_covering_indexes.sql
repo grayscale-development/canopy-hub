@@ -32,7 +32,10 @@ create index if not exists idx_raw_production_data_loan_number_branch
 
 -- Every column data.get_department_dashboard reads from underwriting events.
 -- raw_payload stays off this index so a year-range that matches the whole
--- table does not have to read the inline payload heap.
+-- table does not have to read the inline payload heap. That plan is an
+-- index-only scan, which the planner picks when the visibility map covers
+-- the heap. Autovacuum maintains that map. An unvacuumed heap can still
+-- seq scan.
 create index if not exists idx_raw_underwriting_events_event_date_cover
   on raw.underwriting_events (event_date)
   include (

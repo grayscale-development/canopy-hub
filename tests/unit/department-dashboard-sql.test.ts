@@ -928,10 +928,16 @@ describe("department dashboard SQL", () => {
     expect(loanPlan, loanPlan).toMatch(/Index/)
     expect(loanPlan, loanPlan).not.toMatch(/Seq Scan/)
 
-    // Same visibility-map limit as the points fixture: prove the covering
-    // index can answer the projected underwriting columns, then turn seq
-    // scans back on for the timed function calls.
-    await db.exec("set enable_seqscan = off")
+    // PGlite cannot VACUUM inside its transaction. A vacuumed heap is
+    // all-visible, and that is when this year-range stops seq scanning.
+    await db.exec(`
+      update pg_class c
+      set relallvisible = c.relpages
+      from pg_namespace n
+      where n.oid = c.relnamespace
+        and n.nspname = 'raw'
+        and c.relname = 'underwriting_events'
+    `)
     const eventPlan = await plan(`
       select
         app_id, organization_id, organization_name, loan_program_code,
@@ -944,9 +950,10 @@ describe("department dashboard SQL", () => {
       where event_date >= date '2025-11-01'
         and event_date <= date '2026-11-24'
     `)
-    await db.exec("set enable_seqscan = on")
-    expect(eventPlan, eventPlan).toMatch(/Index/)
-    expect(eventPlan, eventPlan).not.toMatch(/Seq Scan/)
+    expect(eventPlan, eventPlan).toMatch(
+      /Index Only Scan using idx_raw_underwriting_events_event_date_cover/
+    )
+    expect(eventPlan, eventPlan).not.toMatch(/Heap Scan|Seq Scan/)
 
     await db.exec(
       fs
@@ -1020,14 +1027,5 @@ describe("department dashboard SQL", () => {
       expect(elapsed, `${label} took ${elapsed}ms`).toBeLessThan(8000)
       expect(timings[`${label} fresh`]).toBeLessThan(8000)
     }
-
-    fs.appendFileSync(
-      "/tmp/report-257-timings.jsonl",
-      `${JSON.stringify({
-        dashboard: timings,
-        shape: shape.rows[0],
-        plans: { loanPlan, eventPlan },
-      })}\n`
-    )
   }, 60_000)
 })

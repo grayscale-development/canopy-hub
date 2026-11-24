@@ -470,8 +470,23 @@ describe("points specialists summary SQL", () => {
       where event_date >= date '2025-11-01'
         and event_date <= date '2026-11-24'
     `)
-    expect(minPlan, minPlan).toMatch(/Index/)
+    expect(minPlan, minPlan).toMatch(
+      /Index Only Scan using idx_raw_specialist_points_new_event_date_cover/
+    )
     expect(minPlan, minPlan).not.toMatch(/Seq Scan/)
+
+    // PGlite wraps every call in a transaction, so VACUUM cannot set the
+    // visibility map. Marking the heap all-visible is the planner input a
+    // vacuumed production table already has. The year range is the whole
+    // new table; the covering index has to win on its own.
+    await db.exec(`
+      update pg_class c
+      set relallvisible = c.relpages
+      from pg_namespace n
+      where n.oid = c.relnamespace
+        and n.nspname = 'raw'
+        and c.relname in ('specialist_points_new', 'specialist_points_old')
+    `)
 
     const oldPlan = await plan(`
       select pa_org_id, user_id, event_date, month_date, points
@@ -479,23 +494,21 @@ describe("points specialists summary SQL", () => {
       where event_date >= date '2025-11-01'
         and event_date < date '2025-11-03'
     `)
-    expect(oldPlan, oldPlan).toMatch(/Index/)
-    expect(oldPlan, oldPlan).not.toMatch(/Seq Scan/)
+    expect(oldPlan, oldPlan).toMatch(
+      /Index Only Scan using idx_raw_specialist_points_old_event_date_cover/
+    )
+    expect(oldPlan, oldPlan).not.toMatch(/Heap Scan|Seq Scan/)
 
-    // The year range is the whole new table. PGlite wraps every call in a
-    // transaction, so VACUUM cannot set the visibility map and a cold
-    // index-only scan is not cheaper than a seq scan here. Forcing seq scans
-    // off checks that the covering index can serve the projected columns.
-    await db.exec("set enable_seqscan = off")
     const newPlan = await plan(`
       select pa_org_id, user_id, event_date, month_date, points
       from raw.specialist_points_new
       where event_date >= date '2025-11-01'
         and event_date <= date '2026-11-24'
     `)
-    await db.exec("set enable_seqscan = on")
-    expect(newPlan, newPlan).toMatch(/Index/)
-    expect(newPlan, newPlan).not.toMatch(/Seq Scan/)
+    expect(newPlan, newPlan).toMatch(
+      /Index Only Scan using idx_raw_specialist_points_new_event_date_cover/
+    )
+    expect(newPlan, newPlan).not.toMatch(/Heap Scan|Seq Scan/)
 
     await db.exec(
       fs
@@ -547,17 +560,5 @@ describe("points specialists summary SQL", () => {
       expect(elapsed, `${label} took ${elapsed}ms`).toBeLessThan(8000)
       expect(timings[`${label} fresh`]).toBeLessThan(8000)
     }
-
-    const freshStarted = performance.now()
-    await summary("2026-11-24", null)
-    timings.fresh_all_orgs_ms = performance.now() - freshStarted
-    fs.appendFileSync(
-      "/tmp/report-257-timings.jsonl",
-      `${JSON.stringify({
-        points: timings,
-        shape: shape.rows[0],
-        plans: { minPlan, oldPlan, newPlan },
-      })}\n`
-    )
   }, 60_000)
 })
