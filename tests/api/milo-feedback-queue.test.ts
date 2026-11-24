@@ -72,11 +72,39 @@ describe("Milo feedback queue", () => {
       400
     )
     expect(
+      (await PATCH(request({ status: "in_progress" }), params)).status
+    ).toBe(400)
+    expect(
+      (
+        await PATCH(
+          request({
+            status: "in_progress",
+            githubIssueUrl:
+              "https://github.com/grayscale-development/canopy-hub/issues/255",
+          }),
+          params
+        )
+      ).status
+    ).toBe(200)
+    expect(
       (await PATCH(request({ addedToEvalSet: "yes" }), params)).status
     ).toBe(400)
     expect(state.writes).toEqual([
-      { change: { status: "closed" }, id: "item" },
+      {
+        change: { status: "closed", verified_by: null, verified_at: null },
+        id: "item",
+      },
       { change: { added_to_eval_set: true }, id: "item" },
+      {
+        change: {
+          status: "in_progress",
+          github_issue_url:
+            "https://github.com/grayscale-development/canopy-hub/issues/255",
+          verified_by: null,
+          verified_at: null,
+        },
+        id: "item",
+      },
     ])
   })
 })

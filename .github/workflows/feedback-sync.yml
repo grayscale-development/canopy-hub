@@ -1,0 +1,34 @@
+name: Sync feedback after merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  resolve-feedback:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Mark linked feedback resolved
+        run: pnpm tsx scripts/sync-feedback-from-pr.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          FEEDBACK_SYNC_SECRET: ${{ secrets.FEEDBACK_SYNC_SECRET }}

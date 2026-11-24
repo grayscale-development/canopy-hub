@@ -83,3 +83,68 @@ it(
     }
   }
 )
+
+it("widens feedback workflow states without invalidating existing resolved rows", async () => {
+  const db = new PGlite()
+  try {
+    await db.exec(`
+      create role authenticated; create role service_role;
+      create schema auth;
+      create table auth.users (id uuid primary key);
+      create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
+      create function public.user_has_permission_code(uuid, text) returns boolean language sql stable as $$ select false $$;
+      insert into auth.users values
+        ('00000000-0000-4000-8000-000000000001'),
+        ('00000000-0000-4000-8000-000000000002');
+      create table public.feedback_items (
+        id uuid primary key,
+        created_by uuid not null references auth.users(id),
+        type text not null,
+        message text not null,
+        page_path text,
+        status text not null check (status in ('open', 'resolved')),
+        resolved_by uuid references auth.users(id),
+        resolved_at timestamptz,
+        created_at timestamptz not null default now(),
+        check ((status = 'open' and resolved_by is null and resolved_at is null) or (status = 'resolved' and resolved_by is not null and resolved_at is not null))
+      );
+      create table public.ai_chat_message_flags (
+        id uuid primary key,
+        status text not null check (status in ('open', 'reviewed', 'closed'))
+      );
+      insert into public.feedback_items (id, created_by, type, message, status, resolved_by, resolved_at)
+      values ('00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', 'bug', 'Already resolved', 'resolved', '00000000-0000-4000-8000-000000000002', now());
+      insert into public.ai_chat_message_flags (id, status)
+      values ('00000000-0000-4000-8000-000000000004', 'closed');
+    `)
+    const migration = readFileSync(
+      "supabase/migrations/202611200002_feedback_links.sql",
+      "utf8"
+    )
+    await db.exec(migration)
+    await db.exec(migration)
+    expect(
+      (await db.query("select status from public.feedback_items")).rows
+    ).toEqual([{ status: "resolved" }])
+    await db.exec(`
+      update public.feedback_items
+      set status = 'in_progress', github_issue_url = 'https://github.com/grayscale-development/canopy-hub/issues/254', resolved_by = null, resolved_at = null
+      where id = '00000000-0000-4000-8000-000000000003';
+    `)
+    await expect(
+      db.exec(
+        "update public.feedback_items set status = 'in_progress', github_issue_url = null"
+      )
+    ).rejects.toThrow()
+    await expect(
+      db.exec("update public.ai_chat_message_flags set status = 'in_progress'")
+    ).rejects.toThrow()
+    await db.exec(`
+      update public.ai_chat_message_flags
+      set status = 'verified', verified_by = '00000000-0000-4000-8000-000000000001', verified_at = now()
+      where id = '00000000-0000-4000-8000-000000000004';
+    `)
+  } finally {
+    await db.close()
+  }
+})

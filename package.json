@@ -19,6 +19,7 @@
     "test:db:reset": "supabase db reset --local",
     "test:db:seed": "tsx tests/setup/seed-local-supabase.ts",
     "test:milo-evals": "node scripts/run-milo-evals.mjs",
+    "feedback": "tsx scripts/feedback.ts",
     "test:db": "node scripts/wait-local-supabase.mjs && npx --yes supabase@2.67.1 db reset --local && node scripts/wait-local-supabase.mjs && corepack pnpm test:db:seed && node scripts/run-db-tests.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",

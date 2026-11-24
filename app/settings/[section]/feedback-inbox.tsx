@@ -7,6 +7,12 @@ import { toast } from "sonner"
 import { CopyMiloFlagPromptButton } from "@/app/settings/[section]/copy-milo-flag-prompt-button"
 import { Button } from "@/components/ui/button"
 import {
+  buildFeedbackUrl,
+  githubIssueNumber,
+  parseFeedbackUrl,
+  type FeedbackKind,
+} from "@/lib/feedback-links"
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -30,7 +36,8 @@ export interface FeedbackItem {
   type: "bug" | "idea" | "question" | "other" | "milo"
   message: string
   pagePath: string | null
-  status: "open" | "resolved"
+  status: "open" | "in_progress" | "resolved" | "verified"
+  githubIssueUrl?: string | null
   submitter: string
   createdAt: string
   milo?: {
@@ -73,18 +80,56 @@ export function FeedbackInbox({
 }) {
   const [items, setItems] = React.useState(initialItems)
   const [type, setType] = React.useState("all")
-  const [status, setStatus] = React.useState<"open" | "resolved">("open")
+  const [status, setStatus] = React.useState<FeedbackItem["status"]>("open")
   const [selected, setSelected] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
   const [showEval, setShowEval] = React.useState(false)
+  const handledDeepLink = React.useRef(false)
   const current = items.find((item) => `${item.type}:${item.id}` === selected)
   const visible = items.filter(
     (item) => item.status === status && (type === "all" || item.type === type)
   )
 
+  React.useEffect(() => {
+    if (handledDeepLink.current) return
+    const timer = window.setTimeout(() => {
+      if (handledDeepLink.current) return
+      handledDeepLink.current = true
+      const link = parseFeedbackUrl(window.location.href)
+      if ("error" in link) {
+        if (window.location.search) toast.error("Feedback not found")
+        return
+      }
+      const selectedItem = items.find(
+        (item) =>
+          item.id === link.id &&
+          (link.kind === "milo") === (item.type === "milo")
+      )
+      if (!selectedItem) {
+        toast.error("Feedback not found")
+        return
+      }
+      setStatus(selectedItem.status)
+      setSelected(`${selectedItem.type}:${selectedItem.id}`)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [items])
+
+  async function copyLink(item: FeedbackItem) {
+    try {
+      const kind: FeedbackKind = item.type === "milo" ? "milo" : "item"
+      await navigator.clipboard.writeText(
+        buildFeedbackUrl(window.location.origin, kind, item.id)
+      )
+      toast.success("Link copied")
+    } catch {
+      toast.error("Could not copy link. Copy it from the address bar.")
+    }
+  }
+
   async function update(
     item: FeedbackItem,
-    change: "resolve" | "reopen" | "eval"
+    change: "resolve" | "reopen" | "verify" | "eval"
   ) {
     setPending(true)
     try {
@@ -95,7 +140,14 @@ export function FeedbackInbox({
           body: JSON.stringify(
             change === "eval"
               ? { addedToEvalSet: true }
-              : { status: change === "resolve" ? "closed" : "open" }
+              : {
+                  status:
+                    change === "resolve"
+                      ? "closed"
+                      : change === "verify"
+                        ? "verified"
+                        : "open",
+                }
           ),
         })
         if (!response.ok) throw new Error()
@@ -106,12 +158,31 @@ export function FeedbackInbox({
           error: authError,
         } = await supabase.auth.getUser()
         if (authError || !user) throw new Error()
+        const now = new Date().toISOString()
         const { data, error } = await supabase
           .from("feedback_items")
           .update({
-            status: change === "resolve" ? "resolved" : "open",
-            resolved_by: change === "resolve" ? user.id : null,
-            resolved_at: change === "resolve" ? new Date().toISOString() : null,
+            status:
+              change === "resolve"
+                ? "resolved"
+                : change === "verify"
+                  ? "verified"
+                  : "open",
+            ...(change === "resolve"
+              ? {
+                  resolved_by: user.id,
+                  resolved_at: now,
+                  verified_by: null,
+                  verified_at: null,
+                }
+              : change === "verify"
+                ? { verified_by: user.id, verified_at: now }
+                : {
+                    resolved_by: null,
+                    resolved_at: null,
+                    verified_by: null,
+                    verified_at: null,
+                  }),
           })
           .eq("id", item.id)
           .select("id")
@@ -123,14 +194,28 @@ export function FeedbackInbox({
           entry.id === item.id && entry.type === item.type
             ? change === "eval" && entry.milo
               ? { ...entry, milo: { ...entry.milo, addedToEvalSet: true } }
-              : { ...entry, status: change === "resolve" ? "resolved" : "open" }
+              : {
+                  ...entry,
+                  status:
+                    change === "resolve"
+                      ? "resolved"
+                      : change === "verify"
+                        ? "verified"
+                        : "open",
+                }
             : entry
         )
       )
       if (change === "eval") setShowEval(true)
       else {
         setSelected(null)
-        toast.success(change === "resolve" ? "Marked resolved" : "Reopened")
+        toast.success(
+          change === "resolve"
+            ? "Marked resolved"
+            : change === "verify"
+              ? "Marked done"
+              : "Reopened"
+        )
       }
     } catch {
       toast.error("Could not update feedback. Please try again.")
@@ -158,18 +243,26 @@ export function FeedbackInbox({
           </select>
         </label>
         <div className="flex gap-1" aria-label="Feedback status">
-          {(["open", "resolved"] as const).map((value) => (
-            <Button
-              key={value}
-              type="button"
-              size="sm"
-              variant={status === value ? "secondary" : "ghost"}
-              aria-pressed={status === value}
-              onClick={() => setStatus(value)}
-            >
-              {value === "open" ? "Open" : "Resolved"}
-            </Button>
-          ))}
+          {(["open", "in_progress", "resolved", "verified"] as const).map(
+            (value) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={status === value ? "secondary" : "ghost"}
+                aria-pressed={status === value}
+                onClick={() => setStatus(value)}
+              >
+                {value === "open"
+                  ? "Open"
+                  : value === "in_progress"
+                    ? "In progress"
+                    : value === "resolved"
+                      ? "Resolved"
+                      : "Done"}
+              </Button>
+            )
+          )}
         </div>
       </div>
       <div aria-live="polite">
@@ -197,6 +290,15 @@ export function FeedbackInbox({
                     {item.message.split(/\r?\n/)[0] || "Feedback"}
                   </p>
                 </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => void copyLink(item)}
+                >
+                  Copy link
+                </Button>
                 {item.pagePath && (
                   <Link
                     href={item.pagePath}
@@ -288,6 +390,19 @@ export function FeedbackInbox({
                     </Link>
                   </div>
                 )}
+                {githubIssueNumber(current.githubIssueUrl) && (
+                  <div>
+                    <h3 className="text-sm font-semibold">Issue</h3>
+                    <Link
+                      href={current.githubIssueUrl!}
+                      className="text-sm text-link underline underline-offset-2"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Issue #{githubIssueNumber(current.githubIssueUrl)}
+                    </Link>
+                  </div>
+                )}
                 {current.milo && (
                   <>
                     <div>
@@ -334,15 +449,41 @@ export function FeedbackInbox({
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void copyLink(current)}
+                  >
+                    Copy link
+                  </Button>
+                  {current.status === "resolved" && (
+                    <Button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => void update(current, "verify")}
+                    >
+                      Looks good
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant={
+                      current.status === "resolved" ? "outline" : "default"
+                    }
                     disabled={pending}
                     onClick={() =>
                       void update(
                         current,
-                        current.status === "open" ? "resolve" : "reopen"
+                        current.status === "open" ||
+                          current.status === "in_progress"
+                          ? "resolve"
+                          : "reopen"
                       )
                     }
                   >
-                    {current.status === "open" ? "Mark resolved" : "Reopen"}
+                    {current.status === "open" ||
+                    current.status === "in_progress"
+                      ? "Mark resolved"
+                      : "Reopen"}
                   </Button>
                   {current.milo && (
                     <>

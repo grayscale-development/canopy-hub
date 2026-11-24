@@ -16,6 +16,7 @@ type FeedbackRow = {
   message: string
   page_path: string | null
   status: string
+  github_issue_url: string | null
   created_at: string
 }
 type FlagRow = {
@@ -24,6 +25,7 @@ type FlagRow = {
   assistant_message_id: string
   reason: string
   status: string
+  github_issue_url: string | null
   user_message_content: string
   assistant_message_content: string
   created_at: string
@@ -61,7 +63,9 @@ export async function FeedbackInboxCard() {
     fetchAll<FeedbackRow>((from, to) =>
       viewer
         .from("feedback_items")
-        .select("id,created_by,type,message,page_path,status,created_at")
+        .select(
+          "id,created_by,type,message,page_path,status,github_issue_url,created_at"
+        )
         .order("created_at", { ascending: false })
         .order("id")
         .range(from, to)
@@ -70,7 +74,7 @@ export async function FeedbackInboxCard() {
       admin
         .from("ai_chat_message_flags")
         .select(
-          "id,user_id,assistant_message_id,reason,status,user_message_content,assistant_message_content,created_at,added_to_eval_set"
+          "id,user_id,assistant_message_id,reason,status,github_issue_url,user_message_content,assistant_message_content,created_at,added_to_eval_set"
         )
         .eq("acknowledged", true)
         .order("created_at", { ascending: false })
@@ -126,6 +130,7 @@ export async function FeedbackInboxCard() {
       message: row.message,
       pagePath: row.page_path,
       status: row.status as FeedbackItem["status"],
+      githubIssueUrl: row.github_issue_url,
       submitter: names.get(row.created_by) ?? "Unknown user",
       createdAt: row.created_at,
     })),
@@ -135,7 +140,14 @@ export async function FeedbackInboxCard() {
       message: row.reason,
       pagePath: null,
       status:
-        row.status === "closed" ? ("resolved" as const) : ("open" as const),
+        row.status === "closed"
+          ? ("resolved" as const)
+          : row.status === "in_progress"
+            ? ("in_progress" as const)
+            : row.status === "verified"
+              ? ("verified" as const)
+              : ("open" as const),
+      githubIssueUrl: row.github_issue_url,
       submitter:
         (row.user_id ? names.get(row.user_id) : null) ?? "Unknown user",
       createdAt: row.created_at,
