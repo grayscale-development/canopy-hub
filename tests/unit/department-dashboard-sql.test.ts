@@ -152,7 +152,7 @@ describe("department dashboard SQL", () => {
     await db.exec(
       fs.readFileSync(
         path.resolve(
-          "supabase/migrations/202611240001_department_dashboard_query_perf.sql"
+          "supabase/migrations/202611240005_department_dashboard_io.sql"
         ),
         "utf8"
       )
@@ -766,4 +766,268 @@ describe("department dashboard SQL", () => {
       /Unsupported department/
     )
   })
+
+  it("matches the reference dashboard on a wide underwriting-shaped fixture", async () => {
+    const payload = "jsonb_build_object('pad', repeat('y', 900))"
+    await db.exec(`
+      create table if not exists raw.specialist_points_old (
+        external_row_key text primary key,
+        pa_org_id text,
+        event_date date,
+        user_id text,
+        points numeric,
+        month_date date
+      );
+      create table if not exists raw.specialist_points_new (
+        external_row_key text primary key,
+        pa_org_id text,
+        event_date date,
+        user_id text,
+        points numeric,
+        month_date date
+      );
+      alter table raw.production_data add column if not exists raw_payload jsonb;
+      insert into raw.production_data (
+        external_row_key, loan_number, branch_id, last_synced_at, raw_payload
+      )
+      select
+        'heavy-p' || i,
+        'PD' || i,
+        case when i % 2 = 0 then 'B1' else 'B2' end,
+        timestamp '2026-01-01' + (i || ' minutes')::interval,
+        ${payload}
+      from generate_series(1, 7000) i;
+      insert into raw.production_data (
+        external_row_key, loan_number, branch_id, last_synced_at, raw_payload
+      ) values
+        ('heavy-dup-old', ' UW0 ', 'B2', '2026-01-01', ${payload}),
+        ('heavy-dup-new', 'UW0', 'B1', '2026-06-01', ${payload});
+      insert into raw.underwriting_events (
+        external_row_key, app_id, organization_name, organization_id, employee_id, employee_name,
+        event, event_date, points, is_bad_loan, raw_payload, source_record_hash
+      )
+      select
+        'heavy-u' || i,
+        'UW' || (i % 400),
+        'UW Raw',
+        'UW1',
+        case when i % 2 = 0 then 'W1' else 'W2' end,
+        case when i % 2 = 0 then 'Uma Raw' else 'Ned Raw' end,
+        case when i % 3 = 0 then 'Funded' else 'Final Underwrite' end,
+        date '2025-11-01' + (i % 358),
+        (i % 4)::numeric,
+        i % 11 = 0,
+        ${payload},
+        'heavy'
+      from generate_series(0, 2999) i;
+      insert into raw.processing_events (
+        external_row_key, app_id, organization_name, organization_id, employee_id, employee_name,
+        event, event_date, points, processing_net_workdays, raw_payload, source_record_hash
+      )
+      select
+        'heavy-r' || i,
+        'PD' || ((i % 200) + 1),
+        'PA One Raw',
+        'PA1',
+        'E1',
+        'Ada Raw',
+        case when i % 2 = 0 then 'Processed' else 'Funded' end,
+        date '2026-01-01' + (i % 200),
+        (i % 3)::numeric,
+        (i % 5)::numeric,
+        ${payload},
+        'heavy'
+      from generate_series(1, 800) i;
+    `)
+    await db.exec(
+      fs.readFileSync(
+        path.resolve(
+          "supabase/migrations/202611240003_report_covering_indexes.sql"
+        ),
+        "utf8"
+      )
+    )
+    await db.exec(`
+      analyze raw.production_data;
+      analyze raw.underwriting_events;
+      analyze raw.processing_events;
+    `)
+
+    const shape = await db.query<{
+      production_rows: number
+      production_distinct: number
+      bulk_rows: number
+      bulk_distinct: number
+      referenced_apps: number
+      uw_rows: number
+      uw_in_window: number
+    }>(`
+      select
+        (select count(*) from raw.production_data)::int as production_rows,
+        (select count(distinct nullif(btrim(loan_number), '')) from raw.production_data)::int as production_distinct,
+        (select count(*) from raw.production_data where external_row_key like 'heavy-p%')::int as bulk_rows,
+        (select count(distinct nullif(btrim(loan_number), '')) from raw.production_data where external_row_key like 'heavy-p%')::int as bulk_distinct,
+        (select count(distinct nullif(btrim(app_id), '')) from raw.underwriting_events where external_row_key like 'heavy-u%')::int as referenced_apps,
+        (select count(*) from raw.underwriting_events where external_row_key like 'heavy-u%')::int as uw_rows,
+        (select count(*) from raw.underwriting_events
+          where external_row_key like 'heavy-u%'
+            and event_date >= date '2025-11-01'
+            and event_date <= date '2026-11-24')::int as uw_in_window
+    `)
+    expect(shape.rows[0]?.bulk_rows).toBe(7000)
+    expect(shape.rows[0]?.bulk_distinct).toBe(shape.rows[0]?.bulk_rows)
+    expect(shape.rows[0]?.production_rows).toBeGreaterThan(
+      shape.rows[0]?.production_distinct ?? 0
+    )
+    expect(shape.rows[0]?.production_rows).toBeGreaterThan(
+      shape.rows[0]?.referenced_apps ?? 0
+    )
+    const indexDefs = await db.query<{ indexname: string; indexdef: string }>(`
+      select indexname, indexdef
+      from pg_indexes
+      where schemaname = 'raw'
+        and indexname in (
+          'idx_raw_production_data_loan_number_branch',
+          'idx_raw_underwriting_events_event_date_cover'
+        )
+      order by indexname
+    `)
+    const byName = new Map(
+      indexDefs.rows.map((row) => [row.indexname, row.indexdef.toLowerCase()])
+    )
+    const loanIndex = byName.get("idx_raw_production_data_loan_number_branch")
+    expect(loanIndex).toContain("btrim(loan_number)")
+    expect(loanIndex).toContain(
+      "include (branch_id, last_synced_at, external_row_key)"
+    )
+    const underwritingIndex = byName.get(
+      "idx_raw_underwriting_events_event_date_cover"
+    )
+    expect(underwritingIndex).toContain("event_date")
+    expect(underwritingIndex).toContain("external_row_key")
+    expect(underwritingIndex).toContain("workdays_in_conditions")
+    expect(underwritingIndex).not.toContain("raw_payload")
+
+    expect(shape.rows[0]?.uw_rows).toBe(3000)
+    expect(shape.rows[0]?.uw_in_window).toBe(3000)
+
+    async function plan(sql: string) {
+      const explained = await db.query<{ "QUERY PLAN": string }>(
+        `explain (format text) ${sql}`
+      )
+      return explained.rows.map((row) => row["QUERY PLAN"]).join("\n")
+    }
+
+    const loanPlan = await plan(`
+      select nullif(btrim(branch_id), '')
+      from raw.production_data
+      where nullif(btrim(loan_number), '') = 'UW0'
+      order by last_synced_at desc nulls last, external_row_key desc
+      limit 1
+    `)
+    expect(loanPlan, loanPlan).toMatch(/Index/)
+    expect(loanPlan, loanPlan).not.toMatch(/Seq Scan/)
+
+    // Same visibility-map limit as the points fixture: prove the covering
+    // index can answer the projected underwriting columns, then turn seq
+    // scans back on for the timed function calls.
+    await db.exec("set enable_seqscan = off")
+    const eventPlan = await plan(`
+      select
+        app_id, organization_id, organization_name, loan_program_code,
+        employee_id, employee_name, event, event_date, event_at, points,
+        submitted_for_initial_review, initial_review_complete,
+        workdays_in_initial_review, workdays_in_underwriting,
+        workdays_in_conditions, qc_count, avg_qc_score, is_bad_loan,
+        external_row_key
+      from raw.underwriting_events
+      where event_date >= date '2025-11-01'
+        and event_date <= date '2026-11-24'
+    `)
+    await db.exec("set enable_seqscan = on")
+    expect(eventPlan, eventPlan).toMatch(/Index/)
+    expect(eventPlan, eventPlan).not.toMatch(/Seq Scan/)
+
+    await db.exec(
+      fs
+        .readFileSync(
+          path.resolve(
+            "supabase/migrations/202611240001_department_dashboard_query_perf.sql"
+          ),
+          "utf8"
+        )
+        .replaceAll(
+          "data.get_department_dashboard",
+          "data.get_department_dashboard_258"
+        )
+    )
+
+    const timings: Record<string, number> = {}
+    const cases: Array<[string, Parameters<typeof loadDashboard>[1]]> = [
+      ["underwriting", { limit: 100 }],
+      ["underwriting", { limit: 0 }],
+      ["processing", { limit: 100 }],
+    ]
+    for (const [department, args] of cases) {
+      const params = [
+        department,
+        args?.branchId ?? null,
+        args?.eventMonth ?? null,
+        args?.eventWeek ?? null,
+        args?.eventName ?? null,
+        args?.orgId ?? null,
+        args?.limit ?? 100,
+        args?.offset ?? 0,
+        "2026-11-24",
+      ]
+      const label = `${department} ${JSON.stringify(args)}`
+      const freshStarted = performance.now()
+      await db.query(
+        `select data.get_department_dashboard(
+           $1, $2, $3::date, $4::date, $5, $6, $7, $8, $9::date
+         )`,
+        params
+      )
+      timings[`${label} fresh`] = performance.now() - freshStarted
+      const priorStarted = performance.now()
+      await db.query(
+        `select data.get_department_dashboard_258(
+           $1, $2, $3::date, $4::date, $5, $6, $7, $8, $9::date
+         )`,
+        params
+      )
+      timings[`${label} migration_258`] = performance.now() - priorStarted
+      const referenceStarted = performance.now()
+      await db.query(
+        `select data.get_department_dashboard_reference(
+           $1, $2, $3::date, $4::date, $5, $6, $7, $8, $9::date
+         )`,
+        params
+      )
+      timings[`${label} reference`] = performance.now() - referenceStarted
+      const started = performance.now()
+      const result = await db.query<{ same: boolean }>(
+        `select data.get_department_dashboard(
+           $1, $2, $3::date, $4::date, $5, $6, $7, $8, $9::date
+         ) = data.get_department_dashboard_reference(
+           $1, $2, $3::date, $4::date, $5, $6, $7, $8, $9::date
+         ) as same`,
+        params
+      )
+      const elapsed = performance.now() - started
+      timings[`${label} compared`] = elapsed
+      expect(result.rows[0]?.same, label).toBe(true)
+      expect(elapsed, `${label} took ${elapsed}ms`).toBeLessThan(8000)
+      expect(timings[`${label} fresh`]).toBeLessThan(8000)
+    }
+
+    fs.appendFileSync(
+      "/tmp/report-257-timings.jsonl",
+      `${JSON.stringify({
+        dashboard: timings,
+        shape: shape.rows[0],
+        plans: { loanPlan, eventPlan },
+      })}\n`
+    )
+  }, 60_000)
 })
