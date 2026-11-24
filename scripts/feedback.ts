@@ -1,4 +1,5 @@
-import { loadEnvConfig } from "@next/env"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
 import {
@@ -9,7 +10,29 @@ import {
 } from "../lib/feedback-links"
 import { isFeedbackStatus, workflowUpdate } from "../lib/feedback-workflow"
 
-loadEnvConfig(process.cwd())
+function loadEnvFile(filePath: string) {
+  try {
+    for (const raw of readFileSync(filePath, "utf8").split("\n")) {
+      const line = raw.trim()
+      if (!line || line.startsWith("#") || !line.includes("=")) continue
+      const eq = line.indexOf("=")
+      const key = line.slice(0, eq).trim()
+      let value = line.slice(eq + 1).trim()
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1)
+      }
+      if (key && process.env[key] === undefined) process.env[key] = value
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+  }
+}
+
+loadEnvFile(resolve(process.cwd(), ".env.local"))
+loadEnvFile(resolve(process.cwd(), ".env"))
 
 type FeedbackTable = {
   Row: Record<string, unknown>
