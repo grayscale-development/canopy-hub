@@ -145,6 +145,19 @@ describe("department dashboard SQL", () => {
       await db.exec(fs.readFileSync(path.resolve(migration), "utf8"))
     }
     await db.exec(`
+      alter function data.get_department_dashboard(
+        text, text, date, date, text, text, integer, integer, date
+      ) rename to get_department_dashboard_reference
+    `)
+    await db.exec(
+      fs.readFileSync(
+        path.resolve(
+          "supabase/migrations/202611240001_department_dashboard_query_perf.sql"
+        ),
+        "utf8"
+      )
+    )
+    await db.exec(`
       insert into raw.employees (external_row_key, user_id, user_name, last_synced_at) values
         ('e1', 'E1', 'Ada Processor', '2026-10-01'),
         ('e2', 'E2', 'Bob Processor', '2026-10-01'),
@@ -636,6 +649,117 @@ describe("department dashboard SQL", () => {
       await db.exec("rollback")
     }
   })
+
+  it("matches the pre-change dashboard totals on the same rows", async () => {
+    const names = await db.query<{ proname: string }>(
+      `select p.proname
+       from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'data'
+         and p.proname like 'get_department_dashboard%'
+       order by p.proname`
+    )
+    expect(names.rows.map((row) => row.proname)).toEqual([
+      "get_department_dashboard",
+      "get_department_dashboard_reference",
+    ])
+
+    const cases: Array<[string, Parameters<typeof loadDashboard>[1]]> = [
+      ["processing", {}],
+      ["underwriting", {}],
+      ["processing", { branchId: "B1" }],
+      ["processing", { eventMonth: "2026-10-01" }],
+      ["processing", { eventWeek: "2026-10-01" }],
+      ["processing", { eventName: "Funded" }],
+      ["processing", { orgId: "PA1" }],
+      ["processing", { orgId: "PA2", branchId: "B2" }],
+      ["processing", { limit: 0 }],
+      ["processing", { limit: 1, offset: 0 }],
+      ["processing", { limit: 1, offset: 3 }],
+      ["processing", { branchId: "missing" }],
+      [
+        "underwriting",
+        { orgId: "UW1", eventName: "Funded", limit: 5, offset: 1 },
+      ],
+      ["underwriting", { eventMonth: "2026-09-01" }],
+    ]
+
+    for (const [department, args] of cases) {
+      const result = await db.query<{ same: boolean }>(
+        `select data.get_department_dashboard(
+           $1, $2, $3::date, $4::date, $5, $6, $7, $8, $9::date
+         ) = data.get_department_dashboard_reference(
+           $1, $2, $3::date, $4::date, $5, $6, $7, $8, $9::date
+         ) as same`,
+        [
+          department,
+          args?.branchId ?? null,
+          args?.eventMonth ?? null,
+          args?.eventWeek ?? null,
+          args?.eventName ?? null,
+          args?.orgId ?? null,
+          args?.limit ?? 100,
+          args?.offset ?? 0,
+          "2026-10-30",
+        ]
+      )
+      expect(result.rows[0]?.same, `${department} ${JSON.stringify(args)}`).toBe(
+        true
+      )
+    }
+
+    await db.exec("begin")
+    try {
+      await db.exec(`
+        insert into raw.production_data (external_row_key, loan_number, branch_id, last_synced_at) values
+          ('parity-old', ' LNPAR ', 'B2', '2026-01-01'),
+          ('parity-new', 'LNPAR', 'B1', '2026-06-01');
+        insert into raw.processing_events (
+          external_row_key, app_id, organization_name, organization_id, employee_id, employee_name,
+          event, event_date, points, processing_net_workdays, docs_to_closing, is_closing_funding_rush,
+          raw_payload, source_record_hash
+        ) values
+          ('parity-ws', ' LN1 ', 'PA One Raw', 'PA1', 'E1', 'Ada Raw', 'Processed', '2026-10-07', 6, 2, 1, false, '{}', 'h'),
+          ('parity-name', 'LNPAR', 'Name Only Org', null, 'E2', 'Bob Raw', 'Funded', '2026-10-08', 1, 3, 1, false, '{}', 'h'),
+          ('parity-avg', 'LN1', 'Company Averages', 'PA1', 'E1', 'Company Average', 'Funded', '2026-10-09', 99, 1, 1, true, '{}', 'h');
+        insert into raw.underwriting_events (
+          external_row_key, app_id, organization_name, organization_id, employee_id, employee_name,
+          event, event_date, points, is_bad_loan, raw_payload, source_record_hash
+        ) values
+          ('parity-uw', ' U1 ', 'UW Raw', 'UW1', 'W1', 'Uma Raw', 'Funded', '2026-10-13', 2, false, '{}', 'h');
+      `)
+      const awkward = await db.query<{ label: string; same: boolean }>(`
+        select label, same
+        from (
+          select 'processing whitespace and name org' as label,
+            data.get_department_dashboard(
+              'processing', null, null, null, null, null, 100, 0, '2026-10-30'
+            ) = data.get_department_dashboard_reference(
+              'processing', null, null, null, null, null, 100, 0, '2026-10-30'
+            ) as same
+          union all
+          select 'processing name-only org filter',
+            data.get_department_dashboard(
+              'processing', null, null, null, null, 'Name Only Org', 100, 0, '2026-10-30'
+            ) = data.get_department_dashboard_reference(
+              'processing', null, null, null, null, 'Name Only Org', 100, 0, '2026-10-30'
+            )
+          union all
+          select 'underwriting trimmed app id',
+            data.get_department_dashboard(
+              'underwriting', 'B1', null, null, 'Funded', null, 0, 0, '2026-10-30'
+            ) = data.get_department_dashboard_reference(
+              'underwriting', 'B1', null, null, 'Funded', null, 0, 0, '2026-10-30'
+            )
+        ) compared
+      `)
+      for (const row of awkward.rows) {
+        expect(row.same, row.label).toBe(true)
+      }
+    } finally {
+      await db.exec("rollback")
+    }
+  }, 30_000)
 
   it("rejects an unknown department", async () => {
     await expect(loadDashboard("closing" as "processing")).rejects.toThrow(
