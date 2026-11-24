@@ -108,7 +108,7 @@ describe("points specialists summary SQL", () => {
     await db.exec(
       fs.readFileSync(
         path.resolve(
-          "supabase/migrations/202611240002_points_specialists_summary_query_perf.sql"
+          "supabase/migrations/202611240004_points_specialists_summary_io.sql"
         ),
         "utf8"
       )
@@ -322,4 +322,243 @@ describe("points specialists summary SQL", () => {
       expect(result.rows[0]?.same, `${referenceDate} ${paOrgId}`).toBe(true)
     }
   }, 30_000)
+
+  it("matches the previous summary on a wide year-shaped fixture", async () => {
+    const payload = "jsonb_build_object('pad', repeat('x', 900))"
+    await db.exec(`
+      alter table raw.specialist_points_new add column if not exists raw_payload jsonb;
+      alter table raw.specialist_points_old add column if not exists raw_payload jsonb;
+      create table if not exists raw.production_data (
+        external_row_key text primary key,
+        loan_number text,
+        branch_id text,
+        last_synced_at timestamptz
+      );
+      create table if not exists raw.underwriting_events (
+        external_row_key text primary key,
+        app_id text,
+        organization_name text,
+        organization_id text,
+        loan_program_code text,
+        employee_id text,
+        employee_name text,
+        event text,
+        event_date date,
+        event_at timestamptz,
+        points numeric,
+        submitted_for_initial_review date,
+        initial_review_complete date,
+        workdays_in_initial_review numeric,
+        workdays_in_underwriting numeric,
+        workdays_in_conditions numeric,
+        qc_count numeric,
+        avg_qc_score numeric,
+        is_bad_loan boolean
+      );
+      insert into raw.specialist_points_new (
+        external_row_key, pa_org_id, event_date, user_id, points, month_date, raw_payload
+      )
+      select
+        'heavy-n' || i,
+        ((i % 34) + 1)::text,
+        date '2025-11-03' + ((i * 17) % 387),
+        'G' || ((i % 80) + 1),
+        (i % 6)::numeric,
+        date_trunc('month', date '2025-11-03' + ((i * 17) % 387))::date,
+        ${payload}
+      from generate_series(1, 5000) i;
+      insert into raw.specialist_points_old (
+        external_row_key, pa_org_id, event_date, user_id, points, month_date, raw_payload
+      )
+      select
+        'heavy-o' || i,
+        ((i % 34) + 1)::text,
+        case
+          when i % 40 = 0 then date '2025-11-01' + ((i / 40) % 2)
+          else date '2025-11-03' + ((i * 13) % 387)
+        end,
+        'G' || ((i % 80) + 1),
+        (i % 5)::numeric,
+        date_trunc('month', case
+          when i % 40 = 0 then date '2025-11-01' + ((i / 40) % 2)
+          else date '2025-11-03' + ((i * 13) % 387)
+        end)::date,
+        ${payload}
+      from generate_series(1, 10000) i;
+    `)
+    await db.exec(
+      fs.readFileSync(
+        path.resolve(
+          "supabase/migrations/202611240003_report_covering_indexes.sql"
+        ),
+        "utf8"
+      )
+    )
+    await db.exec(`
+      analyze raw.specialist_points_new;
+      analyze raw.specialist_points_old;
+    `)
+
+    const shape = await db.query<{
+      new_rows: number
+      new_in_window: number
+      first_new: string
+      new_max: string
+      old_in_window: number
+      old_kept: number
+    }>(`
+      select
+        (select count(*) from raw.specialist_points_new where external_row_key like 'heavy-n%')::int as new_rows,
+        (select count(*) from raw.specialist_points_new
+          where external_row_key like 'heavy-n%'
+            and event_date >= date '2025-11-01'
+            and event_date <= date '2026-11-24')::int as new_in_window,
+        (select min(event_date)::text from raw.specialist_points_new
+          where external_row_key like 'heavy-n%') as first_new,
+        (select max(event_date)::text from raw.specialist_points_new
+          where external_row_key like 'heavy-n%') as new_max,
+        (select count(*) from raw.specialist_points_old
+          where external_row_key like 'heavy-o%'
+            and event_date >= date '2025-11-01'
+            and event_date <= date '2026-11-24')::int as old_in_window,
+        (select count(*) from raw.specialist_points_old
+          where external_row_key like 'heavy-o%'
+            and event_date >= date '2025-11-01'
+            and event_date < date '2025-11-03')::int as old_kept
+    `)
+    expect(shape.rows[0]?.new_rows).toBe(5000)
+    expect(shape.rows[0]?.new_in_window).toBe(5000)
+    expect(shape.rows[0]?.first_new).toBe("2025-11-03")
+    expect(shape.rows[0]?.new_max <= "2026-11-24").toBe(true)
+    const indexDefs = await db.query<{ indexname: string; indexdef: string }>(`
+      select indexname, indexdef
+      from pg_indexes
+      where schemaname = 'raw'
+        and indexname in (
+          'idx_raw_specialist_points_new_event_date_cover',
+          'idx_raw_specialist_points_old_event_date_cover'
+        )
+      order by indexname
+    `)
+    expect(indexDefs.rows.map((row) => row.indexname)).toEqual([
+      "idx_raw_specialist_points_new_event_date_cover",
+      "idx_raw_specialist_points_old_event_date_cover",
+    ])
+    for (const row of indexDefs.rows) {
+      const def = row.indexdef.toLowerCase()
+      expect(def).toContain("event_date")
+      expect(def).toContain("pa_org_id")
+      expect(def).toContain("include")
+      expect(def).not.toContain("raw_payload")
+    }
+
+    expect(shape.rows[0]?.old_kept).toBeGreaterThan(0)
+    expect(shape.rows[0]?.old_kept).toBeLessThan(
+      (shape.rows[0]?.old_in_window ?? 0) / 10
+    )
+
+    async function plan(sql: string) {
+      const explained = await db.query<{ "QUERY PLAN": string }>(
+        `explain (format text) ${sql}`
+      )
+      return explained.rows.map((row) => row["QUERY PLAN"]).join("\n")
+    }
+
+    const minPlan = await plan(`
+      select min(event_date)
+      from raw.specialist_points_new
+      where event_date >= date '2025-11-01'
+        and event_date <= date '2026-11-24'
+    `)
+    expect(minPlan, minPlan).toMatch(
+      /Index Only Scan using idx_raw_specialist_points_new_event_date_cover/
+    )
+    expect(minPlan, minPlan).not.toMatch(/Seq Scan/)
+
+    // PGlite wraps every call in a transaction, so VACUUM cannot set the
+    // visibility map. Marking the heap all-visible is the planner input a
+    // vacuumed production table already has. The year range is the whole
+    // new table; the covering index has to win on its own.
+    await db.exec(`
+      update pg_class c
+      set relallvisible = c.relpages
+      from pg_namespace n
+      where n.oid = c.relnamespace
+        and n.nspname = 'raw'
+        and c.relname in ('specialist_points_new', 'specialist_points_old')
+    `)
+
+    const oldPlan = await plan(`
+      select pa_org_id, user_id, event_date, month_date, points
+      from raw.specialist_points_old
+      where event_date >= date '2025-11-01'
+        and event_date < date '2025-11-03'
+    `)
+    expect(oldPlan, oldPlan).toMatch(
+      /Index Only Scan using idx_raw_specialist_points_old_event_date_cover/
+    )
+    expect(oldPlan, oldPlan).not.toMatch(/Heap Scan|Seq Scan/)
+
+    const newPlan = await plan(`
+      select pa_org_id, user_id, event_date, month_date, points
+      from raw.specialist_points_new
+      where event_date >= date '2025-11-01'
+        and event_date <= date '2026-11-24'
+    `)
+    expect(newPlan, newPlan).toMatch(
+      /Index Only Scan using idx_raw_specialist_points_new_event_date_cover/
+    )
+    expect(newPlan, newPlan).not.toMatch(/Heap Scan|Seq Scan/)
+
+    await db.exec(
+      fs
+        .readFileSync(
+          path.resolve(
+            "supabase/migrations/202611240002_points_specialists_summary_query_perf.sql"
+          ),
+          "utf8"
+        )
+        .replaceAll(
+          "data.get_points_specialists_summary",
+          "data.get_points_specialists_summary_258"
+        )
+    )
+
+    const timings: Record<string, number> = {}
+    for (const [referenceDate, paOrgId] of [
+      ["2026-11-24", null],
+      ["2026-11-24", "2"],
+    ] as Array<[string, string | null]>) {
+      const label = `${referenceDate} ${paOrgId}`
+      const freshStarted = performance.now()
+      await db.query(
+        `select data.get_points_specialists_summary($1::date, $2)`,
+        [referenceDate, paOrgId]
+      )
+      timings[`${label} fresh`] = performance.now() - freshStarted
+      const priorStarted = performance.now()
+      await db.query(
+        `select data.get_points_specialists_summary_258($1::date, $2)`,
+        [referenceDate, paOrgId]
+      )
+      timings[`${label} migration_258`] = performance.now() - priorStarted
+      const referenceStarted = performance.now()
+      await db.query(
+        `select data.get_points_specialists_summary_reference($1::date, $2)`,
+        [referenceDate, paOrgId]
+      )
+      timings[`${label} reference`] = performance.now() - referenceStarted
+      const started = performance.now()
+      const result = await db.query<{ same: boolean }>(
+        `select data.get_points_specialists_summary($1::date, $2)
+              = data.get_points_specialists_summary_reference($1::date, $2) as same`,
+        [referenceDate, paOrgId]
+      )
+      const elapsed = performance.now() - started
+      timings[`${label} compared`] = elapsed
+      expect(result.rows[0]?.same, label).toBe(true)
+      expect(elapsed, `${label} took ${elapsed}ms`).toBeLessThan(8000)
+      expect(timings[`${label} fresh`]).toBeLessThan(8000)
+    }
+  }, 60_000)
 })
